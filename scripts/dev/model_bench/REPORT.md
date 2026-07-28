@@ -482,6 +482,47 @@ framing: model-quality gaps get prompt work and model choice, not more
 gates, and prompt work has a ceiling a local model's own reasoning sets, not
 one more careful wording can push past.
 
+## Found live: the router's own default fallback used the least reliable model
+
+Not from a test script -- a real user asked the running harness "exactly
+what files take up lots of space" and hit `AgentError: proposed task is
+malformed: qwen3:8b proposal: step 3 has unknown field(s)
+['estimated,seconds']`. Same exact defect this report already measured
+(qwen3:8b's one hard schema failure, tier 8, the quantity-dense task) --
+just hit through the real TUI instead of the graded battery.
+
+Root cause: the request phrase matches none of `ROUTING_RULES`' keyword
+patterns (not `what\s+is`, not `list|show|print|cat|check|status`, nothing),
+so `ModelRouter.score()` returns nothing and `select()` falls through to
+`ModelRouter.default_model` -- which was hardcoded `"qwen3:8b"`, unrelated to
+which model this report actually recommends. Every table and paragraph above
+argues for devstral; the one code path nobody had reason to look at (because
+nothing in the graded battery or the domain/edge-case exploration happened
+to produce an unmatched phrase) was still pointing at the model this same
+report calls out for having the only hard failure.
+
+**Fixed in two places**, both in `harness/gates/router.py`:
+
+1. `ModelRouter.default_model` now defaults to `"devstral"`, with the
+   reasoning (this report, cited by name) recorded in the docstring so a
+   future change to the recommendation has an obvious place to update it.
+2. `ModelRouter._downgrade()` had a **second, independent** bug this exposed:
+   its safety check (`runnable()`) only reasons about VRAM/CPU fit, never
+   about whether a model is actually pulled at all. Without an accelerator
+   set, it would return a model that was never in `available` as though it
+   were a safe, ready-to-call choice. Changing the default from qwen3:8b to
+   devstral turned a test that happened to pass (by coincidence -- the old
+   default was in that test's `available` list) into one that failed for the
+   right reason. Fixed by checking `model_available()` before `runnable()`,
+   not instead of it.
+
+Re-verified against the exact reported phrase end to end (real router, real
+devstral, real Ollama): routes to devstral, answers directly instead of
+crashing. Covered by
+`tests/test_gates.py::TestRouting::test_an_unmatched_request_defaults_to_the_measured_reliable_model`
+and `test_it_never_routes_to_an_absent_model` (tightened from asserting only
+what the model *wasn't* to asserting what it correctly became, and why).
+
 ## Caveats
 
 - Single run per task, not multiple trials averaged — LLM sampling has real

@@ -460,8 +460,26 @@ class TestRouting:
         assert router.select("deploy the reviewed script").rule == "deploy"
 
     def test_it_never_routes_to_an_absent_model(self) -> None:
+        """Devstral is both the "deploy" rule's target and the class default,
+        so this only proves something without an accelerator set: `runnable()`
+        alone doesn't know about `available` at all, and used to let an
+        absent model through as if it were a safe, ready-to-call choice."""
         limited = ModelRouter(available=["qwen3:32b", "qwen3:8b"])
-        assert limited.select("deploy the api to staging").model != "devstral"
+        choice = limited.select("deploy the api to staging")
+        assert choice.model == "qwen3:32b", choice
+        assert "not pulled locally" in choice.reason
+
+    def test_an_unmatched_request_defaults_to_the_measured_reliable_model(self) -> None:
+        """A phrasing that matches none of the keyword rules used to silently
+        land on qwen3:8b -- the one model with a measured hard JSON-schema
+        failure in scripts/dev/model_bench/REPORT.md, found live when a real
+        user asked "what files take up lots of space" and hit exactly that
+        failure. An unmatched request has no other signal to route on, so it
+        should default to the model measured most reliable, not the cheapest."""
+        router = ModelRouter()
+        choice = router.select("what files take up lots of space")
+        assert choice.rule == "default"
+        assert choice.model == "devstral"
 
     def test_confidence_reflects_the_margin(self) -> None:
         router = ModelRouter()

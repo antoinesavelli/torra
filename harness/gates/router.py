@@ -97,7 +97,7 @@ class ModelRouter:
     def __init__(
         self,
         rules: list[tuple[str, str, str, str]] | None = None,
-        default_model: str = "qwen3:8b",
+        default_model: str = "devstral",
         available: Sequence[str] | None = None,
         weights: dict[str, float] | None = None,
         accelerator: Any | None = None,
@@ -110,6 +110,17 @@ class ModelRouter:
         onto a CPU is technically correct and practically useless, and the
         router is the only place that knows both what the task wants and what
         the machine can run.
+
+        `default_model` is what a request gets when it matches none of
+        `rules` at all -- not a downgrade, a genuinely unmatched phrasing.
+        It defaults to devstral rather than the smallest/cheapest model on
+        purpose: a live benchmark (scripts/dev/model_bench/REPORT.md) found
+        qwen3:8b was the only one of the three shipped models with a hard
+        JSON-schema failure, while devstral had zero across the same battery
+        and ties the largest model on accuracy at a quarter of the latency.
+        An unmatched request is exactly the case with no other signal to
+        route on, so it should land on the model measured most reliable, not
+        the cheapest one.
         """
         self.rules = list(rules if rules is not None else ROUTING_RULES)
         self.default_model = default_model
@@ -142,18 +153,27 @@ class ModelRouter:
         return bool(fits(model)) if callable(fits) else True
 
     def _downgrade(self, model: str, rule: str) -> tuple[str, str]:
-        """Swap an unrunnable model for the largest one that will run."""
+        """Swap an unrunnable or unavailable model for the largest one that will run."""
         # Returns (model, note); the note is surfaced in the routing reason so
         # the operator can see the swap rather than wondering why a debugging
-        # question got a small model.
-        if self.runnable(model):
+        # question got a small model. Checks availability *and* hardware fit
+        # -- `runnable()` alone only reasons about VRAM/CPU, so without this,
+        # a model that was never pulled (e.g. the class default when the
+        # caller's `available` list doesn't happen to include it) could be
+        # returned as though it were a safe, ready-to-call choice.
+        available_ok = self.available is None or model_available(model, self.available)
+        if available_ok and self.runnable(model):
             return model, ""
         candidates = sorted(
             (m for m in (self.available or set()) if self.runnable(m)),
             key=self._params_b, reverse=True)
         replacement = candidates[0] if candidates else self.default_model
-        why = ("no GPU" if not getattr(self.accelerator, "gpu", False)
-               else f"only {getattr(self.accelerator, 'free_vram_mb', 0)} MB VRAM free")
+        if not available_ok:
+            why = f"{model} is not pulled locally"
+        elif not getattr(self.accelerator, "gpu", False):
+            why = "no GPU"
+        else:
+            why = f"only {getattr(self.accelerator, 'free_vram_mb', 0)} MB VRAM free"
         note = f"; downgraded from {model} because {why}"
         self.downgrades.append((rule, model, replacement))
         return replacement, note
@@ -194,8 +214,8 @@ class ModelRouter:
         if not scored:
             model, note = self._downgrade(self.default_model, "default")
             return ModelChoice(model, "default",
-                               "no routing rule matched, using the cheap "
-                               f"default{note}", 0.3)
+                               "no routing rule matched, using the measured-"
+                               f"reliable default{note}", 0.3)
         name, model, score, terms = scored[0]
         runner_up = scored[1][2] if len(scored) > 1 else 0.0
         margin = (score - runner_up) / score if score else 0.0

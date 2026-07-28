@@ -73,7 +73,7 @@ risk_mitigations:
     fallback_model: qwen3:8b
 
 model_routing:
-  default: qwen3:8b
+  default: devstral   # unmatched requests: measured most reliable of the three, not cheapest
   # Phase 3 ScoringModelSelector weights. Higher wins a tie on match count.
   # The rule matching earliest in the text also gets a 2x lead multiplier,
   # because the leading verb is the intent and the rest is the object.
