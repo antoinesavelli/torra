@@ -1,3 +1,8 @@
+# Build, dependency, and tool config for the harness package. `[tool.ruff]` and
+# `[tool.mypy]` here are what `scripts/dev/defensive_coding_report.py` and CI
+# both run against -- see DEFENSIVE_CODING_STANDARDS.md for why these specific
+# rules and thresholds.
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -27,7 +32,6 @@ asyncio_mode = "auto"
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
 select = [
@@ -45,5 +49,5 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.10"
-exclude = ["legacy", "build", ".venv"]
+exclude = ["build", ".venv"]
 ignore_missing_imports = true

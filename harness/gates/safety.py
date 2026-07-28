@@ -106,6 +106,17 @@ PROTECTED_PREFIXES: tuple[str, ...] = (
     "/sys", "/proc", "/dev", "/home", "/root", "/srv", "/opt",
 )
 
+#: Writing here can never lose data or damage the system -- these are stream
+#: sinks and documented no-ops, not storage. `/dev` is a protected prefix
+#: because `> /dev/sda` should stay CRITICAL, but that same prefix rule was
+#: catching the extremely common `> /dev/null` output-suppression idiom and
+#: escalating harmless, often read-only commands (e.g. `systemctl status
+#: nginx > /dev/null`) to CRITICAL. Exempting these specific targets keeps
+#: the block-device case caught without crying wolf on the common one.
+SAFE_REDIRECT_TARGETS: frozenset[str] = frozenset({
+    "/dev/null", "/dev/zero", "/dev/full", "/dev/stdout", "/dev/stderr",
+})
+
 INTERPRETERS: tuple[str, ...] = ("sh", "bash", "zsh", "ksh", "dash", "python",
                                  "python3", "perl", "ruby", "node")
 
@@ -164,6 +175,11 @@ class SafetyClassifier:
         escaped = False
         i, n = 0, len(command)
 
+        # Character-by-character state machine; the branch order below is
+        # the precedence it depends on: a backslash-escaped char is never a
+        # separator even inside a quote, a quoted char is never a separator
+        # even if it's a quote of the other kind, and only once neither of
+        # those applies does an operator or separator actually split.
         while i < n:
             ch = command[i]
             if escaped:
@@ -204,6 +220,12 @@ class SafetyClassifier:
 
     def _strip(self, argv: list[str], env: dict[str, str]) -> list[str]:
         """Remove leading VAR=value assignments and wrapper programs."""
+        # Repeats until nothing changes because wrappers nest: `env FOO=bar
+        # sudo timeout 5 rm -rf /x` has an assignment, then a wrapper, then
+        # another assignment-shaped token could reappear after a wrapper is
+        # peeled (some wrappers accept their own VAR=value-looking flags). A
+        # single pass would stop after the first layer and misclassify by
+        # whatever program was still hidden underneath.
         out = list(argv)
         changed = True
         while out and changed:
@@ -249,6 +271,12 @@ class SafetyClassifier:
 
     def resolve(self, command: str, depth: int = 0) -> list[ResolvedCommand]:
         """Expand a shell line into the concrete commands it will run."""
+        # `depth` bounds two different recursions that could otherwise not
+        # terminate on adversarial input: a base64 blob that decodes to
+        # another base64-piped-to-sh command, and a `sh -c` payload that
+        # itself contains another `sh -c`. Hitting the limit is recorded as
+        # a parse failure rather than silently truncated, so classify()'s
+        # regex backstop is what carries the verdict past this point.
         if depth > self.max_depth:
             self.parse_failures.append(f"max unwrap depth hit on {command!r}")
             return []
@@ -271,6 +299,12 @@ class SafetyClassifier:
                 except IndexError:
                     payload = ""
                 if payload:
+                    # Only a *shell* interpreter's -c payload is worth
+                    # recursing into as more shell syntax. Python/Perl/Ruby/
+                    # Node source is not shell grammar -- resolving it here
+                    # would misparse it -- so it is kept as one opaque
+                    # ResolvedCommand and left to _judge's regex check for
+                    # filesystem/process operations in the source text.
                     if program.startswith("python") or program in ("perl", "ruby", "node"):
                         resolved.append(ResolvedCommand(argv, segment,
                                                         f"{program} -c source"))
@@ -292,6 +326,14 @@ class SafetyClassifier:
 
     def _judge(self, rc: ResolvedCommand) -> list[tuple[RiskLevel, str]]:
         """Risk findings for one resolved command."""
+        # Deliberately flat: one `if program == ...` block per recognized
+        # program, not a lookup table or a class per program. A table would
+        # need its own escalation-by-target-path logic duplicated per entry
+        # anyway (see the repeated `protected` checks below), and a class
+        # hierarchy would turn a one-line rule into a subclass for a program
+        # that will never again be extended. classify() below merges this
+        # with the regex BACKSTOP and takes the max across both, so a program
+        # missing here is caught by the backstop rather than passing silently.
         found: list[tuple[RiskLevel, str]] = []
         program, argv = rc.program, rc.argv
         flags = [a for a in argv[1:] if a.startswith("-")]
@@ -348,6 +390,14 @@ class SafetyClassifier:
 
     def classify(self, command: str) -> Verdict:
         """Classify a command by resolving it, with regex as the backstop."""
+        # Three independent signal sources feed `levels`, and the final
+        # verdict is the max across all of them, never just the first or the
+        # most specific: argv-based _judge (resolved, evasion-resistant),
+        # the regex BACKSTOP (catches whatever resolve() failed to parse),
+        # and the redirect-target check (a concern neither of the other two
+        # looks at). A command only needs one of the three to flag it; this
+        # is deliberately not an either/or so a gap in one layer doesn't
+        # silently downgrade what another layer already caught.
         text = (command or "").strip()
         self.parse_failures = []
         reasons: list[str] = []
@@ -367,7 +417,9 @@ class SafetyClassifier:
                 reasons.append(f"{level.value.upper()}: {why} [regex backstop]")
 
         redirect = re.search(r">\s*(/[^\s;|&]+)", text)
-        if redirect and self._protected(redirect.group(1)):
+        if redirect and redirect.group(1) in SAFE_REDIRECT_TARGETS:
+            pass  # a stream sink or documented no-op; nothing is overwritten
+        elif redirect and self._protected(redirect.group(1)):
             levels.append(RiskLevel.CRITICAL)
             reasons.append(f"CRITICAL: redirect overwrites {redirect.group(1)}")
         elif re.search(r">\s*[^>\s]", text):

@@ -29,7 +29,7 @@ from .core import (
     TaskSpecError,
     observe_machine,
 )
-from .gates import Clarifier, ModelRouter, SafetyClassifier
+from .gates import Clarifier, ModelRouter, SafetyClassifier, model_available
 
 __all__ = ["Intent", "Turn", "Agent", "AgentError", "PLAN_SCHEMA"]
 
@@ -256,9 +256,9 @@ class Agent:
         chosen = model or choice.model
         if self.ollama.last_status.value != "healthy":
             available = self.ollama.models()
-            if available and chosen not in available:
-                chosen = self.ollama.fallback_model if self.ollama.fallback_model \
-                    in available else available[0]
+            if available and not model_available(chosen, available):
+                chosen = self.ollama.fallback_model if model_available(
+                    self.ollama.fallback_model, available) else available[0]
 
         raw = self.ollama.chat(chosen, self._messages(request, gaps), json_mode=True)
         turn = self._parse(request, raw, chosen, choice.reason, gaps,

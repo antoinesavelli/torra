@@ -386,6 +386,12 @@ class Harness:
         resume_path = self.workdir / "resume" / f"{plan.spec.task_id}.json"
         failed = False
 
+        # Precondition and conflict checks run inside the loop, not once
+        # before it: a service that was up when the operator approved the
+        # plan can be dead by step two, and a file the plan depends on can
+        # change under it mid-run. Either one aborts the whole run rather
+        # than skipping the affected step, because a partially-run plan is
+        # not the plan that was approved.
         for sp in plan.steps:
             if self.recheck_between_steps:
                 veto = self.verifier.guard()
@@ -420,6 +426,10 @@ class Harness:
                 sp.result = StepResult(sp.step.step_id, True, str(output or ""),
                                        seconds=time.perf_counter() - step_started)
             except Exception as exc:
+                # Broad on purpose: whatever a step's `run` raises becomes a
+                # failed StepResult instead of propagating out of execute(),
+                # so the loop below still reaches the rollback sweep. An
+                # uncaught exception here would skip rollback entirely.
                 sp.result = StepResult(sp.step.step_id, False, "",
                                        f"{type(exc).__name__}: {exc}",
                                        time.perf_counter() - step_started)

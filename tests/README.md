@@ -14,5 +14,4 @@ or network -- every external dependency is an injected callable (see
 
 ```bash
 python3 -m pytest tests/ -q              # must stay 76 passed
-cd ../legacy && python3 -m pytest tests/ -q   # the original 121, frozen
 ```

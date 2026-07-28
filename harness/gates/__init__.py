@@ -18,7 +18,7 @@ from .rollback import (
     UndoGenerator,
     VerifiedRollback,
 )
-from .router import ModelChoice, ModelRouter
+from .router import ModelChoice, ModelRouter, model_available
 from .safety import ResolvedCommand, RiskLevel, SafetyClassifier, Verdict
 from .state import Precondition, PreconditionReport, PreconditionResult, StateVerifier
 
@@ -28,6 +28,6 @@ __all__ = [
     "SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator",
     "RollbackResult", "RollbackReport", "VerifiedRollback",
     "Ambiguity", "Clarification", "Clarifier",
-    "ModelChoice", "ModelRouter",
+    "ModelChoice", "ModelRouter", "model_available",
     "Decision", "DecisionLog",
 ]

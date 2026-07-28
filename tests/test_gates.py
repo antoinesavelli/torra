@@ -23,6 +23,7 @@ from harness.gates import (
     StateVerifier,
     UndoGenerator,
     VerifiedRollback,
+    model_available,
 )
 
 # --------------------------------------------------------------------------- #
@@ -63,6 +64,7 @@ class TestSafety:
         "docker ps", "docker logs api --tail 100", "python3 -m pytest tests/",
         "grep -r TODO src/", "echo hello", "ss -tlnp", "ps aux", "nvidia-smi",
         "lsblk", "curl -s http://localhost:11434/api/tags",
+        "systemctl status nginx > /dev/null", "grep foo bar.txt 2>/dev/null",
     ]
 
     def test_every_evasion_is_caught(self) -> None:
@@ -78,6 +80,25 @@ class TestSafety:
         blocked = [c for c in self.ROUTINE if safety.classify(c).needs_confirmation]
         assert not blocked, blocked
         assert safety.parse_failures == []
+
+    def test_dev_null_redirect_is_not_an_overwrite(self) -> None:
+        """`> /dev/null` is the single most common output-suppression idiom in
+        shell scripting. It was being misclassified CRITICAL because /dev is a
+        protected prefix -- correct for `> /dev/sda`, wrong for a no-op sink
+        that can never lose data. Found via a real harness exploration run
+        that hit `systemctl status nginx > /dev/null` and got CRITICAL."""
+        safety = SafetyClassifier()
+        for suppressed in ("ls -la > /dev/null", "echo hi 2>/dev/null",
+                           "grep foo bar.txt > /dev/null 2>&1"):
+            verdict = safety.classify(suppressed)
+            assert verdict.level is RiskLevel.SAFE, (suppressed, verdict.reasons)
+
+    def test_a_real_device_redirect_still_critical(self) -> None:
+        """The /dev/null exemption must not widen to all of /dev -- writing to
+        an actual block device is exactly what the protected-prefix check
+        exists to catch."""
+        verdict = SafetyClassifier().classify("dd if=/dev/zero of=/dev/sda bs=1M")
+        assert verdict.level is RiskLevel.CRITICAL
 
     def test_base64_payloads_are_decoded(self) -> None:
         """An obfuscated payload piped to a shell is still what it decodes to."""
@@ -424,6 +445,31 @@ class TestRouting:
         clear = router.select("deploy the api container to staging")
         contested = router.select("debug the failing deploy to production")
         assert clear.confidence > contested.confidence
+
+    def test_an_untagged_pull_still_counts_as_available(self) -> None:
+        """`ollama pull devstral` registers as 'devstral:latest'; a bare-name
+        rule must still match it, or every rule for an untagged pull is
+        silently treated as unavailable and downgraded."""
+        router = ModelRouter(available=["devstral:latest", "qwen3:8b"])
+        assert router.select("deploy the api to staging").model == "devstral"
+
+
+class TestModelAvailable:
+    """The tag-normalization helper `Agent.converse` and `ModelRouter.score`
+    both depend on, so a bare pull name isn't silently treated as absent."""
+
+    def test_bare_name_matches_its_latest_tag(self) -> None:
+        assert model_available("devstral", ["devstral:latest", "qwen3:8b"])
+
+    def test_exact_tag_still_matches(self) -> None:
+        assert model_available("qwen3:32b", ["qwen3:32b", "qwen3:8b"])
+
+    def test_a_genuinely_absent_model_does_not_match(self) -> None:
+        assert not model_available("phi3", ["devstral:latest", "qwen3:8b"])
+
+    def test_different_tags_of_the_same_base_do_not_conflate(self) -> None:
+        """Requesting qwen3:32b must not be satisfied by qwen3:8b being present."""
+        assert not model_available("qwen3:32b", ["qwen3:8b"])
 
 
 class TestDecisionLog:

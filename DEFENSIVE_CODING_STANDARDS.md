@@ -37,8 +37,7 @@ under `harness/gates/`, or `harness/core/tasks.py` (the `Step`/`TaskSpec` primit
 gate classifies), or `harness/pipeline.py` (`Harness.execute`, the actual invocation point) is
 **critical**. Everything else under `harness/` except `cli.py`/`tui.py`/`__init__.py` — the rest
 of `harness/core/`, all of `harness/telemetry/`, `harness/agent.py` — is **core**. The three
-named files are **peripheral**. `legacy/` is excluded entirely; it is frozen and nothing in
-`harness/` imports it.
+named files are **peripheral**.
 
 ---
 
@@ -401,6 +400,6 @@ All six steps above are complete for `harness/`:
    `.github/workflows/ci.yml` runs `pytest`, `mypy`, and the scorecard with `--enforce` on every
    push and pull request.
 5. Every package (`harness/`, `harness/gates/`, `harness/core/`, `harness/telemetry/`) plus
-   `tests/` and `examples/` has an area-map `README.md`. `legacy/` already had one.
+   `tests/`, `examples/`, and `docs/` has an area-map `README.md`.
 6. Next: if a future change clears a floor (e.g. `_judge` or `execute` genuinely simplifies),
    raise that dimension's floor in the same change — don't leave it slack.

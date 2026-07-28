@@ -161,6 +161,13 @@ class Clarifier:
 
     def detect(self, request: str) -> list[Ambiguity]:
         """Every structural gap found in a request."""
+        # Deliberately a flat sequence of independent checks, not an if/elif
+        # chain: a request can be simultaneously unbounded ("delete all the
+        # logs") AND missing a backup plan, and the caller benefits from
+        # seeing every gap at once rather than the first one found. `add()`
+        # dedupes by code because a single scan can trip more than one
+        # pattern for the same underlying gap (e.g. both `no_target` and
+        # `ambiguous_referent` firing on the same missing anchor).
         text = (request or "").strip()
         if not text:
             return [Ambiguity("empty", "What would you like me to do?",

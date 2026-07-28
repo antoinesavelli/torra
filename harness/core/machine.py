@@ -97,6 +97,8 @@ def detect_accelerator(
                     return Accelerator(
                         kind="cpu", running_on=processor,
                         detail="ollama ps reports a loaded model on CPU")
+                # Confirmed GPU, but ollama ps carries no VRAM figures --
+                # fall through to nvidia-smi/rocm below for those.
                 break
     except Exception:
         pass

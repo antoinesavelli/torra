@@ -19,7 +19,7 @@ harness doctor
 
 Seven modules, ~5,400 lines shipped. `core.py`, `gates.py` and `telemetry.py` were later
 each split into a same-named package of single-concern submodules (see
-`DEFENSIVE_CODING_STANDARDS.md` §1.2.1 for why); every name still imports from the same
+`DEFENSIVE_CODING_STANDARDS.md` §1.2 for why); every name still imports from the same
 top-level path, e.g. `from harness.gates import SafetyClassifier`. Read in this order:
 
 1. `harness/core/` — `Step`, `TaskSpec` (`tasks.py`), `OllamaClient` (`ollama.py`),
@@ -82,7 +82,7 @@ Every method in `telemetry.py` catches its own exceptions and records them.
 `TaskLogger.__init__` does not raise even when its directory is unusable. A
 logger that raises during a deploy is worse than no logger.
 
-> Guarded by `tests/test_pipeline.py` and the phase 5 cases in `legacy/`
+> Guarded by `tests/test_pipeline.py`
 
 ### 2.6 An undo that cannot be proven is not "undone"
 
@@ -120,22 +120,34 @@ detect, ask whether the list is the bug.**
 
 ```bash
 python3 -m pytest tests/ -q                       # 76, must stay green
-cd legacy && python3 -m pytest tests/ -q          # 121, the original assertions
 ```
 
-If you touch the clarifier:
+If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
+own AMBIGUOUS/SPECIFIC corpus (0% false negatives, low false positives).
+**Do not tune the production code against this exact corpus** — if you use it
+to diagnose something, write a fresh one afterwards and report that number
+instead, the same discipline the original three-corpus setup enforced before
+it was removed (see "What was here before" below).
 
-```bash
-cd legacy && python3 clarifier_corpus.py
-```
+### What was here before
 
-Three corpora. Only the **blind** number is meaningful; the other two were used
-for tuning. Current: 0% false negatives, 10% false positives. **Do not tune
-against the blind set.** If you use it to diagnose something, write a fresh one
-afterwards and report that number instead.
+`legacy/` (the six-phase build this package was consolidated from, plus a
+three-corpus clarifier scorer and a set of adversarial `break_it*.py` probes)
+has been removed from this repository. Several numbers in `README.md` and
+this file were originally measured against that code and are no longer
+independently reproducible from what's here now:
 
-If you touch safety, conflict detection, or rollback, the phase probes in
-`legacy/break_it*.py` still run and print severity-ranked findings.
+- Clarifier 0% false negatives against a genuinely **blind** third corpus
+  (distinct from the tuning corpora) — `tests/test_gates.py::TestClarifier`
+  still asserts 0% FN today, but against its own corpus, not that blind one.
+- 5,143x faster tree watching, checkpoint bytes 15.3MB→786KB, 516 bytes/logged
+  task — these had no equivalent in the shipped `harness/` test suite and
+  cannot currently be re-measured at all.
+
+Treat those specific numbers as historical claims about the prototype, not as
+currently-verified facts. This project's own standard is "a citation you
+cannot re-run is not a citation" — this section exists so that standard
+applies to itself.
 
 ---
 
@@ -259,8 +271,6 @@ resume           <workdir>/resume/<task_id>.json, written after each completed s
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
 test command     python3 -m pytest tests/ -q     # 76
-legacy tests     cd legacy && pytest tests/ -q   # 121
-clarifier score  cd legacy && python3 clarifier_corpus.py
 ```
 
 ---

@@ -52,7 +52,7 @@ def tier_of(path: Path) -> str:
 
 
 def source_files() -> list[Path]:
-    """Every harness/*.py file, legacy/ and caches excluded."""
+    """Every harness/*.py file, caches excluded."""
     return sorted(p for p in HARNESS_ROOT.rglob("*.py")
                   if "__pycache__" not in p.parts)
 

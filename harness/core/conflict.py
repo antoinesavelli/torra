@@ -123,6 +123,11 @@ class ConflictDetector:
 
     def _walk(self, root: Path) -> dict[str, tuple[int, int]]:
         """Fingerprint every file under root, skipping ignored directories."""
+        # An explicit stack, not os.walk or recursion: os.walk follows
+        # symlinks by default (a symlink loop would hang this), and
+        # entry.is_dir(follow_symlinks=False) here is what keeps a loop from
+        # being possible at all, since a symlink is never pushed as a
+        # directory to descend into.
         out: dict[str, tuple[int, int]] = {}
         if not root.exists():
             return out
@@ -204,6 +209,13 @@ class ConflictDetector:
 
     def _detect_declared(self) -> list[Conflict]:
         """Re-hash every explicitly declared path."""
+        # An exhaustive case split over (had a baseline hash?, exists now?,
+        # hashed successfully now?) -- the four branches below are the four
+        # ConflictKind values, and each elif relies on the ones above it
+        # having been false, so reordering them changes what gets reported
+        # for the same state (e.g. a file both newly-created and unhashable
+        # would need its own fifth branch to disambiguate, which the current
+        # order doesn't need because CREATED already implies after is not None).
         out: list[Conflict] = []
         for path, before in self.hashes.items():
             p = Path(path)

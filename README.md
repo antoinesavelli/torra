@@ -233,13 +233,9 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `tests/` | 76 cases, organised by subsystem |
 | `examples/` | runnable task files |
-| `legacy/` | the six-phase build this was consolidated from |
+| `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
 | `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
-
-`legacy/` is frozen and nothing in `harness/` imports it. It is kept because
-some numbers here were measured against that code, and a citation you cannot
-re-run is not a citation. Its 121 tests still pass: `cd legacy && pytest tests/ -q`.
 
 ---
 
@@ -248,13 +244,18 @@ re-run is not a citation. Its 121 tests still pass: `cd legacy && pytest tests/ 
 | Claim | Measured how |
 |---|---|
 | 20/20 evasions caught, 0 false positives | `tests/test_gates.py::TestSafety` |
-| Clarifier 0% false negatives | blind corpus, `legacy/clarifier_corpus.py` |
-| 5,143x faster tree watching | `legacy/break_it_v6.py`, 2,000 files |
-| Checkpoint bytes 15.3 MB to 786 KB | `legacy/break_it_v3.py` |
-| 516 bytes per logged task | `legacy/break_it_v5.py` |
+| Clarifier 0% false negatives | `tests/test_gates.py::TestClarifier` |
 
 Every one of those came from data generated in testing, not from real use. That
 is the single largest caveat on this whole project and it is not resolved.
+
+The six-phase prototype this package was consolidated from (`legacy/`) has
+been removed from the repository. A handful of numbers previously cited here
+— a 5,143x tree-watching speedup, checkpoint-size reduction, bytes-per-logged-task
+— were measured only against that removed code and are no longer independently
+reproducible; see `HANDOFF.md` §4 ("What was here before") for the honest
+accounting. This project's own standard is that an unreproducible citation
+isn't one, so those numbers are no longer claimed here at all.
 
 ---
 
@@ -275,7 +276,6 @@ is the single largest caveat on this whole project and it is not resolved.
 
 ```bash
 python3 -m pytest tests/ -v              # 76 cases
-cd legacy && python3 -m pytest tests/ -q # the original 121
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

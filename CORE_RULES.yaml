@@ -1,7 +1,29 @@
 # CORE_RULES.yaml
-# Configuration foundation for the Pop-OS terminal agent harness.
-# ModelSelector.from_yaml reads the model_routing block. Everything else here
-# is consumed by the pipeline defaults in phase1_integrated_executor.py.
+#
+# NOT LOADED BY ANY CURRENT CODE. `grep -rn CORE_RULES harness/` returns
+# nothing -- there is no ModelSelector.from_yaml and no
+# phase1_integrated_executor.py in this repo; both belonged to the six-phase
+# prototype (`legacy/`) this package was consolidated from and have been
+# removed. This file survives as a human-readable snapshot of the harness's
+# *default* configuration values, for someone auditing or tuning the system
+# without reading Python -- not as a second source of truth.
+#
+# The real, authoritative values live in the code that actually runs:
+#   core_behaviors.*        harness/pipeline.py Harness.__init__ defaults,
+#                            harness/gates/{state,rollback,clarifier}.py
+#   risk_mitigations.*      harness/core/{conflict,context}.py,
+#                            harness/core/ollama.py
+#   model_routing.*         harness/gates/router.py (ROUTING_RULES, RULE_WEIGHTS)
+#
+# Nothing enforces agreement between this file and those defaults, so it can
+# and does drift -- e.g. `keep_recent` below says 3, but
+# `ContextCompressor.__init__`'s actual default is 4. Treat any number here
+# as "roughly what it was when someone last hand-updated this file," not as
+# current fact. If you need the routing algorithm's real behavior in
+# particular: it is weighted scoring with an earliest-match lead multiplier,
+# not the first-match table this file's shape suggests -- first-match routing
+# was tried and rejected for mis-routing multi-intent requests, see
+# `HANDOFF.md` §3.
 
 core_behaviors:
   safety_first:
@@ -63,8 +85,10 @@ model_routing:
     code: 1.5
     quick: 0.5
   rules:
-    # Order matters. First match wins, so debug outranks deploy on purpose:
-    # "the deploy is broken" is a debugging task, not a deployment task.
+    # List order here is not significant to the real router -- every rule is
+    # scored (weight x match count, earliest match gets the 2x lead
+    # multiplier above), so "the deploy is broken" still routes to debug
+    # over deploy on weight, not on being listed first.
     - name: debug
       pattern: '\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)|root\s*cause|failing|broken|bug)\b'
       model: qwen3:32b

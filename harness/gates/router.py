@@ -7,11 +7,27 @@ so this module has no import-time dependency on harness.core.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
-__all__ = ["ModelChoice", "ModelRouter"]
+__all__ = ["ModelChoice", "ModelRouter", "model_available"]
+
+
+def _normalize_tag(name: str) -> str:
+    """Ollama defaults an untagged pull to ':latest'; normalize before comparing."""
+    return name if ":" in name else f"{name}:latest"
+
+
+def model_available(name: str, available: Iterable[str]) -> bool:
+    """True when `name` matches an entry in `available`, tolerating an implicit ':latest'.
+
+    A model pulled as `ollama pull devstral` is registered by the daemon as
+    `devstral:latest`; a caller asking for the bare name it typed would
+    otherwise silently miss the match and fall back to a different model.
+    """
+    target = _normalize_tag(name)
+    return any(_normalize_tag(a) == target for a in available)
 
 
 @dataclass(frozen=True)
@@ -147,7 +163,7 @@ class ModelRouter:
         text = request or ""
         raw: list[tuple[str, str, float, list[str], int]] = []
         for name, pattern, model, _why in self.rules:
-            if self.available is not None and model not in self.available:
+            if self.available is not None and not model_available(model, self.available):
                 continue
             terms, first_at = [], -1
             for match in re.finditer(pattern, text, re.IGNORECASE):
@@ -159,9 +175,16 @@ class ModelRouter:
                             terms, first_at))
         if not raw:
             return []
+        # `lead` is the earliest match position across every rule that hit at
+        # all; only the rule(s) that matched there get the lead multiplier,
+        # which is what makes "the deploy is broken" score debug over deploy
+        # even though both match -- debug's term starts earlier in the text.
         lead = min(row[4] for row in raw)
         scored = [(n, m, round(s * (self.LEAD_MULTIPLIER if at == lead else 1.0), 4), t)
                   for n, m, s, t, at in raw]
+        # Tie-break on the rule's configured weight, not match count or name,
+        # so two rules landing on the same final score still resolve the same
+        # way `select()`'s confidence calculation expects.
         scored.sort(key=lambda row: (row[2], self.weights.get(row[0], 1.0)), reverse=True)
         return scored
 

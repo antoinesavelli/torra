@@ -484,6 +484,13 @@ class VerifiedRollback:
 
     def rollback(self) -> RollbackReport:
         """Unwind the stack newest first, verifying each undo."""
+        # LIFO: the last change made is the first one undone, the same order
+        # a human unwinding a mistake by hand would use, and the only order
+        # guaranteed not to undo a later step's undo out from under it. When
+        # an unsafe action is declined or its confirm callback itself raises,
+        # the action is pushed back before breaking (rather than dropped) so
+        # `depth`/`peek` still reflect it -- a caller inspecting the stack
+        # after a halted sweep sees what is still pending, not a gap.
         results: list[RollbackResult] = []
         order = 0
 
@@ -495,6 +502,9 @@ class VerifiedRollback:
                 try:
                     approved = bool(self._confirm(action))
                 except Exception as exc:
+                    # A crashing confirm callback is treated the same as a
+                    # decline, not as the undo having failed -- the undo
+                    # itself never ran, so "cancelled" is the honest state.
                     approved = False
                     results.append(RollbackResult(
                         action.description, "cancelled",

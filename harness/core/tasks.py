@@ -105,6 +105,11 @@ class TaskSpec:
     @classmethod
     def validate(cls, data: dict[str, Any], source: str = "") -> TaskSpec:
         """Build a TaskSpec from a mapping, rejecting anything malformed."""
+        # A guard-clause cascade, each check raising immediately: this is the
+        # one gate between an arbitrary mapping (hand-written YAML or a
+        # model's JSON) and a TaskSpec that drives root shell commands, so a
+        # malformed document is a hard error here rather than a warning
+        # somewhere downstream where the context to explain it is gone.
         if not isinstance(data, dict):
             raise TaskSpecError(f"{source or 'task'}: top level must be a mapping")
         for key in ("task_id", "request", "steps"):

@@ -338,3 +338,18 @@ def test_routing_falls_back_to_a_model_that_exists() -> None:
     assert turn.model == "qwen3:8b", (
         "routed to qwen3:32b, which is not pulled, and did not fall back"
     )
+
+
+def test_an_untagged_pull_is_not_mistaken_for_absent() -> None:
+    """Ollama registers `ollama pull devstral` as 'devstral:latest'. An explicit
+    model= request for the bare name must still be honored on a fresh client
+    (last_status not yet healthy), not silently swapped for the fallback."""
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"},
+                                 models=["devstral:latest", "qwen3:8b"]))
+
+    turn = agent.converse("clean up disk space", model="devstral")
+
+    assert turn.model == "devstral", (
+        "an available model, pulled without an explicit tag, was mistaken "
+        "for absent and silently downgraded"
+    )
