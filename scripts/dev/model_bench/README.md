@@ -11,6 +11,7 @@ Benchmarks local Ollama models as the harness's planner, using the real
 | `planner_verifier.py` | Prototype: a fast model reviews a larger model's plan as a second opinion alongside the deterministic gates |
 | `popos_probe.py` | Probes Pop!_OS/System76-specific factual knowledge, to decide whether reference docs are worth adding |
 | `domain_exploration.py` | Open-ended, ungraded scenarios (user/permission mgmt, networking, backups, firewall, containers, git) for qualitative review -- extend `SCENARIOS` as new domains come up |
+| `edge_cases.py` | Adversarial/boundary scenarios: prompt injection, embedded shell metacharacters, empty/garbage/contradictory input, non-English, signal-in-noise |
 | `results.json`, `planner_verifier_results.json` | Raw output from the last run of each script |
 
 Requires a running `ollama serve` reachable at `OLLAMA_HOST` (default

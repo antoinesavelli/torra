@@ -9,9 +9,10 @@ someone eventually deletes.
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
-from harness.core import Step
+from harness.core import Step, TaskSpec
 from harness.gates import (
     Clarifier,
     DecisionLog,
@@ -326,6 +327,41 @@ class TestVerifiedRollback:
         assert order == []
         assert len(report.cancelled) == 1
         assert rollback.depth == 2, "the declined action and its dependents survive"
+
+    def test_a_declared_safe_rollback_command_is_never_classified(self) -> None:
+        """KNOWN GAP, not yet fixed -- see HANDOFF.md §6.4.
+
+        The exact same `rm -rf` that SafetyClassifier calls CRITICAL as a
+        regular step runs with zero classification and zero confirmation as
+        a rollback entry, because `safe` defaults to True and `rollback()`
+        only asks `confirm_unsafe()` when `action.safe` is False. Found by
+        running the real harness: a model declared this exact shape of
+        rollback entry for a real provisioning task. This test pins today's
+        behavior so a future change here is a deliberate decision, not an
+        accidental regression in either direction."""
+        target = tempfile.mkdtemp()
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "s1", "run": "true"}],
+            "rollback": [{"run": f"rm -rf {target}", "description": "cleanup"}],
+        })
+        assert SafetyClassifier().classify(f"rm -rf {target}").level is RiskLevel.CRITICAL
+
+        confirm_calls: list[object] = []
+
+        def record_and_decline(action: object) -> bool:
+            confirm_calls.append(action)
+            return False
+
+        rollback = VerifiedRollback(confirm_unsafe=record_and_decline)
+        for description, undo, safe in spec.rollback_actions():
+            rollback.add(description, undo, safe=safe)
+
+        report = rollback.rollback()
+        assert confirm_calls == [], (
+            "a CRITICAL command ran as a rollback entry without ever asking")
+        assert report.ok
+        assert not os.path.exists(target)
 
 
 # --------------------------------------------------------------------------- #

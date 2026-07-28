@@ -214,7 +214,36 @@ Migrations, `dd`, `mkfs` require a declared `rollback:` entry. Automatic
 generation for database migrations would need to understand the migration tool,
 which is a real project rather than a patch.
 
-### 6.4 Smaller, known
+### 6.4 Declared rollback commands bypass SafetyClassifier entirely (the second P0)
+
+Found by running the real harness against a genuine multi-step provisioning
+request: the model declared `rm -rf /srv/api` as a `rollback:` entry with
+`safe` omitted (defaults to `True`). Verified directly --
+`TaskSpec.rollback_actions()` (`harness/core/tasks.py`) reads the `safe` flag
+straight off whatever the task declares and never calls `SafetyClassifier` on
+the command at all. `VerifiedRollback.rollback()` only asks
+`confirm_unsafe()` when `action.safe` is `False`; when it's `True` (the
+default, and what an LLM will write for almost anything it considers
+intentional) the command runs immediately; no classification, no operator
+confirmation.
+
+The same `rm -rf` as a regular step is CRITICAL and blocks on an unticked box.
+As a rollback entry it silently ran to completion in a direct test. This is
+not a parsing bug like SAFETY_FIRST's evasions section describes -- it's a
+gap in the safety story's coverage: `tui.py`'s own design constraint ("you
+never approve a command you have not seen classified") does not currently
+hold for anything declared under `rollback:`.
+
+Not fixed here on purpose. A fix (running rollback commands through
+`SafetyClassifier` too, and treating a classifier-vs-declaration disagreement
+as unsafe rather than trusting the declaration) is a real change to
+`VerifiedRollback`'s contract, which the existing `TestVerifiedRollback` suite
+encodes specific behavior for, and changes what silently ran before into what
+needs an operator's yes -- exactly the kind of safety-relevant behavior
+change this project's own `DEFENSIVE_CODING_STANDARDS.md` §7 says to ask
+about rather than patch quietly. Whoever picks this up: decide, don't guess.
+
+### 6.5 Smaller, known
 
 - Tree watching misses a same-size same-mtime edit; the SHA256 layer catches it
 - Reflink shadow copies only help on btrfs and xfs, not the ext4 default
