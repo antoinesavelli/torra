@@ -328,40 +328,27 @@ class TestVerifiedRollback:
         assert len(report.cancelled) == 1
         assert rollback.depth == 2, "the declined action and its dependents survive"
 
-    def test_a_declared_safe_rollback_command_is_never_classified(self) -> None:
-        """KNOWN GAP, not yet fixed -- see HANDOFF.md §6.4.
-
-        The exact same `rm -rf` that SafetyClassifier calls CRITICAL as a
-        regular step runs with zero classification and zero confirmation as
-        a rollback entry, because `safe` defaults to True and `rollback()`
-        only asks `confirm_unsafe()` when `action.safe` is False. Found by
-        running the real harness: a model declared this exact shape of
-        rollback entry for a real provisioning task. This test pins today's
-        behavior so a future change here is a deliberate decision, not an
-        accidental regression in either direction."""
+    def test_rollback_actions_reports_the_command_for_classification(self) -> None:
+        """`rollback_actions()` used to return only (description, undo, safe),
+        which is exactly why HANDOFF.md §6.4's gap was possible: nothing
+        downstream could classify a command it was never given. `command` is
+        now part of the tuple so a caller can. This class only tests the raw
+        primitive; `Harness.execute` is where the command is actually
+        classified and a declared `safe: true` gets overridden -- see
+        `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`
+        for that end-to-end coverage."""
         target = tempfile.mkdtemp()
         spec = TaskSpec.validate({
             "task_id": "t", "request": "r",
             "steps": [{"id": "s1", "run": "true"}],
             "rollback": [{"run": f"rm -rf {target}", "description": "cleanup"}],
         })
-        assert SafetyClassifier().classify(f"rm -rf {target}").level is RiskLevel.CRITICAL
-
-        confirm_calls: list[object] = []
-
-        def record_and_decline(action: object) -> bool:
-            confirm_calls.append(action)
-            return False
-
-        rollback = VerifiedRollback(confirm_unsafe=record_and_decline)
-        for description, undo, safe in spec.rollback_actions():
-            rollback.add(description, undo, safe=safe)
-
-        report = rollback.rollback()
-        assert confirm_calls == [], (
-            "a CRITICAL command ran as a rollback entry without ever asking")
-        assert report.ok
-        assert not os.path.exists(target)
+        actions = spec.rollback_actions()
+        assert len(actions) == 1
+        description, command, undo, declared_safe = actions[0]
+        assert command == f"rm -rf {target}"
+        assert SafetyClassifier().classify(command).level is RiskLevel.CRITICAL
+        assert declared_safe is True, "the declaration omitted safe, defaulting True"
 
 
 # --------------------------------------------------------------------------- #

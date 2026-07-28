@@ -217,16 +217,23 @@ class TaskSpec:
 
     def rollback_actions(
         self, runner: Callable[[str, str | None, float | None], str] | None = None
-    ) -> list[tuple[str, Callable[[], Any], bool]]:
+    ) -> list[tuple[str, str, Callable[[], Any], bool]]:
         """Undo actions declared in the task, for what cannot be derived."""
+        # `command` is returned alongside the callable (not just baked into
+        # it) so a caller can classify it before deciding whether to trust
+        # the declared `safe` flag -- see Harness.execute, which does exactly
+        # that rather than taking a plan's own safety self-assessment on
+        # faith. Whoever declared this entry (a human or a model) only gets
+        # to make it *more* cautious than the classifier would, never less.
         execute = runner or shell
-        out: list[tuple[str, Callable[[], Any], bool]] = []
+        out: list[tuple[str, str, Callable[[], Any], bool]] = []
         for raw in self.rollback:
             if not isinstance(raw, dict) or not raw.get("run"):
                 continue
             command = str(raw["run"])
             out.append((
                 str(raw.get("description") or f"undo: {command}"),
+                command,
                 functools.partial(execute, command, None, None),
                 bool(raw.get("safe", True)),
             ))

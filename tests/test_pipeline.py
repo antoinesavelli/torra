@@ -147,6 +147,33 @@ def test_a_failed_step_reverts_a_file_nobody_registered(make_harness,
     assert all(r.verified is not False for r in done.rollback.results)
 
 
+def test_a_declared_safe_rollback_is_still_classified(make_harness,
+                                                       tmp_path: Path) -> None:
+    """A declared `safe: true` cannot suppress a real CRITICAL classification.
+
+    Before this was fixed, the exact command below ran automatically during
+    the rollback sweep with zero classification and zero confirmation --
+    see HANDOFF.md §6.4. Now it must be auto-declined (the default
+    confirm_unsafe with nobody wired in to approve it), not silently run.
+    """
+    target = tmp_path / "should-survive"
+    target.mkdir()
+    harness = make_harness(scripted(plan_reply(
+        "t", "provision then fail",
+        [{"id": "boom", "run": "exit 7"}],
+        rollback=[{"run": f"rm -rf {target}", "description": "cleanup",
+                  "safe": True}])))
+
+    done = harness.execute(harness.plan("provision then fail"), {})
+
+    assert done.outcome is Outcome.FAILED
+    assert done.rollback is not None
+    assert [r.status for r in done.rollback.results] == ["cancelled"]
+    assert target.exists(), "a CRITICAL command ran despite being declared safe"
+    overrides = [d for d in done.decisions if d["decision"] == "rollback safety override"]
+    assert len(overrides) == 1
+
+
 def test_a_precondition_flip_stops_execution(make_harness,
                                              tmp_path: Path) -> None:
     """The probe-12 scenario: a service dies at step one, step two must not run."""

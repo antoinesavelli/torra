@@ -374,8 +374,22 @@ class Harness:
 
         for sp in plan.steps:
             self.rollback.push_many(sp.undos)
-        for description, undo, safe in plan.spec.rollback_actions():
-            self.rollback.add(description, undo, safe=safe)
+        for description, command, undo, declared_safe in plan.spec.rollback_actions():
+            # A declared rollback entry only gets to make a command *more*
+            # cautious than SafetyClassifier would, never less: the command
+            # runs through the same gate a regular step does, and either
+            # side calling it risky is enough to require confirmation.
+            verdict = self.safety.classify(command)
+            risky = verdict.level in (RiskLevel.DANGEROUS, RiskLevel.CRITICAL)
+            effective_safe = declared_safe and not risky
+            if declared_safe and risky:
+                self.decisions.log(
+                    Stage.PRESENT.value, "rollback safety override",
+                    f"'{description}' was declared safe but classifies "
+                    f"{verdict.level.value}: {verdict.reasons[0]}; will ask "
+                    "before running it during rollback",
+                    {"command": command})
+            self.rollback.add(description, undo, safe=effective_safe)
         self.decisions.log(
             Stage.PRESENT.value, "approved",
             f"{len(plan.steps)} step(s) approved, rollback depth "

@@ -142,6 +142,7 @@ class MachineState:
     cwd: str = ""
     accelerator: Accelerator = field(default_factory=Accelerator)
     ollama_models: list[str] = field(default_factory=list)
+    ollama_models_dir: str = ""
     extras: dict[str, str] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
@@ -165,6 +166,8 @@ class MachineState:
         ]
         if self.ollama_models:
             lines += ["", f"local models: {', '.join(self.ollama_models)}"]
+        if self.ollama_models_dir:
+            lines += [f"local models directory: {self.ollama_models_dir}"]
         for name, value in self.extras.items():
             lines += ["", f"{name}:", value]
         return "\n".join(lines)
@@ -180,6 +183,22 @@ OBSERVE_COMMANDS: list[tuple[str, str]] = [
     ("disk", "df -h / /home 2>/dev/null"),
     ("memory", "free -h"),
 ]
+
+#: Reads the *running* ollama daemon's actual OLLAMA_MODELS, not the calling
+#: process's environment -- a model asked "where do the local models live"
+#: with no grounding otherwise guesses (measured: it guessed wrong in
+#: scripts/dev/model_bench/REPORT.md's disk-cleanup scenario), and the two
+#: environments commonly differ, e.g. when ollama runs as a systemd service
+#: with its own Environment= and the harness runs from an unrelated shell.
+#: Falls back to the caller's own OLLAMA_MODELS or Ollama's documented
+#: default when no such process is found or its environ isn't readable.
+OLLAMA_MODELS_DIR_PROBE = (
+    "pid=$(pgrep -x ollama | head -1); "
+    "if [ -n \"$pid\" ] && [ -r \"/proc/$pid/environ\" ]; then "
+    "val=$(tr '\\0' '\\n' < /proc/$pid/environ | grep '^OLLAMA_MODELS=' | cut -d= -f2-); "
+    "fi; "
+    "echo \"${val:-${OLLAMA_MODELS:-$HOME/.ollama/models}}\""
+)
 
 
 def observe_machine(
@@ -213,5 +232,9 @@ def observe_machine(
 
     if ollama is not None:
         state.ollama_models = ollama.models()
+        try:
+            state.ollama_models_dir = execute(OLLAMA_MODELS_DIR_PROBE, None, 5.0).strip()
+        except Exception as exc:
+            state.errors.append(f"ollama_models_dir: {type(exc).__name__}: {exc}")
 
     return state

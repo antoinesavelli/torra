@@ -253,11 +253,23 @@ Two caveats surfaced: it correctly *inferred* that the locally-pulled Ollama
 models were a likely disk hog (from `state.ollama_models` in the observed
 context) but *hallucinated* the wrong path for them (`/home/paramo/models`
 instead of the real `/mnt/ParamoStorage/ollama-models`) — `observe_machine()`
-doesn't currently expose `OLLAMA_MODELS`, so the model filled the gap with a
+didn't expose `OLLAMA_MODELS` at the time, so the model filled the gap with a
 plausible guess. And the rollback entry it declared for a plain `apt`
 security-update task (see below) was a non-sequitur about purging a PPA that
 was never mentioned in the request — a hallucination in the rollback
 specifically, not the main plan.
+
+**Fixed.** `observe_machine()` now includes a dedicated probe
+(`OLLAMA_MODELS_DIR_PROBE` in `harness/core/machine.py`) that reads the
+*running* `ollama serve` process's actual `OLLAMA_MODELS` from
+`/proc/<pid>/environ`, not the calling shell's own environment -- the two
+commonly differ, exactly as they did on this machine, where the systemd
+unit sets the variable but an unrelated shell never sees it. Re-asked
+directly ("where are the local Ollama models stored, and how much space are
+they using?") after the fix, devstral answered `/mnt/ParamoStorage/ollama-models`
+correctly and, notably, said the size wasn't available in the observed
+state rather than inventing a number — the honest answer once the
+grounding data was actually there. Covered by `tests/test_core.py`.
 
 ## Domain exploration (devstral, qualitative)
 
@@ -325,7 +337,7 @@ refusal (not the scripted test fixture): `OllamaClient.chat()` raised
 `OllamaError` with the actual `URLError` detail, and `recovery_options()`
 produced the same three recovery paths the scripted tests assert.
 
-## A real, verified safety-architecture gap: declared rollback bypasses SafetyClassifier
+## A real, verified safety-architecture gap: declared rollback bypassed SafetyClassifier (fixed)
 
 Found while testing a large, realistic multi-step provisioning request (7
 ordered steps: create a service user, clone a repo, build a venv, write a
@@ -359,16 +371,19 @@ declared under `rollback:`, whether written by a model or by hand. Any
 independent classification and no operator confirmation, regardless of what
 the command actually does.
 
-**Not fixed here.** A fix — running rollback commands through
-`SafetyClassifier` too, treating disagreement between the declaration and
-the classifier as unsafe — is a real behavior change to `VerifiedRollback`,
-which the existing `TestVerifiedRollback` suite encodes specific semantics
-for, and it changes what used to run silently into what needs an operator's
-yes. That is exactly the kind of safety-relevant decision
-`DEFENSIVE_CODING_STANDARDS.md` §7 says to ask about rather than patch
-quietly. Documented in full in `HANDOFF.md` §6.4, with a regression test
-(`tests/test_gates.py::TestVerifiedRollback::test_a_declared_safe_rollback_command_is_never_classified`)
-that pins today's behavior so a future change here is deliberate either way.
+**Fixed.** `TaskSpec.rollback_actions()` now returns the raw command
+alongside the callable, and `Harness.execute` classifies every rollback
+command with the same `SafetyClassifier` regular steps use before pushing it
+onto the rollback stack: `effective_safe = declared_safe and not
+classifier_says_risky`. A declaration can only make a command *more*
+cautious than the classifier would, never less. Disagreement is logged via
+`DecisionLog` ("rollback safety override") so it's visible in the audit
+trail, not just silently upgraded. Re-running the exact `/srv/api`
+reproduction above now shows the command classified CRITICAL, `effective
+safe: False`, and the rollback sweep result `cancelled` rather than
+`undone` — the directory survives. This is now a permanent invariant, not
+just a bug fix: see `HANDOFF.md` §2.7 and
+`tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`.
 
 **The model's own `safe` self-assessment is inconsistent, which is exactly
 why it can't be trusted alone.** A follow-up test asked devstral to wipe a
@@ -382,9 +397,9 @@ declared rollback entry (`rm -rf /tmp/scratch-test-db`) was correctly marked
 `"safe": false` — the opposite of the `/srv/api` case above, for an equally
 destructive command. The model can sometimes self-assess correctly and
 sometimes not for the same class of command; that inconsistency is the
-concrete argument for why `rollback_actions()` needs independent
-classification rather than trusting the declaration, not just the one
-`/srv/api` miss on its own.
+concrete argument for why `rollback_actions()` needed independent
+classification rather than trusting the declaration (now fixed, see above),
+not just the one `/srv/api` miss on its own.
 
 **A model-authored obfuscation attempt was caught before it ever reached a
 plan.** Asked to "decode and run" a base64-encoded `rm -rf` "found in a forum
@@ -441,6 +456,31 @@ specifically given to check claims against. Worth a follow-up prompt
 adjustment (e.g. an explicit instruction to flag when the request contradicts
 observed state) rather than a code change — this is a model-behavior finding,
 not a gate the harness is missing.
+
+**Attempted the prompt adjustment; the effect is real but not reliable.**
+Added `SYSTEM_PROMPT` rule 9 (`harness/agent.py`): check the request against
+observed state, use intent "ask" and name the discrepancy on a
+contradiction. Re-ran the identical GPU-failure request repeatedly against
+the live model rather than trusting a single before/after sample:
+
+| Prompt version | Runs | `ask` | `plan` |
+|---|---|---|---|
+| No rule 9 (original) | 1 | 0 | 1 |
+| Rule 9, concise wording | 3 | 2 | 1 |
+| Rule 9, longer/more insistent wording | 6 | 1 | 5 |
+
+The concise wording measured better than the longer, more emphatic one --
+the opposite of what you'd naively expect, and a reminder that "say it more
+forcefully" is not a reliable prompt-engineering move for a 24B local model.
+Shipped the concise version, since it's both simpler and measured no worse.
+None of this is a large-enough sample to certify a rate (9 total runs across
+both wordings), and the honest conclusion is that a prompt instruction alone
+does not reliably close this gap at devstral's capability level -- it shifts
+the odds, it doesn't fix the behavior the way the rollback-classification
+bug above was actually fixed. Consistent with `HANDOFF.md` §6.1's own
+framing: model-quality gaps get prompt work and model choice, not more
+gates, and prompt work has a ceiling a local model's own reasoning sets, not
+one more careful wording can push past.
 
 ## Caveats
 

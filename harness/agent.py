@@ -134,6 +134,11 @@ Rules that matter:
    files, services, packages and mkdir automatically, nothing else.
 8. Use intent "refuse" if the request would damage the system with no
    legitimate purpose you can identify.
+9. Check the request against the observed machine state above before
+   planning. If it asserts something that state directly contradicts (e.g.
+   claims hardware or a service is down when it is reported present and
+   working), use intent "ask" and name the discrepancy. Do not plan around
+   an unverified claim just because the operator stated it as fact.
 
 Output schema:
 """ + PLAN_SCHEMA
