@@ -1,52 +1,44 @@
-"""
-harness.tui
-The terminal interface.
+"""Terminal interface: chat on the left, the gated plan on the right.
 
-Two panes. Chat on the left, where you talk to the model. Plan on the right,
-where every proposed step appears with what each gate decided about it, and you
-approve or reject per step.
+Depends on: textual, harness.core (OllamaStatus), harness.gates (RiskLevel),
+harness.pipeline (Harness and friends).
 
-The design constraint is one sentence: **you never approve a command you have
-not seen classified.** A chat interface that streams a wall of text and then
-runs something is the failure mode this whole project exists to avoid, so the
-plan pane is not a log, it is a form. Nothing executes until every step showing
-DANGEROUS or CRITICAL has been individually ticked.
-
-Everything blocking runs in a worker thread. The model takes seconds to answer
-and the UI has to stay alive during that, both so it can show progress and so
-Ctrl-C still means something.
+You never approve a command you have not seen classified: nothing executes
+until every step showing DANGEROUS or CRITICAL has been individually ticked.
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import (
-    Button, Checkbox, Footer, Header, Input, Label, LoadingIndicator, Static,
+    Button,
+    Checkbox,
+    Footer,
+    Header,
+    Input,
+    Static,
 )
 
 from .core import OllamaStatus
-from .gates import RiskLevel
 from .pipeline import Harness, Outcome, Plan, RunResult, StepPlan
 
 __all__ = ["HarnessApp", "run_tui"]
 
 
 #: Risk level to a colour the eye can sort at a glance without reading.
-LEVEL_STYLE: Dict[str, str] = {
+LEVEL_STYLE: dict[str, str] = {
     "safe": "green",
     "caution": "yellow",
     "dangerous": "dark_orange",
     "critical": "bold red",
 }
 
-OUTCOME_STYLE: Dict[str, str] = {
+OUTCOME_STYLE: dict[str, str] = {
     "completed": "bold green",
     "answered": "cyan",
     "needs_answer": "yellow",
@@ -63,12 +55,7 @@ class ChatLine(Static):
     """One line in the conversation pane."""
 
     def __init__(self, who: str, text: str, style: str = "") -> None:
-        """
-        Args:
-            who: Speaker label.
-            text: What was said.
-            style: Rich style applied to the body.
-        """
+        """Render one speaker-prefixed, optionally styled line."""
         prefix = {"you": "[bold cyan]you[/]", "agent": "[bold green]agent[/]",
                   "harness": "[bold blue]harness[/]",
                   "error": "[bold red]error[/]"}.get(who, who)
@@ -86,11 +73,7 @@ class StepCard(Vertical):
     """
 
     def __init__(self, index: int, plan_step: StepPlan) -> None:
-        """
-        Args:
-            index: 1-based position in the plan.
-            plan_step: The step and everything the gates decided about it.
-        """
+        """Store the 1-based plan position and the step's gate verdicts."""
         super().__init__(classes="step-card")
         self.index = index
         self.plan_step = plan_step
@@ -210,16 +193,12 @@ class HarnessApp(App):
 
     busy: reactive[bool] = reactive(False)
 
-    def __init__(self, harness: Optional[Harness] = None,
-                 workdir: Optional[Path] = None) -> None:
-        """
-        Args:
-            harness: Injected for tests. A default one is built otherwise.
-            workdir: Where audit records and shadow copies live.
-        """
+    def __init__(self, harness: Harness | None = None,
+                 workdir: Path | None = None) -> None:
+        """Use the injected harness for tests, or build a default one."""
         super().__init__()
         self.harness = harness or Harness(workdir=workdir or Path.home() / ".harness")
-        self.current: Optional[RunResult] = None
+        self.current: RunResult | None = None
         self.last_request: str = ""
 
     # -- layout ------------------------------------------------------------ #
@@ -268,9 +247,9 @@ class HarnessApp(App):
         """Update the status line."""
         self.query_one("#status", Static).update(text)
 
-    def _approvals(self) -> Dict[str, bool]:
+    def _approvals(self) -> dict[str, bool]:
         """Read every approve checkbox in the plan pane."""
-        out: Dict[str, bool] = {}
+        out: dict[str, bool] = {}
         for box in self.query(Checkbox):
             box_id = box.id or ""
             if box_id.startswith("approve-"):
@@ -396,7 +375,7 @@ class HarnessApp(App):
         """Clear the conversation and the model's context."""
         self.harness.agent.reset()
         chat = self.query_one("#chat", VerticalScroll)
-        self.run_worker(chat.remove_children(), exclusive=False)
+        self.run_worker(chat.remove_children(), exclusive=False)  # type: ignore[arg-type]  # textual stub is stricter than the accepted runtime API
         self._say("harness", "Conversation cleared.", "dim")
 
     @work(thread=True, exclusive=True)
@@ -460,7 +439,7 @@ class HarnessApp(App):
             self._status(f"[dim]{message}[/]")
 
 
-def run_tui(workdir: Optional[Path] = None,
-            harness: Optional[Harness] = None) -> None:
+def run_tui(workdir: Path | None = None,
+            harness: Harness | None = None) -> None:
     """Launch the interface."""
     HarnessApp(harness=harness, workdir=workdir).run()

@@ -1,0 +1,14 @@
+# harness/telemetry/
+
+What the harness records about itself. `__init__.py` re-exports every public
+name, so `from harness.telemetry import X` works exactly as it did when this
+was one file.
+
+| File | Holds |
+|---|---|
+| `records.py` | `TaskRecord`/`TaskLogger`, append-only JSONL of every task with what each gate decided |
+| `labels.py` | `Label`/`LabelStore`, human verdicts attached to logged requests (depends on `records.py` for `TaskRecord`) |
+| `audit.py` | `CorpusExporter` (drift against the synthetic clarifier corpus) and `LoopholeAudit` (the anchored-but-goalless gap), both depend on `records.py`/`labels.py` |
+
+Not yet covered by `tests/`: see the Testing dimension in
+`python3 scripts/dev/defensive_coding_report.py --verbose`.

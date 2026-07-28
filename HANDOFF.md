@@ -17,14 +17,18 @@ python3 -m pytest tests/ -q          # must print 76 passed
 harness doctor
 ```
 
-Seven modules, 6,600 lines shipped. Read them in this order:
+Seven modules, ~5,400 lines shipped. `core.py`, `gates.py` and `telemetry.py` were later
+each split into a same-named package of single-concern submodules (see
+`DEFENSIVE_CODING_STANDARDS.md` §1.2.1 for why); every name still imports from the same
+top-level path, e.g. `from harness.gates import SafetyClassifier`. Read in this order:
 
-1. `harness/core.py` — `Step`, `TaskSpec`, `OllamaClient`, conflict detection
-2. `harness/gates.py` — the five guardrails, one class each
+1. `harness/core/` — `Step`, `TaskSpec` (`tasks.py`), `OllamaClient` (`ollama.py`),
+   conflict detection (`conflict.py`) — see `harness/core/README.md`
+2. `harness/gates/` — the five guardrails, one submodule each — see `harness/gates/README.md`
 3. `harness/agent.py` — the model loop
 4. `harness/pipeline.py` — `Harness`, the seven stages, the only orchestrator
 
-`tui.py`, `cli.py` and `telemetry.py` are leaves. Nothing depends on them.
+`tui.py`, `cli.py` and `harness/telemetry/` are leaves. Nothing depends on them.
 
 ---
 

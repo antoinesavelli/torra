@@ -224,17 +224,18 @@ wearing a percentage sign.
 
 | Path | Holds |
 |------|-------|
-| `harness/core.py` | steps, task specs, conflict detection, context, the Ollama client |
-| `harness/gates.py` | the five guardrails |
+| `harness/core/` | steps, task specs, conflict detection, context, the Ollama client |
+| `harness/gates/` | the five guardrails, one submodule each |
 | `harness/agent.py` | the model loop |
 | `harness/pipeline.py` | the seven stages |
-| `harness/telemetry.py` | what it records about itself |
+| `harness/telemetry/` | what it records about itself |
 | `harness/tui.py` | the interface |
 | `harness/cli.py` | entry points |
 | `tests/` | 76 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `legacy/` | the six-phase build this was consolidated from |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
+| `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
 
 `legacy/` is frozen and nothing in `harness/` imports it. It is kept because
 some numbers here were measured against that code, and a citation you cannot

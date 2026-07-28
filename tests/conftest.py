@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 import pytest
 
@@ -14,8 +15,8 @@ from harness.core import MachineState, OllamaClient
 from harness.pipeline import Harness
 
 
-def scripted(*replies: Dict[str, Any], models: Optional[List[str]] = None
-             ) -> Callable[[str, Dict[str, Any], float], Dict[str, Any]]:
+def scripted(*replies: dict[str, Any], models: list[str] | None = None
+             ) -> Callable[[str, dict[str, Any], float], dict[str, Any]]:
     """A transport that returns each reply in turn, then repeats the last.
 
     Lets a test drive a multi-turn conversation, including the repair loop,
@@ -25,7 +26,7 @@ def scripted(*replies: Dict[str, Any], models: Optional[List[str]] = None
     tags = {"models": [{"name": m} for m in (models or ["qwen3:32b", "devstral",
                                                         "qwen3:8b"])]}
 
-    def transport(path: str, payload: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+    def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         if path == "/api/tags":
             return tags
         reply = queue.pop(0) if len(queue) > 1 else (queue[0] if queue else {})
@@ -34,10 +35,10 @@ def scripted(*replies: Dict[str, Any], models: Optional[List[str]] = None
     return transport
 
 
-def plan_reply(task_id: str, request: str, steps: List[Dict[str, Any]],
-               message: str = "here is the plan", **extra) -> Dict[str, Any]:
+def plan_reply(task_id: str, request: str, steps: list[dict[str, Any]],
+               message: str = "here is the plan", **extra) -> dict[str, Any]:
     """A well formed plan reply."""
-    task: Dict[str, Any] = {"task_id": task_id, "request": request, "steps": steps}
+    task: dict[str, Any] = {"task_id": task_id, "request": request, "steps": steps}
     task.update(extra)
     return {"intent": "plan", "message": message, "task": task}
 

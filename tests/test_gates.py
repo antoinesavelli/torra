@@ -9,18 +9,21 @@ someone eventually deletes.
 from __future__ import annotations
 
 import os
-import time
 from pathlib import Path
-
-import pytest
 
 from harness.core import Step
 from harness.gates import (
-    Clarifier, DecisionLog, ModelRouter, Precondition, RiskLevel,
-    SafetyClassifier, SnapshotKind, StateVerifier, UndoAction, UndoGenerator,
+    Clarifier,
+    DecisionLog,
+    ModelRouter,
+    Precondition,
+    RiskLevel,
+    SafetyClassifier,
+    SnapshotKind,
+    StateVerifier,
+    UndoGenerator,
     VerifiedRollback,
 )
-
 
 # --------------------------------------------------------------------------- #
 # SAFETY_FIRST

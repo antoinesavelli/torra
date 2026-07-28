@@ -1,34 +1,21 @@
 #!/usr/bin/env python3
-"""
-harness.cli
-Entry points.
+"""Entry points: harness / ask / plan / run / check / doctor / evidence / label.
 
-    harness                     launch the terminal interface
-    harness ask "..."           one request, plan and approve at the prompt
-    harness plan "..."          plan only, print it, run nothing
-    harness run task.yaml       run a hand-written task file, no model involved
-    harness check task.yaml     classify a task file without running it
-    harness doctor              check the environment
-    harness evidence            what the harness has recorded about itself
-    harness label               label recorded traffic
+Depends on: harness.core, harness.gates, harness.pipeline, harness.telemetry.
 
-`run` and `check` still take a hand-written YAML file and never touch the model.
-That path is kept deliberately: when the model is down, or wrong, or you simply
-know exactly what you want, the gates should still be available without it.
-
+`run` and `check` take a hand-written YAML file and never touch the model, so
+the gates stay available when the model is down, wrong, or simply not needed.
 Exit codes: 0 ok, 1 usage error, 2 stopped by a gate or unapproved, 3 failed.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
 
 from .core import OllamaClient, OllamaStatus, TaskSpec, TaskSpecError
 from .gates import Clarifier, Precondition, SafetyClassifier, StateVerifier
@@ -40,7 +27,7 @@ __all__ = ["build_parser", "main"]
 EXIT_OK, EXIT_USAGE, EXIT_BLOCKED, EXIT_FAILED = 0, 1, 2, 3
 DEFAULT_WORKDIR = Path.home() / ".harness"
 
-OUTCOME_EXIT: Dict[str, int] = {
+OUTCOME_EXIT: dict[str, int] = {
     "completed": EXIT_OK,
     "answered": EXIT_OK,
     "needs_answer": EXIT_BLOCKED,
@@ -83,9 +70,9 @@ def print_plan(plan: Plan) -> None:
             print("       undo: none derivable")
 
 
-def approve_at_prompt(plan: Plan) -> Dict[str, bool]:
+def approve_at_prompt(plan: Plan) -> dict[str, bool]:
     """Ask on stdin about every step that needs confirmation."""
-    approvals: Dict[str, bool] = {}
+    approvals: dict[str, bool] = {}
     for sp in plan.needs_confirmation:
         print(f"\n  [{sp.verdict.level.value.upper()}] {sp.step.command}")
         for reason in sp.verdict.reasons[:3]:
@@ -233,7 +220,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Check that the environment can run this."""
     workdir = Path(args.workdir)
-    checks: List[tuple[str, bool, str]] = [
+    checks: list[tuple[str, bool, str]] = [
         ("python >= 3.10", sys.version_info >= (3, 10),
          ".".join(map(str, sys.version_info[:3]))),
     ]
@@ -394,7 +381,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Entry point. Bare `harness` launches the interface."""
     parser = build_parser()
     args = parser.parse_args(argv)

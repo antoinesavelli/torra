@@ -11,14 +11,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from conftest import plan_reply, scripted
 
-from harness.core import OllamaClient, TaskSpec
-from harness.gates import Precondition, RiskLevel, StateVerifier
-from harness.pipeline import Harness, Outcome, Stage
-
+from harness.core import TaskSpec
+from harness.gates import Precondition, StateVerifier
+from harness.pipeline import Outcome, Stage
 
 SAFE_PLAN = plan_reply(
     "write-config", "set workers to 4 in /tmp/h7/app.conf",

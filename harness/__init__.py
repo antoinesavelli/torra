@@ -14,16 +14,34 @@ was always missing.
     tui        the terminal interface
 """
 
+from .agent import Agent, Intent, Turn
 from .core import (
-    Conflict, ConflictDetector, ConflictKind, ContextCompressor, MachineState,
-    OllamaClient, OllamaStatus, ResumePoint, Step, StepResult, TaskSpec,
-    TaskSpecError, observe_machine,
+    Conflict,
+    ConflictDetector,
+    ConflictKind,
+    ContextCompressor,
+    MachineState,
+    OllamaClient,
+    OllamaStatus,
+    ResumePoint,
+    Step,
+    StepResult,
+    TaskSpec,
+    TaskSpecError,
+    observe_machine,
 )
 from .gates import (
-    Clarifier, DecisionLog, ModelRouter, Precondition, RiskLevel,
-    SafetyClassifier, StateVerifier, UndoGenerator, Verdict, VerifiedRollback,
+    Clarifier,
+    DecisionLog,
+    ModelRouter,
+    Precondition,
+    RiskLevel,
+    SafetyClassifier,
+    StateVerifier,
+    UndoGenerator,
+    Verdict,
+    VerifiedRollback,
 )
-from .agent import Agent, Intent, Turn
 
 __version__ = "7.0.0"
 

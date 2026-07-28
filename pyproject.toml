@@ -12,6 +12,7 @@ dependencies = ["PyYAML>=6.0", "textual>=0.60"]
 [project.optional-dependencies]
 fast = ["inotify_simple>=1.3"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+lint = ["ruff>=0.6", "mypy>=1.10", "radon>=6.0", "coverage>=7.0"]
 
 [project.scripts]
 harness = "harness.cli:main"
@@ -22,3 +23,27 @@ include = ["harness*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["legacy"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes -- undefined names, unused imports
+    "I",        # isort -- import ordering
+    "B",        # bugbear -- common real bugs, not just style
+    "UP",       # pyupgrade -- modernize syntax
+    "C4",       # comprehension style
+    "TID",      # tidy imports (no relative-import spaghetti)
+]
+ignore = [
+    "E501",  # line length -- not worth fighting line-by-line, see DEFENSIVE_CODING_STANDARDS.md
+]
+
+[tool.mypy]
+python_version = "3.10"
+exclude = ["legacy", "build", ".venv"]
+ignore_missing_imports = true

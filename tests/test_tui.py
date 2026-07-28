@@ -7,18 +7,15 @@ operator would actually see rather than what the widgets contain in principle.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
-
 from conftest import plan_reply, scripted
+from textual.widgets import Checkbox, Input, Static
 
 from harness.core import MachineState, OllamaClient
 from harness.pipeline import Harness
 from harness.tui import HarnessApp, StepCard
-
-from textual.widgets import Checkbox, Input, Static
 
 
 def screen_text(app: HarnessApp) -> str:

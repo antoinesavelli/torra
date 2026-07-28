@@ -7,15 +7,12 @@ Organised by what the agent has to get right, not by which phase built it.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
-
 from conftest import plan_reply, scripted
 
 from harness.agent import Agent, AgentError, Intent
 from harness.core import MachineState, OllamaClient, OllamaError, TaskSpec
-from harness.gates import Clarifier, SafetyClassifier
 
 
 def build_agent(transport, **kwargs) -> Agent:

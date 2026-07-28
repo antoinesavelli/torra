@@ -1,18 +1,11 @@
-"""
-harness.agent
-The part that was missing for six phases.
+"""The model loop: turns a conversation into a validated TaskSpec, never a shell.
 
-Everything before this built gates. Nothing ever asked a model anything: the
-Ollama handler health-checked a daemon that was never talked to, and the router
-picked a model name and wrote it to a log. This module closes that loop.
+Depends on: harness.core (ContextCompressor, MachineState, OllamaClient,
+TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter, SafetyClassifier).
 
-  Agent.converse   answer, or ask, or decide it has enough to plan
-  Agent.propose    turn the conversation into a TaskSpec, as JSON
-  Agent.repair     take a gate rejection and revise the proposal
-
-The design rule throughout: **the model produces a TaskSpec and nothing else.**
-It does not execute, it does not get a shell, it does not decide what is safe.
-It writes a proposal into the same structure a human writes by hand, and that
+The design rule throughout: the model produces a TaskSpec and nothing else. It
+does not execute, it does not get a shell, it does not decide what is safe. It
+writes a proposal into the same structure a human writes by hand, and that
 proposal travels the exact code path the existing gates already cover. A model
 that could execute directly would need every gate reimplemented on a second
 path, and the second path is always the one nobody tested.
@@ -23,15 +16,20 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field, asdict
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any
 
 from .core import (
-    ContextCompressor, MachineState, OllamaClient, OllamaError,
-    TaskSpec, TaskSpecError, observe_machine,
+    ContextCompressor,
+    MachineState,
+    OllamaClient,
+    TaskSpec,
+    TaskSpecError,
+    observe_machine,
 )
-from .gates import Clarifier, ModelRouter, SafetyClassifier, Verdict
+from .gates import Clarifier, ModelRouter, SafetyClassifier
 
 __all__ = ["Intent", "Turn", "Agent", "AgentError", "PLAN_SCHEMA"]
 
@@ -56,17 +54,17 @@ class Turn:
     request: str
     intent: Intent
     message: str = ""
-    questions: List[str] = field(default_factory=list)
-    spec: Optional[TaskSpec] = None
+    questions: list[str] = field(default_factory=list)
+    spec: TaskSpec | None = None
     model: str = ""
     routing_reason: str = ""
-    clarifier_gaps: List[str] = field(default_factory=list)
+    clarifier_gaps: list[str] = field(default_factory=list)
     machine_observed: bool = False
     repairs: int = 0
     seconds: float = 0.0
     raw: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serializable dict form, for the audit trail."""
         return {
             "request": self.request,
@@ -158,26 +156,15 @@ class Agent:
     def __init__(
         self,
         ollama: OllamaClient,
-        router: Optional[ModelRouter] = None,
-        clarifier: Optional[Clarifier] = None,
-        safety: Optional[SafetyClassifier] = None,
-        compressor: Optional[ContextCompressor] = None,
-        observer: Optional[Callable[[], MachineState]] = None,
-        max_repairs: Optional[int] = None,
+        router: ModelRouter | None = None,
+        clarifier: Clarifier | None = None,
+        safety: SafetyClassifier | None = None,
+        compressor: ContextCompressor | None = None,
+        observer: Callable[[], MachineState] | None = None,
+        max_repairs: int | None = None,
         system_prompt: str = SYSTEM_PROMPT,
     ) -> None:
-        """
-        Args:
-            ollama: The client that actually generates.
-            router: Picks which local model handles this request.
-            clarifier: Consulted for structural gaps before generation.
-            safety: Used to pre-screen the model's own proposal, so an obviously
-                dangerous plan can be repaired before it reaches the operator.
-            compressor: Holds the conversation under a token budget.
-            observer: Returns machine state. Injectable for tests.
-            max_repairs: Rejection feedback rounds before giving up.
-            system_prompt: Override the contract given to the model.
-        """
+        """Wire the model client, router, clarifier, safety pre-screen, and context."""
         self.ollama = ollama
         self.router = router or ModelRouter()
         self.clarifier = clarifier or Clarifier()
@@ -187,20 +174,17 @@ class Agent:
         self.max_repairs = self.MAX_REPAIRS if max_repairs is None else int(max_repairs)
         self.system_prompt = system_prompt
 
-        self.state: Optional[MachineState] = None
-        self.turns: List[Turn] = []
+        self.state: MachineState | None = None
+        self.turns: list[Turn] = []
         self._turn_counter: int = 0
 
     # -- observation ------------------------------------------------------- #
 
     def observe(self, refresh: bool = False) -> MachineState:
-        """Read the machine, caching until asked to refresh.
-
-        A model asked to clean up docker with no idea what is installed will
-        invent plausible commands. The same model given real `docker system df`
-        output works from what is actually there. This is the cheapest accuracy
-        improvement available and every command in it is read-only.
-        """
+        """Read the machine, caching until asked to refresh."""
+        # A model given real `docker system df` output works from what is
+        # actually there instead of inventing plausible commands. Cheapest
+        # accuracy improvement available, and every command here is read-only.
         if self.state is None or refresh:
             self.state = self._observe()
             # The router only learns what the hardware can run once the machine
@@ -215,7 +199,7 @@ class Agent:
     # -- prompting --------------------------------------------------------- #
 
     def _messages(self, request: str, gaps: Sequence[str],
-                  extra: Sequence[Dict[str, str]] = ()) -> List[Dict[str, str]]:
+                  extra: Sequence[dict[str, str]] = ()) -> list[dict[str, str]]:
         """Assemble the full message list for one generation."""
         state = self.observe()
         preamble = [
@@ -236,12 +220,10 @@ class Agent:
         ]
 
     @staticmethod
-    def _extract_json(text: str) -> Dict[str, Any]:
-        """Pull a JSON object out of a model reply.
-
-        Models add markdown fences and preamble no matter what the prompt says,
-        so this strips fences and falls back to the outermost brace pair.
-        """
+    def _extract_json(text: str) -> dict[str, Any]:
+        """Pull a JSON object out of a model reply."""
+        # Models add markdown fences and preamble no matter what the prompt
+        # says, so this strips fences and falls back to the outermost brace pair.
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(),
                          flags=re.MULTILINE).strip()
         try:
@@ -258,18 +240,11 @@ class Agent:
 
     # -- generation -------------------------------------------------------- #
 
-    def converse(self, request: str, model: Optional[str] = None) -> Turn:
-        """Take one operator message and decide what to do with it.
-
-        Returns:
-            A Turn. `intent` is PLAN when a validated TaskSpec is attached, ASK
-            when the model needs an answer first, ANSWER for a pure question,
-            REFUSE when the model declined.
-
-        Raises:
-            OllamaError: when the backend cannot be reached. The caller should
-                present `ollama.recovery_options()`.
-        """
+    def converse(self, request: str, model: str | None = None) -> Turn:
+        """Take one operator message and decide what to do with it."""
+        # Returns a Turn whose intent is PLAN (validated TaskSpec attached),
+        # ASK, ANSWER, or REFUSE. Raises OllamaError when the backend cannot
+        # be reached; the caller should present ollama.recovery_options().
         started = time.perf_counter()
         self._turn_counter += 1
 
@@ -344,14 +319,12 @@ class Agent:
         return turn
 
     def _prescreen(self, spec: TaskSpec) -> str:
-        """Check the model's own plan before an operator ever sees it.
-
-        Not a substitute for the real gates, which still run on every command.
-        This exists so an obviously bad proposal gets one automatic revision
-        round instead of burning an operator's attention on a plan that was
-        never going to be approved.
-        """
-        complaints: List[str] = []
+        """Check the model's own plan before an operator ever sees it."""
+        # Not a substitute for the real gates, which still run on every
+        # command. This exists so an obviously bad proposal gets one
+        # automatic revision round instead of burning the operator's
+        # attention on a plan that was never going to be approved.
+        complaints: list[str] = []
         for step in spec.to_steps(dry_run=True):
             verdict = self.safety.classify(step.command)
             if verdict.level.value == "critical":
@@ -372,17 +345,8 @@ class Agent:
         return "\n".join(complaints)
 
     def repair(self, turn: Turn, complaint: str,
-               model: Optional[str] = None) -> Turn:
-        """Hand a gate rejection back to the model and get a revised plan.
-
-        Args:
-            turn: The turn whose plan was rejected.
-            complaint: What the gate objected to, in plain text.
-            model: Override the model for the retry.
-
-        Returns:
-            A new Turn with `repairs` incremented.
-        """
+               model: str | None = None) -> Turn:
+        """Hand a gate rejection back to the model and return a revised Turn."""
         raw = self.ollama.chat(
             model or turn.model,
             self._messages(turn.request, turn.clarifier_gaps, extra=[
@@ -401,16 +365,10 @@ class Agent:
         return revised
 
     def answer_questions(self, turn: Turn, answers: Sequence[str],
-                         model: Optional[str] = None) -> Turn:
-        """Feed answers back and re-run the turn.
-
-        Args:
-            turn: The ASK turn being answered.
-            answers: One answer per question, in order.
-            model: Override the model.
-        """
+                         model: str | None = None) -> Turn:
+        """Feed one answer per question (in order) back and re-run the turn."""
         combined = "; ".join(
-            f"{q} -> {a}" for q, a in zip(turn.questions, answers) if a)
+            f"{q} -> {a}" for q, a in zip(turn.questions, answers, strict=True) if a)
         return self.converse(f"{turn.request} [clarified: {combined}]",
                              model or turn.model)
 
@@ -436,7 +394,7 @@ class Agent:
         self.turns.clear()
         self._turn_counter = 0
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Counters, for the audit trail."""
         return {
             "turns": len(self.turns),

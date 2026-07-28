@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-scorecard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest pytest-asyncio pyyaml textual inotify_simple
+          pip install ruff mypy radon coverage
+          pip install -e .
+
+      - name: Run the test suite
+        run: python3 -m pytest tests/ -q
+
+      - name: Type check
+        run: mypy harness/
+
+      - name: Defensive-coding scorecard
+        run: python3 scripts/dev/defensive_coding_report.py --verbose --enforce

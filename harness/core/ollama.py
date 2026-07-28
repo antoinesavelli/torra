@@ -1,0 +1,186 @@
+"""Talks to the local Ollama daemon, and generates rather than only health-checking it.
+
+Depends on: harness.core.tasks (OllamaError), stdlib urllib (no external HTTP
+client, so the whole agent stays testable without a running daemon).
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Sequence
+from dataclasses import asdict, dataclass
+from enum import Enum
+from typing import Any
+
+from .tasks import OllamaError
+
+__all__ = ["OllamaStatus", "RecoveryOption", "OllamaClient"]
+
+
+class OllamaStatus(str, Enum):
+    """Result of a health probe."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNREACHABLE = "unreachable"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class RecoveryOption:
+    """One path out of a backend outage."""
+
+    key: str
+    title: str
+    detail: str
+    action: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serializable dict form."""
+        return asdict(self)
+
+
+class OllamaClient:
+    """Talks to the local Ollama daemon, and can fall back when it cannot.
+
+    Six phases shipped a handler that only ever called `/api/tags`. It health
+    checked a daemon nothing was talking to. This one generates, which is what
+    makes the difference between a safety framework and an agent.
+    """
+
+    DEFAULT_HOST: str = "http://localhost:11434"
+
+    def __init__(
+        self,
+        host: str = DEFAULT_HOST,
+        timeout: float = 120.0,
+        probe_timeout: float = 1.0,
+        fallback_model: str = "qwen3:8b",
+        transport: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
+    ) -> None:
+        """Configure the host, timeouts, fallback model, and an injectable transport."""
+        self.host = host.rstrip("/")
+        self.timeout = float(timeout)
+        self.probe_timeout = float(probe_timeout)
+        self.fallback_model = fallback_model
+        self._transport = transport or self._http
+        self.last_status: OllamaStatus = OllamaStatus.UNKNOWN
+        self.last_error: str = ""
+        self.consecutive_failures: int = 0
+        self.calls: int = 0
+        self.total_seconds: float = 0.0
+
+    # -- transport --------------------------------------------------------- #
+
+    def _http(self, path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        """POST JSON to the daemon, or GET when payload is empty."""
+        url = f"{self.host}{path}"
+        if payload:
+            data = json.dumps(payload).encode("utf-8")
+            request = urllib.request.Request(
+                url, data=data, method="POST",
+                headers={"Content-Type": "application/json"})
+        else:
+            request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8") or "{}")
+
+    # -- health ------------------------------------------------------------ #
+
+    def health(self) -> OllamaStatus:
+        """Probe once and record the result."""
+        try:
+            self._transport("/api/tags", {}, self.probe_timeout)
+            self.consecutive_failures = 0
+            self.last_status = OllamaStatus.HEALTHY
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            self.consecutive_failures += 1
+            self.last_status = (OllamaStatus.DEGRADED
+                                if self.consecutive_failures == 1
+                                else OllamaStatus.UNREACHABLE)
+        return self.last_status
+
+    def models(self) -> list[str]:
+        """Names of every model pulled locally. Empty on any failure."""
+        try:
+            data = self._transport("/api/tags", {}, self.probe_timeout)
+            return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return []
+
+    def recovery_options(self, current_model: str = "unknown") -> list[RecoveryOption]:
+        """The three paths out of an outage. Never touches the network."""
+        return [
+            RecoveryOption(
+                "restart", "Restart Ollama and retry",
+                "Bounces the user unit and waits for the health probe. The "
+                "conversation and any resume point are kept.",
+                "systemctl --user restart ollama"),
+            RecoveryOption(
+                "fallback", f"Fall back to {self.fallback_model}",
+                f"{current_model} may not fit in available VRAM. The smaller "
+                "model keeps the session moving with less reasoning depth.",
+                f"use model {self.fallback_model}"),
+            RecoveryOption(
+                "manual", "Drop to manual mode",
+                "Stops asking the model for plans. You write the task file "
+                "yourself and every gate still applies.",
+                "harness run <task.yaml>"),
+        ]
+
+    # -- generation -------------------------------------------------------- #
+
+    def chat(
+        self,
+        model: str,
+        messages: Sequence[dict[str, str]],
+        json_mode: bool = False,
+        temperature: float = 0.2,
+    ) -> str:
+        """Send a conversation and return the assistant's reply text."""
+        # temperature defaults low: a model proposing shell commands should
+        # not be creative. Raises OllamaError on transport failure or an
+        # unusable response; the caller is expected to present recovery_options.
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": list(messages),
+            "stream": False,
+            "options": {"temperature": float(temperature)},
+        }
+        if json_mode:
+            payload["format"] = "json"
+
+        started = time.perf_counter()
+        try:
+            data = self._transport("/api/chat", payload, self.timeout)
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            self.last_status = OllamaStatus.UNREACHABLE
+            raise OllamaError(
+                f"generation failed against {self.host}: {self.last_error}") from exc
+        finally:
+            self.total_seconds += time.perf_counter() - started
+            self.calls += 1
+
+        content = ((data.get("message") or {}).get("content") or "").strip()
+        if not content:
+            raise OllamaError(f"{model} returned an empty response")
+        self.last_status = OllamaStatus.HEALTHY
+        self.consecutive_failures = 0
+        return content
+
+    def stats(self) -> dict[str, Any]:
+        """Call counters, for the audit trail."""
+        return {
+            "host": self.host,
+            "status": self.last_status.value,
+            "calls": self.calls,
+            "total_seconds": round(self.total_seconds, 3),
+            "mean_seconds": round(self.total_seconds / self.calls, 3) if self.calls else 0.0,
+            "last_error": self.last_error,
+        }
