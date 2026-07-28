@@ -595,17 +595,40 @@ against a live shell -- wasteful for a read-only `du`, but a genuine
 double-execution risk for anything that mutates state. Fixed in two
 places:
 
-- `Harness.execute()` now refuses outright when `result.outcome` is
-  already something other than `AWAITING_APPROVAL`, logging a `"refused:
-  already executed"` decision instead of re-running the plan. This is the
-  binding fix -- it protects every caller (TUI, CLI, direct API use), not
-  just the one UI path that happened to trigger it.
+- `Harness.execute()` now refuses outright when a real (non-dry-run)
+  attempt has already begun, logging a `"refused: already executed"`
+  decision instead of re-running the plan. This is the binding fix -- it
+  protects every caller (TUI, CLI, direct API use), not just the one UI
+  path that happened to trigger it.
 - `HarnessApp._set_busy()` now also disables the Run/Dry-run buttons for
   the duration of a run, so the wasted second execution never gets
   dispatched in the first place.
 
 Covered by
 `tests/test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it`.
+
+**Follow-up, found live minutes after this shipped: the first version of
+the guard was too broad.** It keyed off `result.outcome !=
+AWAITING_APPROVAL`, which also matches `REJECTED` -- the outcome a plan
+gets when Run is clicked before its checkbox is ticked (see 2.3,
+unapproved means refused). A real operator hit exactly that sequence: ran
+a CRITICAL `find / -exec du ...` plan without ticking its box first
+(correctly REJECTED, nothing ran), ticked the box, clicked Run again --
+and got refused with the stale "not approved" message from the *first*
+attempt, because the guard couldn't tell "nothing executed yet" apart
+from "already executed."
+
+Fixed by adding a dedicated `RunResult.executed` field instead of
+inferring from `outcome`. It's set `True` only once a non-dry-run attempt
+commits past the approval check; a `REJECTED` or dry-run-only result
+leaves it `False` and stays retryable. This also surfaced a second,
+related gap: `result.results` was never cleared between attempts on the
+same object, so a dry run followed by the real run it previewed would
+leave both the dry-run stub output and the real output in the same list
+-- now reset at the start of every attempt that gets past the approval
+check. Covered by
+`tests/test_pipeline.py::test_ticking_the_box_after_a_rejection_still_runs`
+and `test_a_dry_run_does_not_block_the_real_run_that_follows`.
 
 None of these three would have surfaced from the graded battery or the
 domain/edge-case exploration above: all three depend on conditions those

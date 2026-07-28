@@ -201,6 +201,52 @@ def test_execute_twice_on_the_same_result_does_not_replay_it(make_harness,
     assert len(refusals) == 1
 
 
+def test_ticking_the_box_after_a_rejection_still_runs(make_harness,
+                                                       tmp_path: Path) -> None:
+    """Found live right after the guard above shipped: a plan clicked Run
+    before its checkbox was ticked gets REJECTED (nothing ran, by design --
+    see 2.3), the operator ticks the box and clicks Run again, and the
+    ordinary retry has to work. Keying the replay guard on `outcome !=
+    AWAITING_APPROVAL` blocked this exact, completely normal flow, because
+    REJECTED is a terminal outcome too even though zero commands ran."""
+    victim = tmp_path / "victim.txt"
+    victim.write_text("still here", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", f"remove {victim}",
+        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+
+    planned = harness.plan(f"delete {victim}")
+    rejected = harness.execute(planned, approvals={})
+    assert rejected.outcome is Outcome.REJECTED
+    assert victim.exists()
+
+    approved = harness.execute(rejected, approvals={"rm": True})
+
+    assert approved.outcome is Outcome.COMPLETED
+    assert not victim.exists()
+
+
+def test_a_dry_run_does_not_block_the_real_run_that_follows(make_harness,
+                                                             tmp_path: Path) -> None:
+    """Previewing a plan with Dry run must not count as "already executed"
+    -- that would block the real Run a dry run is meant to precede."""
+    marker = tmp_path / "marker"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"touch {marker}",
+        [{"id": "touch", "run": f"touch {marker}"}])))
+
+    planned = harness.plan(f"create {marker}")
+    dry = harness.execute(planned, {}, dry_run=True)
+    assert dry.outcome is Outcome.COMPLETED
+    assert not marker.exists(), "a dry run touched the filesystem"
+
+    real = harness.execute(dry, {})
+
+    assert real.outcome is Outcome.COMPLETED
+    assert marker.exists()
+    assert len(real.results) == 1
+
+
 def test_a_precondition_flip_stops_execution(make_harness,
                                              tmp_path: Path) -> None:
     """The probe-12 scenario: a service dies at step one, step two must not run."""

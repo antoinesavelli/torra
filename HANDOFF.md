@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 95 passed
+python3 -m pytest tests/ -q          # must print 97 passed
 harness doctor
 ```
 
@@ -110,25 +110,43 @@ equivalence, the same way `Step.command`/`Step.run` has to stay in sync.
 
 > Guarded by `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`
 
-### 2.8 `execute()` cannot be replayed on a result that already ran
+### 2.8 `execute()` cannot be replayed on a result that already ran for real
 
-`Harness.execute` refuses immediately if `result.outcome` is anything other
-than `AWAITING_APPROVAL` -- it logs a `"refused: already executed"`
-decision and returns the result unchanged instead of re-running
-`plan.steps`.
+`Harness.execute` refuses immediately if `result.executed` is already
+`True` -- it logs a `"refused: already executed"` decision and returns
+the result unchanged instead of re-running `plan.steps`. `executed` is a
+dedicated `RunResult` field, set only once a non-dry-run attempt commits
+past the approval check (right where `"execute"` is appended to
+`result.stages`); it is deliberately **not** derived from `outcome`.
 
-Found live: the TUI's Run/Dry-run buttons stayed clickable while a plan
-executed, so a double-click dispatched `execute()` twice on the same
-`RunResult`, and the second call happily re-ran every step's command
-against the live shell (visible in a real audit log as
-`stages: [..., "execute", "report", "execute"]` and two result entries
-for one step). A repeated `du` is only wasteful; a repeated DANGEROUS
-step approved once and then silently re-run is not. The TUI now also
-disables those buttons while busy, but that's the mitigation, not the
-fix -- the guard belongs in the pipeline because it is the only place that
-protects every caller (TUI, CLI, direct API use) at once.
+Found live, twice, in the same session:
 
-> Guarded by `tests/test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it`
+1. The TUI's Run/Dry-run buttons stayed clickable while a plan executed,
+   so a double-click dispatched `execute()` twice on the same
+   `RunResult`, and the second call happily re-ran every step's command
+   against the live shell (visible in a real audit log as
+   `stages: [..., "execute", "report", "execute"]` and two result entries
+   for one step). The TUI now also disables those buttons while busy, but
+   that's the mitigation, not the fix -- the guard belongs in the pipeline
+   because it is the only place that protects every caller (TUI, CLI,
+   direct API use) at once.
+2. The first version of the guard keyed off `result.outcome !=
+   AWAITING_APPROVAL`, which also matches `REJECTED` -- so ticking a
+   checkbox after Run was clicked too early (before approving) and
+   clicking Run again was refused too, even though a rejection means
+   *zero* commands ran. `executed` fixes this by tracking "did a real
+   command actually get attempted," not "did this result leave its
+   initial state." A `REJECTED` or dry-run-only result leaves `executed`
+   `False` and can still be retried; once a real run begins, it cannot.
+
+`result.results` is also reset at the start of every attempt that gets
+past the approval check (dry or real) -- without that, a dry run followed
+by the real run it previewed would leave both the dry-run stub output and
+the real output in the same list.
+
+> Guarded by `tests/test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it`,
+> `test_ticking_the_box_after_a_rejection_still_runs`, and
+> `test_a_dry_run_does_not_block_the_real_run_that_follows`
 
 ---
 
@@ -157,7 +175,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 95, must stay green
+python3 -m pytest tests/ -q                       # 97, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -329,7 +347,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 95
+test command     python3 -m pytest tests/ -q     # 97
 ```
 
 ---

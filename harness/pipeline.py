@@ -170,6 +170,13 @@ class RunResult:
     decisions: list[dict[str, Any]] = field(default_factory=list)
     audit_path: str = ""
     seconds: float = 0.0
+    # True once a real (non-dry-run) execution attempt has begun -- distinct
+    # from `outcome`, which a rejected-for-lack-of-approval or dry-run-only
+    # result can also reach without a single real command having run. See
+    # execute()'s replay guard: `outcome != AWAITING_APPROVAL` alone was too
+    # broad and blocked the ordinary "tick the box, click Run again" retry
+    # after a rejection.
+    executed: bool = False
 
     @property
     def ok(self) -> bool:
@@ -358,19 +365,26 @@ class Harness:
             result.abort_reason = "nothing to execute"
             return self._finish(result, started)
 
-        if result.outcome is not Outcome.AWAITING_APPROVAL:
-            # A second execute() call on a RunResult that already left this
-            # state would replay every step's command again -- harmless for
-            # a read-only `du`, but a real double-execution risk for
-            # anything that mutates state. Nothing upstream previously
-            # guarded against this: the TUI's Run/Dry-run buttons stay
-            # enabled while a plan runs, so a double-click (or a click
-            # landing just after completion) dispatches execute_plan()
-            # twice on the same self.current. Found live in an audit log
-            # with stages [...,"execute","report","execute"] and two result
-            # entries for one step. Refusing here, once, in the pipeline
-            # itself covers every caller (TUI, CLI, direct API use) instead
-            # of patching each one's click handler.
+        if result.executed:
+            # A second execute() call after a real (non-dry-run) attempt
+            # already began would replay every step's command again --
+            # harmless for a read-only `du`, but a real double-execution
+            # risk for anything that mutates state. Nothing upstream
+            # previously guarded against this: the TUI's Run/Dry-run
+            # buttons stay enabled while a plan runs, so a double-click (or
+            # a click landing just after completion) dispatches
+            # execute_plan() twice on the same self.current. Found live in
+            # an audit log with stages [...,"execute","report","execute"]
+            # and two result entries for one step. Refusing here, once, in
+            # the pipeline itself covers every caller (TUI, CLI, direct API
+            # use) instead of patching each one's click handler.
+            #
+            # Deliberately keyed on `executed`, not `outcome`: a REJECTED
+            # result (missing approval) or a dry-run-only result never ran
+            # a real command, so ticking the box and clicking Run again
+            # must still work. An outcome-based check blocked exactly that
+            # ordinary retry-after-rejection flow -- found live right after
+            # this guard first shipped.
             self.decisions.log(
                 Stage.EXECUTE.value, "refused: already executed",
                 f"this plan already reached outcome '{result.outcome.value}'; "
@@ -417,6 +431,19 @@ class Harness:
             f"{self.rollback.depth}")
 
         result.stages.append(Stage.EXECUTE.value)
+        # A fresh attempt reports fresh results -- discard whatever a prior
+        # dry run (or, now that the guard above permits it, a prior rejected
+        # attempt -- though that one never populated results in the first
+        # place) left behind, or a second dry run would append duplicate
+        # stub entries alongside the first.
+        result.results = []
+        if not dry_run:
+            # Past this point a real command may run; from here on this
+            # result is committed and the guard above must refuse any
+            # further execute() call on it. A dry run intentionally does
+            # NOT set this -- previewing a plan must not block the real run
+            # that follows it.
+            result.executed = True
         resume = ResumePoint(task_id=plan.spec.task_id, total=len(plan.steps))
         resume_path = self.workdir / "resume" / f"{plan.spec.task_id}.json"
         failed = False
