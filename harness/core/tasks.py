@@ -250,7 +250,14 @@ def shell(command: str, cwd: str | None = None,
     """
     import subprocess
 
-    result = subprocess.run(command, shell=True, capture_output=True, text=True,
+    # Explicit bash with pipefail, not shell=True's default /bin/sh (dash on
+    # this and most Debian-derived systems): dash's pipeline exit status is
+    # only the *last* command's, so `sudo something | sort | head` reports
+    # success with empty output when sudo alone fails (e.g. no password and
+    # no TTY) -- exactly the failure mode that let a `du` step "complete"
+    # having actually run nothing. Found live, not in a test.
+    result = subprocess.run(["/bin/bash", "-c", f"set -o pipefail; {command}"],
+                            capture_output=True, text=True,
                             cwd=cwd, timeout=timeout or 3600)
     if result.returncode != 0:
         raise RuntimeError(

@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 88 passed
+python3 -m pytest tests/ -q          # must print 95 passed
 harness doctor
 ```
 
@@ -110,6 +110,26 @@ equivalence, the same way `Step.command`/`Step.run` has to stay in sync.
 
 > Guarded by `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`
 
+### 2.8 `execute()` cannot be replayed on a result that already ran
+
+`Harness.execute` refuses immediately if `result.outcome` is anything other
+than `AWAITING_APPROVAL` -- it logs a `"refused: already executed"`
+decision and returns the result unchanged instead of re-running
+`plan.steps`.
+
+Found live: the TUI's Run/Dry-run buttons stayed clickable while a plan
+executed, so a double-click dispatched `execute()` twice on the same
+`RunResult`, and the second call happily re-ran every step's command
+against the live shell (visible in a real audit log as
+`stages: [..., "execute", "report", "execute"]` and two result entries
+for one step). A repeated `du` is only wasteful; a repeated DANGEROUS
+step approved once and then silently re-run is not. The TUI now also
+disables those buttons while busy, but that's the mitigation, not the
+fix -- the guard belongs in the pipeline because it is the only place that
+protects every caller (TUI, CLI, direct API use) at once.
+
+> Guarded by `tests/test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it`
+
 ---
 
 ## 3. Things already tried that failed
@@ -137,7 +157,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 88, must stay green
+python3 -m pytest tests/ -q                       # 95, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -197,6 +217,27 @@ the budget is spent.
 list open and writes no audit record, because the run has not happened yet. An
 earlier version appended the report stage during `plan()` and produced
 `present -> report -> execute` in the stage list.
+
+**`shell()`'s explicit `/bin/bash -c 'set -o pipefail; ...'`.** Looks like it
+could be simplified back to `subprocess.run(command, shell=True, ...)` --
+don't. `shell=True` runs under `/bin/sh`, which is `dash` on this and most
+Debian-derived systems, and dash's pipeline exit status is only the
+**last** command's. A `sudo something | sort | head` where `sudo` fails
+(no TTY, no password) still exits 0, because `head` on empty stdin exits
+0. Found live: a real `sudo du -ah / | sort -rh | head -n 20` step
+reported `"ok": true, "output": ""` for exactly this reason. `pipefail`
+under bash is what makes a mid-pipe failure actually fail the step.
+
+**`ModelRouter._downgrade()`'s `min(self.available, key=self._params_b)`
+fallback.** When nothing in `available` passes the `runnable()` fit check,
+this picks the smallest pulled model rather than falling through to
+`self.default_model`. Collapsing that branch back to `self.default_model`
+looks like a harmless simplification -- it isn't, because `default_model`
+is `"devstral"`, which can itself be the model that just failed the fit
+check. That produced a real routing_reason of "downgraded from devstral
+because only 5660 MB VRAM free" that still resolved to `"model":
+"devstral"`. `self.default_model` is only correct as the *true* last
+resort, when `available` is empty or unset entirely.
 
 ---
 
@@ -288,7 +329,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 88
+test command     python3 -m pytest tests/ -q     # 95
 ```
 
 ---

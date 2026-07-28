@@ -174,6 +174,33 @@ def test_a_declared_safe_rollback_is_still_classified(make_harness,
     assert len(overrides) == 1
 
 
+def test_execute_twice_on_the_same_result_does_not_replay_it(make_harness,
+                                                              tmp_path: Path) -> None:
+    """Found live in an audit log: stages [...,"execute","report","execute"]
+    and two result entries for one step. The TUI's Run button stays
+    clickable mid-run, so a double-click dispatched execute() twice on the
+    same already-completed RunResult, re-running every step's command a
+    second time. A read-only `du` is merely wasteful to repeat; anything
+    that mutates state would not be."""
+    marker = tmp_path / "marker"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"touch {marker}",
+        [{"id": "touch", "run": f"touch {marker}"}])))
+
+    planned = harness.plan(f"create {marker}")
+    once = harness.execute(planned, {})
+    assert once.outcome is Outcome.COMPLETED
+    assert len(once.results) == 1
+
+    twice = harness.execute(once, {})
+
+    assert twice.outcome is Outcome.COMPLETED
+    assert len(twice.results) == 1, "the step ran a second time"
+    assert twice.stages.count("execute") == 1
+    refusals = [d for d in twice.decisions if d["decision"] == "refused: already executed"]
+    assert len(refusals) == 1
+
+
 def test_a_precondition_flip_stops_execution(make_harness,
                                              tmp_path: Path) -> None:
     """The probe-12 scenario: a service dies at step one, step two must not run."""

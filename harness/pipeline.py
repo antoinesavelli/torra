@@ -358,6 +358,27 @@ class Harness:
             result.abort_reason = "nothing to execute"
             return self._finish(result, started)
 
+        if result.outcome is not Outcome.AWAITING_APPROVAL:
+            # A second execute() call on a RunResult that already left this
+            # state would replay every step's command again -- harmless for
+            # a read-only `du`, but a real double-execution risk for
+            # anything that mutates state. Nothing upstream previously
+            # guarded against this: the TUI's Run/Dry-run buttons stay
+            # enabled while a plan runs, so a double-click (or a click
+            # landing just after completion) dispatches execute_plan()
+            # twice on the same self.current. Found live in an audit log
+            # with stages [...,"execute","report","execute"] and two result
+            # entries for one step. Refusing here, once, in the pipeline
+            # itself covers every caller (TUI, CLI, direct API use) instead
+            # of patching each one's click handler.
+            self.decisions.log(
+                Stage.EXECUTE.value, "refused: already executed",
+                f"this plan already reached outcome '{result.outcome.value}'; "
+                "ignoring the repeat execute() call rather than re-running "
+                "its commands")
+            result.decisions = self.decisions.trail()
+            return result
+
         decisions = approvals or {}
         for sp in plan.steps:
             sp.approved = (True if not sp.needs_confirmation

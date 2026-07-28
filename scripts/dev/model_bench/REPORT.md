@@ -523,6 +523,99 @@ crashing. Covered by
 and `test_it_never_routes_to_an_absent_model` (tightened from asserting only
 what the model *wasn't* to asserting what it correctly became, and why).
 
+## Found live: a real disk-usage run, three separate bugs in one audit log
+
+A user asked the running harness "exactly what files are taking up large
+amounts of space" and then asked what the audit actually contained -- the
+audit JSON (`disk-usage-analysis.audit.json`) turned out to hold three
+independent, previously-unseen defects, none caught by the graded battery
+or the edge-case pass, because none of those drove a real interactive
+session against real sudo, real VRAM pressure, or a real double-click.
+
+**1. `sudo` failing inside a pipe was silently swallowed.** The proposed
+step was `sudo du -ah / | sort -rh | head -n 20`. This machine has no
+passwordless sudo and the harness runs with no TTY, so `sudo` failed
+immediately with "a password is required" -- but the step still reported
+`"ok": true, "output": ""`. Root cause: `harness/core/tasks.py`'s `shell()`
+ran commands via `subprocess.run(command, shell=True, ...)`, which on this
+(and most Debian-derived) systems means `/bin/sh` -> `dash`. Dash's
+pipeline exit status is only the **last** command's; `head` on empty stdin
+exits 0 regardless of what upstream failed. `sort` and `head` never saw an
+error, so neither did the harness. Fixed by running pipelines through bash
+with `pipefail` explicitly enabled instead of relying on the shell default:
+
+```python
+result = subprocess.run(["/bin/bash", "-c", f"set -o pipefail; {command}"],
+                        capture_output=True, text=True,
+                        cwd=cwd, timeout=timeout or 3600)
+```
+
+Verified directly: `shell('sudo -n du -ah / | sort -rh | head -n 20')` now
+raises `RuntimeError: exit 1: sudo: a password is required` instead of
+returning `''`; ordinary multi-stage pipes are unaffected. `shell()` had
+zero direct test coverage before this -- added
+`tests/test_core.py::TestShellPipefail` (four cases: mid-pipe failure,
+nonexistent command mid-pipe, normal pipes still work, final-command
+failure still raises).
+
+**2. The router's last-resort fallback could re-offer the model that just
+failed.** The same request's `routing_reason` read `"downgraded from
+devstral because only 5660 MB VRAM free"` while `"model": "devstral"` was
+still the final choice -- a downgrade that produces the thing it was
+downgrading away from. Root cause, in `ModelRouter._downgrade()`
+(`harness/gates/router.py`): when no model in `available` passes the
+`runnable()` fit check, the fallback was `self.default_model`, which the
+fix above (the previous section) had just changed to `"devstral"` -- the
+same model this call was already trying to replace. Fixed by falling back
+to the smallest available model when nothing fits, rather than blindly
+re-offering the class default:
+
+```python
+elif self.available:
+    replacement = min(self.available, key=self._params_b)
+```
+
+`self.default_model` is now only used as a true last resort, when
+`available` itself is empty or unset. Covered by
+`tests/test_gates.py::TestRouting::test_a_downgrade_never_re_offers_the_model_that_just_failed`.
+
+**3. A double-click replayed the whole step, including a duplicate
+`sudo` scan.** The audit's `stages` array read
+`[..., "execute", "report", "execute"]`, and its top-level `results` held
+**two** entries for the single `du-analyze` step, 0.17s apart on the
+decision timestamps -- too fast to be two deliberate runs. Root cause: the
+TUI's Run/Dry-run buttons (`harness/tui.py`) were never disabled while a
+plan executed, and `Harness.execute()` had no guard against being called
+twice on a `RunResult` that had already finished -- a `_finish()`-level
+guard already existed to stop `"report"` being appended twice, but nothing
+equivalent existed one level up for `"execute"` itself or for re-running
+`plan.steps`. A second click (or a click landing right as the first run
+finished) re-executed the same approved plan, its command and all,
+against a live shell -- wasteful for a read-only `du`, but a genuine
+double-execution risk for anything that mutates state. Fixed in two
+places:
+
+- `Harness.execute()` now refuses outright when `result.outcome` is
+  already something other than `AWAITING_APPROVAL`, logging a `"refused:
+  already executed"` decision instead of re-running the plan. This is the
+  binding fix -- it protects every caller (TUI, CLI, direct API use), not
+  just the one UI path that happened to trigger it.
+- `HarnessApp._set_busy()` now also disables the Run/Dry-run buttons for
+  the duration of a run, so the wasted second execution never gets
+  dispatched in the first place.
+
+Covered by
+`tests/test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it`.
+
+None of these three would have surfaced from the graded battery or the
+domain/edge-case exploration above: all three depend on conditions those
+runs didn't create (a sudo prompt with no TTY, VRAM tight enough that
+nothing in `available` fits, a human clicking a real button twice). The
+lesson isn't "test harder up front" so much as "an interactive tool run by
+an actual operator finds a different class of bug than any battery of
+synthetic requests will" -- consistent with `HANDOFF.md`'s own bias toward
+fixing what's demonstrated over what's merely imaginable.
+
 ## Caveats
 
 - Single run per task, not multiple trials averaged — LLM sampling has real

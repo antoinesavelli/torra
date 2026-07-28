@@ -435,6 +435,17 @@ class HarnessApp(App):
         """Toggle the busy state and the status line together."""
         self.busy = busy
         self.query_one("#prompt", Input).disabled = busy
+        # Run/dry-run stayed clickable mid-execution, so a double-click (or
+        # a click landing right as a run finished) could dispatch a second
+        # execute_plan() worker on the same already-executed result --
+        # Harness.execute() now refuses that outright, but disabling the
+        # buttons here stops the wasted second execution before it starts.
+        # query(), not query_one(): the plan pane (and its buttons) only
+        # exists once a plan has been rendered, so there is often nothing
+        # to disable yet, and that must not be an error.
+        for button_id in ("#run", "#dryrun"):
+            for button in self.query(button_id):
+                button.disabled = busy
         if message:
             self._status(f"[dim]{message}[/]")
 

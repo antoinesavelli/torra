@@ -167,7 +167,20 @@ class ModelRouter:
         candidates = sorted(
             (m for m in (self.available or set()) if self.runnable(m)),
             key=self._params_b, reverse=True)
-        replacement = candidates[0] if candidates else self.default_model
+        if candidates:
+            replacement = candidates[0]
+        elif self.available:
+            # Something is pulled locally, it just doesn't fit either -- pick
+            # the smallest footprint as the least-bad option. Falling through
+            # to `self.default_model` here is what produced a routing_reason
+            # of "downgraded from devstral because ... " that resolved right
+            # back to devstral: the class default *is* devstral, so when
+            # nothing in `available` passed the fit check this used to
+            # re-offer the exact model that had just failed it. Found live
+            # in a real audit log (disk-usage-analysis), not in a test.
+            replacement = min(self.available, key=self._params_b)
+        else:
+            replacement = self.default_model
         if not available_ok:
             why = f"{model} is not pulled locally"
         elif not getattr(self.accelerator, "gpu", False):

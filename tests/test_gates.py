@@ -494,6 +494,28 @@ class TestRouting:
         router = ModelRouter(available=["devstral:latest", "qwen3:8b"])
         assert router.select("deploy the api to staging").model == "devstral"
 
+    def test_a_downgrade_never_re_offers_the_model_that_just_failed(self) -> None:
+        """Found live in a real audit log (disk-usage-analysis): an unmatched
+        request defaults to devstral, VRAM was too tight for anything in
+        `available` to pass `runnable()`, and the old last-resort fallback
+        was `self.default_model` -- which *is* devstral, so the reported
+        "downgraded from devstral because ..." resolved right back to
+        devstral. With nothing runnable, the least-bad choice is the
+        smallest model actually pulled, not a repeat of the failed one."""
+        class NothingFits:
+            gpu = True
+            free_vram_mb = 5660
+
+            def fits(self, model: str) -> bool:
+                return False
+
+        router = ModelRouter(
+            available=["devstral", "qwen3:32b", "qwen3:8b"],
+            accelerator=NothingFits())
+        choice = router.select("what files take up lots of space")
+        assert choice.model != "devstral"
+        assert choice.model == "qwen3:8b"
+
 
 class TestModelAvailable:
     """The tag-normalization helper `Agent.converse` and `ModelRouter.score`
