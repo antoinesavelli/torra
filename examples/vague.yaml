@@ -1,0 +1,7 @@
+# A deliberately underspecified task, to watch the clarifier stop it at stage 1.
+task_id: vague-example
+request: tidy up the box a bit
+steps:
+  - id: go
+    run: echo nothing should happen
+    estimated_seconds: 1

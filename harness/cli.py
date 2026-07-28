@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+"""
+harness.cli
+Entry points.
+
+    harness                     launch the terminal interface
+    harness ask "..."           one request, plan and approve at the prompt
+    harness plan "..."          plan only, print it, run nothing
+    harness run task.yaml       run a hand-written task file, no model involved
+    harness check task.yaml     classify a task file without running it
+    harness doctor              check the environment
+    harness evidence            what the harness has recorded about itself
+    harness label               label recorded traffic
+
+`run` and `check` still take a hand-written YAML file and never touch the model.
+That path is kept deliberately: when the model is down, or wrong, or you simply
+know exactly what you want, the gates should still be available without it.
+
+Exit codes: 0 ok, 1 usage error, 2 stopped by a gate or unapproved, 3 failed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
+
+from .core import OllamaClient, OllamaStatus, TaskSpec, TaskSpecError
+from .gates import Clarifier, Precondition, SafetyClassifier, StateVerifier
+from .pipeline import Harness, Outcome, Plan
+from .telemetry import CorpusExporter, LabelStore, TaskLogger
+
+__all__ = ["build_parser", "main"]
+
+EXIT_OK, EXIT_USAGE, EXIT_BLOCKED, EXIT_FAILED = 0, 1, 2, 3
+DEFAULT_WORKDIR = Path.home() / ".harness"
+
+OUTCOME_EXIT: Dict[str, int] = {
+    "completed": EXIT_OK,
+    "answered": EXIT_OK,
+    "needs_answer": EXIT_BLOCKED,
+    "awaiting_approval": EXIT_BLOCKED,
+    "rejected": EXIT_BLOCKED,
+    "refused": EXIT_BLOCKED,
+    "blocked": EXIT_BLOCKED,
+    "failed": EXIT_FAILED,
+    "backend_down": EXIT_FAILED,
+}
+
+
+def build_harness(workdir: Path, offline: bool = False) -> Harness:
+    """Assemble the stack with a sensible default precondition."""
+    verifier = StateVerifier()
+    verifier.add(Precondition(
+        "disk:/", lambda: StateVerifier.disk_free_gb("/") > 1.0,
+        "at least 1 GB free on /", ttl_seconds=30))
+    ollama = (OllamaClient(transport=lambda p, pay, t: {"models": []})
+              if offline else OllamaClient())
+    return Harness(workdir=workdir, ollama=ollama, verifier=verifier)
+
+
+def print_plan(plan: Plan) -> None:
+    """Render a gated plan for a terminal."""
+    print(f"\ntask   : {plan.spec.task_id}")
+    print(f"request: {plan.spec.request}")
+    print(f"model  : {plan.model}  worst: {plan.worst_level.value}"
+          + (f"  ({plan.repairs} repair(s))" if plan.repairs else ""))
+    print(f"undo   : {plan.coverage.get('coverage_ratio', 0):.0%} coverage"
+          + (f", none for {plan.uncovered}" if plan.uncovered else ""))
+    print()
+    for index, sp in enumerate(plan.steps, start=1):
+        flag = "CONFIRM" if sp.needs_confirmation else "   ok  "
+        print(f"  {index}. [{flag}] {sp.verdict.level.value:9} {sp.step.step_id}")
+        print(f"       {sp.step.command}")
+        if sp.undos:
+            print(f"       undo: {sp.undos[0].description[:70]}")
+        else:
+            print("       undo: none derivable")
+
+
+def approve_at_prompt(plan: Plan) -> Dict[str, bool]:
+    """Ask on stdin about every step that needs confirmation."""
+    approvals: Dict[str, bool] = {}
+    for sp in plan.needs_confirmation:
+        print(f"\n  [{sp.verdict.level.value.upper()}] {sp.step.command}")
+        for reason in sp.verdict.reasons[:3]:
+            print(f"    {reason}")
+        if not sp.undos:
+            print("    no automatic undo for this step")
+        try:
+            answer = input("    approve? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        approvals[sp.step.step_id] = answer in ("y", "yes")
+    return approvals
+
+
+# --------------------------------------------------------------------------- #
+# Commands
+# --------------------------------------------------------------------------- #
+
+
+def cmd_tui(args: argparse.Namespace) -> int:
+    """Launch the terminal interface."""
+    try:
+        from .tui import run_tui
+    except ImportError:
+        print("error: textual is not installed. pip install textual",
+              file=sys.stderr)
+        return EXIT_USAGE
+    run_tui(workdir=Path(args.workdir))
+    return EXIT_OK
+
+
+def cmd_ask(args: argparse.Namespace) -> int:
+    """One request, planned and approved at the prompt."""
+    harness = build_harness(Path(args.workdir))
+    result = harness.plan(args.request, model=args.model)
+
+    if result.turn and result.turn.message:
+        print(f"\n{result.turn.message}")
+
+    if result.outcome is Outcome.NEEDS_ANSWER:
+        print("\nquestions:")
+        for question in (result.turn.questions if result.turn else []):
+            print(f"  ? {question}")
+        if args.non_interactive:
+            return EXIT_BLOCKED
+        answers = []
+        for question in (result.turn.questions if result.turn else []):
+            try:
+                answers.append(input(f"  {question}\n  > ").strip())
+            except (EOFError, KeyboardInterrupt):
+                return EXIT_BLOCKED
+        result = harness.answer(result, answers, model=args.model)
+
+    if result.outcome is not Outcome.AWAITING_APPROVAL or result.plan is None:
+        print(f"\noutcome: {result.outcome.value}")
+        if result.abort_reason:
+            print(f"reason : {result.abort_reason}")
+        return OUTCOME_EXIT.get(result.outcome.value, EXIT_FAILED)
+
+    print_plan(result.plan)
+    if args.plan_only:
+        print("\n(plan only, nothing run)")
+        return EXIT_BLOCKED
+
+    approvals = {} if args.non_interactive else approve_at_prompt(result.plan)
+    done = harness.execute(result, approvals, dry_run=args.dry_run)
+
+    print(f"\noutcome: {done.outcome.value}")
+    for step_result in done.results:
+        print(f"  {'ok  ' if step_result.ok else 'FAIL'} {step_result.step_id}"
+              + (f": {step_result.error}" if step_result.error else ""))
+    if done.abort_reason:
+        print(f"reason : {done.abort_reason}")
+    if done.rollback:
+        print(f"rollback: {len(done.rollback.undone)} undone, "
+              f"{len(done.rollback.unverified)} unverified, "
+              f"{len(done.rollback.failed)} failed")
+    if done.audit_path:
+        print(f"audit  : {done.audit_path}")
+    return OUTCOME_EXIT.get(done.outcome.value, EXIT_FAILED)
+
+
+def cmd_plan(args: argparse.Namespace) -> int:
+    """Plan only, print it, run nothing."""
+    args.plan_only = True
+    args.dry_run = False
+    args.non_interactive = True
+    return cmd_ask(args)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Run a hand-written task file, with no model involved."""
+    try:
+        spec = TaskSpec.load(args.task_file)
+    except TaskSpecError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    harness = build_harness(Path(args.workdir), offline=True)
+    plan = harness._gate(spec)
+    print_plan(plan)
+
+    from .pipeline import RunResult
+    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
+                       stages=["gate", "present"], plan=plan)
+    if plan.preconditions and not plan.preconditions.passed:
+        print("\npreconditions failed: " + ", ".join(
+            r.name for r in plan.preconditions.blocking_failures))
+        return EXIT_BLOCKED
+
+    approvals = {} if args.non_interactive else approve_at_prompt(plan)
+    done = harness.execute(result, approvals, dry_run=args.dry_run)
+    print(f"\noutcome: {done.outcome.value}")
+    if done.abort_reason:
+        print(f"reason : {done.abort_reason}")
+    return OUTCOME_EXIT.get(done.outcome.value, EXIT_FAILED)
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Classify a task file without running or prompting."""
+    try:
+        spec = TaskSpec.load(args.task_file)
+    except TaskSpecError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    clarifier, safety = Clarifier(), SafetyClassifier()
+    print(f"task   : {spec.task_id}\nrequest: {spec.request}\n")
+    print(clarifier.explain(spec.request))
+    print("\ncommands:")
+    blocked = 0
+    for command in spec.commands():
+        verdict = safety.classify(command)
+        blocked += 1 if verdict.needs_confirmation else 0
+        print(f"  {'BLOCK' if verdict.needs_confirmation else '  ok '} "
+              f"{verdict.level.value:9} {command}")
+        if args.verbose:
+            for reason in verdict.reasons[:3]:
+                print(f"             {reason}")
+    gaps = clarifier.detect(spec.request)
+    print(f"\n{len(gaps)} question(s), {blocked} command(s) need confirmation")
+    return EXIT_BLOCKED if (gaps or blocked) else EXIT_OK
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Check that the environment can run this."""
+    workdir = Path(args.workdir)
+    checks: List[tuple[str, bool, str]] = [
+        ("python >= 3.10", sys.version_info >= (3, 10),
+         ".".join(map(str, sys.version_info[:3]))),
+    ]
+    for module, note in (("yaml", "required for task files"),
+                         ("textual", "required for the terminal interface"),
+                         ("inotify_simple", "optional, falls back to full walks")):
+        try:
+            __import__(module)
+            checks.append((module, True, note))
+        except ImportError:
+            checks.append((module, False, f"missing: {note}"))
+
+    checks.append(("workdir writable",
+                   os.access(workdir.parent, os.W_OK) if workdir.parent.exists() else True,
+                   str(workdir)))
+    try:
+        probe = subprocess.run(["cp", "--reflink=always", "--help"],
+                               capture_output=True, timeout=5)
+        checks.append(("cp --reflink", probe.returncode == 0,
+                       "shadow snapshots may clone instead of copy"))
+    except Exception as exc:
+        checks.append(("cp --reflink", False, type(exc).__name__))
+
+    ollama = OllamaClient()
+    status = ollama.health()
+    models = ollama.models() if status is OllamaStatus.HEALTHY else []
+    checks.append((f"ollama at {ollama.host}", status is OllamaStatus.HEALTHY,
+                   ", ".join(models) if models
+                   else status.value + (f" ({ollama.last_error})"
+                                        if ollama.last_error else "")))
+
+    width = max(len(n) for n, _o, _d in checks)
+    failed = sum(0 if ok else 1 for _n, ok, _d in checks)
+    for name, ok, detail in checks:
+        print(f"  {'ok  ' if ok else 'WARN'}  {name:<{width}}  {detail}")
+    print(f"\n{len(checks) - failed}/{len(checks)} checks passed")
+    if failed:
+        print("yaml blocks task files, textual blocks the interface, and a "
+              "missing Ollama blocks planning but not `run`. Everything else "
+              "has a documented fallback.")
+    return EXIT_OK
+
+
+def cmd_evidence(args: argparse.Namespace) -> int:
+    """Print what the harness has recorded about itself."""
+    workdir = Path(args.workdir)
+    logger = TaskLogger(workdir / "telemetry" / "tasks.jsonl")
+    labels = LabelStore(workdir / "telemetry" / "labels.jsonl")
+    records = logger.read()
+    exporter = CorpusExporter(logger, labels)
+
+    print(f"tasks recorded : {len(records)}")
+    print(f"  planned      : {sum(1 for r in records if r.intent == 'plan')}")
+    print(f"  asked        : {sum(1 for r in records if r.intent == 'ask')}")
+    print(f"  completed    : {sum(1 for r in records if r.status == 'completed')}")
+    print(f"  repairs      : {sum(r.repairs for r in records)}")
+    print()
+    print(exporter.drift(Clarifier(), args.baseline_fn, args.baseline_fp).render())
+    pending = labels.unlabeled(records)
+    if pending:
+        print(f"\nunlabeled ({len(pending)}), most frequent first:")
+        for request in pending[:10]:
+            print(f"  {request!r}")
+    return EXIT_OK
+
+
+def cmd_label(args: argparse.Namespace) -> int:
+    """Label recorded traffic, most frequent phrasings first."""
+    workdir = Path(args.workdir)
+    logger = TaskLogger(workdir / "telemetry" / "tasks.jsonl")
+    labels = LabelStore(workdir / "telemetry" / "labels.jsonl")
+    clarifier = Clarifier()
+    pending = labels.unlabeled(logger.read())
+    if not pending:
+        print("nothing to label. Ask for something first.")
+        return EXIT_OK
+
+    print(f"{len(pending)} unlabeled request(s).")
+    print("a = ambiguous, s = specific, k = skip, q = quit\n")
+    labeled = 0
+    for request in pending[: args.limit]:
+        verdict = "would ask" if clarifier.detect(request) else "would plan"
+        print(f"  {request!r}\n    clarifier: {verdict}")
+        try:
+            answer = input("    [a/s/k/q] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if answer == "q":
+            break
+        if answer == "a":
+            labels.label(request, True, input("    why? ").strip(),
+                         os.environ.get("USER", ""))
+            labeled += 1
+        elif answer == "s":
+            labels.label(request, False, labeler=os.environ.get("USER", ""))
+            labeled += 1
+        print()
+    total = len(labels.all())
+    print(f"labeled {labeled} this session, {total} total.")
+    if total < 30:
+        print(f"{30 - total} more before drift() will report a rate.")
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# Parser
+# --------------------------------------------------------------------------- #
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="harness",
+        description="A local model proposes, five gates decide, you approve.",
+        epilog="exit codes: 0 ok, 1 usage, 2 stopped by a gate, 3 failed")
+    parser.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
+    sub = parser.add_subparsers(dest="command")
+
+    tui = sub.add_parser("tui", help="launch the terminal interface (default)")
+    tui.set_defaults(func=cmd_tui)
+
+    ask = sub.add_parser("ask", help="one request, planned and approved at the prompt")
+    ask.add_argument("request")
+    ask.add_argument("--model")
+    ask.add_argument("--dry-run", action="store_true")
+    ask.add_argument("--non-interactive", action="store_true")
+    ask.add_argument("--plan-only", action="store_true")
+    ask.set_defaults(func=cmd_ask)
+
+    plan = sub.add_parser("plan", help="plan only, run nothing")
+    plan.add_argument("request")
+    plan.add_argument("--model")
+    plan.set_defaults(func=cmd_plan)
+
+    run = sub.add_parser("run", help="run a hand-written task file, no model")
+    run.add_argument("task_file")
+    run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--non-interactive", action="store_true")
+    run.set_defaults(func=cmd_run)
+
+    check = sub.add_parser("check", help="classify a task file without running it")
+    check.add_argument("task_file")
+    check.add_argument("-v", "--verbose", action="store_true")
+    check.set_defaults(func=cmd_check)
+
+    doctor = sub.add_parser("doctor", help="check the environment")
+    doctor.set_defaults(func=cmd_doctor)
+
+    evidence = sub.add_parser("evidence", help="what the harness has recorded")
+    evidence.add_argument("--baseline-fn", type=float, default=0.0)
+    evidence.add_argument("--baseline-fp", type=float, default=0.10)
+    evidence.set_defaults(func=cmd_evidence)
+
+    label = sub.add_parser("label", help="label recorded traffic")
+    label.add_argument("--limit", type=int, default=25)
+    label.set_defaults(func=cmd_label)
+
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Entry point. Bare `harness` launches the interface."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not getattr(args, "func", None):
+        args.func = cmd_tui
+    try:
+        return int(args.func(args))
+    except KeyboardInterrupt:
+        print("\ninterrupted", file=sys.stderr)
+        return EXIT_USAGE
+    except TaskSpecError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception as exc:  # no silent failures, even at the top level
+        print(f"unhandled {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+
+
+if __name__ == "__main__":
+    sys.exit(main())

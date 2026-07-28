@@ -1,0 +1,91 @@
+# CORE_RULES.yaml
+# Configuration foundation for the Pop-OS terminal agent harness.
+# ModelSelector.from_yaml reads the model_routing block. Everything else here
+# is consumed by the pipeline defaults in phase1_integrated_executor.py.
+
+core_behaviors:
+  safety_first:
+    enabled: true
+    auto_approve_levels: [safe, caution]
+    # Levels above these always require an explicit yes.
+  transparency:
+    enabled: true
+    require_reasoning: true
+  verify_state:
+    enabled: true
+    recheck_between_steps: true    # Phase 2: continuous VERIFY_STATE
+    default_ttl_seconds: 10        # per-precondition TTL, 0 = every step
+  rollback_on_fail:
+    enabled: true
+    stop_on_cancel: true
+    generate_undos: true           # Phase 3: derive undos from step state
+    stop_on_unverified: true       # Phase 3: halt if an undo cannot be proven
+    max_shadow_bytes: 67108864     # Phase 3: refuse to snapshot beyond this
+  ask_clarifying_questions:
+    enabled: true
+    min_specific_tokens: 4
+
+risk_mitigations:
+  adaptive_checkpointing:
+    short_max_minutes: 5
+    medium_max_minutes: 30
+    medium_target_checkpoints: 5
+    min_observations: 3            # Phase 2: steps before revising
+    compact_every: 25              # Phase 2: deltas before a new base
+    lock_block: false              # Phase 3: wait for a contended task id
+    lock_timeout: 0                # Phase 3: max wait when lock_block is true
+  conflict_detection:
+    algorithm: sha256
+    abort_on_conflict: true
+    watch_roots: []                # Phase 2: dirs watched in full
+    max_files: 50000
+  context_compression:
+    max_tokens: 32000
+    trigger_ratio: 0.90
+    target_ratio: 0.45
+    keep_recent: 3
+  ollama_fallback:
+    host: http://localhost:11434
+    probe_timeout_seconds: 0.5
+    monitor_interval_seconds: 5
+    fallback_model: qwen3:8b
+
+model_routing:
+  default: qwen3:8b
+  # Phase 3 ScoringModelSelector weights. Higher wins a tie on match count.
+  # The rule matching earliest in the text also gets a 2x lead multiplier,
+  # because the leading verb is the intent and the rest is the object.
+  weights:
+    debug: 3.0
+    plan: 2.0
+    analyze: 1.8
+    deploy: 1.5
+    code: 1.5
+    quick: 0.5
+  rules:
+    # Order matters. First match wins, so debug outranks deploy on purpose:
+    # "the deploy is broken" is a debugging task, not a deployment task.
+    - name: debug
+      pattern: '\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)|root\s*cause|failing|broken|bug)\b'
+      model: qwen3:32b
+      reason: debugging needs the deepest reasoning budget available locally
+    - name: deploy
+      pattern: '\b(deploy|release|ship|rollout|provision|terraform|ansible|systemd\s+unit)\b'
+      model: devstral
+      reason: deployment work needs strong tool and file editing behavior
+    - name: code
+      pattern: '\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|migrate\s+code)\b'
+      model: devstral
+      reason: code generation is devstral's trained specialty
+    - name: plan
+      pattern: '\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b'
+      model: qwen3:32b
+      reason: planning benefits from long context reasoning
+    - name: analyze
+      pattern: '\b(analy[sz]e|summar[iy]|review|audit|explain)\b'
+      model: qwen3:32b
+      reason: analysis is reasoning bound, not tool bound
+    - name: quick
+      pattern: '\b(list|show|print|cat|what\s+is|check|status)\b'
+      model: qwen3:8b
+      reason: trivial lookups do not justify loading a 32b model
