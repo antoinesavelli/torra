@@ -122,6 +122,27 @@ class TestSafety:
         """The verdict carries approval state; nothing runs off `level` alone."""
         verdict = SafetyClassifier().classify("rm -rf /var/lib/x")
         assert verdict.blocked is True
+
+    def test_every_way_to_kill_pid_1_is_caught(self) -> None:
+        """Found in a full-file audit: only the literal `-9` flag was
+        recognized. `kill -s KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`,
+        and plain `kill 1` (default SIGTERM) all classified SAFE."""
+        safety = SafetyClassifier()
+        for cmd in ("kill -9 1", "kill -s KILL 1", "kill -SIGKILL 1",
+                   "kill -s 9 1", "kill 1", "kill -9 1 12345"):
+            assert safety.classify(cmd).level is RiskLevel.CRITICAL, cmd
+
+    def test_kill_of_a_different_pid_is_not_mistaken_for_pid_1(self) -> None:
+        """`-s`/`-n`/`--signal` consume the *next* token as their argument,
+        not a PID -- `kill -s 1 12345` sends SIGHUP to PID 12345 and never
+        touches PID 1."""
+        verdict = SafetyClassifier().classify("kill -s 1 12345")
+        assert verdict.level is RiskLevel.SAFE
+
+    def test_kill_list_mode_is_not_mistaken_for_a_kill(self) -> None:
+        """`kill -l [1]` prints a signal name; it kills nothing."""
+        verdict = SafetyClassifier().classify("kill -l 1")
+        assert verdict.level is RiskLevel.SAFE
         verdict.approved = True
         assert verdict.blocked is False
 
@@ -245,6 +266,16 @@ class TestUndoGeneration:
         assert action.safe is False
         installed.add("nginx")
         assert action.verify() is False
+
+    def test_a_non_debian_package_manager_gets_no_undo(self) -> None:
+        """Found in a full-file audit: the pattern used to also match dnf
+        and pacman, but the generated undo always ran `apt-get remove`
+        regardless -- a working-looking UndoAction that would fail (or
+        remove the wrong packages) the moment it actually ran. Naming the
+        step uncovered is honest; a broken undo that looks safe is not."""
+        generator = UndoGenerator(package_probe=lambda: {"curl"})
+        actions = generator.for_step(Step("i", command="sudo dnf install -y nginx"))
+        assert actions == []
 
     def test_it_invents_nothing_it_cannot_invert(self, tmp_path: Path) -> None:
         """dd, mkfs and migrations are named as uncovered rather than faked."""
@@ -418,6 +449,20 @@ class TestClarifier:
         assert clarifier.detect("remove docker images older than 30 days") == []
         assert Clarifier(strict_destructive=True).detect(
             "remove /tmp/build-cache-2024 and nothing else")
+
+    def test_deploy_without_an_environment_is_flagged(self) -> None:
+        assert any(a.code == "no_environment"
+                   for a in Clarifier().detect("deploy the api"))
+
+    def test_deploy_to_localhost_is_not_flagged(self) -> None:
+        """Found in a full-file audit: the anchor pattern recognizes
+        "localhost" as a named environment, but this check used to look
+        for "local" instead -- a word-boundary mismatch ("local" never
+        matches inside "localhost"), so the clarifier both found the
+        anchor and complained no environment was named, for the same
+        request."""
+        codes = {a.code for a in Clarifier().detect("deploy the api localhost")}
+        assert "no_environment" not in codes
 
     def test_extra_anchors_teach_it_a_local_scheme(self) -> None:
         assert Clarifier().detect("restart the frobnitz gateway")

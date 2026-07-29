@@ -70,7 +70,8 @@ risk_mitigations:
     host: http://localhost:11434
     probe_timeout_seconds: 0.5
     monitor_interval_seconds: 5
-    fallback_model: qwen3:8b   # stale: no longer pulled, see model_routing note below
+    fallback_model: qwen3.5:latest   # OllamaClient's own default; was qwen3:8b until a
+                                      # full-file audit found it referenced a deleted model
 
 model_routing:
   # Model catalog pruned to four on 2026-07-28: qwen3:32b, qwen3-coder:30b,

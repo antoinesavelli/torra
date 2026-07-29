@@ -59,10 +59,23 @@ class OllamaClient:
         host: str = DEFAULT_HOST,
         timeout: float = 120.0,
         probe_timeout: float = 1.0,
-        fallback_model: str = "qwen3:8b",
+        fallback_model: str = "qwen3.5:latest",
         transport: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
     ) -> None:
-        """Configure the host, timeouts, fallback model, and an injectable transport."""
+        """Configure the host, timeouts, fallback model, and an injectable transport.
+
+        `fallback_model` defaults to the smallest model in the current
+        four-model catalog (`HANDOFF.md` §2.9's pruning), not the
+        cheapest-sounding name in the abstract -- "qwen3:8b" was this
+        default until a full-file audit found it: that model was deleted
+        along with the rest of the exploratory catalog, so both
+        `Agent.converse`'s degraded-status fallback and the "Fall back to
+        {model}" text in `recovery_options` were recommending a model that
+        no longer exists. `Agent.converse` already has its own defense
+        for exactly this (falls through to `available[0]` when even the
+        fallback isn't pulled), so this wasn't a crash -- just consistently
+        wrong advice to whoever read it.
+        """
         self.host = host.rstrip("/")
         self.timeout = float(timeout)
         self.probe_timeout = float(probe_timeout)

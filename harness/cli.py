@@ -20,7 +20,7 @@ from pathlib import Path
 from .core import OllamaClient, OllamaStatus, TaskSpec, TaskSpecError
 from .gates import Clarifier, Precondition, SafetyClassifier, StateVerifier
 from .pipeline import Harness, Outcome, Plan
-from .telemetry import CorpusExporter, LabelStore, TaskLogger
+from .telemetry import CorpusExporter, LabelStore, LoopholeAudit, TaskLogger
 
 __all__ = ["build_parser", "main"]
 
@@ -278,7 +278,17 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     print(f"  completed    : {sum(1 for r in records if r.status == 'completed')}")
     print(f"  repairs      : {sum(r.repairs for r in records)}")
     print()
-    print(exporter.drift(Clarifier(), args.baseline_fn, args.baseline_fp).render())
+    clarifier = Clarifier()
+    print(exporter.drift(clarifier, args.baseline_fn, args.baseline_fp).render())
+    print()
+    loophole = LoopholeAudit(clarifier).audit(records)
+    print(f"anchored-but-goalless: {loophole.anchored_but_goalless} of "
+         f"{loophole.passed_clarifier} passed request(s)")
+    print(f"  verdict: {loophole.verdict}")
+    if loophole.examples:
+        print("  examples:")
+        for request in loophole.examples[:5]:
+            print(f"    {request!r}")
     pending = labels.unlabeled(records)
     if pending:
         print(f"\nunlabeled ({len(pending)}), most frequent first:")

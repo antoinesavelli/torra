@@ -71,6 +71,32 @@ def test_the_audit_records_the_model_and_the_gates(make_harness,
     assert {"converse", "gate", "execute"} <= stages
 
 
+def test_every_finished_turn_is_recorded_to_telemetry(make_harness,
+                                                       tmp_path: Path) -> None:
+    """Found in a full-file audit: `harness.telemetry.records.TaskLogger`
+    had a working `record()` and no caller anywhere in pipeline.py,
+    agent.py, or tui.py -- `harness label`/`harness evidence` (cli.py)
+    only ever read tasks.jsonl, and nothing ever wrote to it. Every
+    `_finish()` call that writes an audit record must also log one here,
+    including turns that never reach execute() at all."""
+    target = tmp_path / "marker"
+    harness = make_harness(scripted(
+        {"intent": "answer", "message": "just a question"},
+        plan_reply("t", f"touch {target}",
+                  [{"id": "touch", "run": f"touch {target}"}])))
+
+    answered = harness.plan("what is this machine")
+    assert answered.outcome is Outcome.ANSWERED
+    planned = harness.plan(f"create {target}")
+    harness.execute(planned, {})
+
+    records = harness.telemetry.read()
+    assert len(records) == 2
+    assert records[0].status == "answered"
+    assert records[1].status == "completed"
+    assert records[1].intent == "plan"
+
+
 # --------------------------------------------------------------------------- #
 # Approval
 # --------------------------------------------------------------------------- #
@@ -121,6 +147,30 @@ def test_a_safe_step_needs_no_tick(make_harness, tmp_path: Path) -> None:
     assert planned.plan is not None
     assert planned.plan.needs_confirmation == []
     assert harness.execute(planned, {}).outcome is Outcome.COMPLETED
+
+
+def test_reject_never_runs_an_all_safe_plan(make_harness, tmp_path: Path) -> None:
+    """Found in a full-file audit: the TUI's Reject button used to bypass
+    the pipeline entirely (self.current = None, no audit, no telemetry).
+    Routing it through execute(result, {}) instead would have been wrong
+    in a different way -- a safe step's `approved` defaults to True
+    regardless of the approvals dict, so an all-safe plan would actually
+    *run* on "reject" rather than being declined. Harness.reject() must
+    refuse unconditionally, independent of what would have needed a tick."""
+    marker = tmp_path / "marker"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    planned = harness.plan(f"create {marker}")
+    assert planned.plan is not None and planned.plan.needs_confirmation == []
+
+    done = harness.reject(planned)
+
+    assert done.outcome is Outcome.REJECTED
+    assert not marker.exists(), "reject() ran an all-safe plan instead of declining it"
+    assert done.audit_path
+    records = harness.telemetry.read()
+    assert records and records[-1].status == "rejected"
 
 
 # --------------------------------------------------------------------------- #
@@ -268,6 +318,38 @@ def test_a_precondition_flip_stops_execution(make_harness,
     assert done.outcome is Outcome.BLOCKED
     assert "precondition went false mid-run" in done.abort_reason
     assert not marker.exists()
+
+
+def test_a_block_before_any_step_ran_is_still_retryable(make_harness,
+                                                         tmp_path: Path) -> None:
+    """Found in a full-file audit, not live: `executed` used to be set
+    unconditionally before the step loop, so a plan BLOCKED by a
+    precondition or conflict check on step one -- before a single command
+    ran -- was marked "already executed" the same as a plan that actually
+    ran something, and could never be retried. The same bug §2.8 fixed for
+    REJECTED, just missed for this path: zero results means zero side
+    effects, and it must stay retryable once the underlying condition is
+    fixed, exactly like ticking a box after a rejection."""
+    marker = tmp_path / "marker"
+    state = {"up": True}
+    verifier = StateVerifier()
+    verifier.add(Precondition("svc", lambda: state["up"], "must stay up",
+                              ttl_seconds=0))
+    harness = make_harness(scripted(plan_reply(
+        "t", f"touch {marker}",
+        [{"id": "touch", "run": f"touch {marker}"}])), verifier=verifier)
+
+    planned = harness.plan(f"create {marker}")
+    state["up"] = False
+    blocked = harness.execute(planned, {})
+    assert blocked.outcome is Outcome.BLOCKED
+    assert blocked.results == []
+
+    state["up"] = True
+    retried = harness.execute(blocked, {})
+
+    assert retried.outcome is Outcome.COMPLETED
+    assert marker.exists()
 
 
 def test_an_external_edit_stops_the_run(make_harness, tmp_path: Path) -> None:

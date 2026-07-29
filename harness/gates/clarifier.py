@@ -220,8 +220,14 @@ class Clarifier:
                 f"What defines '{vague.group(0)}' here? Give an age, size, or pattern.",
                 f"'{vague.group(0)}' is a judgement, not a selection rule")
 
+        # "localhost", not "local": the anchor pattern above recognizes
+        # "localhost" as a named environment (line 71's ANCHOR_PATTERNS),
+        # so this alternative has to match the same word or "deploy the
+        # api localhost" trips no_environment right after anchors_in()
+        # already found "named environment" for the same text -- found in
+        # a full-file audit, self-contradictory but not previously tested.
         if re.search(DEPLOY, text, re.IGNORECASE) and not re.search(
-                r"\b(to|into|on)\s+\S+|\b(staging|production|prod|local|dev)\b",
+                r"\b(to|into|on)\s+\S+|\b(staging|production|prod|localhost|dev)\b",
                 text, re.IGNORECASE):
             add("no_environment",
                 "Which environment is the target: local, staging, or production?",

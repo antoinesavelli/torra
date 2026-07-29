@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 114 passed
+python3 -m pytest tests/ -q          # must print 126 passed
 harness doctor
 ```
 
@@ -115,11 +115,13 @@ equivalence, the same way `Step.command`/`Step.run` has to stay in sync.
 `Harness.execute` refuses immediately if `result.executed` is already
 `True` -- it logs a `"refused: already executed"` decision and returns
 the result unchanged instead of re-running `plan.steps`. `executed` is a
-dedicated `RunResult` field, set only once a non-dry-run attempt commits
-past the approval check (right where `"execute"` is appended to
-`result.stages`); it is deliberately **not** derived from `outcome`.
+dedicated `RunResult` field, set only once a non-dry-run step is actually
+about to run (inside the loop, immediately before `sp.step.run()`); it is
+deliberately **not** derived from `outcome` and deliberately **not** set
+just for entering the loop.
 
-Found live, twice, in the same session:
+Found live, twice, then once more in a full-file audit, all in the same
+session:
 
 1. The TUI's Run/Dry-run buttons stayed clickable while a plan executed,
    so a double-click dispatched `execute()` twice on the same
@@ -138,6 +140,14 @@ Found live, twice, in the same session:
    command actually get attempted," not "did this result leave its
    initial state." A `REJECTED` or dry-run-only result leaves `executed`
    `False` and can still be retried; once a real run begins, it cannot.
+3. The fix for #2 still set `executed = True` unconditionally right
+   before the step loop, not inside it -- so a plan `BLOCKED` by the
+   precondition/conflict check on step one, before any command ran, was
+   *also* marked "already executed" and could never be retried once the
+   underlying condition (a dead service, an external file change) was
+   resolved. Moved the assignment to immediately before `sp.step.run()`
+   is actually called, so a block with zero results behaves like
+   `REJECTED`: retryable.
 
 `result.results` is also reset at the start of every attempt that gets
 past the approval check (dry or real) -- without that, a dry run followed
@@ -145,8 +155,9 @@ by the real run it previewed would leave both the dry-run stub output and
 the real output in the same list.
 
 > Guarded by `tests/test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it`,
-> `test_ticking_the_box_after_a_rejection_still_runs`, and
-> `test_a_dry_run_does_not_block_the_real_run_that_follows`
+> `test_ticking_the_box_after_a_rejection_still_runs`,
+> `test_a_dry_run_does_not_block_the_real_run_that_follows`, and
+> `test_a_block_before_any_step_ran_is_still_retryable`
 
 ### 2.9 A model's size and chat capability come from the daemon, never the name
 
@@ -181,6 +192,29 @@ this invariant not holding.
 > tests in `TestRouting`, and
 > `tests/test_agent.py::test_observe_populates_the_routers_real_model_sizes`
 
+### 2.10 Every way to decline a plan goes through the pipeline
+
+`Harness.reject(result)` exists specifically because `execute(result,
+{})` is **not** a safe way to implement "decline this plan": a step's
+`approved` defaults to `True` whenever it doesn't need confirmation, so
+calling `execute` with empty approvals on an all-safe plan does not
+refuse it, it *runs* it. `reject()` sets `outcome = REJECTED`
+unconditionally and calls `_finish()`, the same choke point every other
+terminal outcome goes through -- audit record written, telemetry
+recorded (2.9's neighbor gap, §6.1), decision logged.
+
+Found in a full-file audit: the TUI's Reject button used to bypass all
+of that -- `self.current = None` and nothing else. It looked harmless
+(nothing runs either way) but meant the single most direct expression of
+an operator declining a plan left no trace anywhere, including in the
+one metric HANDOFF.md §6.1 names explicitly: "how often a human rejected
+a plan outright." If you add another way to decline a plan (a CLI flag,
+a keybinding), route it through `Harness.reject()`, not through
+`execute()` with an empty approvals dict and not through UI state alone.
+
+> Guarded by `tests/test_pipeline.py::test_reject_never_runs_an_all_safe_plan`
+> and `tests/test_tui.py::test_reject_records_the_decision`
+
 ---
 
 ## 3. Things already tried that failed
@@ -208,7 +242,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 114, must stay green
+python3 -m pytest tests/ -q                       # 126, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -324,10 +358,26 @@ What to measure, from `~/.harness/telemetry/tasks.jsonl`:
 If local models turn out to write mediocre plans, the fix is prompt work and
 model choice. **It is not more gates.** The gates are done.
 
+Until a full-file audit found it, none of this was actually collectible:
+`TaskLogger.record()` had no caller anywhere in `pipeline.py`, `agent.py`,
+or `tui.py`. `harness label`/`harness evidence` (`cli.py`) only ever
+*read* `tasks.jsonl` -- nothing wrote to it, so both commands could only
+ever report zero tasks, no matter how much real use the harness saw.
+`Harness._finish()` now calls `self.telemetry.record(...)` for every
+turn, using the same `<workdir>/telemetry/tasks.jsonl` path those
+commands already read from. This P0 was measurement-blocked in a way
+this document didn't previously say out loud: the tool to close it did
+not just lack data, it structurally could not have collected any.
+
+> Guarded by `tests/test_pipeline.py::test_every_finished_turn_is_recorded_to_telemetry`
+
 ### 6.2 No real traffic
 
-Every number in `README.md` came from synthetic data. `harness label` plus
-`harness evidence` are built and waiting; nobody has fed them a real week.
+Every number in `README.md` came from synthetic data. `harness label` and
+`harness evidence` can now actually see something (6.1) -- but the log
+starts empty from the moment this was fixed, not backfilled from
+whatever use came before it. Nobody has fed them a real week yet either
+way.
 
 ### 6.3 Undo coverage ceiling
 
@@ -335,7 +385,26 @@ Migrations, `dd`, `mkfs` require a declared `rollback:` entry. Automatic
 generation for database migrations would need to understand the migration tool,
 which is a real project rather than a patch.
 
-### 6.4 Smaller, known
+### 6.4 `ResumePoint` doesn't actually resume anything
+
+Found in a full-file audit. `Harness.execute` writes a `ResumePoint` to
+`<workdir>/resume/<task_id>.json` after each completed step and deletes
+it on success -- but `ResumePoint.load()`, which exists and works, has no
+caller anywhere in the codebase. Nothing checks for an existing resume
+file at the start of `execute()`, so a crash mid-task and a subsequent
+retry (even `harness run` on the identical task file) re-runs every step
+from scratch, including ones that already had real side effects.
+
+Not fixed here: doing this safely needs real design work, not a
+localized patch -- at minimum, verifying the retried plan's step IDs
+still match the saved sequence before trusting `completed` at all, and
+deciding whether a skipped step's declared undos still get pushed onto
+the rollback stack (they should: a later step failing must still be able
+to roll back work a resumed run itself didn't just perform). Until
+someone builds that, treat the resume file as a crash-forensics artifact
+you can read by hand, not a working feature.
+
+### 6.5 Smaller, known
 
 - Tree watching misses a same-size same-mtime edit; the SHA256 layer catches it
 - Reflink shadow copies only help on btrfs and xfs, not the ext4 default
@@ -391,7 +460,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 114
+test command     python3 -m pytest tests/ -q     # 126
 ```
 
 ---

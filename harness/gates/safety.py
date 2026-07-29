@@ -380,8 +380,28 @@ class SafetyClassifier:
                 r"|unlinkSync|rmSync", " ".join(argv)):
             found.append((RiskLevel.DANGEROUS,
                           f"{program} source performs filesystem or process operations"))
-        if program == "kill" and "-9" in argv and "1" in operands:
-            found.append((RiskLevel.CRITICAL, "kill of PID 1"))
+        if program == "kill":
+            # `-9` alone used to be the only signal spec recognized here --
+            # `kill -s KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`, and plain
+            # `kill 1` (default SIGTERM) all classified SAFE. Found in a
+            # full-file audit. Walking argv properly (rather than reusing
+            # the generic `operands` split) matters here specifically:
+            # `-s`/`-n`/`--signal` consume the *next* token as their
+            # argument, not a PID -- `kill -s 1 12345` sends SIGHUP to PID
+            # 12345 and never touches PID 1, and naively treating "1" as
+            # an operand there would flag a command that is not dangerous.
+            skip_next, list_mode, pids = False, False, []
+            for tok in argv[1:]:
+                if skip_next:
+                    skip_next = False
+                elif tok in ("-s", "-n", "--signal"):
+                    skip_next = True
+                elif tok in ("-l", "-L", "--list", "--table"):
+                    list_mode = True
+                elif not tok.startswith("-"):
+                    pids.append(tok)
+            if "1" in pids and not list_mode:
+                found.append((RiskLevel.CRITICAL, "kill of PID 1"))
         if program in ("chmod", "chown") and protected:
             found.append((RiskLevel.CRITICAL, f"{program} on a system path"))
         if program in ("tee", "cp", "mv") and protected:

@@ -45,6 +45,7 @@ from .gates import (
     Verdict,
     VerifiedRollback,
 )
+from .telemetry import TaskLogger
 
 __all__ = ["Stage", "Outcome", "StepPlan", "Plan", "RunResult", "Harness"]
 
@@ -227,6 +228,7 @@ class Harness:
         clarifier: Clarifier | None = None,
         router: ModelRouter | None = None,
         decisions: DecisionLog | None = None,
+        telemetry: TaskLogger | None = None,
         recheck_between_steps: bool = True,
     ) -> None:
         """Wire the workdir, model backend, and gate implementations (all injectable)."""
@@ -244,6 +246,14 @@ class Harness:
         self.rollback = rollback or VerifiedRollback()
         self.conflicts = conflicts or ConflictDetector()
         self.decisions = decisions or DecisionLog()
+        # Same path `harness label`/`harness evidence` (cli.py) already read
+        # from -- found in a full-file audit that nothing ever wrote to it:
+        # TaskLogger.record() had no caller anywhere in pipeline.py, agent.py,
+        # or tui.py, so those commands could only ever report zero tasks,
+        # no matter how much the harness was actually used. `_finish()` is
+        # the one place every RunResult concludes, matching the audit
+        # file's own choke point.
+        self.telemetry = telemetry or TaskLogger(self.workdir / "telemetry" / "tasks.jsonl")
         self.recheck_between_steps = bool(recheck_between_steps)
 
         self.agent = agent or Agent(
@@ -437,13 +447,6 @@ class Harness:
         # place) left behind, or a second dry run would append duplicate
         # stub entries alongside the first.
         result.results = []
-        if not dry_run:
-            # Past this point a real command may run; from here on this
-            # result is committed and the guard above must refuse any
-            # further execute() call on it. A dry run intentionally does
-            # NOT set this -- previewing a plan must not block the real run
-            # that follows it.
-            result.executed = True
         resume = ResumePoint(task_id=plan.spec.task_id, total=len(plan.steps))
         resume_path = self.workdir / "resume" / f"{plan.spec.task_id}.json"
         failed = False
@@ -480,10 +483,19 @@ class Harness:
             try:
                 if dry_run:
                     output: Any = f"[dry-run] {sp.step.command}"
-                elif sp.step.run is None:
-                    raise HarnessError(
-                        f"step {sp.step.step_id!r} has no run action attached")
                 else:
+                    # Set only here, not before the loop: a plan blocked by
+                    # the precondition/conflict checks above -- before any
+                    # step ever ran -- must stay retryable the same way a
+                    # REJECTED plan does. Setting this unconditionally
+                    # before the loop marked that case "already executed"
+                    # too, the same bug §2.8 fixed for REJECTED, just
+                    # missed for a BLOCKED-with-zero-results plan. Found in
+                    # a full-file audit, not live.
+                    result.executed = True
+                    if sp.step.run is None:
+                        raise HarnessError(
+                            f"step {sp.step.step_id!r} has no run action attached")
                     output = sp.step.run()
                 sp.result = StepResult(sp.step.step_id, True, str(output or ""),
                                        seconds=time.perf_counter() - step_started)
@@ -535,6 +547,29 @@ class Harness:
 
         return self._finish(result, started)
 
+    def reject(self, result: RunResult) -> RunResult:
+        """Explicitly decline a plan without running anything.
+
+        Distinct from execute()'s implicit refusal, which only fires for
+        steps that actually need confirmation: `execute(result, {})` on an
+        all-safe plan (nothing needs a tick) does not refuse it, it *runs*
+        it, since every step's `approved` defaults to True when
+        `needs_confirmation` is False. An operator who clicks Reject means
+        "don't run this," full stop, regardless of what it would have
+        needed a checkbox for -- this is the only correct way to honor
+        that for every plan, not just the ones with something to tick.
+        Found in a full-file audit: the TUI's Reject button used to bypass
+        the pipeline entirely (no audit record, no telemetry entry), which
+        also meant "how often a human rejected a plan outright"
+        (HANDOFF.md §6.1) could never be measured for the most direct
+        expression of a rejection there is.
+        """
+        started = time.perf_counter() - result.seconds
+        result.outcome = Outcome.REJECTED
+        result.abort_reason = "operator rejected the plan"
+        self.decisions.log(Stage.PRESENT.value, "plan rejected", result.abort_reason)
+        return self._finish(result, started)
+
     # -- convenience ------------------------------------------------------- #
 
     def run(self, request: str, approve: Callable[[Plan], dict[str, bool]] | None = None,
@@ -581,6 +616,10 @@ class Harness:
         except Exception as exc:
             self.decisions.log("report", "audit write failed",
                                f"{type(exc).__name__}: {exc}")
+
+        record = self.telemetry.from_result(result, request=result.request)
+        if record is not None:
+            self.telemetry.record(record)
         return result
 
     def stats(self) -> dict[str, Any]:

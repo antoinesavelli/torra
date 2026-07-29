@@ -366,6 +366,12 @@ class HarnessApp(App):
     @on(Button.Pressed, "#reject")
     def pressed_reject(self) -> None:
         """Throw the plan away."""
+        # For the audit record and telemetry (HANDOFF.md §6.1's "how often
+        # a human rejected a plan outright") -- Reject used to skip the
+        # pipeline entirely, so this specific, most-direct rejection could
+        # never be measured.
+        if self.current is not None:
+            self.harness.reject(self.current)
         self._say("harness", "Plan rejected. Nothing ran.", "dim")
         self._status("[dim]rejected[/]")
         self.current = None

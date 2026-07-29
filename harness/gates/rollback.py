@@ -132,8 +132,18 @@ class RollbackReport:
 SERVICE_PATTERN = re.compile(
     r"\bsystemctl\s+(?:--user\s+)?(start|stop|restart|enable|disable|mask|unmask)"
     r"\s+([\w@.\-]+)", re.IGNORECASE)
+#: apt/apt-get only, not dnf or pacman: `undo_packages` below hardcodes
+#: `apt-get remove`, and the default `_package_probe` (`_dpkg_set`) only
+#: understands dpkg. Matching a dnf/pacman install here would generate an
+#: UndoAction that *looks* like a working safety net -- `safe=False`, a
+#: verifier, a description -- but would fail (or on a system that happens
+#: to have both package managers installed, remove the wrong packages)
+#: the moment it actually ran. safety.py and clarifier.py recognize
+#: dnf/pacman too, for classification -- that's a different, legitimate
+#: concern from "can this generator actually invert it," which is the
+#: only thing this pattern controls.
 PACKAGE_PATTERN = re.compile(
-    r"\b(?:apt|apt-get|dnf|pacman)\s+(install|remove|purge)\s+(.+)", re.IGNORECASE)
+    r"\b(?:apt|apt-get)\s+(install|remove|purge)\s+(.+)", re.IGNORECASE)
 MKDIR_PATTERN = re.compile(r"\bmkdir\b(?:\s+-\w+)*\s+([^\s;|&]+)")
 
 

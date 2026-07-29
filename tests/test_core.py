@@ -48,6 +48,17 @@ def test_a_failed_probe_does_not_abort_observation() -> None:
     assert state.hostname == "ok"  # other probes still ran
 
 
+def test_fallback_model_default_is_actually_pulled() -> None:
+    """Found in a full-file audit: the default was "qwen3:8b", deleted from
+    the catalog along with the rest of the exploratory pull (HANDOFF.md
+    §2.9). Both Agent.converse's degraded-status fallback and the "Fall
+    back to {model}" recovery-option text were recommending a model that
+    no longer exists. Pin this to the current curated four so a future
+    catalog change has to touch this constant deliberately, not by
+    accident."""
+    assert OllamaClient().fallback_model == "qwen3.5:latest"
+
+
 class TestModelInfo:
     """OllamaClient.model_info(): real per-model size and chat capability
     from `/api/show`, so routing stops guessing from the name alone. Found

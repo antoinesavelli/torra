@@ -1,6 +1,14 @@
-"""One resume point per task: where it got to, so a crash doesn't mean starting over.
+"""One resume point per task: a durable record of how far it got.
 
 Depends on: harness.core.tasks (HarnessError).
+
+`Harness.execute` writes one of these after each completed step and deletes
+it on success -- but nothing in this codebase currently reads one back to
+skip already-completed steps on a retry. `load()` exists and works; no
+caller calls it. Today this is forensic state (inspect the file by hand
+after a crash to see how far a task got), not automatic resumability. See
+HANDOFF.md's "what is actually unfinished" section before assuming a
+crashed multi-step task resumes on its own.
 """
 
 from __future__ import annotations
@@ -19,13 +27,17 @@ __all__ = ["ResumePoint"]
 
 @dataclass
 class ResumePoint:
-    """Where a task got to, so a crash does not mean starting over.
+    """Where a task got to.
 
     This replaces the three-tier adaptive checkpointing policy from phases 1 and
     2, along with its mid-run revision logic and JSONL delta compaction, roughly
-    300 lines in total. That machinery bought resumability for unattended
-    multi-hour runs. An agent turn is interactive and takes seconds, so one
-    atomically written file after each completed step is the whole requirement.
+    300 lines in total. That machinery bought automatic resumability for
+    unattended multi-hour runs. An agent turn is interactive and takes seconds,
+    so a full re-run costs little -- one atomically written file after each
+    completed step was judged enough of a crash-forensics trail, on the
+    assumption that automatic resume wasn't worth building for a task this
+    short. Nothing has actually exercised that assumption: `load()` has no
+    caller, so today this is a write-only record, not resumability.
     """
 
     task_id: str

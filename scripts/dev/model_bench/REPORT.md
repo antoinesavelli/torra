@@ -712,6 +712,84 @@ reality). "code" now routes to `qwen3-coder:30b` and "quick" to
 not benchmark results the way "debug"/"plan"/"analyze"/"deploy" are --
 see `ROUTING_RULES`' own docstring note before trusting them the same way.
 
+## Requested audit loop: find an issue, fix it, repeat until none are left
+
+Not a benchmark run -- a systematic read of every file in `harness/`,
+fixing each real defect found and adding a regression test before moving
+to the next file, until a full pass turned up nothing new. Eight
+behavioral fixes and one documentation-honesty fix, in the order found:
+
+1. **`Harness.execute()`'s replay guard fired on a plan that never ran
+   anything.** `result.executed` was set unconditionally right before the
+   step loop, not inside it -- so a plan `BLOCKED` by a precondition or
+   file-conflict check on step one (before a single command ran) was
+   marked "already executed" and could never be retried once the
+   underlying condition was fixed, the exact bug `HANDOFF.md` §2.8 had
+   already fixed once for `REJECTED` and missed for this path. Moved the
+   assignment to immediately before `sp.step.run()`.
+2. **`UndoGenerator`'s package-install undo silently didn't match the
+   package manager it recognized.** `PACKAGE_PATTERN` matched
+   `apt|apt-get|dnf|pacman`, but the generated undo always ran `apt-get
+   remove` -- a `dnf install` or `pacman -S` step would get an
+   `UndoAction` that looks like a working safety net (`safe=False`, a
+   verifier, a description) and fails the moment it actually runs.
+   Narrowed the pattern to `apt`/`apt-get`, the only pair the default
+   probe (`dpkg-query`) and the hardcoded undo command actually support.
+3. **The clarifier both recognized and rejected the same anchor.** The
+   "named environment" anchor pattern accepts `localhost`; the
+   `no_environment` gap check used `local` instead, which never matches
+   inside `localhost` (no word boundary between "local" and "host"). `deploy
+   the api localhost` found the anchor *and* complained no environment
+   was named, for the same text.
+4. **`kill` of PID 1 was only caught via the literal `-9` flag.** `kill -s
+   KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`, and plain `kill 1` (default
+   SIGTERM) all classified SAFE. Rewrote the check to walk `argv` properly
+   -- `-s`/`-n`/`--signal` consume the next token as their argument, not a
+   PID, which matters: a naive fix risked flagging `kill -s 1 12345`
+   (signal 1 to PID 12345, nowhere near PID 1) as if it targeted PID 1.
+5. **`TaskLogger.record()` had no caller anywhere.** `harness
+   label`/`harness evidence` only ever *read* `tasks.jsonl`; nothing in
+   `pipeline.py`, `agent.py`, or `tui.py` ever wrote to it. Both commands
+   could only ever report zero tasks, no matter how much the harness was
+   actually used -- and this is the file this report's own §6.1 (in
+   `HANDOFF.md`) names as the path to closing the project's only P0 gap.
+   Wired `Harness._finish()` to call `self.telemetry.record(...)` for
+   every turn, the same choke point the audit-JSON write already uses.
+6. **`OllamaClient.fallback_model` still defaulted to `"qwen3:8b"`** --
+   deleted in the same catalog pruning that produced the router-default
+   fix above, and referenced by both `Agent.converse`'s degraded-status
+   fallback and the "Fall back to {model}" recovery-option text. Same
+   class of bug as the earlier `ModelRouter.default_model` fix, just a
+   different constant nobody had re-checked against the pruned catalog.
+   Changed to `qwen3.5:latest`.
+7. **`LoopholeAudit` was fully built, tested nowhere, wired nowhere.** A
+   complete, carefully-designed measurement class (`harness/telemetry/audit.py`)
+   for the "anchored but goalless" clarifier gap, exported from the
+   package, with no caller anywhere in `cli.py` -- unlike its sibling
+   `CorpusExporter.drift()`, which `cmd_evidence` already prints. Wired it
+   into `cmd_evidence` alongside the drift report, and wrote the first
+   test `cli.py` has ever had (no `test_cli.py` existed before this).
+8. **The TUI's Reject button bypassed the pipeline entirely.** No audit
+   record, no telemetry entry -- `self.current = None` and nothing else.
+   Couldn't simply route it through `execute(result, {})`: a step's
+   `approved` defaults to `True` when it doesn't need confirmation, so an
+   all-safe plan would *run* on "reject" rather than being declined.
+   Added `Harness.reject()`, which refuses unconditionally regardless of
+   what would have needed a tick, and wired the button to call it.
+9. **(Documentation, not behavior.)** `ResumePoint`'s docstring claimed
+   "a crash doesn't mean starting over"; `ResumePoint.load()` has no
+   caller anywhere in the codebase, so today it's a write-only
+   crash-forensics record, not resumability. Corrected the docstring and
+   recorded the gap in `HANDOFF.md` §6.4 rather than silently building
+   the read side (skipping already-completed steps safely needs real
+   design work: verifying the retried plan's step IDs still match the
+   saved sequence, deciding whether a skipped step's undos still get
+   pushed onto the rollback stack).
+
+126 tests pass (was 114 before this loop), ruff and mypy clean throughout.
+Full narrative and code-level rationale for each fix is in `HANDOFF.md`
+§§2.8-2.10 and §6.4; this section is the index.
+
 ## Caveats
 
 - Single run per task, not multiple trials averaged — LLM sampling has real

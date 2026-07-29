@@ -125,6 +125,35 @@ async def test_a_safe_plan_gets_no_checkbox(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reject_records_the_decision(tmp_path: Path) -> None:
+    """Found in a full-file audit: clicking Reject used to bypass the
+    pipeline entirely -- no audit record, no telemetry entry, just
+    self.current = None. HANDOFF.md §6.1 lists "how often a human
+    rejected a plan outright" as something to measure from telemetry;
+    the most direct expression of that, the Reject button, couldn't
+    produce it."""
+    target = tmp_path / "v.txt"
+    target.write_text("x", encoding="utf-8")
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"remove {target}",
+        [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"delete {target}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#reject")
+        await pilot.pause(0.1)
+
+        assert app.current is None
+        assert target.exists(), "reject must not run anything"
+        records = app.harness.telemetry.read()
+        assert records and records[-1].status == "rejected"
+
+
+@pytest.mark.asyncio
 async def test_questions_are_shown_not_guessed(tmp_path: Path) -> None:
     app = build(tmp_path, scripted(
         {"intent": "ask", "message": "Which host?",
