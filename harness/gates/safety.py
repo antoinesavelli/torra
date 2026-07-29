@@ -436,12 +436,19 @@ class SafetyClassifier:
                 levels.append(level)
                 reasons.append(f"{level.value.upper()}: {why} [regex backstop]")
 
-        redirect = re.search(r">\s*(/[^\s;|&]+)", text)
-        if redirect and redirect.group(1) in SAFE_REDIRECT_TARGETS:
+        # Captures the operator itself (>` or `>>`) alongside the target --
+        # found in a full-file audit: the classification here was already
+        # correct for `>>` (a protected path is CRITICAL either way, and
+        # this regex matches starting at the second `>` of `>>` regardless),
+        # but the reason text always said "overwrites" even for an append,
+        # which is simply the wrong word for what the command does.
+        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+)", text)
+        if redirect and redirect.group(2) in SAFE_REDIRECT_TARGETS:
             pass  # a stream sink or documented no-op; nothing is overwritten
-        elif redirect and self._protected(redirect.group(1)):
+        elif redirect and self._protected(redirect.group(2)):
+            verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
             levels.append(RiskLevel.CRITICAL)
-            reasons.append(f"CRITICAL: redirect overwrites {redirect.group(1)}")
+            reasons.append(f"CRITICAL: redirect {verb} {redirect.group(2)}")
         elif re.search(r">\s*[^>\s]", text):
             levels.append(RiskLevel.CAUTION)
             reasons.append("CAUTION: output redirect that overwrites")

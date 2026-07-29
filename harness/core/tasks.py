@@ -88,8 +88,9 @@ class TaskSpec:
     """A task as data: what an operator writes, and what the agent proposes.
 
     The agent producing the same structure a human writes by hand is not a
-    convenience. It means the model's output travels the exact code path that
-    121 tests already cover, instead of a parallel one nobody validated.
+    convenience. It means the model's output travels the exact code path the
+    existing test suite already covers, instead of a parallel one nobody
+    validated.
     """
 
     task_id: str

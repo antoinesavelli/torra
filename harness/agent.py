@@ -59,6 +59,7 @@ class Turn:
     model: str = ""
     routing_reason: str = ""
     clarifier_gaps: list[str] = field(default_factory=list)
+    anchors: list[str] = field(default_factory=list)
     machine_observed: bool = False
     repairs: int = 0
     seconds: float = 0.0
@@ -75,6 +76,7 @@ class Turn:
             "model": self.model,
             "routing_reason": self.routing_reason,
             "clarifier_gaps": list(self.clarifier_gaps),
+            "anchors": list(self.anchors),
             "machine_observed": self.machine_observed,
             "repairs": self.repairs,
             "seconds": round(self.seconds, 3),
@@ -197,7 +199,18 @@ class Agent:
             accelerator = getattr(self.state, "accelerator", None)
             if accelerator is not None:
                 self.router.accelerator = accelerator
-                if not self.router.available:
+                # `refresh=True` means the caller wants current facts, not
+                # cached ones -- an explicit `not refresh` here would only
+                # re-populate this the very first time, which is exactly
+                # the same short-circuit `router.available` already
+                # provides. Found in a full-file audit: `refresh=True` has
+                # no caller anywhere in this codebase today, so this was
+                # latent, but wiring model_params_b/model_chat_capable
+                # once and never again would leave them silently stale for
+                # any future caller that pulls or deletes a model mid
+                # session and then calls observe(refresh=True) expecting
+                # the routing data to catch up too.
+                if refresh or not self.router.available:
                     models = self.ollama.models()
                     self.router.available = set(models) or None
                     # Real size and chat capability per model, once per
@@ -285,6 +298,7 @@ class Agent:
         self.observe()  # so routing knows the hardware before it picks
         clarification = self.clarifier.clarify(request)
         gaps = [f"{a.code}: {a.why}" for a in clarification.ambiguities]
+        anchors = clarification.anchors
 
         choice = self.router.select(request)
         chosen = model or choice.model
@@ -295,7 +309,7 @@ class Agent:
                     self.ollama.fallback_model, available) else available[0]
 
         raw = self.ollama.chat(chosen, self._messages(request, gaps), json_mode=True)
-        turn = self._parse(request, raw, chosen, choice.reason, gaps,
+        turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
                            bool(self.state))
 
         repairs = 0
@@ -314,7 +328,7 @@ class Agent:
                      + complaint + "\nRevise it. Same JSON schema."},
                 ]),
                 json_mode=True)
-            turn = self._parse(request, raw, chosen, choice.reason, gaps,
+            turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
                                bool(self.state))
             turn.repairs = repairs
 
@@ -324,7 +338,7 @@ class Agent:
         return turn
 
     def _parse(self, request: str, raw: str, model: str, routing_reason: str,
-               gaps: Sequence[str], observed: bool) -> Turn:
+               gaps: Sequence[str], anchors: Sequence[str], observed: bool) -> Turn:
         """Turn a raw model reply into a Turn, validating any proposed task."""
         data = self._extract_json(raw)
         intent_text = str(data.get("intent") or "plan").lower()
@@ -338,7 +352,8 @@ class Agent:
             message=str(data.get("message") or ""),
             questions=[str(q) for q in (data.get("questions") or [])],
             model=model, routing_reason=routing_reason,
-            clarifier_gaps=list(gaps), machine_observed=observed, raw=raw)
+            clarifier_gaps=list(gaps), anchors=list(anchors),
+            machine_observed=observed, raw=raw)
 
         if intent is Intent.PLAN:
             task = data.get("task")
@@ -392,7 +407,7 @@ class Agent:
             json_mode=True)
         revised = self._parse(turn.request, raw, model or turn.model,
                               turn.routing_reason, turn.clarifier_gaps,
-                              turn.machine_observed)
+                              turn.anchors, turn.machine_observed)
         revised.repairs = turn.repairs + 1
         self._remember(revised)
         self.turns.append(revised)

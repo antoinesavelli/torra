@@ -1,7 +1,9 @@
-# Runs on every push to main and every PR: the 76-case test suite, mypy, and
+# Runs on every push to main and every PR: the full test suite, mypy, and
 # the defensive-coding scorecard with --enforce (fails the build if any
 # dimension drops below the floor recorded in
 # scripts/dev/defensive_coding_report.py's ENFORCE_FLOORS).
+# (A hardcoded test count went stale here once already -- found in a
+# full-file audit -- so don't put one back.)
 name: CI
 
 on:

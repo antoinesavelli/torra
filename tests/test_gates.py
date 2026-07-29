@@ -9,6 +9,7 @@ someone eventually deletes.
 from __future__ import annotations
 
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -100,6 +101,21 @@ class TestSafety:
         exists to catch."""
         verdict = SafetyClassifier().classify("dd if=/dev/zero of=/dev/sda bs=1M")
         assert verdict.level is RiskLevel.CRITICAL
+
+    def test_an_append_redirect_is_worded_as_an_append_not_an_overwrite(self) -> None:
+        """Found in a full-file audit: the classification was already
+        correct (CRITICAL either way for a protected path), but the reason
+        text always said "overwrites" even for `>>`, which appends rather
+        than truncates -- simply the wrong word for what the command does."""
+        safety = SafetyClassifier()
+        appended = safety.classify("echo x >> /etc/hosts")
+        overwritten = safety.classify("echo x > /etc/hosts")
+
+        assert appended.level is RiskLevel.CRITICAL
+        assert overwritten.level is RiskLevel.CRITICAL
+        assert any("appends to" in r for r in appended.reasons)
+        assert not any("overwrites" in r for r in appended.reasons)
+        assert any("overwrites" in r for r in overwritten.reasons)
 
     def test_base64_payloads_are_decoded(self) -> None:
         """An obfuscated payload piped to a shell is still what it decodes to."""
@@ -207,6 +223,76 @@ class TestVerifier:
         assert verifier.run().passed is True
 
 
+class TestSystemctlScope:
+    """Found in a full-file audit: every systemctl call in this codebase
+    hardcoded --user, and ollama.service is a system unit on the
+    project's own reference machine -- `systemctl --user is-active
+    ollama` reports "inactive" for a service that's actually running,
+    because --user can't tell "not loaded here" apart from "loaded and
+    genuinely inactive". `systemctl_scope` distinguishes them via
+    LoadState instead of guessing."""
+
+    def test_a_user_loaded_unit_is_detected_as_user_scope(self, monkeypatch) -> None:
+        def fake_run(cmd, **kwargs):
+            class Result:
+                stdout = "LoadState=loaded\n"
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert StateVerifier.systemctl_scope("some.service") == "user"
+
+    def test_a_system_only_unit_falls_back_to_system_scope(self, monkeypatch) -> None:
+        """--user reports "not-found" for a unit it doesn't know about --
+        exactly ollama.service's situation on the reference machine."""
+        def fake_run(cmd, **kwargs):
+            class Result:
+                stdout = "LoadState=not-found\n"
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert StateVerifier.systemctl_scope("ollama") == "system"
+
+    def test_a_probe_failure_falls_back_to_system_scope(self, monkeypatch) -> None:
+        def fake_run(cmd, **kwargs):
+            raise OSError("systemctl not found")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert StateVerifier.systemctl_scope("anything") == "system"
+
+    def test_service_active_autodetects_scope_by_default(self, monkeypatch) -> None:
+        """The actual live bug: `--user is-active ollama` reports inactive
+        for a running system service. Autodetection must issue the
+        system-scope is-active call instead, and see the real state."""
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            class Result:
+                stdout = ("LoadState=not-found\n" if "show" in cmd
+                          else "active\n" if "--user" not in cmd else "inactive\n")
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert StateVerifier.service_active("ollama") is True
+        assert ["--user"] not in [c for c in calls if "is-active" in c and "--user" in c]
+
+    def test_service_active_still_honors_an_explicit_scope(self, monkeypatch) -> None:
+        """Passing user_scope explicitly must skip autodetection entirely --
+        no LoadState probe issued, just the requested scope."""
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            class Result:
+                stdout = "active\n"
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert StateVerifier.service_active("x", user_scope=False) is True
+        assert all("show" not in c for c in calls), "explicit scope still probed LoadState"
+        assert all("--user" not in c for c in calls)
+
+
 # --------------------------------------------------------------------------- #
 # ROLLBACK_ON_FAIL
 # --------------------------------------------------------------------------- #
@@ -258,6 +344,37 @@ class TestUndoGeneration:
         action.undo()
         assert not target.exists()
 
+    def test_service_undo_uses_the_same_scope_it_was_captured_under(
+            self, tmp_path: Path, monkeypatch) -> None:
+        """Found in a full-file audit: capture_service's generated undo
+        hardcoded --user regardless of the unit's actual scope. A system
+        unit's undo would run against the wrong systemd instance --
+        no error, just silently restoring nothing."""
+        calls: list[list[str]] = []
+
+        def fake_service_probe(unit: str) -> str:
+            return "active"
+
+        def fake_scope_probe(unit: str) -> str:
+            return "system"
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            class Result:
+                returncode = 0
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        generator = UndoGenerator(shadow_dir=tmp_path / "s",
+                                  service_probe=fake_service_probe,
+                                  scope_probe=fake_scope_probe)
+        action = generator.capture_service("myservice")
+        action.undo()
+
+        assert calls, "undo never called subprocess.run"
+        assert "--user" not in calls[0]
+        assert calls[0][:2] == ["systemctl", "start"]
+
     def test_package_undo_is_unsafe_by_design(self) -> None:
         """Removing packages cascades through dependencies, so it asks first."""
         installed = {"curl", "git"}
@@ -297,6 +414,77 @@ class TestUndoGeneration:
         generator = UndoGenerator(shadow_dir=tmp_path / "s", max_shadow_bytes=100)
         assert generator.for_step(Step("b", touches=[str(big)])) == []
         assert any("over max_shadow_bytes" in s for s in generator.skipped)
+
+    def test_cleanup_empties_the_shadow_dir_but_keeps_it_usable(
+            self, tmp_path: Path) -> None:
+        """Found in a full-file audit: cleanup() had zero callers anywhere,
+        so shadow directories accumulated forever (14 found on one real
+        machine). Wiring it up has to leave the generator usable for the
+        rest of the session -- _gate() snapshots at propose time on every
+        plan(), not just executed ones, using the same UndoGenerator."""
+        target = tmp_path / "app.conf"
+        target.write_text("original\n", encoding="utf-8")
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow")
+        generator.for_step(Step("edit", touches=[str(target)]))
+        assert any(generator.shadow_dir.iterdir())
+
+        generator.cleanup()
+
+        assert generator.shadow_dir.exists()
+        assert not any(generator.shadow_dir.iterdir())
+        # and it still works for the next plan in the session
+        second = generator.for_step(Step("edit2", touches=[str(target)]))
+        assert second and second[0].snapshot is not None
+
+    def test_a_dead_old_sibling_shadow_dir_is_reaped(self, tmp_path: Path) -> None:
+        """A directory from a run that failed (so cleanup() never ran) must
+        not accumulate forever either -- reaped once it is both stale by
+        age and its pid is dead, never while a run could still be using it."""
+        import os
+        import time
+
+        dead_pid = 999999
+        while UndoGenerator._pid_alive(dead_pid) and dead_pid > 2:
+            dead_pid -= 1
+        stale = tmp_path / f"harness-shadow-{dead_pid}"
+        stale.mkdir()
+        (stale / "leftover.txt").write_text("x", encoding="utf-8")
+        old = time.time() - UndoGenerator.STALE_SHADOW_SECONDS - 3600
+        os.utime(stale, (old, old))
+
+        UndoGenerator(shadow_dir=tmp_path / f"harness-shadow-{os.getpid()}")
+
+        assert not stale.exists()
+
+    def test_a_fresh_sibling_shadow_dir_is_not_reaped(self, tmp_path: Path) -> None:
+        """Even with a dead pid, a directory younger than the staleness
+        window is left alone -- age alone isn't enough to prove the run
+        it belonged to is really over and done needing its snapshots."""
+        import os
+
+        dead_pid = 999999
+        while UndoGenerator._pid_alive(dead_pid) and dead_pid > 2:
+            dead_pid -= 1
+        fresh = tmp_path / f"harness-shadow-{dead_pid}"
+        fresh.mkdir()
+
+        UndoGenerator(shadow_dir=tmp_path / f"harness-shadow-{os.getpid()}")
+
+        assert fresh.exists()
+
+    def test_a_live_pids_shadow_dir_is_never_reaped(self, tmp_path: Path) -> None:
+        """Old by age but the owning process is still running: never touch it."""
+        import os
+        import time
+
+        live = tmp_path / f"harness-shadow-{os.getpid()}-other"
+        live.mkdir()
+        old = time.time() - UndoGenerator.STALE_SHADOW_SECONDS - 3600
+        os.utime(live, (old, old))
+
+        UndoGenerator(shadow_dir=tmp_path / f"harness-shadow-{os.getpid()}")
+
+        assert live.exists()
 
 
 class TestVerifiedRollback:

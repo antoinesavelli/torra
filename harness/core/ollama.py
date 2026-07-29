@@ -164,9 +164,14 @@ class OllamaClient:
         return [
             RecoveryOption(
                 "restart", "Restart Ollama and retry",
-                "Bounces the user unit and waits for the health probe. The "
-                "conversation and any resume point are kept.",
-                "systemctl --user restart ollama"),
+                "Bounces the systemd unit and waits for the health probe. "
+                "The conversation and any resume point are kept. Whether "
+                "Ollama runs as a user or system unit depends on how it "
+                "was installed here -- found live: assuming --user gave "
+                "advice that silently did nothing on a machine where "
+                "Ollama is a system service.",
+                "systemctl --user restart ollama "
+                "|| sudo systemctl restart ollama"),
             RecoveryOption(
                 "fallback", f"Fall back to {self.fallback_model}",
                 f"{current_model} may not fit in available VRAM. The smaller "

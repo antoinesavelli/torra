@@ -91,9 +91,41 @@ class StateVerifier:
     # -- probes ------------------------------------------------------------ #
 
     @staticmethod
-    def service_active(unit: str, user_scope: bool = True) -> bool:
-        """True when systemctl reports the unit active. False on any error."""
-        cmd = ["systemctl"] + (["--user"] if user_scope else []) + ["is-active", unit]
+    def systemctl_scope(unit: str) -> str:
+        """'user' when systemd's user instance knows this unit, else 'system'.
+
+        `is-active` alone can't tell "not loaded in this scope" apart from
+        "loaded and genuinely inactive" -- both report inactive/exit-4
+        under --user for a unit that is actually a system service, which
+        is exactly the case that matters here. LoadState does distinguish
+        them ("not-found" vs "loaded"). Found live: `ollama.service` is a
+        system unit on this project's own reference machine, and
+        `service_active`'s old `user_scope=True` default silently probed
+        the wrong systemd instance for it -- reading "inactive" for a
+        service that was actually running.
+        """
+        try:
+            out = subprocess.run(
+                ["systemctl", "--user", "show", unit, "--property=LoadState"],
+                capture_output=True, text=True, timeout=5)
+            if out.stdout.strip() == "LoadState=loaded":
+                return "user"
+        except Exception:
+            pass
+        return "system"
+
+    @staticmethod
+    def service_active(unit: str, user_scope: bool | None = None) -> bool:
+        """True when systemctl reports the unit active. False on any error.
+
+        `user_scope=None` (the default) autodetects via `systemctl_scope`
+        instead of assuming `--user` -- see that method's docstring. Pass
+        `True`/`False` explicitly only when the scope is already known and
+        the extra probe isn't worth it.
+        """
+        scope = (("user" if user_scope else "system") if user_scope is not None
+                 else StateVerifier.systemctl_scope(unit))
+        cmd = ["systemctl", *(["--user"] if scope == "user" else []), "is-active", unit]
         try:
             return subprocess.run(cmd, capture_output=True, text=True,
                                   timeout=5).stdout.strip() == "active"

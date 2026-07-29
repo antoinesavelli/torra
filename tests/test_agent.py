@@ -383,3 +383,37 @@ def test_observe_populates_the_routers_real_model_sizes() -> None:
         "qwen3.5:latest": 9.7, "nomic-embed-text:latest": 0.137}
     assert agent.router.model_chat_capable == {
         "qwen3.5:latest": True, "nomic-embed-text:latest": False}
+
+
+def test_observe_refresh_repopulates_stale_model_metadata() -> None:
+    """Found in a full-file audit: the model-metadata block only ran when
+    `router.available` was still falsy, so `observe(refresh=True)` -- whose
+    entire purpose is picking up changes -- silently kept whatever sizes
+    and chat capability were fetched on the very first observe(), even
+    after a model was pulled or deleted mid session. `refresh=True` had no
+    caller anywhere in this codebase (latent, not live), but the method's
+    own contract says it re-reads the machine, and that has to include the
+    model catalog it reads alongside it."""
+    show_data = {"qwen3.5:latest": {"details": {"parameter_size": "9.7B"},
+                                    "capabilities": ["completion"]}}
+
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/tags":
+            return {"models": [{"name": m} for m in show_data]}
+        if path == "/api/show":
+            return show_data[payload["name"]]
+        return {"message": {"content": json.dumps({"intent": "answer", "message": "ok"})}}
+
+    agent = Agent(OllamaClient(transport=transport, probe_timeout=0.1))
+    agent._observe = lambda: MachineState(hostname="pop-os")
+
+    agent.observe()
+    assert agent.router.model_params_b == {"qwen3.5:latest": 9.7}
+
+    show_data.clear()
+    show_data["qwen3-coder:30b"] = {"details": {"parameter_size": "30.5B"},
+                                    "capabilities": ["completion"]}
+    agent.observe(refresh=True)
+
+    assert agent.router.model_params_b == {"qwen3-coder:30b": 30.5}
+    assert agent.router.available == {"qwen3-coder:30b"}

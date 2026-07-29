@@ -193,6 +193,13 @@ class TaskLogger:
                 record.repairs = int(getattr(turn, "repairs", 0))
                 record.clarifier_codes = [g.split(":")[0] for g
                                           in getattr(turn, "clarifier_gaps", [])]
+                # Found in a full-file audit: this field was declared on
+                # TaskRecord but never assigned here, so every persisted
+                # record carried an empty anchor list. LoopholeAudit only
+                # worked because it falls back to recomputing anchors via
+                # the clarifier at audit time -- this makes the JSONL log
+                # self-contained instead of depending on that recompute.
+                record.clarifier_anchors = list(getattr(turn, "anchors", []))
                 record.clarifier_blocked = record.intent == "ask"
             if plan is not None:
                 record.proposed_steps = len(getattr(plan, "steps", []))

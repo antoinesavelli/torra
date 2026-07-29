@@ -97,6 +97,28 @@ def test_every_finished_turn_is_recorded_to_telemetry(make_harness,
     assert records[1].intent == "plan"
 
 
+def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
+        make_harness, tmp_path: Path) -> None:
+    """Found in a full-file audit: TaskRecord.clarifier_anchors was
+    declared but from_result() never assigned it, so every persisted
+    record carried an empty list. LoopholeAudit only worked because it
+    falls back to recomputing anchors from the request text -- this
+    checks the field itself is now populated, so the log is
+    self-contained without needing that fallback."""
+    target = tmp_path / "app.conf"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"write to {target}",
+        [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
+
+    harness.execute(harness.plan(f"write to {target}"), {})
+
+    records = harness.telemetry.read()
+    assert records[-1].clarifier_anchors, (
+        f"an absolute path in {target!r} should have registered as an anchor"
+    )
+    assert "absolute path" in records[-1].clarifier_anchors
+
+
 # --------------------------------------------------------------------------- #
 # Approval
 # --------------------------------------------------------------------------- #
@@ -195,6 +217,44 @@ def test_a_failed_step_reverts_a_file_nobody_registered(make_harness,
     assert conf.read_text(encoding="utf-8") == "ORIGINAL\n"
     assert done.rollback is not None and done.rollback.ok
     assert all(r.verified is not False for r in done.rollback.results)
+
+
+def test_a_successful_run_cleans_up_its_shadow_copies(make_harness,
+                                                       tmp_path: Path) -> None:
+    """Found in a full-file audit: UndoGenerator.cleanup() had no caller
+    anywhere, so every run that snapshotted a file left its shadow
+    directory on disk forever (14 accumulated on one real machine)."""
+    conf = tmp_path / "app.conf"
+    conf.write_text("original\n", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", f"rewrite {conf}",
+        [{"id": "write", "kind": "write", "run": f"printf 'new\\n' > {conf}",
+          "touches": [str(conf)]}])))
+
+    done = harness.execute(harness.plan(f"rewrite {conf}"), {})
+
+    assert done.outcome is Outcome.COMPLETED
+    assert not any(harness.undo.shadow_dir.iterdir()), (
+        "a completed run left its shadow copies behind")
+
+
+def test_a_dry_run_keeps_its_shadow_copies(make_harness, tmp_path: Path) -> None:
+    """A dry run's own snapshots (taken at propose time, before dry_run is
+    even known) must survive it -- clicking Run right after still needs
+    them for real rollback."""
+    conf = tmp_path / "app.conf"
+    conf.write_text("original\n", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", f"rewrite {conf}",
+        [{"id": "write", "kind": "write", "run": f"printf 'new\\n' > {conf}",
+          "touches": [str(conf)]}])))
+
+    done = harness.execute(harness.plan(f"rewrite {conf}"), {}, dry_run=True)
+
+    assert done.outcome is Outcome.COMPLETED
+    assert any(harness.undo.shadow_dir.iterdir()), (
+        "a dry run deleted the snapshots the real run would need"
+    )
 
 
 def test_a_declared_safe_rollback_is_still_classified(make_harness,

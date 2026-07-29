@@ -21,7 +21,6 @@ from typing import Any
 
 from .agent import Agent, AgentError, Intent, Turn
 from .core import (
-    Conflict,
     ConflictDetector,
     HarnessError,
     OllamaClient,
@@ -114,12 +113,22 @@ class StepPlan:
 
 @dataclass
 class Plan:
-    """A proposal plus every gate verdict on it, ready to show a human."""
+    """A proposal plus every gate verdict on it, ready to show a human.
+
+    Deliberately carries no `conflicts` field: `_gate()` used to call
+    `conflicts.detect()` immediately after `conflicts.baseline()` on the
+    same object, which always returned `[]` (detect() re-reads exactly
+    the state baseline() had just captured), so a `Plan.conflicts` field
+    could never hold anything either -- and the TUI still rendered a dead
+    "changed outside the harness" banner that could never fire. Found in
+    a full-file audit. Real conflict detection happens where it can
+    actually see something: `Harness.execute()`'s per-step check, which
+    surfaces as `Outcome.BLOCKED`.
+    """
 
     spec: TaskSpec
     steps: list[StepPlan] = field(default_factory=list)
     preconditions: PreconditionReport | None = None
-    conflicts: list[Conflict] = field(default_factory=list)
     coverage: dict[str, Any] = field(default_factory=dict)
     model: str = ""
     repairs: int = 0
@@ -148,7 +157,6 @@ class Plan:
             "spec": self.spec.to_dict(),
             "steps": [s.to_dict() for s in self.steps],
             "preconditions": self.preconditions.to_dict() if self.preconditions else None,
-            "conflicts": [c.to_dict() for c in self.conflicts],
             "coverage": self.coverage,
             "model": self.model,
             "repairs": self.repairs,
@@ -548,6 +556,17 @@ class Harness:
         else:
             result.outcome = Outcome.COMPLETED
             self.rollback.clear()
+            if not dry_run:
+                # Nothing failed, so nothing will ever roll back to these
+                # snapshots -- `UndoGenerator.cleanup()` existed for exactly
+                # this since it was written, but had no caller anywhere in
+                # the codebase, which is how 14 shadow directories ended up
+                # sitting on one real machine's disk. Skipped for a dry
+                # run: no real step executed, but capture_file() already
+                # ran during _gate()'s propose-time snapshot, so a dry run
+                # blows away the very shadow copies the real run (if the
+                # operator clicks Run next) would need for rollback.
+                self.undo.cleanup()
             try:
                 resume_path.unlink(missing_ok=True)
             except OSError:

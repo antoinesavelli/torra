@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 128 passed
+python3 -m pytest tests/ -q          # must print 143 passed
 harness doctor
 ```
 
@@ -242,7 +242,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 128, must stay green
+python3 -m pytest tests/ -q                       # 143, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -334,6 +334,30 @@ check. That produced a real routing_reason of "downgraded from devstral
 because only 5660 MB VRAM free" that still resolved to `"model":
 "devstral"`. `self.default_model` is only correct as the *true* last
 resort, when `available` is empty or unset entirely.
+
+**`UndoGenerator.cleanup()` recreates `shadow_dir` after deleting it.**
+Simplifying it to just `shutil.rmtree(self.shadow_dir, ignore_errors=True)`
+looks harmless -- it isn't, because one `UndoGenerator` is built once per
+`Harness` and reused across every `plan()` call for the rest of the
+session (`_gate()` snapshots at propose time, before `execute()` even
+knows whether the run will be dry or real). Deleting the directory without
+recreating it would silently degrade every subsequent `capture_file` to a
+`skipped` entry for the rest of the session. Found in a full-file audit:
+`cleanup()` had zero callers anywhere before this, so 14 shadow
+directories had already accumulated on one real machine -- see
+`AUDIT_FINDINGS.md` MED-1.
+
+**Every `systemctl` call resolves scope first, never hardcodes `--user`.**
+`StateVerifier.systemctl_scope()` / `UndoGenerator._systemctl_scope()`
+(duplicated between the two, per the gates' no-cross-reference rule) probe
+`LoadState` to tell "not loaded in user scope" apart from "loaded and
+genuinely inactive" -- `is-active` alone reports "inactive"/exit-4 for
+both, which looks like a real answer but isn't one. Found live +
+confirmed in a full-file audit: `ollama.service` is a **system** unit on
+this project's own reference machine, and every hardcoded `--user` call
+(recovery advice, precondition probe, generated service rollback) was
+silently targeting the wrong systemd instance. See `AUDIT_FINDINGS.md`
+MED-2.
 
 ---
 
@@ -474,7 +498,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 128
+test command     python3 -m pytest tests/ -q     # 143
 ```
 
 ---

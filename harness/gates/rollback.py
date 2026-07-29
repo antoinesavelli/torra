@@ -161,11 +161,16 @@ class UndoGenerator:
     """
 
     MAX_SHADOW_BYTES: int = 64 * 1024 * 1024
+    #: A sibling harness-shadow-<pid>* directory is only reaped once it is
+    #: BOTH this old AND its owning pid is dead -- an in-progress run, even
+    #: a long one, must never have its snapshots pulled out from under it.
+    STALE_SHADOW_SECONDS: float = 24 * 3600
 
     def __init__(
         self,
         shadow_dir: os.PathLike[str] | str | None = None,
         service_probe: Callable[[str], str] | None = None,
+        scope_probe: Callable[[str], str] | None = None,
         package_probe: Callable[[], set[str]] | None = None,
         max_shadow_bytes: int | None = None,
         prefer_reflink: bool = True,
@@ -176,6 +181,7 @@ class UndoGenerator:
         self.shadow_dir = Path(shadow_dir) if shadow_dir else Path(
             tempfile.mkdtemp(prefix=f"harness-shadow-{os.getpid()}-"))
         self.shadow_dir.mkdir(parents=True, exist_ok=True)
+        self._scope_probe = scope_probe or self._systemctl_scope
         self._service_probe = service_probe or self._systemctl_state
         self._package_probe = package_probe or self._dpkg_set
         self.max_shadow_bytes = (self.MAX_SHADOW_BYTES if max_shadow_bytes is None
@@ -187,15 +193,97 @@ class UndoGenerator:
         self.snapshots: list[Snapshot] = []
         self.skipped: list[str] = []
         self._counter: int = 0
+        self._reap_stale_shadows()
+
+    # -- reaping ------------------------------------------------------------ #
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        """True when a process with this pid is still running."""
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # exists, just not ours to signal
+        except OSError:
+            return False
+        return True
+
+    def _reap_stale_shadows(self) -> None:
+        """Remove sibling shadow directories left by dead, old runs.
+
+        Nothing in this codebase called `cleanup()` after a completed run --
+        `Harness.close()`'s own docstring says shadow copies are "kept for
+        post-mortem", but that only makes sense for a *failed* run whose
+        rollback someone might want to inspect. `Harness.execute()` now
+        calls `cleanup()` directly on success, so this reaper only ever
+        has failed-run leftovers to catch, plus anything from before this
+        fix existed (14 such directories were already sitting on one real
+        machine when this was found in a full-file audit). A directory is
+        reaped only once it is both stale by age AND its owning pid is
+        dead, so a run genuinely still in progress is never touched.
+        """
+        import re
+        import time
+
+        parent = self.shadow_dir.parent
+        try:
+            entries = list(parent.iterdir()) if parent.is_dir() else []
+        except OSError:
+            return
+        now = time.time()
+        for entry in entries:
+            if entry == self.shadow_dir or not entry.is_dir():
+                continue
+            match = re.match(r"harness-shadow-(\d+)", entry.name)
+            if not match:
+                continue
+            try:
+                age = now - entry.stat().st_mtime
+            except OSError:
+                continue
+            if age < self.STALE_SHADOW_SECONDS or self._pid_alive(int(match.group(1))):
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
 
     # -- probes ------------------------------------------------------------ #
 
     @staticmethod
-    def _systemctl_state(unit: str) -> str:
-        """Active state of a unit, or 'unknown' on error."""
+    def _systemctl_scope(unit: str) -> str:
+        """'user' when systemd's user instance knows this unit, else 'system'.
+
+        `is-active` alone can't tell "not loaded in this scope" apart from
+        "loaded and genuinely inactive" -- both report inactive/exit-4
+        under --user for a unit that is actually a system service, which
+        is exactly the case that matters here. LoadState does distinguish
+        them ("not-found" vs "loaded"). Found live: `ollama.service` is a
+        system unit on this project's own reference machine, and every
+        systemctl call in this class hardcoded --user, so a generated undo
+        for it would probe and act on the wrong systemd instance entirely
+        -- reading "unknown" instead of the real state, and restoring
+        nothing. Duplicated from the identical check in gates/state.py
+        rather than imported: the five gates are deliberately
+        self-contained with no cross-references (gates/__init__.py's own
+        docstring), and this is small and stable enough not to be worth
+        breaking that for.
+        """
         try:
-            out = subprocess.run(["systemctl", "--user", "is-active", unit],
-                                 capture_output=True, text=True, timeout=5)
+            out = subprocess.run(
+                ["systemctl", "--user", "show", unit, "--property=LoadState"],
+                capture_output=True, text=True, timeout=5)
+            if out.stdout.strip() == "LoadState=loaded":
+                return "user"
+        except Exception:
+            pass
+        return "system"
+
+    def _systemctl_state(self, unit: str) -> str:
+        """Active state of a unit, or 'unknown' on error."""
+        scope = self._scope_probe(unit)
+        cmd = ["systemctl", *(["--user"] if scope == "user" else []), "is-active", unit]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             return out.stdout.strip() or "unknown"
         except Exception:
             return "unknown"
@@ -324,13 +412,19 @@ class UndoGenerator:
     def capture_service(self, unit: str, step_id: str = "") -> UndoAction:
         """Snapshot a unit's state and build its restore action."""
         before = self._service_probe(unit)
+        scope = self._scope_probe(unit)
         snap = Snapshot(SnapshotKind.SERVICE_STATE, unit, f"was {before}", payload=before)
         self.snapshots.append(snap)
 
         def undo_service() -> None:
             """Put the unit back into whichever state it was in."""
+            # Same scope the state was captured under, not a hardcoded
+            # --user -- a system unit's undo used to silently target the
+            # user systemd instance, which would run without error and
+            # restore nothing.
             subprocess.run(
-                ["systemctl", "--user", "start" if before == "active" else "stop", unit],
+                ["systemctl", *(["--user"] if scope == "user" else []),
+                 "start" if before == "active" else "stop", unit],
                 capture_output=True, text=True, timeout=30, check=False)
 
         return UndoAction(f"restore {unit} to {before}", undo_service, True,
@@ -428,8 +522,20 @@ class UndoGenerator:
         }
 
     def cleanup(self) -> None:
-        """Delete the shadow directory. Only after a successful run."""
+        """Delete shadow copies made so far. Only after a successful run.
+
+        Recreates an empty `shadow_dir` afterward rather than leaving it
+        gone: one `UndoGenerator` is built once per `Harness` and reused
+        across every `plan()` call in the session (`_gate()` snapshots
+        files at propose time, before execute() even knows whether the run
+        will be real or dry), so the *next* plan's `capture_file` needs
+        somewhere to write. Leaving the directory deleted would silently
+        skip every snapshot for the rest of the session -- caught, but only
+        as a `skipped` entry nobody is watching for.
+        """
         shutil.rmtree(self.shadow_dir, ignore_errors=True)
+        self.shadow_dir.mkdir(parents=True, exist_ok=True)
+        self._counter = 0
 
 
 class VerifiedRollback:

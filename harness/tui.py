@@ -142,10 +142,6 @@ class PlanPane(VerticalScroll):
             await self.mount(Static(
                 f"[yellow]no automatic undo for: {', '.join(plan.uncovered)}[/]",
                 markup=True))
-        if plan.conflicts:
-            await self.mount(Static(
-                f"[bold red]{len(plan.conflicts)} file(s) changed outside the "
-                "harness since baseline[/]", markup=True))
         if plan.preconditions and not plan.preconditions.passed:
             await self.mount(Static(
                 "[bold red]preconditions failed: "
