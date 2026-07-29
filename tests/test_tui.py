@@ -15,7 +15,7 @@ from textual.widgets import Checkbox, Input, Static
 
 from harness.core import MachineState, OllamaClient
 from harness.pipeline import Harness
-from harness.tui import HarnessApp, StepCard
+from harness.tui import SPINNER_FRAMES, HarnessApp, StepCard
 
 
 def screen_text(app: HarnessApp) -> str:
@@ -32,6 +32,16 @@ def screen_text(app: HarnessApp) -> str:
                 parts.append(str(value))
                 break
     return " ".join(parts)
+
+
+def status_text(app: HarnessApp) -> str:
+    """The status line's current text, however this Textual version stores it."""
+    status = app.query_one("#status", Static)
+    for attribute in ("content", "renderable", "_content"):
+        value = getattr(status, attribute, None)
+        if value:
+            return str(value)
+    return ""
 
 
 def build(tmp_path: Path, transport) -> HarnessApp:
@@ -51,6 +61,32 @@ async def test_the_app_starts_and_reports_the_backend(tmp_path: Path) -> None:
         text = screen_text(app)
         assert "qwen3:32b" in text or "models available" in text
         assert app.query_one("#prompt", Input) is not None
+
+
+@pytest.mark.asyncio
+async def test_the_status_line_shows_a_live_spinner_while_busy(tmp_path: Path) -> None:
+    """A local model can take anywhere from a couple seconds to over a
+    minute (scripts/dev/model_bench/REPORT.md) -- a static "thinking..."
+    label looks identical whether it's been one second or frozen for
+    sixty. The status line must animate and count up, and stop doing
+    either the moment busy clears."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        app._set_busy(True, "thinking...")
+        await pilot.pause()
+        first = status_text(app)
+        assert "thinking..." in first
+        assert any(frame in first for frame in SPINNER_FRAMES)
+        assert app._spinner_timer is not None
+
+        await pilot.pause(0.3)
+        second = status_text(app)
+        assert second != first, "the spinner/elapsed time never advanced"
+
+        app._set_busy(False, "")
+        assert app._spinner_timer is None
 
 
 @pytest.mark.asyncio

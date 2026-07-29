@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 97 passed
+python3 -m pytest tests/ -q          # must print 98 passed
 harness doctor
 ```
 
@@ -175,7 +175,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 97, must stay green
+python3 -m pytest tests/ -q                       # 98, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -235,6 +235,17 @@ the budget is spent.
 list open and writes no audit record, because the run has not happened yet. An
 earlier version appended the report stage during `plan()` and produced
 `present -> report -> execute` in the stage list.
+
+**The TUI status line's spinner.** `HarnessApp._set_busy(True, ...)` starts a
+`set_interval(0.1, self._tick_spinner)` timer that redraws `#status` with a
+cycling frame and elapsed seconds; `_set_busy(False, ...)` stops and clears
+it. Requested live: a static "thinking..." label looks identical whether the
+model answered in one second or has been stuck for sixty, and devstral's own
+measured range (`scripts/dev/model_bench/REPORT.md`) spans exactly that. The
+timer must be created on the app's own thread -- `_set_busy` is only ever
+invoked via `call_from_thread` from the worker threads that plan/execute, so
+this holds today, but a new caller that calls it directly from a background
+thread would break silently (Textual timers are not thread-safe to create).
 
 **`shell()`'s explicit `/bin/bash -c 'set -o pipefail; ...'`.** Looks like it
 could be simplified back to `subprocess.run(command, shell=True, ...)` --
@@ -347,7 +358,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 97
+test command     python3 -m pytest tests/ -q     # 98
 ```
 
 ---

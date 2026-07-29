@@ -9,12 +9,14 @@ until every step showing DANGEROUS or CRITICAL has been individually ticked.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
+from textual.timer import Timer
 from textual.widgets import (
     Button,
     Checkbox,
@@ -28,6 +30,12 @@ from .core import OllamaStatus
 from .pipeline import Harness, Outcome, Plan, RunResult, StepPlan
 
 __all__ = ["HarnessApp", "run_tui"]
+
+#: A local model can take anywhere from a couple seconds to over a minute
+#: (see scripts/dev/model_bench/REPORT.md) -- a static "thinking..." label
+#: looks identical whether it's been one second or frozen for sixty, so the
+#: status line animates and counts up instead of just sitting there.
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 #: Risk level to a colour the eye can sort at a glance without reading.
@@ -200,6 +208,9 @@ class HarnessApp(App):
         self.harness = harness or Harness(workdir=workdir or Path.home() / ".harness")
         self.current: RunResult | None = None
         self.last_request: str = ""
+        self._spinner_timer: Timer | None = None
+        self._busy_message: str = ""
+        self._busy_started: float = 0.0
 
     # -- layout ------------------------------------------------------------ #
 
@@ -446,8 +457,24 @@ class HarnessApp(App):
         for button_id in ("#run", "#dryrun"):
             for button in self.query(button_id):
                 button.disabled = busy
-        if message:
+
+        if self._spinner_timer is not None:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+
+        if busy:
+            self._busy_message = message
+            self._busy_started = time.monotonic()
+            self._tick_spinner()
+            self._spinner_timer = self.set_interval(0.1, self._tick_spinner)
+        elif message:
             self._status(f"[dim]{message}[/]")
+
+    def _tick_spinner(self) -> None:
+        """Advance the status line's spinner frame and elapsed time."""
+        frame = SPINNER_FRAMES[int(time.monotonic() * 10) % len(SPINNER_FRAMES)]
+        elapsed = time.monotonic() - self._busy_started
+        self._status(f"[dim]{frame} {self._busy_message} {elapsed:.1f}s[/]")
 
 
 def run_tui(workdir: Path | None = None,
