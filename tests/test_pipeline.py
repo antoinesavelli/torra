@@ -13,7 +13,7 @@ from pathlib import Path
 
 from conftest import plan_reply, scripted
 
-from harness.core import TaskSpec
+from harness.core import ConflictDetector, TaskSpec
 from harness.gates import Precondition, StateVerifier
 from harness.pipeline import Outcome, Stage
 
@@ -295,6 +295,28 @@ def test_a_dry_run_does_not_block_the_real_run_that_follows(make_harness,
     assert real.outcome is Outcome.COMPLETED
     assert marker.exists()
     assert len(real.results) == 1
+
+
+def test_gate_does_not_redundantly_walk_watch_roots(make_harness,
+                                                    tmp_path: Path) -> None:
+    """Found in a full-file audit: _gate() called conflicts.detect() right
+    after conflicts.baseline() on the same object -- detect() re-reads
+    exactly the state baseline() just captured, so it always returned []],
+    the same as Plan.conflicts' own default. With inotify unavailable,
+    ConflictDetector._detect_tree falls straight to a full _reconcile()
+    walk with no event queue to check first, so this cost a second full
+    filesystem walk of watch_roots on every single plan proposal for
+    nothing -- full_walks must stay 0 through baseline() alone."""
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    detector = ConflictDetector(use_inotify=False)
+    harness = make_harness(scripted(plan_reply(
+        "t", "touch a file", [{"id": "w", "run": "true"}],
+        watch_roots=[str(watched)])), conflicts=detector)
+
+    harness.plan("touch a file")
+
+    assert detector.full_walks == 0, "baseline() alone must not trigger a _reconcile() walk"
 
 
 def test_a_precondition_flip_stops_execution(make_harness,

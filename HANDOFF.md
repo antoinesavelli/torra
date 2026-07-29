@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 126 passed
+python3 -m pytest tests/ -q          # must print 128 passed
 harness doctor
 ```
 
@@ -242,7 +242,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 126, must stay green
+python3 -m pytest tests/ -q                       # 128, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -410,6 +410,20 @@ you can read by hand, not a working feature.
 - Reflink shadow copies only help on btrfs and xfs, not the ext4 default
 - One blind-corpus clarifier false positive (`run nvidia-smi and report the free
   VRAM in MB`), left unfixed deliberately so one unoptimised measurement survives
+- `detect_accelerator()`'s ROCm branch (`harness/core/machine.py`) detects
+  *presence* only -- `Accelerator("rocm", "amd", detail="rocm-smi responded")`
+  never sets `vram_mb`/`free_vram_mb`, so `Accelerator.gpu` (which requires
+  `free_vram_mb > 0`) is always `False` on a ROCm system, and the router
+  treats it as CPU-only, capping every routing decision at
+  `CPU_PARAM_CEILING_B` (9B) regardless of how much VRAM is actually free.
+  Found in a full-file audit, not fixed: `rocm-smi --showmeminfo vram
+  --csv`'s column layout has changed across ROCm versions and there is no
+  AMD/ROCm hardware anywhere in this project's development or target
+  environment (Pop!_OS + NVIDIA, throughout) to verify a parser against.
+  A wrong guess at the columns would silently report a fabricated VRAM
+  number -- worse than the current honest "unknown, treat as unusable"
+  default. Fix this only against real `rocm-smi` output, not by guessing
+  the format from documentation.
 
 ---
 
@@ -460,7 +474,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 126
+test command     python3 -m pytest tests/ -q     # 128
 ```
 
 ---

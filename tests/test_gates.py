@@ -381,6 +381,27 @@ class TestVerifiedRollback:
         assert SafetyClassifier().classify(command).level is RiskLevel.CRITICAL
         assert declared_safe is True, "the declaration omitted safe, defaulting True"
 
+    def test_rollback_actions_honours_a_declared_cwd_and_timeout(self) -> None:
+        """Found in a full-file audit: this used to always call the runner
+        with (command, None, None), silently dropping a declared cwd or
+        timeout with no error -- a rollback command relying on a relative
+        path would run from the wrong directory."""
+        seen = {}
+
+        def runner(command, cwd, timeout):
+            seen["cwd"], seen["timeout"] = cwd, timeout
+            return "ok"
+
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "s1", "run": "true"}],
+            "rollback": [{"run": "git reset --hard", "cwd": "/srv/app", "timeout": 30}],
+        })
+        _description, _command, undo, _safe = spec.rollback_actions(runner=runner)[0]
+        undo()
+
+        assert seen == {"cwd": "/srv/app", "timeout": 30}
+
 
 # --------------------------------------------------------------------------- #
 # ASK_CLARIFYING_QUESTIONS

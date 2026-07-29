@@ -347,10 +347,20 @@ class Harness:
             "; ".join(f"{r.name}={'ok' if r.passed else 'FAIL'}"
                       for r in plan.preconditions.results) or "none registered")
 
+        # baseline() captures the reference point execute()'s own per-step
+        # checks compare against once real time (operator review) has
+        # passed -- that's the actual enforcement, already covered by
+        # test_an_external_edit_stops_the_run. Calling detect() again here,
+        # immediately after the baseline it would compare against was just
+        # captured on the line above, cannot ever find anything: it always
+        # returned [], the same as plan.conflicts' own default. Found in a
+        # full-file audit -- worse than merely dead, it cost a second full
+        # filesystem walk of watch_roots on every single plan proposal
+        # whenever inotify isn't available (ConflictDetector._detect_tree
+        # falls straight to a full _reconcile() walk with no event queue to
+        # check first).
         tracked = sorted({t for s in steps for t in s.touches})
         self.conflicts.baseline(tracked, roots=spec.watch_roots or None)
-        if tracked or spec.watch_roots:
-            plan.conflicts = self.conflicts.detect()
 
         self.decisions.log(
             Stage.GATE.value, f"plan worst level {plan.worst_level.value}",

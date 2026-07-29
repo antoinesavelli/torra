@@ -786,9 +786,40 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    saved sequence, deciding whether a skipped step's undos still get
    pushed onto the rollback stack).
 
-126 tests pass (was 114 before this loop), ruff and mypy clean throughout.
+10. **`Harness._gate()` walked `watch_roots` twice for no possible
+    benefit.** `plan.conflicts = self.conflicts.detect()` ran immediately
+    after `self.conflicts.baseline(...)` on the same object -- `detect()`
+    re-reads exactly the state `baseline()` just captured, so it always
+    returned `[]`, the same as `Plan.conflicts`' own default. With
+    inotify unavailable, `ConflictDetector._detect_tree` falls straight
+    to a full `_reconcile()` walk with no event queue to check first, so
+    this cost a full filesystem walk of `watch_roots` a second time, on
+    every single plan proposal, for a result that was provably always
+    empty. Removed the pointless call; `baseline()` alone is what
+    `execute()`'s later per-step checks need.
+11. **`TaskSpec.rollback_actions()` silently dropped a declared `cwd` or
+    `timeout`.** Unlike `to_steps()`'s `build()`, which reads both from
+    the step dict, this always called the runner with `(command, None,
+    None)`. Most auto-generated undos use absolute paths and never
+    notice; a hand-written or model-proposed rollback command relying on
+    a relative path (`cd`-and-`git reset`, say) would silently run from
+    the wrong directory with no error. Now reads `raw.get("cwd")`/
+    `raw.get("timeout")`, matching `to_steps()` exactly.
+
+**Not fixed, documented instead:** `detect_accelerator()`'s ROCm branch
+(`harness/core/machine.py`) detects an AMD GPU's *presence* but never
+populates `vram_mb`/`free_vram_mb`, so `Accelerator.gpu` is always
+`False` on a ROCm system and the router treats it as CPU-only regardless
+of actual free VRAM. Real `rocm-smi --showmeminfo vram --csv` column
+layout has changed across ROCm versions, and there is no AMD/ROCm
+hardware anywhere in this project's environment to verify a parser
+against -- guessing the format risks silently fabricating a VRAM number,
+which is worse than the current honest "unknown" default. Recorded in
+`HANDOFF.md` §6.5; fix only against real `rocm-smi` output.
+
+128 tests pass (was 114 before this loop), ruff and mypy clean throughout.
 Full narrative and code-level rationale for each fix is in `HANDOFF.md`
-§§2.8-2.10 and §6.4; this section is the index.
+§§2.8-2.10 and §6.4-6.5; this section is the index.
 
 ## Caveats
 

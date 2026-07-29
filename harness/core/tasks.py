@@ -225,6 +225,14 @@ class TaskSpec:
         # that rather than taking a plan's own safety self-assessment on
         # faith. Whoever declared this entry (a human or a model) only gets
         # to make it *more* cautious than the classifier would, never less.
+        # cwd/timeout are read the same way to_steps' build() reads them for
+        # a regular step -- found in a full-file audit: this used to always
+        # pass (None, None), silently dropping a declared cwd or timeout on
+        # a rollback entry with no error or warning. Most auto-generated
+        # undos use absolute paths and never notice, but a hand-written or
+        # model-proposed rollback command that relies on a relative path
+        # (e.g. "cd into the deploy dir and git reset") would silently run
+        # from the wrong directory.
         execute = runner or shell
         out: list[tuple[str, str, Callable[[], Any], bool]] = []
         for raw in self.rollback:
@@ -234,7 +242,7 @@ class TaskSpec:
             out.append((
                 str(raw.get("description") or f"undo: {command}"),
                 command,
-                functools.partial(execute, command, None, None),
+                functools.partial(execute, command, raw.get("cwd"), raw.get("timeout")),
                 bool(raw.get("safe", True)),
             ))
         return out
