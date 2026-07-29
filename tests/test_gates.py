@@ -434,16 +434,16 @@ class TestRouting:
     """First-match routing cannot express 'both matched and debug wins here'."""
 
     CONTRACT = [
-        ("deploy the api container to staging", "devstral"),
-        ("release the new systemd unit", "devstral"),
+        ("deploy the api container to staging", "devstral:24b"),
+        ("release the new systemd unit", "devstral:24b"),
         ("debug why nginx keeps crashing", "qwen3:32b"),
         ("find the root cause of this traceback", "qwen3:32b"),
-        ("list the running containers", "qwen3:8b"),
+        ("list the running containers", "qwen3.5:latest"),
         ("debug the failing deploy to production", "qwen3:32b"),
         ("deploy the fix for the crash", "qwen3:32b"),
         ("check why the release is broken", "qwen3:32b"),
         ("review the deploy script before we ship it", "qwen3:32b"),
-        ("refactor the auth module", "devstral"),
+        ("refactor the auth module", "qwen3-coder:30b"),
     ]
 
     def test_the_routing_contract(self) -> None:
@@ -479,7 +479,7 @@ class TestRouting:
         router = ModelRouter()
         choice = router.select("what files take up lots of space")
         assert choice.rule == "default"
-        assert choice.model == "devstral"
+        assert choice.model == "devstral:24b"
 
     def test_confidence_reflects_the_margin(self) -> None:
         router = ModelRouter()
@@ -490,8 +490,13 @@ class TestRouting:
     def test_an_untagged_pull_still_counts_as_available(self) -> None:
         """`ollama pull devstral` registers as 'devstral:latest'; a bare-name
         rule must still match it, or every rule for an untagged pull is
-        silently treated as unavailable and downgraded."""
-        router = ModelRouter(available=["devstral:latest", "qwen3:8b"])
+        silently treated as unavailable and downgraded. (ROUTING_RULES
+        itself no longer has a bare-name target -- every entry was tagged
+        precisely when the model catalog was pruned to four models -- so
+        this exercises the normalization directly with its own rule.)"""
+        router = ModelRouter(
+            rules=[("deploy", r"\bdeploy\b", "devstral", "n/a")],
+            available=["devstral:latest", "qwen3:32b"])
         assert router.select("deploy the api to staging").model == "devstral"
 
     def test_a_downgrade_never_re_offers_the_model_that_just_failed(self) -> None:
@@ -515,6 +520,78 @@ class TestRouting:
         choice = router.select("what files take up lots of space")
         assert choice.model != "devstral"
         assert choice.model == "qwen3:8b"
+
+    def test_a_downgrade_never_lands_on_an_embedding_model(self) -> None:
+        """Found live: a freshly-pulled catalog with a much wider spread of
+        model sizes and one real embedding model (nomic-embed-text). Its
+        name carries no parameter count, so the old name-guessing
+        `_params_b` read it as "0B" -- indistinguishable from "definitely
+        tiny" -- and every real chat model was too big for the free VRAM
+        at that moment, so the downgrade fallback's `min(key=_params_b)`
+        picked the embedding model as the "smallest, safest" choice. Ollama
+        can't hold a chat/plan conversation on an embedding-only model;
+        routing a real request onto it is a hang or a broken response, not
+        a working answer at reduced quality."""
+        class TightVram:
+            gpu = True
+            free_vram_mb = 3000
+
+            def fits(self, model: str) -> bool:
+                return False
+
+        available = ["devstral", "qwen3:32b", "qwen3:8b", "nomic-embed-text:latest"]
+        router = ModelRouter(
+            available=available, accelerator=TightVram(),
+            model_params_b={"nomic-embed-text:latest": 0.137, "qwen3:8b": 8.0},
+            model_chat_capable={"nomic-embed-text:latest": False})
+
+        choice = router.select("what files take up lots of space")
+
+        assert choice.model != "nomic-embed-text:latest"
+        assert choice.model == "qwen3:8b"
+
+    def test_score_never_routes_a_rule_onto_a_non_chat_model(self) -> None:
+        router = ModelRouter(
+            rules=[("quick", r"\bcheck\b", "nomic-embed-text:latest", "n/a")],
+            available=["nomic-embed-text:latest"],
+            model_chat_capable={"nomic-embed-text:latest": False})
+        assert router.score("check the status") == []
+
+
+class TestModelParamsAndChatCapable:
+    """The daemon's own `/api/show` data, consulted before the name-guessing
+    fallback that silently mis-sizes any model whose name carries no digit."""
+
+    def test_a_known_size_wins_over_the_name_guess(self) -> None:
+        router = ModelRouter(model_params_b={"qwen3.5:latest": 27.0})
+        assert router._params_b("qwen3.5:latest") == 27.0
+
+    def test_a_zero_reported_size_falls_back_to_the_name_guess(self) -> None:
+        """`/api/show` failed for this one model (empty dict, `.get` misses)
+        -- must not be read as 'known to be 0B', or a model this large
+        would look free to route onto a CPU or an undersized card."""
+        router = ModelRouter(model_params_b={})
+        assert router._params_b("devstral") == 24.0
+
+    def test_bare_name_is_normalized_before_the_lookup(self) -> None:
+        """`available` and `/api/show` results are keyed by the daemon's own
+        tag ('devstral:latest'); a rule referencing the bare name must
+        still hit the same entry."""
+        router = ModelRouter(model_params_b={"devstral:latest": 24.0})
+        assert router._params_b("devstral") == 24.0
+
+    def test_chat_capable_defaults_true_with_no_data(self) -> None:
+        assert ModelRouter()._chat_capable("anything") is True
+
+    def test_chat_capable_defaults_true_for_an_unlisted_model(self) -> None:
+        """Missing from the dict means /api/show never ran for it (or
+        failed), not that it was checked and found incapable."""
+        router = ModelRouter(model_chat_capable={"nomic-embed-text:latest": False})
+        assert router._chat_capable("devstral") is True
+
+    def test_chat_capable_is_false_when_reported_false(self) -> None:
+        router = ModelRouter(model_chat_capable={"nomic-embed-text:latest": False})
+        assert router._chat_capable("nomic-embed-text") is False
 
 
 class TestModelAvailable:
@@ -560,7 +637,7 @@ class TestHardwareAwareRouting:
     what the machine can actually run, so it is where the two get reconciled.
     """
 
-    AVAILABLE = ["qwen3:32b", "qwen3:8b", "devstral", "phi3"]
+    AVAILABLE = ["qwen3:32b", "qwen3:8b", "devstral:24b", "phi3"]
 
     def _router(self, accelerator):
         from harness.gates import ModelRouter
@@ -570,7 +647,7 @@ class TestHardwareAwareRouting:
         from harness.core import Accelerator
         router = self._router(Accelerator("cuda", "RTX 4090", 24564, 23000))
         assert router.select("debug why nginx keeps crashing").model == "qwen3:32b"
-        assert router.select("deploy the api to staging").model == "devstral"
+        assert router.select("deploy the api to staging").model == "devstral:24b"
 
     def test_cpu_only_never_loads_a_32b_model(self) -> None:
         """The reported symptom: three times the thinking time, on CPU."""

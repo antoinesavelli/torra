@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 98 passed
+python3 -m pytest tests/ -q          # must print 114 passed
 harness doctor
 ```
 
@@ -148,6 +148,39 @@ the real output in the same list.
 > `test_ticking_the_box_after_a_rejection_still_runs`, and
 > `test_a_dry_run_does_not_block_the_real_run_that_follows`
 
+### 2.9 A model's size and chat capability come from the daemon, never the name
+
+`ModelRouter._params_b` and `_chat_capable` consult `model_params_b` /
+`model_chat_capable` (real `/api/show` data, `OllamaClient.model_info`)
+before falling back to guessing from the model's name. `Accelerator.fits`
+(`harness/core/machine.py`) does the same via its own `model_params_b`
+field. Both guesses exist only for when `/api/show` data is missing
+(daemon unreachable, or a model that failed a lookup) -- if it's present,
+it wins, unconditionally.
+
+Found live: the operator's model catalog grew from three known-good names
+to sixteen, and two of the "unknown-shaped" ones broke routing outright.
+"qwen3.5" and "deepseek-r1-heavy" carry no digit, so the name guess read
+both as 0B -- the same "looks like it fits anywhere" failure the
+`KNOWN_PARAMS_B`/`KNOWN_MODEL_PARAMS_B` tables exist to prevent, just on
+names nobody had added ahead of time. Worse: "nomic-embed-text" is an
+*embedding-only* model with `capabilities: ["embedding"]` and no
+`"completion"` at all -- no amount of size information would have made it
+a safe chat target, and the old VRAM-starved downgrade fallback (picking
+the smallest by guessed size) put it right at the top, because 0B always
+looks smallest. A real operator's disk-usage question landed on it (or on
+an oversized 14.8B reasoning model that likewise guessed as 0B and so
+looked "runnable" regardless of free VRAM) and came back broken or
+effectively hung. Routing a request onto an embedding model or a model
+that doesn't fit is not a quality problem to prompt-tune around -- it is
+this invariant not holding.
+
+> Guarded by `tests/test_core.py::TestModelInfo`,
+> `tests/test_gates.py::TestModelParamsAndChatCapable` and the two
+> `test_a_downgrade_never_...`/`test_score_never_routes...` regression
+> tests in `TestRouting`, and
+> `tests/test_agent.py::test_observe_populates_the_routers_real_model_sizes`
+
 ---
 
 ## 3. Things already tried that failed
@@ -175,7 +208,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 98, must stay green
+python3 -m pytest tests/ -q                       # 114, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -358,7 +391,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 98
+test command     python3 -m pytest tests/ -q     # 114
 ```
 
 ---

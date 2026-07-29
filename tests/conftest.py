@@ -29,6 +29,11 @@ def scripted(*replies: dict[str, Any], models: list[str] | None = None
     def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         if path == "/api/tags":
             return tags
+        if path == "/api/show":
+            # No metadata to report -- Agent.observe() calls this once per
+            # available model, and it must not consume a scripted /api/chat
+            # reply meant for the conversation under test.
+            return {}
         reply = queue.pop(0) if len(queue) > 1 else (queue[0] if queue else {})
         return {"message": {"content": json.dumps(reply)}}
 

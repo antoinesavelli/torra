@@ -353,3 +353,33 @@ def test_an_untagged_pull_is_not_mistaken_for_absent() -> None:
         "an available model, pulled without an explicit tag, was mistaken "
         "for absent and silently downgraded"
     )
+
+
+def test_observe_populates_the_routers_real_model_sizes() -> None:
+    """Agent.observe() fetches /api/show for every available model once and
+    hands the result to the router, so it stops guessing "0B" for a name
+    with no digit in it -- see ModelRouter._params_b for what that guess
+    broke live."""
+    show_data = {
+        "qwen3.5:latest": {"details": {"parameter_size": "9.7B"},
+                           "capabilities": ["completion"]},
+        "nomic-embed-text:latest": {"details": {"parameter_size": "137M"},
+                                    "capabilities": ["embedding"]},
+    }
+
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/tags":
+            return {"models": [{"name": m} for m in show_data]}
+        if path == "/api/show":
+            return show_data[payload["name"]]
+        return {"message": {"content": json.dumps({"intent": "answer", "message": "ok"})}}
+
+    agent = Agent(OllamaClient(transport=transport, probe_timeout=0.1))
+    agent._observe = lambda: MachineState(hostname="pop-os")
+
+    agent.observe()
+
+    assert agent.router.model_params_b == {
+        "qwen3.5:latest": 9.7, "nomic-embed-text:latest": 0.137}
+    assert agent.router.model_chat_capable == {
+        "qwen3.5:latest": True, "nomic-embed-text:latest": False}

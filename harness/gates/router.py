@@ -45,22 +45,37 @@ class ModelChoice:
 
 
 #: (name, pattern, model, why). Debug outranks deploy by weight, not by order.
+#:
+#: Model targets were pruned to four models on 2026-07-28 (qwen3:32b,
+#: qwen3-coder:30b, devstral:24b, qwen3.5:latest) -- everything else this
+#: session had pulled for exploration is gone. "debug"/"plan"/"analyze" ->
+#: qwen3:32b and "deploy" -> devstral:24b carry over the actual benchmark
+#: result in scripts/dev/model_bench/REPORT.md (only the tag changed, from
+#: bare "devstral" to the real pulled tag "devstral:24b" -- it silently
+#: stopped matching `available` the moment anything else was pulled under
+#: a different tag). "code" -> qwen3-coder:30b and "quick" -> qwen3.5:latest
+#: are NOT benchmarked against this harness's JSON-planning task; they are
+#: the obvious fit by name (a coder-specialized model for code generation,
+#: the smallest pulled model for trivial lookups) standing in until they
+#: are actually measured. Do not read them as a benchmark result the way
+#: the other four rules are.
 ROUTING_RULES: list[tuple[str, str, str, str]] = [
     ("debug", r"\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)"
               r"|root\s*cause|failing|broken|bug)\b",
      "qwen3:32b", "debugging needs the deepest reasoning budget available locally"),
     ("deploy", r"\b(deploy|release|ship|rollout|provision|terraform|ansible|"
                r"systemd\s+unit)\b",
-     "devstral", "deployment work needs strong tool and file editing behaviour"),
+     "devstral:24b", "deployment work needs strong tool and file editing behaviour"),
     ("code", r"\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|"
              r"migrate\s+code)\b",
-     "devstral", "code generation is devstral's trained specialty"),
+     "qwen3-coder:30b", "code generation is qwen3-coder's namesake specialty "
+                        "(not yet benchmarked against this harness)"),
     ("plan", r"\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b",
      "qwen3:32b", "planning benefits from long context reasoning"),
     ("analyze", r"\b(analy[sz]e|summar[iy]|review|audit|explain)\b",
      "qwen3:32b", "analysis is reasoning bound, not tool bound"),
     ("quick", r"\b(list|show|print|cat|what\s+is|check|status)\b",
-     "qwen3:8b", "trivial lookups do not justify loading a 32b model"),
+     "qwen3.5:latest", "trivial lookups do not justify loading a 20b+ model"),
 ]
 
 #: Parameter counts for models whose name does not carry one. Without this,
@@ -97,10 +112,12 @@ class ModelRouter:
     def __init__(
         self,
         rules: list[tuple[str, str, str, str]] | None = None,
-        default_model: str = "devstral",
+        default_model: str = "devstral:24b",
         available: Sequence[str] | None = None,
         weights: dict[str, float] | None = None,
         accelerator: Any | None = None,
+        model_params_b: dict[str, float] | None = None,
+        model_chat_capable: dict[str, bool] | None = None,
     ) -> None:
         """Configure routing rules, weights, available models, and the accelerator.
 
@@ -113,24 +130,50 @@ class ModelRouter:
 
         `default_model` is what a request gets when it matches none of
         `rules` at all -- not a downgrade, a genuinely unmatched phrasing.
-        It defaults to devstral rather than the smallest/cheapest model on
-        purpose: a live benchmark (scripts/dev/model_bench/REPORT.md) found
-        qwen3:8b was the only one of the three shipped models with a hard
-        JSON-schema failure, while devstral had zero across the same battery
-        and ties the largest model on accuracy at a quarter of the latency.
-        An unmatched request is exactly the case with no other signal to
-        route on, so it should land on the model measured most reliable, not
-        the cheapest one.
+        It defaults to devstral:24b rather than the smallest/cheapest model
+        on purpose: a live benchmark (scripts/dev/model_bench/REPORT.md)
+        found qwen3:8b was the only one of the three shipped models with a
+        hard JSON-schema failure, while devstral had zero across the same
+        battery and ties the largest model on accuracy at a quarter of the
+        latency. An unmatched request is exactly the case with no other
+        signal to route on, so it should land on the model measured most
+        reliable, not the cheapest one. (The tag changed from bare
+        "devstral" to "devstral:24b" on 2026-07-28 when the model catalog
+        was pruned -- the benchmark result is about the model, not the tag;
+        see ROUTING_RULES' own note for the rest of that pruning.)
+
+        `model_params_b` and `model_chat_capable` are the daemon's own
+        `/api/show` metadata (`OllamaClient.model_info`, name normalized to
+        `tag:latest`), keyed the same way `available` is. When present they
+        are checked before the name-guessing fallback in `_params_b` and
+        `_chat_capable` -- see those methods for why the guess alone is not
+        safe to route on for an arbitrary, freshly-pulled model.
         """
         self.rules = list(rules if rules is not None else ROUTING_RULES)
         self.default_model = default_model
         self.available = set(available) if available else None
         self.weights = dict(weights or RULE_WEIGHTS)
         self.accelerator = accelerator
+        self.model_params_b = model_params_b
+        self.model_chat_capable = model_chat_capable
         self.downgrades: list[tuple[str, str, str]] = []
 
     def _params_b(self, model: str) -> float:
-        """Parameter count in billions, from the name or the known table."""
+        """Parameter count in billions: the daemon's own report first.
+
+        The name-guessing fallback (a `\\d+b\\b` regex, then a small
+        hardcoded table) only covers names someone already thought to add.
+        Found live: a freshly-pulled catalog with names like "qwen3.5" and
+        "deepseek-r1-heavy" -- no digit in either -- both guessed 0B, the
+        same "looks like it fits anywhere" failure `KNOWN_PARAMS_B` was
+        created to stop for devstral, just on new names nobody had reason
+        to add ahead of time. `/api/show` reports the real size regardless
+        of what the name looks like.
+        """
+        if self.model_params_b is not None:
+            known = self.model_params_b.get(_normalize_tag(model))
+            if known:
+                return known
         match = re.search(r"(\d+(?:\.\d+)?)\s*b\b", model, re.IGNORECASE)
         if match:
             return float(match.group(1))
@@ -139,6 +182,19 @@ class ModelRouter:
             if base == name or base.startswith(name):
                 return params
         return 0.0
+
+    def _chat_capable(self, model: str) -> bool:
+        """False only when the daemon reports this model cannot hold a
+        conversation at all -- e.g. an embedding-only model. Nothing about
+        a name says this (`nomic-embed-text` looks like any other pull),
+        so this is `/api/show`-only; unknown defaults to True, the same
+        stance `runnable()` takes on an unparseable size, because refusing
+        to route on missing information would block every model whose
+        `/api/show` call failed rather than just the ones that earned it.
+        """
+        if self.model_chat_capable is None:
+            return True
+        return self.model_chat_capable.get(_normalize_tag(model), True)
 
     def runnable(self, model: str) -> bool:
         """True when this model is worth loading on the current hardware."""
@@ -162,23 +218,35 @@ class ModelRouter:
         # caller's `available` list doesn't happen to include it) could be
         # returned as though it were a safe, ready-to-call choice.
         available_ok = self.available is None or model_available(model, self.available)
-        if available_ok and self.runnable(model):
+        if available_ok and self.runnable(model) and self._chat_capable(model):
             return model, ""
+        # Chat-capable candidates only: an embedding-only model (e.g.
+        # nomic-embed-text) can't hold a plan/answer conversation at all,
+        # and being small enough to always pass `runnable()` -- an
+        # unparseable name defaults to "fits everywhere" -- made it the
+        # top pick here whenever every real chat model was VRAM-starved.
+        # Found live: a request with a tight VRAM budget downgraded onto
+        # exactly that model instead of the smallest real chat candidate.
         candidates = sorted(
-            (m for m in (self.available or set()) if self.runnable(m)),
+            (m for m in (self.available or set())
+             if self.runnable(m) and self._chat_capable(m)),
             key=self._params_b, reverse=True)
         if candidates:
             replacement = candidates[0]
         elif self.available:
-            # Something is pulled locally, it just doesn't fit either -- pick
-            # the smallest footprint as the least-bad option. Falling through
-            # to `self.default_model` here is what produced a routing_reason
-            # of "downgraded from devstral because ... " that resolved right
-            # back to devstral: the class default *is* devstral, so when
-            # nothing in `available` passed the fit check this used to
-            # re-offer the exact model that had just failed it. Found live
-            # in a real audit log (disk-usage-analysis), not in a test.
-            replacement = min(self.available, key=self._params_b)
+            # Nothing chat-capable fits either -- pick the smallest
+            # footprint among whatever's chat-capable as the least-bad
+            # option, falling back to the full available set only if
+            # every pulled model claims it can't chat at all. Falling
+            # through to `self.default_model` here is what produced a
+            # routing_reason of "downgraded from devstral because ... "
+            # that resolved right back to devstral: the class default
+            # *is* devstral, so when nothing in `available` passed the
+            # fit check this used to re-offer the exact model that had
+            # just failed it. Found live in a real audit log
+            # (disk-usage-analysis), not in a test.
+            pool = [m for m in self.available if self._chat_capable(m)] or list(self.available)
+            replacement = min(pool, key=self._params_b)
         else:
             replacement = self.default_model
         if not available_ok:
@@ -197,6 +265,8 @@ class ModelRouter:
         raw: list[tuple[str, str, float, list[str], int]] = []
         for name, pattern, model, _why in self.rules:
             if self.available is not None and not model_available(model, self.available):
+                continue
+            if not self._chat_capable(model):
                 continue
             terms, first_at = [], -1
             for match in re.finditer(pattern, text, re.IGNORECASE):

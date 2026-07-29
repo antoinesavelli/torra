@@ -70,10 +70,18 @@ risk_mitigations:
     host: http://localhost:11434
     probe_timeout_seconds: 0.5
     monitor_interval_seconds: 5
-    fallback_model: qwen3:8b
+    fallback_model: qwen3:8b   # stale: no longer pulled, see model_routing note below
 
 model_routing:
-  default: devstral   # unmatched requests: measured most reliable of the three, not cheapest
+  # Model catalog pruned to four on 2026-07-28: qwen3:32b, qwen3-coder:30b,
+  # devstral:24b, qwen3.5:latest. Everything below reflects that -- ignore
+  # any surviving qwen3:8b/bare-devstral reference elsewhere in this repo's
+  # history as pre-pruning. Sizes and chat capability now come from the
+  # daemon's own /api/show at runtime (harness/gates/router.py's
+  # model_params_b/model_chat_capable), not from these names -- see
+  # HANDOFF.md §2.9 for why the name alone stopped being trustworthy the
+  # moment the catalog grew past three known models.
+  default: devstral:24b   # unmatched requests: measured most reliable of the four, not cheapest
   # Phase 3 ScoringModelSelector weights. Higher wins a tie on match count.
   # The rule matching earliest in the text also gets a 2x lead multiplier,
   # because the leading verb is the intent and the rest is the object.
@@ -95,12 +103,12 @@ model_routing:
       reason: debugging needs the deepest reasoning budget available locally
     - name: deploy
       pattern: '\b(deploy|release|ship|rollout|provision|terraform|ansible|systemd\s+unit)\b'
-      model: devstral
+      model: devstral:24b
       reason: deployment work needs strong tool and file editing behavior
     - name: code
       pattern: '\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|migrate\s+code)\b'
-      model: devstral
-      reason: code generation is devstral's trained specialty
+      model: qwen3-coder:30b
+      reason: code generation is qwen3-coder's namesake specialty (not yet benchmarked against this harness)
     - name: plan
       pattern: '\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b'
       model: qwen3:32b
@@ -111,5 +119,5 @@ model_routing:
       reason: analysis is reasoning bound, not tool bound
     - name: quick
       pattern: '\b(list|show|print|cat|what\s+is|check|status)\b'
-      model: qwen3:8b
-      reason: trivial lookups do not justify loading a 32b model
+      model: qwen3.5:latest
+      reason: trivial lookups do not justify loading a 20b+ model

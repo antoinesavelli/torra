@@ -7,6 +7,7 @@ client, so the whole agent stays testable without a running daemon).
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -112,6 +113,38 @@ class OllamaClient:
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             return []
+
+    def model_info(self, model: str) -> dict[str, Any]:
+        """Real parameter size and chat capability for one pulled model.
+
+        Guessing a size from the model name (a `\\d+b\\b` regex plus a small
+        hardcoded table) is what routing used before this: it worked for
+        "devstral" and broke silently on anything the table didn't know
+        about -- "qwen3.5", "deepseek-r1-heavy", any future pull -- which
+        the guesser reads as "0B, fits anywhere". Worse, an embedding-only
+        model like "nomic-embed-text" has no chat capability at all
+        regardless of size, and nothing about its name says so. `/api/show`
+        reports both directly. Returns `{}` on any failure -- callers keep
+        the name-based guess as a fallback for that case, same as an
+        unreachable daemon already degrades every other probe here.
+        """
+        try:
+            data = self._transport("/api/show", {"name": model}, self.probe_timeout)
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return {}
+        raw_size = ((data.get("details") or {}).get("parameter_size") or "").strip().upper()
+        match = re.match(r"^([\d.]+)\s*([BM])$", raw_size)
+        params_b = 0.0
+        if match:
+            value = float(match.group(1))
+            params_b = value if match.group(2) == "B" else value / 1000
+        capabilities = data.get("capabilities")
+        return {
+            "params_b": params_b,
+            "chat_capable": ("completion" in capabilities
+                             if capabilities is not None else True),
+        }
 
     def recovery_options(self, current_model: str = "unknown") -> list[RecoveryOption]:
         """The three paths out of an outage. Never touches the network."""

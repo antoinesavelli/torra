@@ -639,6 +639,79 @@ an actual operator finds a different class of bug than any battery of
 synthetic requests will" -- consistent with `HANDOFF.md`'s own bias toward
 fixing what's demonstrated over what's merely imaginable.
 
+## Found live: the operator's own model catalog broke routing outright
+
+The operator pulled a wide, exploratory set of local models outside this
+project entirely -- sixteen at peak, from `qwen3.5:27b` and
+`gemma4:26b-a4b-it-q4_K_M` down to `nomic-embed-text:latest` -- and a
+"what's taking up disk space" request that had worked earlier in this
+report's own graded battery came back as a bare prose answer with no plan
+attached, then on a later attempt appeared to hang entirely.
+
+Root cause was routing's model-size guessing, and it was worse than the
+earlier devstral-default bug this same report already documents. Every
+size check in the router (`ModelRouter._params_b`) and in hardware
+fit-checking (`Accelerator.fits`, `harness/core/machine.py`) worked by
+regexing a digit out of the model's own name, falling back to a small
+hardcoded table for names that carry none. Two names in the new catalog
+had no digit at all -- `qwen3.5` and `deepseek-r1-heavy` -- and both
+guessed as **0B**, indistinguishable from "definitely tiny." Worse,
+`nomic-embed-text:latest` is a genuine embedding-only model
+(`/api/show` reports `capabilities: ["embedding"]`, no `"completion"` at
+all) with no size information in its name either, and 0B always wins a
+"pick the smallest" downgrade fallback. With free VRAM tight enough that
+every real chat model failed the fit check, the router downgraded onto
+the one model in the whole catalog that cannot hold a chat conversation
+under any circumstances -- and on a different pass, onto a 14.8B
+reasoning model that "fits anywhere" only because its size was never
+correctly read in the first place, and didn't actually fit at all.
+
+**Fixed by grounding both checks in the daemon's own metadata instead of
+guessing from the name:**
+
+- `OllamaClient.model_info(model)` (`harness/core/ollama.py`) calls
+  `/api/show` and returns real `params_b` (parsed from `parameter_size`,
+  e.g. `"14.8B"` or `"137M"`) and `chat_capable` (`"completion" in
+  capabilities`).
+- `Agent.observe()` calls this once per available model, the same moment
+  it already populates `router.available` from `ollama.models()`, and
+  hands the router two new dicts: `model_params_b` and
+  `model_chat_capable`. `ModelRouter._params_b`/`_chat_capable` check
+  these first, before the name-guessing fallback.
+- `Accelerator.fits()` had its *own*, independent copy of the same
+  guessing logic (a second, already-drifted hardcoded table,
+  `KNOWN_MODEL_PARAMS_B` vs the router's `KNOWN_PARAMS_B`) -- fixing the
+  router alone was not enough, because `runnable()` delegates the actual
+  VRAM fit check to `accelerator.fits()`, which re-derived its own
+  (wrong) guess independently. It now takes the same real `model_params_b`
+  dict, shared from the same `Agent.observe()` call.
+
+Re-verified against the live daemon and the operator's exact failing
+request: the router now correctly reports `qwen3:32b` (32.8B) as not
+runnable against the free VRAM at the time, and lands on `devstral:24b`
+-- a real, benchmarked, correctly-sized chat model -- instead of the
+embedding model or the mis-sized reasoning model. Covered by
+`tests/test_core.py::TestModelInfo`,
+`tests/test_gates.py::TestModelParamsAndChatCapable`, two new regression
+tests in `TestRouting` (`test_a_downgrade_never_lands_on_an_embedding_model`,
+`test_score_never_routes_a_rule_onto_a_non_chat_model`), and
+`tests/test_agent.py::test_observe_populates_the_routers_real_model_sizes`.
+
+**Separately, the operator pruned the catalog itself** down to four
+models the day this was found -- `qwen3:32b`, `qwen3-coder:30b`,
+`devstral:24b`, `qwen3.5:latest` -- deleting the other twelve, including
+the embedding model that triggered this investigation. `ROUTING_RULES`
+and `default_model` (`harness/gates/router.py`) were updated to match:
+the tag itself changed for the default and the "deploy" rule (bare
+`"devstral"` never matched the real pulled tag `"devstral:24b"` once
+anything else was pulled under a different tag -- the exact class of bug
+`model_available()`'s tag normalization exists to catch, just missed here
+because nothing forced the constant itself to be re-checked against
+reality). "code" now routes to `qwen3-coder:30b` and "quick" to
+`qwen3.5:latest`; both are **honest, unmeasured** placements by name fit,
+not benchmark results the way "debug"/"plan"/"analyze"/"deploy" are --
+see `ROUTING_RULES`' own docstring note before trusting them the same way.
+
 ## Caveats
 
 - Single run per task, not multiple trials averaged — LLM sampling has real

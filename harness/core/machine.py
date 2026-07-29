@@ -41,6 +41,10 @@ class Accelerator:
     free_vram_mb: int = 0
     running_on: str = ""        # what `ollama ps` reports for a loaded model
     detail: str = ""
+    #: Real parameter counts from `/api/show` (Agent.observe fills this in,
+    #: keyed like `available` -- `tag:latest` normalized), consulted before
+    #: the name guess below. Not part of the audit-facing dict; see to_dict.
+    model_params_b: dict[str, float] = field(default_factory=dict)
 
     @property
     def gpu(self) -> bool:
@@ -48,23 +52,38 @@ class Accelerator:
         return self.kind != "cpu" and self.free_vram_mb > 0
 
     def fits(self, model: str) -> bool:
-        """Rough guess at whether a model will fit in free VRAM."""
-        # Parameter count from the name, two bytes per parameter for a
-        # typical q4 quant plus context overhead. Deliberately crude: the
-        # cost of being wrong is a slow answer, and the cost of not guessing
-        # at all is routing a 32b model onto a CPU every single time.
+        """Whether a model will fit in free VRAM."""
         if not self.gpu:
             return False
-        match = re.search(r"(\d+(?:\.\d+)?)\s*b\b", model, re.IGNORECASE)
-        params = float(match.group(1)) if match else KNOWN_MODEL_PARAMS_B.get(
-            model.split(":")[0].lower(), 0.0)
+        params = self.model_params_b.get(model if ":" in model else f"{model}:latest", 0.0)
+        if not params:
+            # Parameter count from the name, two bytes per parameter for a
+            # typical q4 quant plus context overhead. Deliberately crude:
+            # the cost of being wrong is a slow answer, and the cost of not
+            # guessing at all is routing a 32b model onto a CPU every
+            # single time. Only reached when the real size above is
+            # missing -- found live, this guess alone read "deepseek-r1-
+            # heavy" and "qwen3.5" (no digit in either name) as 0B, which
+            # this same "unknown -> assume it fits" fallback then let
+            # through onto a card with less than half the VRAM they
+            # actually needed.
+            match = re.search(r"(\d+(?:\.\d+)?)\s*b\b", model, re.IGNORECASE)
+            params = float(match.group(1)) if match else KNOWN_MODEL_PARAMS_B.get(
+                model.split(":")[0].lower(), 0.0)
         if not params:
             return True
         return self.free_vram_mb >= params * 1024 * 0.7
 
     def to_dict(self) -> dict[str, Any]:
-        """Serializable dict form."""
-        return {**asdict(self), "gpu": self.gpu}
+        """Serializable dict form, for the audit trail and the model prompt.
+
+        `model_params_b` is excluded on purpose -- it can hold one entry per
+        pulled model, and neither the audit reader nor the model prompt
+        needs a table of every other model's size to explain this decision.
+        """
+        data = asdict(self)
+        data.pop("model_params_b", None)
+        return {**data, "gpu": self.gpu}
 
     def render(self) -> str:
         """One line for the model's context and the status bar."""

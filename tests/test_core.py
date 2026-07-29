@@ -48,6 +48,55 @@ def test_a_failed_probe_does_not_abort_observation() -> None:
     assert state.hostname == "ok"  # other probes still ran
 
 
+class TestModelInfo:
+    """OllamaClient.model_info(): real per-model size and chat capability
+    from `/api/show`, so routing stops guessing from the name alone. Found
+    live: a freshly-pulled catalog with names like "qwen3.5" and
+    "deepseek-r1-heavy" (no digit in either) and an actual embedding model
+    ("nomic-embed-text") all guessed as "0B, fits anywhere" from the name,
+    which let the embedding model win a VRAM-starved downgrade fallback
+    over every real chat candidate."""
+
+    def _client(self, show_response: dict) -> OllamaClient:
+        return OllamaClient(transport=lambda path, payload, timeout: show_response)
+
+    def test_billions_are_parsed(self) -> None:
+        info = self._client({"details": {"parameter_size": "14.8B"},
+                             "capabilities": ["completion"]}).model_info("x")
+        assert info == {"params_b": 14.8, "chat_capable": True}
+
+    def test_millions_are_converted_to_billions(self) -> None:
+        info = self._client({"details": {"parameter_size": "137M"},
+                             "capabilities": ["embedding"]}).model_info("x")
+        assert info["params_b"] == pytest.approx(0.137)
+
+    def test_embedding_only_is_not_chat_capable(self) -> None:
+        info = self._client({"details": {"parameter_size": "137M"},
+                             "capabilities": ["embedding"]}).model_info("x")
+        assert info["chat_capable"] is False
+
+    def test_completion_capability_is_chat_capable(self) -> None:
+        info = self._client({"details": {"parameter_size": "8.0B"},
+                             "capabilities": ["completion", "tools"]}).model_info("x")
+        assert info["chat_capable"] is True
+
+    def test_missing_capabilities_key_defaults_to_chat_capable(self) -> None:
+        """An older Ollama that doesn't report capabilities at all must not
+        be read as "cannot chat" -- that would block every model on it."""
+        info = self._client({"details": {"parameter_size": "8.0B"}}).model_info("x")
+        assert info["chat_capable"] is True
+
+    def test_an_unparseable_size_reports_zero_not_a_crash(self) -> None:
+        info = self._client({"details": {"parameter_size": "unknown"}}).model_info("x")
+        assert info["params_b"] == 0.0
+
+    def test_a_transport_failure_returns_an_empty_dict(self) -> None:
+        def transport(path: str, payload: dict, timeout: float) -> dict:
+            raise ConnectionRefusedError("no daemon")
+
+        assert OllamaClient(transport=transport).model_info("x") == {}
+
+
 class TestShellPipefail:
     """`shell()` used /bin/sh (dash on Debian-derived systems) via shell=True,
     whose pipeline exit status is only the *last* command's -- a command that

@@ -198,7 +198,36 @@ class Agent:
             if accelerator is not None:
                 self.router.accelerator = accelerator
                 if not self.router.available:
-                    self.router.available = set(self.ollama.models()) or None
+                    models = self.ollama.models()
+                    self.router.available = set(models) or None
+                    # Real size and chat capability per model, once per
+                    # session -- see ModelRouter._params_b/_chat_capable
+                    # for why guessing either from the name alone found a
+                    # freshly-pulled embedding model (nomic-embed-text) as
+                    # if it were the smallest, safest chat model to fall
+                    # back to.
+                    sizes: dict[str, float] = {}
+                    capable: dict[str, bool] = {}
+                    for name in models:
+                        info = self.ollama.model_info(name)
+                        if info.get("params_b"):
+                            sizes[name] = info["params_b"]
+                        if "chat_capable" in info:
+                            capable[name] = info["chat_capable"]
+                    if sizes:
+                        self.router.model_params_b = sizes
+                        # Accelerator.fits() has its own independent
+                        # name-guessing fallback (harness/core/machine.py)
+                        # -- router.runnable() delegates the actual VRAM
+                        # fit check to it, so the router's real sizes have
+                        # to reach it too, or a model whose name carries no
+                        # digit still gets waved through as "fits anywhere"
+                        # one call later. Found live: fixing _params_b
+                        # alone still let a 14.8B model onto a card with
+                        # under half the VRAM it needed.
+                        accelerator.model_params_b = sizes
+                    if capable:
+                        self.router.model_chat_capable = capable
         return self.state
 
     # -- prompting --------------------------------------------------------- #
