@@ -1,26 +1,20 @@
 """The five behavioural guardrails, one submodule each.
 
-Depends on: harness.gates.decisions, .safety, .state, .rollback, .clarifier,
-.router (this package only re-exports; each submodule is otherwise
-self-contained with no cross-references between the five gates).
+Depends on: harness.gates.decisions, .safety, .state, .rollback, .undo,
+.clarifier, .router (this package only re-exports; each submodule is
+otherwise self-contained with no cross-references between the five gates,
+except .rollback -> .undo, ROLLBACK_ON_FAIL's own two halves).
 """
 
 from __future__ import annotations
 
 from .clarifier import Ambiguity, Clarification, Clarifier
 from .decisions import Decision, DecisionLog
-from .rollback import (
-    RollbackReport,
-    RollbackResult,
-    Snapshot,
-    SnapshotKind,
-    UndoAction,
-    UndoGenerator,
-    VerifiedRollback,
-)
+from .rollback import RollbackReport, RollbackResult, VerifiedRollback
 from .router import ModelChoice, ModelRouter, model_available
 from .safety import ResolvedCommand, RiskLevel, SafetyClassifier, Verdict
 from .state import Precondition, PreconditionReport, PreconditionResult, StateVerifier
+from .undo import Snapshot, SnapshotKind, UndoAction, UndoGenerator
 
 __all__ = [
     "RiskLevel", "ResolvedCommand", "Verdict", "SafetyClassifier",

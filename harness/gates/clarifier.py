@@ -159,101 +159,147 @@ class Clarifier:
         before = text[:match.start()]
         return bool(re.search(r"[\w./-]{3,}", before)) and len(before.split()) >= 3
 
+    def _scrub(self, text: str) -> str:
+        """Blank out every anchor, so a vague-word check doesn't misread
+        the "old" inside /srv/api/old.log as a judgement."""
+        scrubbed = text
+        for pattern, _label in self.anchors:
+            scrubbed = re.sub(pattern, " █ ", scrubbed, flags=re.IGNORECASE)
+        return scrubbed
+
+    @staticmethod
+    def _check_no_target(anchors: list[str]) -> Ambiguity | None:
+        if anchors:
+            return None
+        return Ambiguity(
+            "no_target",
+            "Which exact path, unit, host, container, or version should I act on?",
+            "the request names no path, unit, host, version, file, or quantity")
+
+    @staticmethod
+    def _check_ambiguous_referent(scrubbed: str, anchors: list[str]) -> Ambiguity | None:
+        generic = re.search(GENERIC, scrubbed, re.IGNORECASE)
+        if not generic or anchors:
+            return None
+        return Ambiguity(
+            "ambiguous_referent",
+            f"Which specific {generic.group(0).replace('the ', '').strip()} "
+            "do you mean? Name the host, unit, or path.",
+            f"'{generic.group(0).strip()}' names a category, not an instance")
+
+    def _check_no_acceptance_criterion(self, text: str) -> Ambiguity | None:
+        improvement = re.search(IMPROVEMENT, text, re.IGNORECASE)
+        if not improvement or self.has_measure(text):
+            return None
+        return Ambiguity(
+            "no_acceptance_criterion",
+            "What measurable outcome counts as done? Give a number or threshold.",
+            f"'{improvement.group(0)}' is a direction, not a target")
+
+    def _check_unbounded_scope(self, scrubbed: str, text: str) -> Ambiguity | None:
+        unbounded = re.search(UNBOUNDED, scrubbed, re.IGNORECASE)
+        if not unbounded or self.has_filter(text):
+            return None
+        return Ambiguity(
+            "unbounded_scope", "What exact path or filter defines the set you mean?",
+            f"'{unbounded.group(0)}' can match far more than intended")
+
+    def _check_vague_qualifier(self, scrubbed: str, text: str) -> Ambiguity | None:
+        vague = re.search(VAGUE, scrubbed, re.IGNORECASE)
+        if not vague or self.has_filter(text):
+            return None
+        return Ambiguity(
+            "vague_qualifier",
+            f"What defines '{vague.group(0)}' here? Give an age, size, or pattern.",
+            f"'{vague.group(0)}' is a judgement, not a selection rule")
+
+    @staticmethod
+    def _check_no_environment(text: str) -> Ambiguity | None:
+        # "localhost", not "local": the anchor pattern recognizes
+        # "localhost" as a named environment, so this alternative has to
+        # match the same word or "deploy the api localhost" trips this
+        # right after anchors_in() already found it -- found in a
+        # full-file audit, self-contradictory but not previously tested.
+        if not re.search(DEPLOY, text, re.IGNORECASE) or re.search(
+                r"\b(to|into|on)\s+\S+|\b(staging|production|prod|localhost|dev)\b",
+                text, re.IGNORECASE):
+            return None
+        return Ambiguity(
+            "no_environment",
+            "Which environment is the target: local, staging, or production?",
+            "a deploy without a named environment is a coin flip")
+
+    def _check_no_backup_plan(self, text: str, anchors: list[str]) -> Ambiguity | None:
+        strong = [a for a in anchors if a in STRONG_ANCHORS]
+        if not re.search(DESTRUCTIVE, text, re.IGNORECASE) or not (
+                self.strict_destructive or not (strong or self.has_filter(text))):
+            return None
+        return Ambiguity(
+            "no_backup_plan",
+            "Should I back up or stage the targets before removing them?",
+            "the request destroys state and states no backup plan")
+
+    def _check_dangling_pronoun(self, text: str) -> Ambiguity | None:
+        if not re.search(DANGLING, text, re.IGNORECASE) or self._has_antecedent(text):
+            return None
+        return Ambiguity(
+            "dangling_pronoun", "What does that refer to? Name the file, service, or host.",
+            "a pronoun with no antecedent inside the request")
+
+    @staticmethod
+    def _check_no_schedule(text: str) -> Ambiguity | None:
+        if not re.search(OPEN_TIMING, text, re.IGNORECASE):
+            return None
+        return Ambiguity("no_schedule", "Now, or scheduled for a specific time?",
+                         "timing was left open")
+
+    def _check_underspecified(self, text: str, tokens: list[str],
+                              anchors: list[str]) -> Ambiguity | None:
+        if len(tokens) >= self.MIN_TOKENS or anchors:
+            return None
+        return Ambiguity(
+            "underspecified", "Can you describe the task with a concrete target and outcome?",
+            f"only {len(tokens)} tokens and nothing concrete")
+
     def detect(self, request: str) -> list[Ambiguity]:
-        """Every structural gap found in a request."""
-        # Deliberately a flat sequence of independent checks, not an if/elif
-        # chain: a request can be simultaneously unbounded ("delete all the
-        # logs") AND missing a backup plan, and the caller benefits from
-        # seeing every gap at once rather than the first one found. `add()`
-        # dedupes by code because a single scan can trip more than one
-        # pattern for the same underlying gap (e.g. both `no_target` and
-        # `ambiguous_referent` firing on the same missing anchor).
+        """Every structural gap found in a request.
+
+        Each `_check_*` is deliberately independent, not an if/elif chain:
+        a request can be simultaneously unbounded ("delete all the logs")
+        AND missing a backup plan, and the caller benefits from seeing
+        every gap at once rather than the first one found. Deduped by code
+        below because a single scan can trip more than one check for the
+        same underlying gap (e.g. both `no_target` and `ambiguous_referent`
+        firing on the same missing anchor).
+        """
         text = (request or "").strip()
         if not text:
             return [Ambiguity("empty", "What would you like me to do?",
                               "the request is empty")]
 
-        found: list[Ambiguity] = []
-        seen: set[str] = set()
-
-        def add(code: str, question: str, why: str) -> None:
-            """Record one ambiguity, ignoring duplicate codes."""
-            if code not in seen:
-                found.append(Ambiguity(code, question, why))
-                seen.add(code)
-
         anchors = self.anchors_in(text)
-        # Vague-word checks run against text with the anchors blanked out, so
-        # the "old" inside /srv/api/old.log is not read as a judgement.
-        scrubbed = text
-        for pattern, _label in self.anchors:
-            scrubbed = re.sub(pattern, " █ ", scrubbed, flags=re.IGNORECASE)
+        scrubbed = self._scrub(text)
         tokens = re.findall(r"[A-Za-z0-9_./:-]+", text)
 
-        if not anchors:
-            add("no_target",
-                "Which exact path, unit, host, container, or version should I act on?",
-                "the request names no path, unit, host, version, file, or quantity")
+        checks = [
+            self._check_no_target(anchors),
+            self._check_ambiguous_referent(scrubbed, anchors),
+            self._check_no_acceptance_criterion(text),
+            self._check_unbounded_scope(scrubbed, text),
+            self._check_vague_qualifier(scrubbed, text),
+            self._check_no_environment(text),
+            self._check_no_backup_plan(text, anchors),
+            self._check_dangling_pronoun(text),
+            self._check_no_schedule(text),
+            self._check_underspecified(text, tokens, anchors),
+        ]
 
-        generic = re.search(GENERIC, scrubbed, re.IGNORECASE)
-        if generic and not anchors:
-            add("ambiguous_referent",
-                f"Which specific {generic.group(0).replace('the ', '').strip()} "
-                "do you mean? Name the host, unit, or path.",
-                f"'{generic.group(0).strip()}' names a category, not an instance")
-
-        improvement = re.search(IMPROVEMENT, text, re.IGNORECASE)
-        if improvement and not self.has_measure(text):
-            add("no_acceptance_criterion",
-                "What measurable outcome counts as done? Give a number or threshold.",
-                f"'{improvement.group(0)}' is a direction, not a target")
-
-        unbounded = re.search(UNBOUNDED, scrubbed, re.IGNORECASE)
-        if unbounded and not self.has_filter(text):
-            add("unbounded_scope",
-                "What exact path or filter defines the set you mean?",
-                f"'{unbounded.group(0)}' can match far more than intended")
-
-        vague = re.search(VAGUE, scrubbed, re.IGNORECASE)
-        if vague and not self.has_filter(text):
-            add("vague_qualifier",
-                f"What defines '{vague.group(0)}' here? Give an age, size, or pattern.",
-                f"'{vague.group(0)}' is a judgement, not a selection rule")
-
-        # "localhost", not "local": the anchor pattern above recognizes
-        # "localhost" as a named environment (line 71's ANCHOR_PATTERNS),
-        # so this alternative has to match the same word or "deploy the
-        # api localhost" trips no_environment right after anchors_in()
-        # already found "named environment" for the same text -- found in
-        # a full-file audit, self-contradictory but not previously tested.
-        if re.search(DEPLOY, text, re.IGNORECASE) and not re.search(
-                r"\b(to|into|on)\s+\S+|\b(staging|production|prod|localhost|dev)\b",
-                text, re.IGNORECASE):
-            add("no_environment",
-                "Which environment is the target: local, staging, or production?",
-                "a deploy without a named environment is a coin flip")
-
-        strong = [a for a in anchors if a in STRONG_ANCHORS]
-        if re.search(DESTRUCTIVE, text, re.IGNORECASE) and (
-                self.strict_destructive or not (strong or self.has_filter(text))):
-            add("no_backup_plan",
-                "Should I back up or stage the targets before removing them?",
-                "the request destroys state and states no backup plan")
-
-        if re.search(DANGLING, text, re.IGNORECASE) and not self._has_antecedent(text):
-            add("dangling_pronoun",
-                "What does that refer to? Name the file, service, or host.",
-                "a pronoun with no antecedent inside the request")
-
-        if re.search(OPEN_TIMING, text, re.IGNORECASE):
-            add("no_schedule", "Now, or scheduled for a specific time?",
-                "timing was left open")
-
-        if len(tokens) < self.MIN_TOKENS and not anchors:
-            add("underspecified",
-                "Can you describe the task with a concrete target and outcome?",
-                f"only {len(tokens)} tokens and nothing concrete")
-
+        found: list[Ambiguity] = []
+        seen: set[str] = set()
+        for ambiguity in checks:
+            if ambiguity is not None and ambiguity.code not in seen:
+                found.append(ambiguity)
+                seen.add(ambiguity.code)
         return found
 
     def clarify(self, request: str) -> Clarification:

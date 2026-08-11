@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .core import OllamaClient, OllamaStatus, TaskSpec, TaskSpecError
 from .gates import Clarifier, Precondition, SafetyClassifier, StateVerifier
-from .pipeline import Harness, Outcome, Plan
+from .pipeline import Harness, Outcome, Plan, RunResult
 from .telemetry import CorpusExporter, LabelStore, LoopholeAudit, TaskLogger
 
 __all__ = ["build_parser", "main"]
@@ -104,6 +104,42 @@ def cmd_tui(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _collect_answers(result: RunResult, non_interactive: bool) -> tuple[list[str], int | None]:
+    """Prompt for answers to the current NEEDS_ANSWER round's questions.
+
+    Returns (answers, early_exit_code); the caller must return
+    early_exit_code immediately, without calling harness.answer(), when
+    it's not None.
+    """
+    print("\nquestions:")
+    for question in (result.turn.questions if result.turn else []):
+        print(f"  ? {question}")
+    if non_interactive:
+        return [], EXIT_BLOCKED
+    answers = []
+    for question in (result.turn.questions if result.turn else []):
+        try:
+            answers.append(input(f"  {question}\n  > ").strip())
+        except (EOFError, KeyboardInterrupt):
+            return [], EXIT_BLOCKED
+    return answers, None
+
+
+def _print_execution_report(done: RunResult) -> None:
+    print(f"\noutcome: {done.outcome.value}")
+    for step_result in done.results:
+        print(f"  {'ok  ' if step_result.ok else 'FAIL'} {step_result.step_id}"
+              + (f": {step_result.error}" if step_result.error else ""))
+    if done.abort_reason:
+        print(f"reason : {done.abort_reason}")
+    if done.rollback:
+        print(f"rollback: {len(done.rollback.undone)} undone, "
+              f"{len(done.rollback.unverified)} unverified, "
+              f"{len(done.rollback.failed)} failed")
+    if done.audit_path:
+        print(f"audit  : {done.audit_path}")
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     """One request, planned and approved at the prompt."""
     harness = build_harness(Path(args.workdir))
@@ -114,25 +150,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     # A loop, not a single check: harness.answer() re-plans through the full
     # pipeline, and a model unsatisfied by the first round's answers can
-    # come back with NEEDS_ANSWER again. A single `if` here printed only the
-    # first round's questions -- a second round fell straight through to
-    # "outcome: needs_answer" with no indication of what was actually being
-    # asked, silently dropping the new questions from the output. The TUI
-    # doesn't have this bug: every operator message there is a fresh
-    # plan_request() call, so a second round of questions naturally renders
-    # through the same code path. Found in a full-file audit.
+    # come back with NEEDS_ANSWER again -- found in a full-file audit, see
+    # _collect_answers.
     while result.outcome is Outcome.NEEDS_ANSWER:
-        print("\nquestions:")
-        for question in (result.turn.questions if result.turn else []):
-            print(f"  ? {question}")
-        if args.non_interactive:
-            return EXIT_BLOCKED
-        answers = []
-        for question in (result.turn.questions if result.turn else []):
-            try:
-                answers.append(input(f"  {question}\n  > ").strip())
-            except (EOFError, KeyboardInterrupt):
-                return EXIT_BLOCKED
+        answers, early_exit = _collect_answers(result, args.non_interactive)
+        if early_exit is not None:
+            return early_exit
         result = harness.answer(result, answers, model=args.model)
 
     if result.outcome is not Outcome.AWAITING_APPROVAL or result.plan is None:
@@ -148,19 +171,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     approvals = {} if args.non_interactive else approve_at_prompt(result.plan)
     done = harness.execute(result, approvals, dry_run=args.dry_run)
-
-    print(f"\noutcome: {done.outcome.value}")
-    for step_result in done.results:
-        print(f"  {'ok  ' if step_result.ok else 'FAIL'} {step_result.step_id}"
-              + (f": {step_result.error}" if step_result.error else ""))
-    if done.abort_reason:
-        print(f"reason : {done.abort_reason}")
-    if done.rollback:
-        print(f"rollback: {len(done.rollback.undone)} undone, "
-              f"{len(done.rollback.unverified)} unverified, "
-              f"{len(done.rollback.failed)} failed")
-    if done.audit_path:
-        print(f"audit  : {done.audit_path}")
+    _print_execution_report(done)
     return OUTCOME_EXIT.get(done.outcome.value, EXIT_FAILED)
 
 
@@ -184,7 +195,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     plan = harness._gate(spec)
     print_plan(plan)
 
-    from .pipeline import RunResult
     result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
                        stages=["gate", "present"], plan=plan)
     if plan.preconditions and not plan.preconditions.passed:
@@ -226,9 +236,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     return EXIT_BLOCKED if (gaps or blocked) else EXIT_OK
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    """Check that the environment can run this."""
-    workdir = Path(args.workdir)
+def _check_python_and_modules() -> list[tuple[str, bool, str]]:
     checks: list[tuple[str, bool, str]] = [
         ("python >= 3.10", sys.version_info >= (3, 10),
          ".".join(map(str, sys.version_info[:3]))),
@@ -241,32 +249,49 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             checks.append((module, True, note))
         except ImportError:
             checks.append((module, False, f"missing: {note}"))
+    return checks
 
-    # Walk up to the nearest existing ancestor rather than defaulting to
-    # True when workdir.parent doesn't exist -- that default reported "ok"
-    # for a workdir whose whole directory chain was missing and might not
-    # even be creatable (e.g. under a read-only ancestor), without ever
-    # checking whether creating it would actually succeed. Found in a
-    # full-file audit.
+
+def _check_workdir_writable(workdir: Path) -> tuple[str, bool, str]:
+    """Walk up to the nearest existing ancestor rather than defaulting to
+    True when workdir.parent doesn't exist -- that default reported "ok"
+    for a workdir whose whole directory chain was missing and might not
+    even be creatable (e.g. under a read-only ancestor), without ever
+    checking whether creating it would actually succeed. Found in a
+    full-file audit.
+    """
     nearest = workdir.parent
     while not nearest.exists() and nearest != nearest.parent:
         nearest = nearest.parent
-    checks.append(("workdir writable", os.access(nearest, os.W_OK), str(workdir)))
+    return "workdir writable", os.access(nearest, os.W_OK), str(workdir)
+
+
+def _check_reflink() -> tuple[str, bool, str]:
     try:
         probe = subprocess.run(["cp", "--reflink=always", "--help"],
                                capture_output=True, timeout=5)
-        checks.append(("cp --reflink", probe.returncode == 0,
-                       "shadow snapshots may clone instead of copy"))
+        return ("cp --reflink", probe.returncode == 0,
+               "shadow snapshots may clone instead of copy")
     except Exception as exc:
-        checks.append(("cp --reflink", False, type(exc).__name__))
+        return "cp --reflink", False, type(exc).__name__
 
+
+def _check_ollama() -> tuple[str, bool, str]:
     ollama = OllamaClient()
     status = ollama.health()
     models = ollama.models() if status is OllamaStatus.HEALTHY else []
-    checks.append((f"ollama at {ollama.host}", status is OllamaStatus.HEALTHY,
-                   ", ".join(models) if models
-                   else status.value + (f" ({ollama.last_error})"
-                                        if ollama.last_error else "")))
+    detail = (", ".join(models) if models
+             else status.value + (f" ({ollama.last_error})" if ollama.last_error else ""))
+    return f"ollama at {ollama.host}", status is OllamaStatus.HEALTHY, detail
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Check that the environment can run this."""
+    workdir = Path(args.workdir)
+    checks = _check_python_and_modules()
+    checks.append(_check_workdir_writable(workdir))
+    checks.append(_check_reflink())
+    checks.append(_check_ollama())
 
     width = max(len(n) for n, _o, _d in checks)
     failed = sum(0 if ok else 1 for _n, ok, _d in checks)

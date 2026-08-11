@@ -252,6 +252,20 @@ If you touch one of those functions and can make it more literally read as a tab
 dict-dispatch, a rule list) without losing the WHY-comments explaining each branch, that is
 worth doing then; do not fragment it just to move the number.
 
+**Update, 2026-08-11: this baseline was superseded, deliberately.** All nine CCN>=15
+offenders in the codebase at the time (`SafetyClassifier._judge` included) were decomposed
+into focused per-rule/per-check/per-phase helpers -- `_judge` now dispatches through a small
+table of `(predicate, handler)` pairs where each handler still holds exactly one program's own
+logic, not a table encoding risk levels or a class per program; `detect` and `execute` were
+split the same way. `ENFORCE_FLOORS` now requires Complexity **A** (0 functions >= CCN 15) and
+the file-size half of Modularity is also clean (`gates/rollback.py` split into `rollback.py` +
+`undo.py`, both under 500 LOC). Modularity's floor stays **B**: its separate nested-complexity
+signal (depth >= 3 AND CCN >= 10) still has real offenders, several of them legitimate linear
+fallback cascades (`detect_accelerator`, `split_segments`) that are exactly the case this
+section already argued shouldn't be fragmented. The lesson from the original baseline --
+measure before assuming a number is fixable without a real structural change -- held: it took
+an explicit decision to accept that cost, not a quick refactor, to move Complexity to A.
+
 Beyond the generic six dimensions, every real system has a handful of rules that are worth
 more than all the others combined — the ones where a violation doesn't just look bad, it
 *breaks the product's core promise*. For a trading system that's "no look-ahead bias" and
@@ -401,5 +415,7 @@ All six steps above are complete for `harness/`:
    push and pull request.
 5. Every package (`harness/`, `harness/gates/`, `harness/core/`, `harness/telemetry/`) plus
    `tests/`, `examples/`, and `docs/` has an area-map `README.md`.
-6. Next: if a future change clears a floor (e.g. `_judge` or `execute` genuinely simplifies),
-   raise that dimension's floor in the same change — don't leave it slack.
+6. Next: if a future change clears a floor (Complexity/Modularity's file-size signal already
+   did, see §2.1's update), raise that dimension's floor in the same change — don't leave it
+   slack. Modularity's nested-complexity signal is the next candidate, if a future change
+   happens to touch one of its remaining offenders and can genuinely simplify it.

@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
@@ -324,89 +325,176 @@ class SafetyClassifier:
         return cleaned in PROTECTED_PREFIXES or any(
             cleaned.startswith(p + "/") for p in PROTECTED_PREFIXES if p != "/")
 
-    def _judge(self, rc: ResolvedCommand) -> list[tuple[RiskLevel, str]]:
-        """Risk findings for one resolved command."""
-        # Deliberately flat: one `if program == ...` block per recognized
-        # program, not a lookup table or a class per program. A table would
-        # need its own escalation-by-target-path logic duplicated per entry
-        # anyway (see the repeated `protected` checks below), and a class
-        # hierarchy would turn a one-line rule into a subclass for a program
-        # that will never again be extended. classify() below merges this
-        # with the regex BACKSTOP and takes the max across both, so a program
-        # missing here is caught by the backstop rather than passing silently.
-        found: list[tuple[RiskLevel, str]] = []
-        program, argv = rc.program, rc.argv
+    @staticmethod
+    def _argv_shape(argv: list[str]) -> tuple[list[str], list[str], set[str]]:
+        """Split argv into flags, operands, and single-char short-flag letters."""
         flags = [a for a in argv[1:] if a.startswith("-")]
         operands = [a for a in argv[1:] if not a.startswith("-")]
         chars = set("".join(f.lstrip("-") for f in flags if not f.startswith("--")))
+        return flags, operands, chars
+
+    def _judge(self, rc: ResolvedCommand) -> list[tuple[RiskLevel, str]]:
+        """Risk findings for one resolved command, dispatched per program.
+
+        Still one recognized program, one rule, one `_judge_*` helper --
+        not a lookup table encoding risk levels or a class per program.
+        `_JUDGE_RULES` only wires a predicate to the helper that already
+        holds that program's real logic (including its own escalation-by-
+        target-path handling where relevant); it doesn't duplicate or
+        replace that logic, so this stays a dispatcher, not a table of
+        behavior. classify() below merges this with the regex BACKSTOP and
+        takes the max across both, so a program missing here is caught by
+        the backstop rather than passing silently.
+        """
+        found: list[tuple[RiskLevel, str]] = []
+        program, argv = rc.program, rc.argv
+        flags, operands, chars = self._argv_shape(argv)
         protected = any(self._protected(o) for o in operands)
 
         if program in PROGRAM_RISK:
             level, why = PROGRAM_RISK[program]
             found.append((level, f"{why} via {program}"))
 
-        if program == "rm":
-            recursive = "r" in chars or "R" in chars or "--recursive" in flags
-            forced = "f" in chars or "--force" in flags
-            if recursive and forced:
-                found.append((RiskLevel.CRITICAL, "recursive force delete"))
-            elif recursive or protected:
-                found.append((RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
-                              "recursive or system-path delete"))
-            else:
-                found.append((RiskLevel.DANGEROUS, "file deletion"))
+        rules: list[tuple[bool, Callable[[], list[tuple[RiskLevel, str]]]]] = [
+            (program == "rm", lambda: self._judge_rm(chars, flags, protected)),
+            (program == "dd", lambda: self._judge_dd(argv)),
+            (program == "find", lambda: self._judge_find(argv, protected)),
+            (program == "systemctl", lambda: self._judge_systemctl(argv)),
+            (program == "git", lambda: self._judge_git(argv)),
+            (program in ("apt", "apt-get", "dnf", "pacman", "snap"),
+             lambda: self._judge_package_manager(argv)),
+            (program in ("python", "python3", "perl", "ruby", "node"),
+             lambda: self._judge_script_source(program, argv)),
+            (program == "kill", lambda: self._judge_kill(argv)),
+            (program in ("chmod", "chown"),
+             lambda: self._judge_chmod_chown(program, protected)),
+            (program in ("tee", "cp", "mv"),
+             lambda: self._judge_tee_cp_mv(program, protected)),
+        ]
+        for matched, call in rules:
+            if matched:
+                found += call()
+        return found
 
-        if program == "dd" and any(a.startswith("of=/dev/") for a in argv):
-            found.append((RiskLevel.CRITICAL, "raw write to a block device"))
-        if program == "find" and ("-delete" in argv or "-exec" in argv):
-            found.append((RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
-                          "find with -delete or -exec"))
-        if program == "systemctl":
-            if any(a in ("stop", "disable", "mask") for a in argv[1:]):
-                found.append((RiskLevel.DANGEROUS, "service interruption"))
-            elif any(a in ("start", "restart", "enable", "daemon-reload") for a in argv[1:]):
-                found.append((RiskLevel.CAUTION, "service state change"))
-        if program == "git" and re.search(
+    @staticmethod
+    def _judge_rm(chars: set[str], flags: list[str],
+                  protected: bool) -> list[tuple[RiskLevel, str]]:
+        recursive = "r" in chars or "R" in chars or "--recursive" in flags
+        forced = "f" in chars or "--force" in flags
+        if recursive and forced:
+            return [(RiskLevel.CRITICAL, "recursive force delete")]
+        if recursive or protected:
+            return [(RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
+                     "recursive or system-path delete")]
+        return [(RiskLevel.DANGEROUS, "file deletion")]
+
+    @staticmethod
+    def _judge_dd(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        if any(a.startswith("of=/dev/") for a in argv):
+            return [(RiskLevel.CRITICAL, "raw write to a block device")]
+        return []
+
+    @staticmethod
+    def _judge_find(argv: list[str], protected: bool) -> list[tuple[RiskLevel, str]]:
+        if "-delete" in argv or "-exec" in argv:
+            return [(RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
+                     "find with -delete or -exec")]
+        return []
+
+    @staticmethod
+    def _judge_systemctl(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        if any(a in ("stop", "disable", "mask") for a in argv[1:]):
+            return [(RiskLevel.DANGEROUS, "service interruption")]
+        if any(a in ("start", "restart", "enable", "daemon-reload") for a in argv[1:]):
+            return [(RiskLevel.CAUTION, "service state change")]
+        return []
+
+    @staticmethod
+    def _judge_git(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        if re.search(
                 r"\breset\s+--hard\b|\bclean\s+-[a-z]*f|\bpush\s+--force\b"
                 r"|\bcheckout\s+--\s|\bstash\s+(drop|clear)\b", " ".join(argv[1:])):
-            found.append((RiskLevel.DANGEROUS, "unrecoverable git operation"))
-        if program in ("apt", "apt-get", "dnf", "pacman", "snap"):
-            if any(a in ("remove", "purge", "autoremove", "uninstall") for a in argv[1:]):
-                found.append((RiskLevel.DANGEROUS, "package removal"))
-            elif any(a in ("install", "upgrade", "update", "full-upgrade") for a in argv[1:]):
-                found.append((RiskLevel.CAUTION, "package change"))
-        if program in ("python", "python3", "perl", "ruby", "node") and re.search(
-                r"rmtree|os\.remove|os\.unlink|\.unlink\(|subprocess|os\.system"
-                r"|unlinkSync|rmSync", " ".join(argv)):
-            found.append((RiskLevel.DANGEROUS,
-                          f"{program} source performs filesystem or process operations"))
-        if program == "kill":
-            # `-9` alone used to be the only signal spec recognized here --
-            # `kill -s KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`, and plain
-            # `kill 1` (default SIGTERM) all classified SAFE. Found in a
-            # full-file audit. Walking argv properly (rather than reusing
-            # the generic `operands` split) matters here specifically:
-            # `-s`/`-n`/`--signal` consume the *next* token as their
-            # argument, not a PID -- `kill -s 1 12345` sends SIGHUP to PID
-            # 12345 and never touches PID 1, and naively treating "1" as
-            # an operand there would flag a command that is not dangerous.
-            skip_next, list_mode, pids = False, False, []
-            for tok in argv[1:]:
-                if skip_next:
-                    skip_next = False
-                elif tok in ("-s", "-n", "--signal"):
-                    skip_next = True
-                elif tok in ("-l", "-L", "--list", "--table"):
-                    list_mode = True
-                elif not tok.startswith("-"):
-                    pids.append(tok)
-            if "1" in pids and not list_mode:
-                found.append((RiskLevel.CRITICAL, "kill of PID 1"))
-        if program in ("chmod", "chown") and protected:
-            found.append((RiskLevel.CRITICAL, f"{program} on a system path"))
-        if program in ("tee", "cp", "mv") and protected:
-            found.append((RiskLevel.DANGEROUS, f"{program} writes to a system path"))
-        return found
+            return [(RiskLevel.DANGEROUS, "unrecoverable git operation")]
+        return []
+
+    @staticmethod
+    def _judge_package_manager(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        if any(a in ("remove", "purge", "autoremove", "uninstall") for a in argv[1:]):
+            return [(RiskLevel.DANGEROUS, "package removal")]
+        if any(a in ("install", "upgrade", "update", "full-upgrade") for a in argv[1:]):
+            return [(RiskLevel.CAUTION, "package change")]
+        return []
+
+    @staticmethod
+    def _judge_script_source(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        if re.search(r"rmtree|os\.remove|os\.unlink|\.unlink\(|subprocess|os\.system"
+                     r"|unlinkSync|rmSync", " ".join(argv)):
+            return [(RiskLevel.DANGEROUS,
+                     f"{program} source performs filesystem or process operations")]
+        return []
+
+    @staticmethod
+    def _judge_kill(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        # `-9` alone used to be the only signal spec recognized here --
+        # `kill -s KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`, and plain
+        # `kill 1` (default SIGTERM) all classified SAFE. Found in a
+        # full-file audit. Walking argv properly (rather than reusing the
+        # generic `operands` split) matters here specifically: `-s`/`-n`/
+        # `--signal` consume the *next* token as their argument, not a
+        # PID -- `kill -s 1 12345` sends SIGHUP to PID 12345 and never
+        # touches PID 1, and naively treating "1" as an operand there
+        # would flag a command that is not dangerous.
+        skip_next, list_mode, pids = False, False, []
+        for tok in argv[1:]:
+            if skip_next:
+                skip_next = False
+            elif tok in ("-s", "-n", "--signal"):
+                skip_next = True
+            elif tok in ("-l", "-L", "--list", "--table"):
+                list_mode = True
+            elif not tok.startswith("-"):
+                pids.append(tok)
+        if "1" in pids and not list_mode:
+            return [(RiskLevel.CRITICAL, "kill of PID 1")]
+        return []
+
+    @staticmethod
+    def _judge_chmod_chown(program: str, protected: bool) -> list[tuple[RiskLevel, str]]:
+        if protected:
+            return [(RiskLevel.CRITICAL, f"{program} on a system path")]
+        return []
+
+    @staticmethod
+    def _judge_tee_cp_mv(program: str, protected: bool) -> list[tuple[RiskLevel, str]]:
+        if protected:
+            return [(RiskLevel.DANGEROUS, f"{program} writes to a system path")]
+        return []
+
+    @staticmethod
+    def _check_backstop(text: str) -> list[tuple[RiskLevel, str]]:
+        """Regex backstop: catches whatever resolve() failed to parse."""
+        return [(level, f"{why} [regex backstop]") for pattern, level, why in BACKSTOP
+                if re.search(pattern, text, re.IGNORECASE)]
+
+    def _check_redirect(self, text: str) -> list[tuple[RiskLevel, str]]:
+        """Redirect-target risk: a concern neither _judge nor BACKSTOP looks at.
+
+        Captures the operator itself (`>` or `>>`) alongside the target --
+        found in a full-file audit: the classification here was already
+        correct for `>>` (a protected path is CRITICAL either way, and this
+        regex matches starting at the second `>` of `>>` regardless), but
+        the reason text always said "overwrites" even for an append, which
+        is simply the wrong word for what the command does.
+        """
+        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+)", text)
+        if redirect and redirect.group(2) in SAFE_REDIRECT_TARGETS:
+            return []  # a stream sink or documented no-op; nothing is overwritten
+        if redirect and self._protected(redirect.group(2)):
+            verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
+            return [(RiskLevel.CRITICAL, f"redirect {verb} {redirect.group(2)}")]
+        if re.search(r">\s*[^>\s]", text):
+            return [(RiskLevel.CAUTION, "output redirect that overwrites")]
+        return []
 
     def classify(self, command: str) -> Verdict:
         """Classify a command by resolving it, with regex as the backstop."""
@@ -431,27 +519,9 @@ class SafetyClassifier:
                                f"[argv: {' '.join(rc.argv[:6])}]")
                 levels.append(level)
 
-        for pattern, level, why in BACKSTOP:
-            if re.search(pattern, text, re.IGNORECASE):
-                levels.append(level)
-                reasons.append(f"{level.value.upper()}: {why} [regex backstop]")
-
-        # Captures the operator itself (>` or `>>`) alongside the target --
-        # found in a full-file audit: the classification here was already
-        # correct for `>>` (a protected path is CRITICAL either way, and
-        # this regex matches starting at the second `>` of `>>` regardless),
-        # but the reason text always said "overwrites" even for an append,
-        # which is simply the wrong word for what the command does.
-        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+)", text)
-        if redirect and redirect.group(2) in SAFE_REDIRECT_TARGETS:
-            pass  # a stream sink or documented no-op; nothing is overwritten
-        elif redirect and self._protected(redirect.group(2)):
-            verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
-            levels.append(RiskLevel.CRITICAL)
-            reasons.append(f"CRITICAL: redirect {verb} {redirect.group(2)}")
-        elif re.search(r">\s*[^>\s]", text):
-            levels.append(RiskLevel.CAUTION)
-            reasons.append("CAUTION: output redirect that overwrites")
+        for level, why in self._check_backstop(text) + self._check_redirect(text):
+            levels.append(level)
+            reasons.append(f"{level.value.upper()}: {why}")
 
         if self.parse_failures:
             reasons.append(f"NOTE: {len(self.parse_failures)} parse issue(s), "

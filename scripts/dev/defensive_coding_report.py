@@ -25,14 +25,22 @@ TESTS_ROOT = REPO_ROOT / "tests"
 #: MIN_GPA, fails `--enforce`. Raise a floor when you clear it; never lower
 #: one to turn a red gate green (see standards doc §2/§6).
 #:
-#: Complexity and Modularity sit below A on purpose: _judge, detect, and
-#: execute are intentional flat dispatch/guard-clause chains the standards
-#: doc's own §1.1 says not to fragment just to lower a number.
+#: Complexity raised to A: `_judge`, `detect`, `execute`, and every other
+#: CCN>=15 offender were decomposed into focused helpers (each still one
+#: rule/check/phase per function, not a lookup table or a class hierarchy)
+#: on 2026-08-11, so 0 functions now sit at or above the CCN 15 ceiling.
+#: Modularity's file-size signal is also clean (0 files over 500 LOC --
+#: `gates/rollback.py` split into `rollback.py` + `undo.py`), but the
+#: dimension's separate nested-complexity signal (depth >= 3 AND CCN >= 10)
+#: still has real offenders -- several are legitimate linear fallback
+#: cascades (`detect_accelerator`, `split_segments`) the standards doc's
+#: own §1.1 says not to fragment just to lower a number, so the floor
+#: stays B rather than being pushed to A by fixing those too.
 ENFORCE_FLOORS: dict[str, str] = {
-    "Complexity": "B", "Documentation": "A", "Typing": "A",
-    "Testing": "A", "Modularity": "C", "Lint": "A",
+    "Complexity": "A", "Documentation": "A", "Typing": "A",
+    "Testing": "A", "Modularity": "B", "Lint": "A",
 }
-MIN_GPA = 3.45
+MIN_GPA = 3.80
 
 GRADE_GPA = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 

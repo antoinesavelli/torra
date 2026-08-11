@@ -24,7 +24,9 @@ top-level path, e.g. `from harness.gates import SafetyClassifier`. Read in this 
 
 1. `harness/core/` — `Step`, `TaskSpec` (`tasks.py`), `OllamaClient` (`ollama.py`),
    conflict detection (`conflict.py`) — see `harness/core/README.md`
-2. `harness/gates/` — the five guardrails, one submodule each — see `harness/gates/README.md`
+2. `harness/gates/` — the five guardrails (`rollback.py`+`undo.py` is one
+   guardrail, ROLLBACK_ON_FAIL, split across two files past the LOC cap) —
+   see `harness/gates/README.md`
 3. `harness/agent.py` — the model loop
 4. `harness/pipeline.py` — `Harness`, the seven stages, the only orchestrator
 

@@ -115,6 +115,46 @@ class CorpusExporter:
         target.write_text("\n".join(body), encoding="utf-8")
         return target
 
+    @staticmethod
+    def _false_negatives(ambiguous: list[tuple[str, str]],
+                         clarifier: Any) -> list[tuple[str, str]]:
+        out = []
+        for request, why in ambiguous:
+            try:
+                if not clarifier.detect(request):
+                    out.append((request, why))
+            except Exception as exc:
+                out.append((request, f"detect raised {exc!r}"))
+        return out
+
+    @staticmethod
+    def _false_positives(specific: list[str], clarifier: Any) -> list[tuple[str, list[str]]]:
+        out = []
+        for request in specific:
+            try:
+                found = clarifier.detect(request)
+                if found:
+                    out.append((request, [a.code for a in found]))
+            except Exception as exc:
+                out.append((request, [f"detect raised {exc!r}"]))
+        return out
+
+    @staticmethod
+    def _drift_verdict(report: DriftReport, min_sample: int,
+                       baseline_fn: float | None, baseline_fp: float | None) -> str:
+        """Deliberately conservative: below `min_sample` labels, no conclusion."""
+        if report.labeled_total < min_sample:
+            return (f"insufficient data: {report.labeled_total} labeled of "
+                    f"{min_sample} needed. No conclusion drawn.")
+        if baseline_fn is not None and report.fn_rate > baseline_fn + 0.10:
+            return (f"DRIFT: live false negatives {report.fn_rate:.0%} against a "
+                    f"synthetic baseline of {baseline_fn:.0%}. The synthetic corpus "
+                    "is measuring the wrong thing; retune against live labels.")
+        if baseline_fp is not None and report.fp_rate > baseline_fp + 0.15:
+            return (f"DRIFT: live false positives {report.fp_rate:.0%} against "
+                    f"{baseline_fp:.0%}. The clarifier is interrupting real work.")
+        return "live performance is consistent with the baseline"
+
     def drift(
         self,
         clarifier: Any,
@@ -122,8 +162,6 @@ class CorpusExporter:
         baseline_fp: float | None = None,
     ) -> DriftReport:
         """Score a clarifier against labeled traffic and compare to the baseline."""
-        # `verdict` is deliberately conservative: with fewer than MIN_SAMPLE
-        # labels it refuses to draw a conclusion.
         ambiguous, specific = self.export()
         report = DriftReport(
             labeled_total=len(ambiguous) + len(specific),
@@ -132,46 +170,13 @@ class CorpusExporter:
             baseline_fn_rate=baseline_fn,
             baseline_fp_rate=baseline_fp,
         )
-
-        for request, why in ambiguous:
-            try:
-                if not clarifier.detect(request):
-                    report.false_negatives.append((request, why))
-            except Exception as exc:
-                report.false_negatives.append((request, f"detect raised {exc!r}"))
-
-        for request in specific:
-            try:
-                found = clarifier.detect(request)
-                if found:
-                    report.false_positives.append(
-                        (request, [a.code for a in found]))
-            except Exception as exc:
-                report.false_positives.append((request, [f"detect raised {exc!r}"]))
-
+        report.false_negatives = self._false_negatives(ambiguous, clarifier)
+        report.false_positives = self._false_positives(specific, clarifier)
         report.fn_rate = round(
             len(report.false_negatives) / len(ambiguous), 4) if ambiguous else 0.0
         report.fp_rate = round(
             len(report.false_positives) / len(specific), 4) if specific else 0.0
-
-        if report.labeled_total < self.MIN_SAMPLE:
-            report.verdict = (
-                f"insufficient data: {report.labeled_total} labeled of "
-                f"{self.MIN_SAMPLE} needed. No conclusion drawn."
-            )
-        elif baseline_fn is not None and report.fn_rate > baseline_fn + 0.10:
-            report.verdict = (
-                f"DRIFT: live false negatives {report.fn_rate:.0%} against a "
-                f"synthetic baseline of {baseline_fn:.0%}. The synthetic corpus "
-                "is measuring the wrong thing; retune against live labels."
-            )
-        elif baseline_fp is not None and report.fp_rate > baseline_fp + 0.15:
-            report.verdict = (
-                f"DRIFT: live false positives {report.fp_rate:.0%} against "
-                f"{baseline_fp:.0%}. The clarifier is interrupting real work."
-            )
-        else:
-            report.verdict = "live performance is consistent with the baseline"
+        report.verdict = self._drift_verdict(report, self.MIN_SAMPLE, baseline_fn, baseline_fp)
         return report
 
 

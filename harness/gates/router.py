@@ -208,53 +208,62 @@ class ModelRouter:
         fits = getattr(self.accelerator, "fits", None)
         return bool(fits(model)) if callable(fits) else True
 
-    def _downgrade(self, model: str, rule: str) -> tuple[str, str]:
-        """Swap an unrunnable or unavailable model for the largest one that will run."""
-        # Returns (model, note); the note is surfaced in the routing reason so
-        # the operator can see the swap rather than wondering why a debugging
-        # question got a small model. Checks availability *and* hardware fit
-        # -- `runnable()` alone only reasons about VRAM/CPU, so without this,
-        # a model that was never pulled (e.g. the class default when the
-        # caller's `available` list doesn't happen to include it) could be
-        # returned as though it were a safe, ready-to-call choice.
-        available_ok = self.available is None or model_available(model, self.available)
-        if available_ok and self.runnable(model) and self._chat_capable(model):
-            return model, ""
-        # Chat-capable candidates only: an embedding-only model (e.g.
-        # nomic-embed-text) can't hold a plan/answer conversation at all,
-        # and being small enough to always pass `runnable()` -- an
-        # unparseable name defaults to "fits everywhere" -- made it the
-        # top pick here whenever every real chat model was VRAM-starved.
-        # Found live: a request with a tight VRAM budget downgraded onto
-        # exactly that model instead of the smallest real chat candidate.
+    def _pick_replacement(self) -> str:
+        """The best fitting, chat-capable available model -- or the
+        smallest chat-capable one if nothing truly fits, or the class
+        default if nothing is available at all.
+
+        Chat-capable candidates only: an embedding-only model (e.g.
+        nomic-embed-text) can't hold a plan/answer conversation at all,
+        and being small enough to always pass `runnable()` -- an
+        unparseable name defaults to "fits everywhere" -- made it the top
+        pick here whenever every real chat model was VRAM-starved. Found
+        live: a request with a tight VRAM budget downgraded onto exactly
+        that model instead of the smallest real chat candidate.
+
+        Falling through to `self.default_model` when `available` is
+        non-empty (rather than picking the smallest of it) is what
+        produced a routing_reason of "downgraded from devstral because
+        ..." that resolved right back to devstral: the class default *is*
+        devstral, so when nothing in `available` passed the fit check
+        this used to re-offer the exact model that had just failed it.
+        Found live in a real audit log (disk-usage-analysis), not a test.
+        """
         candidates = sorted(
             (m for m in (self.available or set())
              if self.runnable(m) and self._chat_capable(m)),
             key=self._params_b, reverse=True)
         if candidates:
-            replacement = candidates[0]
-        elif self.available:
-            # Nothing chat-capable fits either -- pick the smallest
-            # footprint among whatever's chat-capable as the least-bad
-            # option, falling back to the full available set only if
-            # every pulled model claims it can't chat at all. Falling
-            # through to `self.default_model` here is what produced a
-            # routing_reason of "downgraded from devstral because ... "
-            # that resolved right back to devstral: the class default
-            # *is* devstral, so when nothing in `available` passed the
-            # fit check this used to re-offer the exact model that had
-            # just failed it. Found live in a real audit log
-            # (disk-usage-analysis), not in a test.
+            return candidates[0]
+        if self.available:
             pool = [m for m in self.available if self._chat_capable(m)] or list(self.available)
-            replacement = min(pool, key=self._params_b)
-        else:
-            replacement = self.default_model
+            return min(pool, key=self._params_b)
+        return self.default_model
+
+    def _downgrade_reason(self, model: str, available_ok: bool) -> str:
         if not available_ok:
-            why = f"{model} is not pulled locally"
-        elif not getattr(self.accelerator, "gpu", False):
-            why = "no GPU"
-        else:
-            why = f"only {getattr(self.accelerator, 'free_vram_mb', 0)} MB VRAM free"
+            return f"{model} is not pulled locally"
+        if not getattr(self.accelerator, "gpu", False):
+            return "no GPU"
+        return f"only {getattr(self.accelerator, 'free_vram_mb', 0)} MB VRAM free"
+
+    def _downgrade(self, model: str, rule: str) -> tuple[str, str]:
+        """Swap an unrunnable or unavailable model for the largest one that will run.
+
+        Returns (model, note); the note is surfaced in the routing reason
+        so the operator can see the swap rather than wondering why a
+        debugging question got a small model. Checks availability *and*
+        hardware fit -- `runnable()` alone only reasons about VRAM/CPU, so
+        without this, a model that was never pulled (e.g. the class
+        default when the caller's `available` list doesn't happen to
+        include it) could be returned as though it were a safe,
+        ready-to-call choice.
+        """
+        available_ok = self.available is None or model_available(model, self.available)
+        if available_ok and self.runnable(model) and self._chat_capable(model):
+            return model, ""
+        replacement = self._pick_replacement()
+        why = self._downgrade_reason(model, available_ok)
         note = f"; downgraded from {model} because {why}"
         self.downgrades.append((rule, model, replacement))
         return replacement, note

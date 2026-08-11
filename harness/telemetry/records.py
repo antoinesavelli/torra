@@ -150,64 +150,89 @@ class TaskLogger:
             self.errors.append(f"{type(exc).__name__}: {exc}")
             return False
 
+    @staticmethod
+    def _resolve_task_id(result: Any, plan: Any) -> str:
+        return str(getattr(getattr(plan, "spec", None), "task_id", "")
+                   or getattr(result, "task_id", ""))
+
+    @staticmethod
+    def _resolve_request(result: Any, request: str) -> str:
+        return request or str(getattr(result, "request", "") or getattr(result, "task", ""))
+
+    @staticmethod
+    def _resolve_stages(result: Any) -> list[str]:
+        return list(getattr(result, "stages", None)
+                    or getattr(result, "stages_completed", []) or [])
+
+    @staticmethod
+    def _resolve_coverage(result: Any, plan: Any) -> dict[str, Any]:
+        return (getattr(plan, "coverage", None)
+                or getattr(result, "undo_coverage", None) or {})
+
+    def _base_record(self, result: Any, request: str) -> TaskRecord:
+        """Everything derivable without knowing if turn/plan are present."""
+        plan = getattr(result, "plan", None)
+        rollback = getattr(result, "rollback", None)
+        outcome = getattr(result, "outcome", None) or getattr(result, "status", None)
+        coverage = self._resolve_coverage(result, plan)
+
+        record = TaskRecord(
+            task_id=self._resolve_task_id(result, plan),
+            request=self._resolve_request(result, request),
+            at=self._clock(),
+            status=getattr(outcome, "value", str(outcome or "")),
+            stages_completed=self._resolve_stages(result),
+            abort_reason=str(getattr(result, "abort_reason", "")),
+            rollback_ran=rollback is not None,
+            rollback_verified=(getattr(rollback, "ok", None) if rollback
+                               else getattr(result, "rollback_verified", None)),
+            undo_coverage=float(coverage.get("coverage_ratio", 0.0)),
+            uncovered_steps=list(coverage.get("uncovered", []) or []),
+            seconds=float(getattr(result, "seconds", 0.0)),
+            harness_phase=7,
+        )
+        results = getattr(result, "results", []) or []
+        record.steps_total = len(results)
+        record.steps_run = len([r for r in results if getattr(r, "ok", False)])
+        return record
+
+    @staticmethod
+    def _apply_turn_fields(record: TaskRecord, turn: Any) -> None:
+        record.intent = getattr(getattr(turn, "intent", None), "value", "")
+        record.model = str(getattr(turn, "model", ""))
+        record.routing_rule = str(getattr(turn, "routing_reason", ""))[:80]
+        record.repairs = int(getattr(turn, "repairs", 0))
+        record.clarifier_codes = [g.split(":")[0] for g
+                                  in getattr(turn, "clarifier_gaps", [])]
+        # Found in a full-file audit: this field was declared on TaskRecord
+        # but never assigned here, so every persisted record carried an
+        # empty anchor list. LoopholeAudit only worked because it falls
+        # back to recomputing anchors via the clarifier at audit time --
+        # this makes the JSONL log self-contained instead of depending on
+        # that recompute.
+        record.clarifier_anchors = list(getattr(turn, "anchors", []))
+        record.clarifier_blocked = record.intent == "ask"
+
+    @staticmethod
+    def _apply_plan_fields(record: TaskRecord, plan: Any) -> None:
+        record.proposed_steps = len(getattr(plan, "steps", []))
+        record.worst_level = getattr(getattr(plan, "worst_level", None), "value", "")
+        record.approved = all(
+            getattr(sp, "approved", None) is not False for sp in getattr(plan, "steps", []))
+
     def from_result(self, result: Any, request: str = "") -> TaskRecord | None:
         """Build a TaskRecord from any result object, old pipeline or new."""
         # Reads whatever attributes are present via getattr/duck-typing: a
         # log written before the agent existed stays readable, and a log
         # written now stays readable after whatever comes next.
         try:
+            record = self._base_record(result, request)
             turn = getattr(result, "turn", None)
-            plan = getattr(result, "plan", None)
-            rollback = getattr(result, "rollback", None)
-            outcome = getattr(result, "outcome", None) or getattr(result, "status", None)
-            coverage = (getattr(plan, "coverage", None)
-                        or getattr(result, "undo_coverage", None) or {})
-
-            record = TaskRecord(
-                task_id=str(getattr(getattr(plan, "spec", None), "task_id", "")
-                            or getattr(result, "task_id", "")),
-                request=request or str(getattr(result, "request", "")
-                                       or getattr(result, "task", "")),
-                at=self._clock(),
-                status=getattr(outcome, "value", str(outcome or "")),
-                stages_completed=list(getattr(result, "stages", None)
-                                      or getattr(result, "stages_completed", []) or []),
-                abort_reason=str(getattr(result, "abort_reason", "")),
-                rollback_ran=rollback is not None,
-                rollback_verified=(getattr(rollback, "ok", None) if rollback
-                                   else getattr(result, "rollback_verified", None)),
-                undo_coverage=float(coverage.get("coverage_ratio", 0.0)),
-                uncovered_steps=list(coverage.get("uncovered", []) or []),
-                seconds=float(getattr(result, "seconds", 0.0)),
-                harness_phase=7,
-            )
-
-            results = getattr(result, "results", []) or []
-            record.steps_total = len(results)
-            record.steps_run = len([r for r in results if getattr(r, "ok", False)])
-
             if turn is not None:
-                record.intent = getattr(getattr(turn, "intent", None), "value", "")
-                record.model = str(getattr(turn, "model", ""))
-                record.routing_rule = str(getattr(turn, "routing_reason", ""))[:80]
-                record.repairs = int(getattr(turn, "repairs", 0))
-                record.clarifier_codes = [g.split(":")[0] for g
-                                          in getattr(turn, "clarifier_gaps", [])]
-                # Found in a full-file audit: this field was declared on
-                # TaskRecord but never assigned here, so every persisted
-                # record carried an empty anchor list. LoopholeAudit only
-                # worked because it falls back to recomputing anchors via
-                # the clarifier at audit time -- this makes the JSONL log
-                # self-contained instead of depending on that recompute.
-                record.clarifier_anchors = list(getattr(turn, "anchors", []))
-                record.clarifier_blocked = record.intent == "ask"
+                self._apply_turn_fields(record, turn)
+            plan = getattr(result, "plan", None)
             if plan is not None:
-                record.proposed_steps = len(getattr(plan, "steps", []))
-                record.worst_level = getattr(
-                    getattr(plan, "worst_level", None), "value", "")
-                record.approved = all(
-                    getattr(sp, "approved", None) is not False
-                    for sp in getattr(plan, "steps", []))
+                self._apply_plan_fields(record, plan)
             return record
         except Exception as exc:
             self.errors.append(f"from_result failed: {type(exc).__name__}: {exc}")

@@ -3,10 +3,9 @@
 Depends on: harness.agent (Agent), harness.core (task/step primitives, OllamaClient,
 ConflictDetector, ResumePoint), harness.gates (all five guardrails).
 
-converse/observe/propose/gate/present/execute/report. `observe` and `propose`
-live inside `Agent.converse` -- the old pipeline had a `clarify` stage that
-was a wall in front of the operator, which made sense before a model could ask
-a better question than a regex, and makes no sense after.
+converse/observe/propose/gate/present/execute/report. `observe`/`propose`
+live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
+the operator) stopped making sense once a model could ask a better question.
 """
 
 from __future__ import annotations
@@ -77,12 +76,8 @@ class Outcome(str, Enum):
 
 @dataclass
 class StepPlan:
-    """One proposed step with everything the gates decided about it.
-
-    This is what the operator actually looks at. A plan the model wrote is not
-    interesting on its own; a plan annotated with what each gate thinks of every
-    line is the thing worth approving or rejecting.
-    """
+    """One proposed step with everything the gates decided about it -- what
+    the operator actually looks at, not the bare plan the model wrote."""
 
     step: Step
     verdict: Verdict
@@ -114,17 +109,8 @@ class StepPlan:
 @dataclass
 class Plan:
     """A proposal plus every gate verdict on it, ready to show a human.
-
-    Deliberately carries no `conflicts` field: `_gate()` used to call
-    `conflicts.detect()` immediately after `conflicts.baseline()` on the
-    same object, which always returned `[]` (detect() re-reads exactly
-    the state baseline() had just captured), so a `Plan.conflicts` field
-    could never hold anything either -- and the TUI still rendered a dead
-    "changed outside the harness" banner that could never fire. Found in
-    a full-file audit. Real conflict detection happens where it can
-    actually see something: `Harness.execute()`'s per-step check, which
-    surfaces as `Outcome.BLOCKED`.
-    """
+    Deliberately carries no `conflicts` field -- see `_gate()`'s comment;
+    real conflict detection is `execute()`'s per-step `Outcome.BLOCKED`."""
 
     spec: TaskSpec
     steps: list[StepPlan] = field(default_factory=list)
@@ -216,12 +202,9 @@ class RunResult:
 
 
 class Harness:
-    """The whole thing: model, gates, execution, audit.
-
-    Construction is deliberately boring. Every collaborator has a working
-    default, and every one is injectable, so the TUI, the CLI and the test suite
-    all drive the same object rather than three parallel assemblies.
-    """
+    """The whole thing: model, gates, execution, audit. Construction is
+    deliberately boring -- every collaborator has a working, injectable
+    default, so the TUI, CLI and test suite drive one object, not three."""
 
     def __init__(
         self,
@@ -355,18 +338,11 @@ class Harness:
             "; ".join(f"{r.name}={'ok' if r.passed else 'FAIL'}"
                       for r in plan.preconditions.results) or "none registered")
 
-        # baseline() captures the reference point execute()'s own per-step
-        # checks compare against once real time (operator review) has
-        # passed -- that's the actual enforcement, already covered by
-        # test_an_external_edit_stops_the_run. Calling detect() again here,
-        # immediately after the baseline it would compare against was just
-        # captured on the line above, cannot ever find anything: it always
-        # returned [], the same as plan.conflicts' own default. Found in a
-        # full-file audit -- worse than merely dead, it cost a second full
-        # filesystem walk of watch_roots on every single plan proposal
-        # whenever inotify isn't available (ConflictDetector._detect_tree
-        # falls straight to a full _reconcile() walk with no event queue to
-        # check first).
+        # baseline() alone is the enforcement point -- execute()'s per-step
+        # checks compare against it once real time has passed. A detect()
+        # call immediately after baseline() here could never find anything
+        # (same state), and cost a redundant full filesystem walk on every
+        # proposal; removed in a full-file audit.
         tracked = sorted({t for s in steps for t in s.touches})
         self.conflicts.baseline(tracked, roots=spec.watch_roots or None)
 
@@ -382,10 +358,8 @@ class Harness:
 
     def execute(self, result: RunResult, approvals: dict[str, bool] | None = None,
                 dry_run: bool = False) -> RunResult:
-        """Run an approved plan, updating and returning the same RunResult."""
-        # A step needing confirmation and absent from `approvals` is treated
-        # as refused -- defaulting an unanswered dangerous command to yes is
-        # how accidents happen.
+        """Run an approved plan, updating and returning the same RunResult.
+        Broken into the phase helpers below, called from here in order."""
         started = time.perf_counter() - result.seconds
         plan = result.plan
         if plan is None:
@@ -394,39 +368,12 @@ class Harness:
             return self._finish(result, started)
 
         if result.executed:
-            # A second execute() call after a real (non-dry-run) attempt
-            # already began would replay every step's command again --
-            # harmless for a read-only `du`, but a real double-execution
-            # risk for anything that mutates state. Nothing upstream
-            # previously guarded against this: the TUI's Run/Dry-run
-            # buttons stay enabled while a plan runs, so a double-click (or
-            # a click landing just after completion) dispatches
-            # execute_plan() twice on the same self.current. Found live in
-            # an audit log with stages [...,"execute","report","execute"]
-            # and two result entries for one step. Refusing here, once, in
-            # the pipeline itself covers every caller (TUI, CLI, direct API
-            # use) instead of patching each one's click handler.
-            #
-            # Deliberately keyed on `executed`, not `outcome`: a REJECTED
-            # result (missing approval) or a dry-run-only result never ran
-            # a real command, so ticking the box and clicking Run again
-            # must still work. An outcome-based check blocked exactly that
-            # ordinary retry-after-rejection flow -- found live right after
-            # this guard first shipped.
-            self.decisions.log(
-                Stage.EXECUTE.value, "refused: already executed",
-                f"this plan already reached outcome '{result.outcome.value}'; "
-                "ignoring the repeat execute() call rather than re-running "
-                "its commands")
-            result.decisions = self.decisions.trail()
-            return result
+            return self._refuse_replay(result)
 
-        decisions = approvals or {}
-        for sp in plan.steps:
-            sp.approved = (True if not sp.needs_confirmation
-                           else bool(decisions.get(sp.step.step_id, False)))
-
-        refused = [sp for sp in plan.steps if sp.approved is False]
+        # A step needing confirmation and absent from `approvals` is treated
+        # as refused -- defaulting an unanswered dangerous command to yes is
+        # how accidents happen.
+        refused = self._apply_approvals(plan, approvals or {})
         if refused:
             result.outcome = Outcome.REJECTED
             result.abort_reason = ("not approved: "
@@ -435,6 +382,48 @@ class Harness:
                                result.abort_reason)
             return self._finish(result, started)
 
+        self._stage_rollback(plan)
+
+        result.stages.append(Stage.EXECUTE.value)
+        # A fresh attempt reports fresh results -- discard whatever a prior
+        # dry run (or, now that the guard above permits it, a prior rejected
+        # attempt -- though that one never populated results in the first
+        # place) left behind, or a second dry run would append duplicate
+        # stub entries alongside the first.
+        result.results = []
+        resume = ResumePoint(task_id=plan.spec.task_id, total=len(plan.steps))
+        resume_path = self.workdir / "resume" / f"{plan.spec.task_id}.json"
+
+        failed = self._run_steps(plan, result, dry_run, resume, resume_path)
+
+        if failed:
+            self._sweep_rollback(result)
+        else:
+            self._finish_success(result, dry_run, resume_path)
+
+        return self._finish(result, started)
+
+    def _refuse_replay(self, result: RunResult) -> RunResult:
+        """Refuse a second execute() call on a result that already ran for
+        real. Keyed on `result.executed`, not `outcome` -- see §2.8."""
+        self.decisions.log(
+            Stage.EXECUTE.value, "refused: already executed",
+            f"this plan already reached outcome '{result.outcome.value}'; "
+            "ignoring the repeat execute() call rather than re-running "
+            "its commands")
+        result.decisions = self.decisions.trail()
+        return result
+
+    @staticmethod
+    def _apply_approvals(plan: Plan, decisions: dict[str, bool]) -> list[StepPlan]:
+        """Mark every step approved or refused; return the refused ones."""
+        for sp in plan.steps:
+            sp.approved = (True if not sp.needs_confirmation
+                           else bool(decisions.get(sp.step.step_id, False)))
+        return [sp for sp in plan.steps if sp.approved is False]
+
+    def _stage_rollback(self, plan: Plan) -> None:
+        """Push every step's derived undos, then the plan's declared ones."""
         for sp in plan.steps:
             self.rollback.push_many(sp.undos)
         for description, command, undo, declared_safe in plan.spec.rollback_actions():
@@ -458,32 +447,18 @@ class Harness:
             f"{len(plan.steps)} step(s) approved, rollback depth "
             f"{self.rollback.depth}")
 
-        result.stages.append(Stage.EXECUTE.value)
-        # A fresh attempt reports fresh results -- discard whatever a prior
-        # dry run (or, now that the guard above permits it, a prior rejected
-        # attempt -- though that one never populated results in the first
-        # place) left behind, or a second dry run would append duplicate
-        # stub entries alongside the first.
-        result.results = []
-        resume = ResumePoint(task_id=plan.spec.task_id, total=len(plan.steps))
-        resume_path = self.workdir / "resume" / f"{plan.spec.task_id}.json"
-        failed = False
-
-        # Precondition and conflict checks run inside the loop, not once
-        # before it: a service that was up when the operator approved the
-        # plan can be dead by step two, and a file the plan depends on can
-        # change under it mid-run. Either one aborts the whole run rather
-        # than skipping the affected step, because a partially-run plan is
-        # not the plan that was approved.
+    def _run_steps(self, plan: Plan, result: RunResult, dry_run: bool,
+                    resume: ResumePoint, resume_path: Path) -> bool:
+        """Run each step in order, True if it failed/blocked. Guards run
+        inside this loop, not once before it: state can change mid-run."""
         for sp in plan.steps:
             if self.recheck_between_steps:
                 veto = self.verifier.guard()
                 if veto:
                     result.outcome = Outcome.BLOCKED
                     result.abort_reason = veto
-                    failed = True
                     self.decisions.log(Stage.EXECUTE.value, "stopped mid-run", veto)
-                    break
+                    return True
 
             found = self.conflicts.detect() if (
                 self.conflicts.hashes or self.conflicts.roots) else []
@@ -492,48 +467,18 @@ class Harness:
                 result.abort_reason = (
                     f"{len(found)} external file change(s) before {sp.step.step_id}: "
                     + ", ".join(f"{c.path}={c.kind.value}" for c in found[:4]))
-                failed = True
                 self.decisions.log(Stage.EXECUTE.value, "external conflict",
                                    result.abort_reason)
-                break
+                return True
 
-            step_started = time.perf_counter()
-            try:
-                if dry_run:
-                    output: Any = f"[dry-run] {sp.step.command}"
-                else:
-                    # Set only here, not before the loop: a plan blocked by
-                    # the precondition/conflict checks above -- before any
-                    # step ever ran -- must stay retryable the same way a
-                    # REJECTED plan does. Setting this unconditionally
-                    # before the loop marked that case "already executed"
-                    # too, the same bug §2.8 fixed for REJECTED, just
-                    # missed for a BLOCKED-with-zero-results plan. Found in
-                    # a full-file audit, not live.
-                    result.executed = True
-                    if sp.step.run is None:
-                        raise HarnessError(
-                            f"step {sp.step.step_id!r} has no run action attached")
-                    output = sp.step.run()
-                sp.result = StepResult(sp.step.step_id, True, str(output or ""),
-                                       seconds=time.perf_counter() - step_started)
-            except Exception as exc:
-                # Broad on purpose: whatever a step's `run` raises becomes a
-                # failed StepResult instead of propagating out of execute(),
-                # so the loop below still reaches the rollback sweep. An
-                # uncaught exception here would skip rollback entirely.
-                sp.result = StepResult(sp.step.step_id, False, "",
-                                       f"{type(exc).__name__}: {exc}",
-                                       time.perf_counter() - step_started)
-            result.results.append(sp.result)
+            sp.result = self._run_one_step(sp, result, dry_run)
 
             if not sp.result.ok:
                 result.outcome = Outcome.FAILED
                 result.abort_reason = f"{sp.step.step_id} failed: {sp.result.error}"
-                failed = True
                 self.decisions.log(Stage.EXECUTE.value, "step failed",
                                    result.abort_reason)
-                break
+                return True
 
             resume.completed.append(sp.step.step_id)
             self.conflicts.refresh(sp.step.touches)
@@ -541,60 +486,83 @@ class Harness:
                 resume.save(resume_path)
             except Exception:
                 pass  # a resume point is a nicety, not a reason to stop
+        return False
 
-        if failed:
-            if self.rollback.depth:
-                result.rollback = self.rollback.rollback()
-                self.decisions.log(
-                    Stage.EXECUTE.value,
-                    "rollback clean" if result.rollback.ok else "rollback incomplete",
-                    f"{len(result.rollback.undone)} undone, "
-                    f"{len(result.rollback.unverified)} unverified, "
-                    f"{len(result.rollback.cancelled)} cancelled, "
-                    f"{len(result.rollback.failed)} failed",
-                    {"results": [r.to_dict() for r in result.rollback.results]})
-        else:
-            result.outcome = Outcome.COMPLETED
-            self.rollback.clear()
-            if not dry_run:
-                # Nothing failed, so nothing will ever roll back to these
-                # snapshots -- `UndoGenerator.cleanup()` existed for exactly
-                # this since it was written, but had no caller anywhere in
-                # the codebase, which is how 14 shadow directories ended up
-                # sitting on one real machine's disk. Skipped for a dry
-                # run: no real step executed, but capture_file() already
-                # ran during _gate()'s propose-time snapshot, so a dry run
-                # blows away the very shadow copies the real run (if the
-                # operator clicks Run next) would need for rollback.
-                self.undo.cleanup()
-            try:
-                resume_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            self.decisions.log(Stage.EXECUTE.value, "completed",
-                               f"{len(result.results)} step(s) ran")
+    @staticmethod
+    def _run_one_step(sp: StepPlan, result: RunResult, dry_run: bool) -> StepResult:
+        """Run one step, converting any raise into a failed StepResult.
+        Returns rather than assigns `sp.result` (mypy can't narrow a
+        mutated attribute to non-None across a call boundary)."""
+        step_started = time.perf_counter()
+        try:
+            if dry_run:
+                output: Any = f"[dry-run] {sp.step.command}"
+            else:
+                # Set only here, not in execute() before the loop: a plan
+                # blocked by the precondition/conflict checks above --
+                # before any step ever ran -- must stay retryable the same
+                # way a REJECTED plan does. Setting this unconditionally
+                # before the loop marked that case "already executed" too,
+                # the same bug §2.8 fixed for REJECTED, just missed for a
+                # BLOCKED-with-zero-results plan. Found in a full-file
+                # audit, not live.
+                result.executed = True
+                if sp.step.run is None:
+                    raise HarnessError(
+                        f"step {sp.step.step_id!r} has no run action attached")
+                output = sp.step.run()
+            step_result = StepResult(sp.step.step_id, True, str(output or ""),
+                                     seconds=time.perf_counter() - step_started)
+        except Exception as exc:
+            # Broad on purpose: whatever a step's `run` raises becomes a
+            # failed StepResult instead of propagating out of execute(), so
+            # the caller still reaches the rollback sweep. An uncaught
+            # exception here would skip rollback entirely.
+            step_result = StepResult(sp.step.step_id, False, "",
+                                     f"{type(exc).__name__}: {exc}",
+                                     time.perf_counter() - step_started)
+        result.results.append(step_result)
+        return step_result
 
-        return self._finish(result, started)
+    def _sweep_rollback(self, result: RunResult) -> None:
+        """Undo everything pushed so far, if there's anything to undo."""
+        if self.rollback.depth:
+            result.rollback = self.rollback.rollback()
+            self.decisions.log(
+                Stage.EXECUTE.value,
+                "rollback clean" if result.rollback.ok else "rollback incomplete",
+                f"{len(result.rollback.undone)} undone, "
+                f"{len(result.rollback.unverified)} unverified, "
+                f"{len(result.rollback.cancelled)} cancelled, "
+                f"{len(result.rollback.failed)} failed",
+                {"results": [r.to_dict() for r in result.rollback.results]})
+
+    def _finish_success(self, result: RunResult, dry_run: bool, resume_path: Path) -> None:
+        """Mark completed, drop rollback state, clean shadows, drop the resume file."""
+        result.outcome = Outcome.COMPLETED
+        self.rollback.clear()
+        if not dry_run:
+            # Nothing failed, so nothing rolls back to these snapshots.
+            # Skipped for a dry run: capture_file() already ran during
+            # _gate()'s propose-time snapshot, and a dry run must not blow
+            # away the shadow copies the real run still needs.
+            self.undo.cleanup()
+        try:
+            resume_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        self.decisions.log(Stage.EXECUTE.value, "completed",
+                           f"{len(result.results)} step(s) ran")
 
     def reject(self, result: RunResult) -> RunResult:
-        """Explicitly decline a plan without running anything.
-
-        Distinct from execute()'s implicit refusal, which only fires for
-        steps that need confirmation -- an all-safe plan runs rather than
-        refusing under execute(result, {}). Reject means "don't run this"
-        regardless of what needed a checkbox. Also refuses outright if
-        `result.executed` is already True: the TUI's Reject button isn't
-        disabled once a plan starts (or finishes) running, and without this
-        guard a late click would overwrite a real run's outcome with
-        REJECTED and claim in the audit trail that nothing ran. Both gaps
-        found in a full-file audit.
-        """
+        """Explicitly decline a plan without running anything. Distinct
+        from execute()'s implicit refusal (an all-safe plan runs, not
+        refuses, under `execute(result, {})`). Refuses if `result.executed`
+        is already True, so a late click can't overwrite a real outcome."""
         if result.executed:
             self.decisions.log(
                 Stage.PRESENT.value, "refused: already executed",
-                "a real run already began on this plan; a Reject click "
-                "now cannot retroactively un-run it or rewrite what the "
-                "audit record already says happened")
+                "a real run already began; cannot retroactively un-run it")
             result.decisions = self.decisions.trail()
             return result
         started = time.perf_counter() - result.seconds

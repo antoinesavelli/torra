@@ -10,6 +10,7 @@ until every step showing DANGEROUS or CRITICAL has been individually ticked.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from textual import on, work
@@ -289,53 +290,39 @@ class HarnessApp(App):
             return
         self.call_from_thread(self._planned, result)
 
-    def _planned(self, result: RunResult) -> None:
-        """Render whatever the model decided."""
-        self.current = result
-        self._set_busy(False, "")
-        outcome = result.outcome
-        style = OUTCOME_STYLE.get(outcome.value, "")
+    def _outcome_answered(self, result: RunResult) -> None:
+        self._status("[cyan]answered, nothing to run[/]")
+        self.run_worker(self.query_one("#plan", PlanPane).clear(
+            "That was a question. Nothing to run."), exclusive=False)
 
-        if result.turn and result.turn.message:
-            self._say("agent", result.turn.message)
+    def _outcome_needs_answer(self, result: RunResult) -> None:
+        for question in (result.turn.questions if result.turn else []):
+            self._say("agent", f"? {question}", "yellow")
+        self._say("harness", "Answer in the box and I will re-plan.", "dim")
+        self._status("[yellow]waiting for your answer[/]")
 
-        if outcome is Outcome.ANSWERED:
-            self._status("[cyan]answered, nothing to run[/]")
-            self.run_worker(self.query_one("#plan", PlanPane).clear(
-                "That was a question. Nothing to run."), exclusive=False)
-            return
+    def _outcome_refused(self, result: RunResult) -> None:
+        self._status("[magenta]the model declined this request[/]")
 
-        if outcome is Outcome.NEEDS_ANSWER:
-            for question in (result.turn.questions if result.turn else []):
-                self._say("agent", f"? {question}", "yellow")
-            self._say("harness", "Answer in the box and I will re-plan.", "dim")
-            self._status("[yellow]waiting for your answer[/]")
-            return
+    def _outcome_backend_down(self, result: RunResult) -> None:
+        self._say("error", result.abort_reason)
+        for option in self.harness.ollama.recovery_options():
+            self._say("harness", f"{option.title}  ->  {option.action}", "dim")
+        self._status("[bold red]backend unreachable[/]")
 
-        if outcome is Outcome.REFUSED:
-            self._status("[magenta]the model declined this request[/]")
-            return
+    def _outcome_blocked(self, result: RunResult) -> None:
+        style = OUTCOME_STYLE.get(result.outcome.value, "")
+        self._say("harness", result.abort_reason, "bold red")
+        self._status(f"[{style}]blocked before execution[/]")
+        if result.plan:
+            self.run_worker(self.query_one("#plan", PlanPane).show(result.plan),
+                            exclusive=False)
 
-        if outcome is Outcome.BACKEND_DOWN:
-            self._say("error", result.abort_reason)
-            for option in self.harness.ollama.recovery_options():
-                self._say("harness", f"{option.title}  ->  {option.action}", "dim")
-            self._status("[bold red]backend unreachable[/]")
-            return
+    def _outcome_failed(self, result: RunResult) -> None:
+        self._say("error", result.abort_reason)
+        self._status("[bold red]no usable plan[/]")
 
-        if outcome is Outcome.BLOCKED:
-            self._say("harness", result.abort_reason, "bold red")
-            self._status(f"[{style}]blocked before execution[/]")
-            if result.plan:
-                self.run_worker(self.query_one("#plan", PlanPane).show(result.plan),
-                                exclusive=False)
-            return
-
-        if outcome is Outcome.FAILED:
-            self._say("error", result.abort_reason)
-            self._status("[bold red]no usable plan[/]")
-            return
-
+    def _outcome_plan_ready(self, result: RunResult) -> None:
         if result.plan is None:
             return
         self.run_worker(self.query_one("#plan", PlanPane).show(result.plan),
@@ -346,6 +333,23 @@ class HarnessApp(App):
             f"{pending} need a tick[/]" if pending else
             f"[green]plan ready: {len(result.plan.steps)} step(s), "
             "nothing needs confirmation[/]")
+
+    def _planned(self, result: RunResult) -> None:
+        """Render whatever the model decided, dispatched by outcome."""
+        self.current = result
+        self._set_busy(False, "")
+        if result.turn and result.turn.message:
+            self._say("agent", result.turn.message)
+
+        handlers: dict[Outcome, Callable[[RunResult], None]] = {
+            Outcome.ANSWERED: self._outcome_answered,
+            Outcome.NEEDS_ANSWER: self._outcome_needs_answer,
+            Outcome.REFUSED: self._outcome_refused,
+            Outcome.BACKEND_DOWN: self._outcome_backend_down,
+            Outcome.BLOCKED: self._outcome_blocked,
+            Outcome.FAILED: self._outcome_failed,
+        }
+        handlers.get(result.outcome, self._outcome_plan_ready)(result)
 
     # -- actions ----------------------------------------------------------- #
 

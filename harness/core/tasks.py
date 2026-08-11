@@ -103,14 +103,33 @@ class TaskSpec:
 
     # -- construction ------------------------------------------------------ #
 
+    @staticmethod
+    def _validate_step(raw: Any, index: int, seen: set[str], source: str) -> None:
+        """Validate one step mapping, raising on any defect. Adds its id to `seen`."""
+        if not isinstance(raw, dict):
+            raise TaskSpecError(f"{source or 'task'}: step {index} must be a mapping")
+        unknown = set(raw) - STEP_FIELDS
+        if unknown:
+            raise TaskSpecError(
+                f"{source or 'task'}: step {index} has unknown field(s) "
+                f"{sorted(unknown)}; known fields are {sorted(STEP_FIELDS)}")
+        if not raw.get("run"):
+            raise TaskSpecError(f"{source or 'task'}: step {index} has no 'run' command")
+        step_id = str(raw.get("id") or f"step{index}")
+        if step_id in seen:
+            raise TaskSpecError(f"{source or 'task'}: duplicate step id '{step_id}'")
+        seen.add(step_id)
+
     @classmethod
     def validate(cls, data: dict[str, Any], source: str = "") -> TaskSpec:
-        """Build a TaskSpec from a mapping, rejecting anything malformed."""
-        # A guard-clause cascade, each check raising immediately: this is the
-        # one gate between an arbitrary mapping (hand-written YAML or a
-        # model's JSON) and a TaskSpec that drives root shell commands, so a
-        # malformed document is a hard error here rather than a warning
-        # somewhere downstream where the context to explain it is gone.
+        """Build a TaskSpec from a mapping, rejecting anything malformed.
+
+        A guard-clause cascade, each check raising immediately: this is the
+        one gate between an arbitrary mapping (hand-written YAML or a
+        model's JSON) and a TaskSpec that drives root shell commands, so a
+        malformed document is a hard error here rather than a warning
+        somewhere downstream where the context to explain it is gone.
+        """
         if not isinstance(data, dict):
             raise TaskSpecError(f"{source or 'task'}: top level must be a mapping")
         for key in ("task_id", "request", "steps"):
@@ -121,19 +140,7 @@ class TaskSpec:
 
         seen: set[str] = set()
         for index, raw in enumerate(data["steps"], start=1):
-            if not isinstance(raw, dict):
-                raise TaskSpecError(f"{source or 'task'}: step {index} must be a mapping")
-            unknown = set(raw) - STEP_FIELDS
-            if unknown:
-                raise TaskSpecError(
-                    f"{source or 'task'}: step {index} has unknown field(s) "
-                    f"{sorted(unknown)}; known fields are {sorted(STEP_FIELDS)}")
-            if not raw.get("run"):
-                raise TaskSpecError(f"{source or 'task'}: step {index} has no 'run' command")
-            step_id = str(raw.get("id") or f"step{index}")
-            if step_id in seen:
-                raise TaskSpecError(f"{source or 'task'}: duplicate step id '{step_id}'")
-            seen.add(step_id)
+            cls._validate_step(raw, index, seen, source)
 
         return cls(
             task_id=str(data["task_id"]),
