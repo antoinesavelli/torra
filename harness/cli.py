@@ -112,7 +112,16 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if result.turn and result.turn.message:
         print(f"\n{result.turn.message}")
 
-    if result.outcome is Outcome.NEEDS_ANSWER:
+    # A loop, not a single check: harness.answer() re-plans through the full
+    # pipeline, and a model unsatisfied by the first round's answers can
+    # come back with NEEDS_ANSWER again. A single `if` here printed only the
+    # first round's questions -- a second round fell straight through to
+    # "outcome: needs_answer" with no indication of what was actually being
+    # asked, silently dropping the new questions from the output. The TUI
+    # doesn't have this bug: every operator message there is a fresh
+    # plan_request() call, so a second round of questions naturally renders
+    # through the same code path. Found in a full-file audit.
+    while result.outcome is Outcome.NEEDS_ANSWER:
         print("\nquestions:")
         for question in (result.turn.questions if result.turn else []):
             print(f"  ? {question}")
@@ -233,9 +242,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         except ImportError:
             checks.append((module, False, f"missing: {note}"))
 
-    checks.append(("workdir writable",
-                   os.access(workdir.parent, os.W_OK) if workdir.parent.exists() else True,
-                   str(workdir)))
+    # Walk up to the nearest existing ancestor rather than defaulting to
+    # True when workdir.parent doesn't exist -- that default reported "ok"
+    # for a workdir whose whole directory chain was missing and might not
+    # even be creatable (e.g. under a read-only ancestor), without ever
+    # checking whether creating it would actually succeed. Found in a
+    # full-file audit.
+    nearest = workdir.parent
+    while not nearest.exists() and nearest != nearest.parent:
+        nearest = nearest.parent
+    checks.append(("workdir writable", os.access(nearest, os.W_OK), str(workdir)))
     try:
         probe = subprocess.run(["cp", "--reflink=always", "--help"],
                                capture_output=True, timeout=5)

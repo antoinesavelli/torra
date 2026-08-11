@@ -580,19 +580,23 @@ class Harness:
         """Explicitly decline a plan without running anything.
 
         Distinct from execute()'s implicit refusal, which only fires for
-        steps that actually need confirmation: `execute(result, {})` on an
-        all-safe plan (nothing needs a tick) does not refuse it, it *runs*
-        it, since every step's `approved` defaults to True when
-        `needs_confirmation` is False. An operator who clicks Reject means
-        "don't run this," full stop, regardless of what it would have
-        needed a checkbox for -- this is the only correct way to honor
-        that for every plan, not just the ones with something to tick.
-        Found in a full-file audit: the TUI's Reject button used to bypass
-        the pipeline entirely (no audit record, no telemetry entry), which
-        also meant "how often a human rejected a plan outright"
-        (HANDOFF.md §6.1) could never be measured for the most direct
-        expression of a rejection there is.
+        steps that need confirmation -- an all-safe plan runs rather than
+        refusing under execute(result, {}). Reject means "don't run this"
+        regardless of what needed a checkbox. Also refuses outright if
+        `result.executed` is already True: the TUI's Reject button isn't
+        disabled once a plan starts (or finishes) running, and without this
+        guard a late click would overwrite a real run's outcome with
+        REJECTED and claim in the audit trail that nothing ran. Both gaps
+        found in a full-file audit.
         """
+        if result.executed:
+            self.decisions.log(
+                Stage.PRESENT.value, "refused: already executed",
+                "a real run already began on this plan; a Reject click "
+                "now cannot retroactively un-run it or rewrite what the "
+                "audit record already says happened")
+            result.decisions = self.decisions.trail()
+            return result
         started = time.perf_counter() - result.seconds
         result.outcome = Outcome.REJECTED
         result.abort_reason = "operator rejected the plan"

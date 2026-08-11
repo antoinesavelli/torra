@@ -367,7 +367,19 @@ class HarnessApp(App):
         # pipeline entirely, so this specific, most-direct rejection could
         # never be measured.
         if self.current is not None:
-            self.harness.reject(self.current)
+            done = self.harness.reject(self.current)
+            if done.outcome is not Outcome.REJECTED:
+                # Harness.reject() refuses rather than overwrite a plan
+                # that already ran for real -- see its own docstring.
+                # Found in a full-file audit alongside that fix: this
+                # button was never disabled after a run completed (unlike
+                # Run/Dry-run), and this handler said "Plan rejected.
+                # Nothing ran." unconditionally, which would have been an
+                # outright lie about a real, possibly destructive run.
+                # Leave self.current and the plan pane alone -- they still
+                # reflect what actually happened.
+                self._say("harness", "Nothing to reject -- this plan already ran.", "dim")
+                return
         self._say("harness", "Plan rejected. Nothing ran.", "dim")
         self._status("[dim]rejected[/]")
         self.current = None
@@ -453,10 +465,16 @@ class HarnessApp(App):
         # execute_plan() worker on the same already-executed result --
         # Harness.execute() now refuses that outright, but disabling the
         # buttons here stops the wasted second execution before it starts.
+        # #reject joined this list for the same reason, found in a later
+        # full-file audit: it was never disabled at all, and a click on it
+        # after a real run completed used to silently overwrite that run's
+        # outcome in the audit trail -- Harness.reject() and this handler's
+        # caller both refuse that now, but disabling the button here is
+        # still what stops the doomed click from being dispatched at all.
         # query(), not query_one(): the plan pane (and its buttons) only
         # exists once a plan has been rendered, so there is often nothing
         # to disable yet, and that must not be an error.
-        for button_id in ("#run", "#dryrun"):
+        for button_id in ("#run", "#dryrun", "#reject"):
             for button in self.query(button_id):
                 button.disabled = busy
 

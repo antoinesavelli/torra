@@ -336,6 +336,49 @@ def test_ticking_the_box_after_a_rejection_still_runs(make_harness,
     assert not victim.exists()
 
 
+def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_harness,
+                                                              tmp_path: Path) -> None:
+    """Found in a full-file audit of the TUI's own presentation layer: the
+    Reject button was never disabled after a run completed (unlike
+    Run/Dry-run), and Harness.reject() had no guard against being called
+    on an already-executed result. A stray click on Reject after a real
+    run would have silently overwritten a COMPLETED outcome with
+    REJECTED and written a fresh audit record claiming "nothing ran" --
+    actively misrepresenting a run that may have had real, destructive
+    side effects."""
+    marker = tmp_path / "marker"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    done = harness.execute(harness.plan(f"touch {marker}"), {})
+    assert done.outcome is Outcome.COMPLETED
+    assert marker.exists()
+
+    still_done = harness.reject(done)
+
+    assert still_done.outcome is Outcome.COMPLETED, (
+        "a completed run's outcome was overwritten by a late Reject"
+    )
+    assert marker.exists()
+    refusals = [d for d in still_done.decisions if d["decision"] == "refused: already executed"]
+    assert len(refusals) == 1
+
+
+def test_reject_still_works_on_a_plan_that_never_ran(make_harness,
+                                                      tmp_path: Path) -> None:
+    """The ordinary case must keep working: nothing executed yet, so
+    Reject is free to actually reject."""
+    marker = tmp_path / "marker"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    planned = harness.plan(f"touch {marker}")
+    rejected = harness.reject(planned)
+
+    assert rejected.outcome is Outcome.REJECTED
+    assert not marker.exists()
+
+
 def test_a_dry_run_does_not_block_the_real_run_that_follows(make_harness,
                                                              tmp_path: Path) -> None:
     """Previewing a plan with Dry run must not count as "already executed"

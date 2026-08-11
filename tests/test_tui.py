@@ -154,6 +154,43 @@ async def test_reject_records_the_decision(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> None:
+    """Found in a full-file audit: the Reject button was never disabled
+    after a run completed (unlike Run/Dry-run), and clicking it on an
+    already-executed plan used to unconditionally say "Plan rejected.
+    Nothing ran." and clear self.current -- even though something real
+    had already happened. Harness.reject() now refuses to overwrite that
+    outcome; this checks the button's own message stops lying about it
+    too, and that the completed result is not discarded."""
+    marker = tmp_path / "marker"
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"touch {marker}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await pilot.pause(0.4)
+        assert marker.exists(), "the step never actually ran"
+        completed = app.current
+
+        await pilot.click("#reject")
+        await pilot.pause(0.1)
+
+        assert marker.exists(), "a late Reject click undid nothing on disk, but must "\
+            "also not misreport the run in the audit trail"
+        assert app.current is completed, "the completed result was discarded"
+        text = screen_text(app)
+        assert "already ran" in text
+        assert "Plan rejected. Nothing ran." not in text, (
+            "the wrong-outcome message was shown for a plan that already ran"
+        )
+
+
+@pytest.mark.asyncio
 async def test_questions_are_shown_not_guessed(tmp_path: Path) -> None:
     app = build(tmp_path, scripted(
         {"intent": "ask", "message": "Which host?",

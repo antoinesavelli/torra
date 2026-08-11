@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 143 passed
+python3 -m pytest tests/ -q          # must print 193 passed
 harness doctor
 ```
 
@@ -192,7 +192,7 @@ this invariant not holding.
 > tests in `TestRouting`, and
 > `tests/test_agent.py::test_observe_populates_the_routers_real_model_sizes`
 
-### 2.10 Every way to decline a plan goes through the pipeline
+### 2.10 Every way to decline a plan goes through the pipeline, and only once
 
 `Harness.reject(result)` exists specifically because `execute(result,
 {})` is **not** a safe way to implement "decline this plan": a step's
@@ -201,19 +201,32 @@ calling `execute` with empty approvals on an all-safe plan does not
 refuse it, it *runs* it. `reject()` sets `outcome = REJECTED`
 unconditionally and calls `_finish()`, the same choke point every other
 terminal outcome goes through -- audit record written, telemetry
-recorded (2.9's neighbor gap, §6.1), decision logged.
+recorded (§6.1), decision logged.
 
 Found in a full-file audit: the TUI's Reject button used to bypass all
-of that -- `self.current = None` and nothing else. It looked harmless
-(nothing runs either way) but meant the single most direct expression of
-an operator declining a plan left no trace anywhere, including in the
-one metric HANDOFF.md §6.1 names explicitly: "how often a human rejected
-a plan outright." If you add another way to decline a plan (a CLI flag,
-a keybinding), route it through `Harness.reject()`, not through
-`execute()` with an empty approvals dict and not through UI state alone.
+of that -- `self.current = None` and nothing else, leaving the single
+most direct expression of a decline with no trace anywhere. If you add
+another way to decline a plan, route it through `Harness.reject()`, not
+through `execute()` with an empty approvals dict and not through UI
+state alone.
 
-> Guarded by `tests/test_pipeline.py::test_reject_never_runs_an_all_safe_plan`
-> and `tests/test_tui.py::test_reject_records_the_decision`
+`reject()` also refuses outright when `result.executed` is already
+`True` -- the same double-execute class of bug as §2.8, found in a
+second full-file audit of the TUI's presentation layer: unlike
+Run/Dry-run, the Reject button was never disabled once a plan started or
+finished running, and `reject()` had no guard against overwriting an
+already-executed result's outcome. A stray click after a real run would
+have set `outcome = REJECTED` and written a fresh audit record claiming
+"nothing ran" over a run that may have had real, destructive effects --
+not a double-execution risk this time, but the same-shaped failure: the
+one record meant to be a truthful account of what happened, made false
+after the fact.
+
+> Guarded by `tests/test_pipeline.py::test_reject_never_runs_an_all_safe_plan`,
+> `test_reject_refuses_to_overwrite_a_plan_that_already_ran`,
+> `test_reject_still_works_on_a_plan_that_never_ran`, and
+> `tests/test_tui.py::test_reject_records_the_decision`,
+> `test_reject_after_a_real_run_does_not_lie_about_it`
 
 ---
 
@@ -242,7 +255,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 143, must stay green
+python3 -m pytest tests/ -q                       # 193, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -498,7 +511,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 143
+test command     python3 -m pytest tests/ -q     # 193
 ```
 
 ---
