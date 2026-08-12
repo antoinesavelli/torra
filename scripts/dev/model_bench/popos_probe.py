@@ -21,7 +21,7 @@ from bench import OLLAMA_HOST, make_metrics_transport  # noqa: E402
 
 from harness.core import OllamaClient  # noqa: E402
 
-MODELS = ["qwen3:8b", "qwen3:32b", "devstral"]
+MODELS = ["qwen3:32b", "qwen3.5:latest", "qwen3-coder:30b", "devstral:24b"]
 
 
 @dataclass
@@ -57,6 +57,15 @@ PROBES: list[Probe] = [
          "On System76/Pop!_OS hardware with hybrid NVIDIA graphics, what tool or "
          "command manages switching between integrated, NVIDIA, and hybrid graphics modes?",
          ("system76-power", "graphics mode", "switcheroo")),
+    Probe("graphics-switching-scope", "pop-specific",
+         "Does `system76-power graphics <mode>` work on every System76/Pop!_OS "
+         "machine, or does it require specific hardware? What would running "
+         "`system76-power graphics integrated` actually do on a desktop tower with "
+         "a single discrete GPU bound to the nvidia driver and no driver bound to "
+         "any integrated GPU?",
+         ("requires", "hybrid", "laptop", "no effect", "no integrated", "won't",
+          "wouldn't", "nothing to switch", "error", "fail", "not apply", "n/a",
+          "no-op", "no op")),
     Probe("recovery-partition", "pop-specific",
          "How does a user access the Pop!_OS recovery partition to refresh or "
          "reinstall the OS from the boot menu?",
@@ -72,7 +81,7 @@ def main() -> int:
     metrics: list = []
     for model in MODELS:
         print(f"\n{'=' * 70}\n{model}\n{'=' * 70}")
-        client = OllamaClient(host=OLLAMA_HOST, timeout=120.0,
+        client = OllamaClient(host=OLLAMA_HOST, timeout=240.0,
                               transport=make_metrics_transport(metrics))
         for probe in PROBES:
             started = time.perf_counter()

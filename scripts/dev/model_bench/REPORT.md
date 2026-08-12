@@ -834,3 +834,58 @@ Full narrative and code-level rationale for each fix is in `HANDOFF.md`
   confidence; not good enough to certify a false-negative/false-positive rate
   the way `HANDOFF.md` requires for the Clarifier's own measured numbers
   (30-label minimum).
+
+## 2026-08-12 — `graphics-switching-scope` probe added, no gap found
+
+The model catalog on this machine had drifted since the original probe run:
+`qwen3:8b`/`qwen3:32b`/original `devstral` were gone, replaced by
+`qwen3.5:latest`/`qwen3-coder:30b`/`devstral:24b`, and `qwen3:32b` itself was
+missing entirely from `ollama list` even though `ROUTING_RULES` in
+`harness/gates/router.py` routes debug/plan/analyze to it by name — every
+request on that path was silently downgrading. Re-pulled `qwen3:32b` (20GB)
+and updated `popos_probe.py`'s `MODELS` to the four models `ROUTING_RULES`
+actually names: `qwen3:32b`, `qwen3.5:latest`, `qwen3-coder:30b`,
+`devstral:24b`.
+
+**Hypothesis tested:** `docs/graphics.md` documents the `system76-power
+graphics <mode>` command generically; this machine is a desktop tower (RTX
+4090, iGPU present but unbound to any driver — see `bedrock/hardware.md`),
+not the laptop-style hybrid-graphics hardware the command's modes assume. Do
+models over-confidently claim the command works everywhere, which would risk
+a generated plan proposing a graphics-mode switch that can't do anything on
+this box?
+
+**Result: no gap.** All four models correctly identified that the command
+requires hybrid-graphics hardware and does not apply to a desktop with a
+single bound discrete GPU:
+
+| Model | Verdict |
+|---|---|
+| qwen3:32b | correct — "specific to laptops... not applicable to desktops" |
+| qwen3.5:latest | correct — "does not work on every machine... hybrid graphics" |
+| qwen3-coder:30b | correct — "requires specific hardware... System76's laptop lineup" |
+| devstral:24b | correct — "does require specific hardware... typically works on laptops" |
+
+qwen3:32b and qwen3.5:latest went further, unprompted, and correctly
+predicted the specific desktop scenario in the question would produce either
+an error or a silent no-op, not instability or data loss. No doc added —
+per `docs/README.md`'s own rule, a fact only belongs in `docs/` behind a
+*measured* gap, and this hypothesis, however plausible, didn't hold up.
+
+**Incidentally reconfirmed the existing `graphics-switching` gap, worse than
+before.** Re-running the *original* probe against the current model roster:
+raw keyword grading showed 3 of 4 as HIT, but manual review (the same
+discipline the original table required, since the grader has known
+false-positive issues with negation and generic-vs-specific phrasing) found
+only qwen3.5:latest actually named `system76-power`; qwen3-coder:30b invented
+`prime-select` and devstral:24b invented `pop-switch`, both grader false
+positives caught only by reading past the truncated preview. qwen3:32b named
+`prime-select` too (correctly graded MISS this time). `docs/graphics.md`'s
+existing correction remains necessary and, if anything, more relevant on the
+current model set than the original 1-of-3 result suggested.
+
+qwen3.5:latest also timed out (>120s, then >240s) on 3 of 9 probes across two
+separate runs — `tiling-feature`, `graphics-switching`, `recovery-partition`
+specifically, repeatably, while answering the other 6 in 5-25s. Not
+investigated further here; worth a look if qwen3.5 is ever routed to for
+anything latency-sensitive.
