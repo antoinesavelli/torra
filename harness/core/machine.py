@@ -199,7 +199,15 @@ OBSERVE_COMMANDS: list[tuple[str, str]] = [
     ("os_release", "grep PRETTY_NAME /etc/os-release | cut -d'\"' -f2"),
     ("kernel", "uname -r"),
     ("uptime", "uptime -p"),
-    ("disk", "df -h / /home 2>/dev/null"),
+    # A hardcoded path list (was "df -h / /home") goes stale the moment a
+    # mount is added or removed -- found live: asked about /mnt/ParamoStorage,
+    # the model correctly refused to guess rather than answer for an unlisted
+    # mount, but the real gap was that mount never being observed at all.
+    # Filtering by fs type instead of naming paths keeps every real mount
+    # (including ones added later) visible without hand-maintaining a list.
+    ("disk", "df -h -x tmpfs -x devtmpfs -x overlay -x squashfs -x proc "
+             "-x sysfs -x cgroup -x cgroup2 -x tracefs -x fuse.gvfsd-fuse "
+             "2>/dev/null"),
     ("memory", "free -h"),
 ]
 
