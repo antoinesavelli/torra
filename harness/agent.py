@@ -300,7 +300,7 @@ class Agent:
         gaps = [f"{a.code}: {a.why}" for a in clarification.ambiguities]
         anchors = clarification.anchors
 
-        choice = self.router.select(request)
+        choice = self.router.select(request, ambiguous=bool(gaps))
         chosen = model or choice.model
         if self.ollama.last_status.value != "healthy":
             available = self.ollama.models()

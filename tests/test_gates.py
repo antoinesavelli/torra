@@ -735,6 +735,54 @@ class TestRouting:
         assert choice.rule == "default"
         assert choice.model == "devstral:24b"
 
+    def test_an_ambiguous_unmatched_request_routes_to_the_asking_model(self) -> None:
+        """Found live 2026-08-17: "storage issues on paramostorage" matched no
+        rule and Clarifier flagged it ambiguous (no target/anchor). Routed to
+        devstral (the class default), it proposed a destructive-shaped cleanup
+        plan instead of asking what was wrong; the identical prompt routed to
+        qwen3:32b asked the right clarifying question. `ambiguous=True` is how
+        the caller (Agent.converse) passes Clarifier's own verdict in."""
+        router = ModelRouter()
+        choice = router.select("storage issues on paramostorage", ambiguous=True)
+        assert choice.rule == "default"
+        assert choice.model == "qwen3:32b"
+
+    def test_an_ambiguous_request_prefers_the_default_over_an_arbitrary_fit(self) -> None:
+        """Found live 2026-08-17: qwen3:32b (32.8B real params) needs ~23.5GB
+        and this card only ever has ~23.3-23.8GB free even fully idle, so it
+        loses `fits()` almost every time -- and the generic downgrade
+        fallback (largest model that happens to fit) landed on
+        qwen3-coder:30b, which fabricated a disk-usage answer for the exact
+        same ambiguous request. When AMBIGUOUS_FALLBACK_MODEL doesn't fit,
+        this must prefer the measured-reliable default_model over whatever
+        else happens to be big and available, not the model that just
+        proved itself unreliable for this kind of request."""
+        class EverythingButQwen32bFits:
+            """Both devstral and the larger qwen3-coder fit -- proves this
+            deliberately skips _pick_replacement()'s "largest fitting"
+            choice (which would pick qwen3-coder here) for default_model."""
+
+            gpu = True
+            free_vram_mb = 20000
+
+            def fits(self, model: str) -> bool:
+                return model != "qwen3:32b"
+
+        router = ModelRouter(
+            available=["qwen3:32b", "devstral:24b", "qwen3-coder:30b"],
+            accelerator=EverythingButQwen32bFits())
+        choice = router.select("storage issues on paramostorage", ambiguous=True)
+        assert choice.model == "devstral:24b"
+
+    def test_ambiguity_never_overrides_an_explicit_rule_match(self) -> None:
+        """Ambiguity is only a signal for the *unmatched* fallback path -- a
+        rule match (e.g. "deploy") is a stronger, more specific signal and
+        must win regardless of how `ambiguous` is set."""
+        router = ModelRouter()
+        choice = router.select("deploy the api container to staging", ambiguous=True)
+        assert choice.rule == "deploy"
+        assert choice.model == "devstral:24b"
+
     def test_confidence_reflects_the_margin(self) -> None:
         router = ModelRouter()
         clear = router.select("deploy the api container to staging")

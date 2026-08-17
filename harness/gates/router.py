@@ -109,6 +109,20 @@ class ModelRouter:
     #: A 32b model on CPU answers in minutes, which is not a conversation.
     CPU_PARAM_CEILING_B: float = 9.0
 
+    #: Where an *unmatched* request lands when Clarifier flags it as
+    #: ambiguous (missing a target/anchor), instead of `default_model`.
+    #: Found live 2026-08-17: devstral (the class default) proposed a
+    #: destructive-shaped cleanup plan for an unqualified "storage issues"
+    #: request instead of asking what was wrong, while qwen3:32b asked the
+    #: right clarifying question for the identical prompt with identical
+    #: observed machine state. One prompt is not the 12-task battery that
+    #: justified `default_model` in scripts/dev/model_bench/REPORT.md
+    #: (which found devstral ties qwen3:32b on accuracy at a quarter of the
+    #: latency) -- this only overrides the *unmatched-request* fallback,
+    #: not that benchmark's routing rules, and only when there is nothing
+    #: else to route on.
+    AMBIGUOUS_FALLBACK_MODEL: str = "qwen3:32b"
+
     def __init__(
         self,
         rules: list[tuple[str, str, str, str]] | None = None,
@@ -300,14 +314,47 @@ class ModelRouter:
         scored.sort(key=lambda row: (row[2], self.weights.get(row[0], 1.0)), reverse=True)
         return scored
 
-    def select(self, request: str) -> ModelChoice:
-        """Pick the highest scoring model, with the margin as confidence."""
+    def select(self, request: str, ambiguous: bool = False) -> ModelChoice:
+        """Pick the highest scoring model, with the margin as confidence.
+
+        `ambiguous` is Clarifier's own gap verdict (the request names no
+        target/anchor), passed in by the caller since Clarifier already ran
+        before routing. It only affects the *unmatched* fallback below --
+        an explicit rule match is a stronger signal than ambiguity and is
+        never overridden by it. See `AMBIGUOUS_FALLBACK_MODEL` for why.
+        """
         scored = self.score(request)
         if not scored:
-            model, note = self._downgrade(self.default_model, "default")
-            return ModelChoice(model, "default",
-                               "no routing rule matched, using the measured-"
-                               f"reliable default{note}", 0.3)
+            if ambiguous:
+                model, note = self._downgrade(self.AMBIGUOUS_FALLBACK_MODEL, "default")
+                if model != self.AMBIGUOUS_FALLBACK_MODEL:
+                    # AMBIGUOUS_FALLBACK_MODEL didn't fit -- prefer the
+                    # measured-reliable default_model over whatever
+                    # _pick_replacement() found as "the largest model that
+                    # happens to fit". Found live: on this card qwen3:32b
+                    # (32.8B real params) needs ~23.5GB and the card only
+                    # ever has ~23.3-23.8GB free even fully idle, so it
+                    # loses that fit check almost every time -- and the
+                    # generic replacement landed on qwen3-coder:30b in a
+                    # live run, which fabricated a disk-usage answer for
+                    # this exact request (repeatable, not a fluke -- see
+                    # the harness's own manual test log from 2026-08-17).
+                    # default_model is a known quantity for a general/
+                    # ambiguous request; an arbitrary big fitting model is
+                    # not.
+                    qwen32b_note = note
+                    model, note = self._downgrade(self.default_model, "default")
+                    note = qwen32b_note + (
+                        f", then {self.default_model}{note}" if note
+                        else f", {self.default_model} fits")
+                reason = ("no routing rule matched and the request is ambiguous, "
+                          "routing to the model measured better at asking "
+                          f"instead of assuming{note}")
+            else:
+                model, note = self._downgrade(self.default_model, "default")
+                reason = ("no routing rule matched, using the measured-"
+                          f"reliable default{note}")
+            return ModelChoice(model, "default", reason, 0.3)
         name, model, score, terms = scored[0]
         runner_up = scored[1][2] if len(scored) > 1 else 0.0
         margin = (score - runner_up) / score if score else 0.0
