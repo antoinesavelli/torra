@@ -344,6 +344,28 @@ class TestUndoGeneration:
         action.undo()
         assert not target.exists()
 
+    def test_mkdir_undo_verify_is_false_when_the_directory_is_left_behind(
+            self, tmp_path: Path) -> None:
+        """Found live: verify() read `not target.exists() or
+        any(target.iterdir())` -- when undo() correctly declines to rmdir a
+        directory someone filled, "still exists AND has content" made
+        verify() return True, so VerifiedRollback reported "undone" for a
+        directory (and its real content) that was never removed. Undone
+        must mean the prior state -- absent -- was actually confirmed."""
+        target = tmp_path / "newdir"
+        action = UndoGenerator(shadow_dir=tmp_path / "s").for_step(
+            Step("make", command=f"mkdir -p {target}"))[0]
+
+        target.mkdir()
+        (target / "someone_elses.txt").write_text("important", encoding="utf-8")
+        action.undo()
+        assert action.verify() is False, \
+            "a directory left behind with real content must not verify as undone"
+
+        (target / "someone_elses.txt").unlink()
+        action.undo()
+        assert action.verify() is True
+
     def test_service_undo_uses_the_same_scope_it_was_captured_under(
             self, tmp_path: Path, monkeypatch) -> None:
         """Found in a full-file audit: capture_service's generated undo

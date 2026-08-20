@@ -255,6 +255,24 @@ def test_preamble_before_the_json_is_survivable() -> None:
     assert build_agent(transport).converse("hi").intent is Intent.ANSWER
 
 
+def test_preamble_with_its_own_braces_does_not_confuse_the_json_pull() -> None:
+    """Found live: this is an OS-engineering agent, so its own preamble
+    routinely says things like "check {something}" or "run awk '{ print $1
+    }'" before the real JSON reply -- prose that is itself brace-balanced.
+    Grabbing the first balanced brace pair (or the outermost one) used to
+    span from that prose straight to the real JSON's closing brace and fail
+    to parse; the fix tries each `{` in turn and keeps the first one whose
+    balanced span actually parses as JSON."""
+    def transport(path, payload, timeout):
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:8b"}]}
+        return {"message": {"content":
+                "I will check {something} first, then use ${HOME}.\n"
+                + json.dumps({"intent": "answer", "message": "ok"})}}
+
+    assert build_agent(transport).converse("hi").intent is Intent.ANSWER
+
+
 def test_unparseable_output_raises_rather_than_guessing() -> None:
     """Silently inventing a plan from garbage would be the worst failure here."""
     def transport(path, payload, timeout):

@@ -14,6 +14,7 @@ import argparse
 import os
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -313,9 +314,17 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     records = logger.read()
     exporter = CorpusExporter(logger, labels)
 
+    # Found live: this only ever counted intent == "plan"/"ask", silently
+    # leaving "answer" and "refuse" out of a summary that reads as complete
+    # -- on one real machine's traffic, "answered" was 80% of all recorded
+    # turns and nowhere in this breakdown. A Counter over whatever intents
+    # actually occurred can't go stale the way a hardcoded pair of lines did.
     print(f"tasks recorded : {len(records)}")
-    print(f"  planned      : {sum(1 for r in records if r.intent == 'plan')}")
-    print(f"  asked        : {sum(1 for r in records if r.intent == 'ask')}")
+    intent_labels = {"plan": "planned", "ask": "asked",
+                     "answer": "answered", "refuse": "refused"}
+    intents = Counter(r.intent for r in records if r.intent)
+    for intent, count in intents.most_common():
+        print(f"  {intent_labels.get(intent, intent or 'unknown'):<12} : {count}")
     print(f"  completed    : {sum(1 for r in records if r.status == 'completed')}")
     print(f"  repairs      : {sum(r.repairs for r in records)}")
     print()

@@ -92,7 +92,19 @@ logger that raises during a deploy is worse than no logger.
 return True. An action with no verifier reports `verified=None`, which is honest
 about the fact that nothing was checked. Do not collapse these back to two.
 
-> Guarded by `tests/test_gates.py::TestVerifiedRollback`
+Having a verifier is not enough on its own -- the verifier itself has to
+actually confirm the prior state, not just something correlated with it.
+Found live: `UndoGenerator.capture_mkdir`'s verifier read `not
+target.exists() or any(target.iterdir())`. `undo_mkdir` deliberately
+refuses to `rmdir` a directory someone filled with real content (a second
+disaster otherwise) -- but that same "still exists AND has content" case
+made the verifier return `True`, so a directory that was never actually
+removed, with whatever got written into it, was reported as `undone`. The
+prior state was "did not exist"; only `not target.exists()` honestly
+confirms it was restored.
+
+> Guarded by `tests/test_gates.py::TestVerifiedRollback`,
+> `test_mkdir_undo_verify_is_false_when_the_directory_is_left_behind`
 
 ### 2.7 A declared rollback command is still classified
 
@@ -328,6 +340,26 @@ timer must be created on the app's own thread -- `_set_busy` is only ever
 invoked via `call_from_thread` from the worker threads that plan/execute, so
 this holds today, but a new caller that calls it directly from a background
 thread would break silently (Textual timers are not thread-safe to create).
+
+**`execute_plan()`'s busy guard is not optional UI polish.** Textual's
+`@work(thread=True, exclusive=True)` does not preempt an already-running
+thread worker -- it only stops *tracking* the old one once a new one of the
+same group starts, so a second call while the first is still mid-run
+launches a genuinely concurrent second thread. The Run/Dry-run buttons get
+`disabled = busy` from `_set_busy`, but that state is set *inside* the
+worker via `call_from_thread`, not synchronously before the worker is
+dispatched, and `action_dry_run()` (Ctrl+D) has no widget to disable at
+all. Found live: pressing Ctrl+D ~50ms after clicking Run, while the first
+call's step was still sleeping, dispatched a second `Harness.execute()`
+call on the *same* mutable `RunResult` -- two calls 113ms apart, genuinely
+concurrent, confirmed by instrumenting `harness.execute`. It happened to
+land harmlessly that run (one call bailed on a state the other had already
+changed), but that was the luck of the interleaving, not a guarantee.
+`execute_plan()` now checks `self.busy` as its first line, before touching
+`self.current` or anything else -- the single choke point all three callers
+(both buttons and the keybinding) go through, rather than relying on each
+caller to remember to guard itself the way `action_rerun()` already did for
+`plan_request()`.
 
 **`shell()`'s explicit `/bin/bash -c 'set -o pipefail; ...'`.** Looks like it
 could be simplified back to `subprocess.run(command, shell=True, ...)` --

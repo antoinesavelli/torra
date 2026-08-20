@@ -154,6 +154,100 @@ async def test_reject_records_the_decision(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_bracket_text_does_not_crash_the_chat_pane(tmp_path: Path) -> None:
+    """Found live: `rich.markup` parses `[...]` as style tags. A request as
+    ordinary as "what's the free space in [/mnt/ParamoStorage]?" reads
+    `[/mnt/ParamoStorage]` as a *closing* tag with no opener and raises
+    MarkupError deep in Textual's compositor -- an unhandled exception that
+    kills the whole app. User-visible text (the typed request, the model's
+    own message) must render as literal text, brackets included, not be
+    interpreted as formatting."""
+    app = build(tmp_path, scripted({
+        "intent": "answer",
+        "message": "checked [/mnt/ParamoStorage], 189G used of 814G",
+    }))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt", Input).value = "what's the free space in [/mnt/ParamoStorage]?"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        assert app.is_running, "the app crashed on bracket-containing text"
+        text = screen_text(app)
+        assert "[/mnt/ParamoStorage]" in text, \
+            "the bracketed path should render literally, not be swallowed as markup"
+
+
+@pytest.mark.asyncio
+async def test_bracket_text_in_a_step_does_not_crash_the_plan_pane(tmp_path: Path) -> None:
+    """Same failure mode as the chat pane, but for StepCard/PlanPane text
+    that comes straight from the model's proposal (command, description,
+    undo description) rather than the user -- these are just as untrusted
+    and just as likely to contain a `[...]` shell glob or bracketed path."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "list files in [/mnt/x]",
+        [{"id": "ls", "run": "ls [abc]*.txt",
+          "description": "list matching [abc]*.txt files"}])))
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "list files in [/mnt/x]"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        assert app.is_running, "the app crashed on bracket-containing step text"
+        assert app.query(StepCard), "plan did not render"
+        text = screen_text(app)
+        assert "[abc]*.txt" in text
+
+
+@pytest.mark.asyncio
+async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
+        tmp_path: Path) -> None:
+    """Found live: unlike the Run/Dry-run buttons (disabled while busy),
+    action_dry_run() (Ctrl+D) had no widget to gate it, so pressing it while
+    a real run's step was still in flight dispatched a second execute_plan()
+    worker. Textual's "exclusive" thread worker does not preempt an
+    already-running thread, so both ran Harness.execute() concurrently
+    against the same mutable RunResult -- observed live as two overlapping
+    calls, 113ms apart, one of them landing on a state neither caller
+    intended. execute_plan() now refuses to start a second run while busy,
+    regardless of which of its three callers (both buttons, the keybinding)
+    triggered it."""
+    marker = tmp_path / "counter.txt"
+    marker.write_text("0", encoding="utf-8")
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"append to {marker}",
+        [{"id": "slow", "run": f"sleep 0.3 && echo x >> {marker}",
+          "touches": [str(marker)]}])))
+
+    calls: list[str] = []
+    orig_execute = app.harness.execute
+
+    def spy(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        calls.append("enter")
+        return orig_execute(*args, **kwargs)
+
+    app.harness.execute = spy  # type: ignore[method-assign]
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"append to {marker}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await pilot.pause(0.05)
+        assert app.busy, "the run should still be in flight"
+        app.action_dry_run()  # the race attempt: Ctrl+D while genuinely busy
+        await pilot.pause(0.6)
+
+        assert len(calls) == 1, \
+            f"execute() should run exactly once, ran {len(calls)} times"
+        assert marker.read_text(encoding="utf-8") == "0x\n", \
+            "the step must not have run twice"
+
+
+@pytest.mark.asyncio
 async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> None:
     """Found in a full-file audit: the Reject button was never disabled
     after a run completed (unlike Run/Dry-run), and clicking it on an

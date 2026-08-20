@@ -170,7 +170,7 @@ def grade_complexity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
     grade = band(pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
     offenders.sort(reverse=True)
     headline = f"{over} decision-path fn(s) >= CCN 15 ({pct:.1f}%), {total} checked"
-    return DimensionResult("Complexity", grade, headline, [o for _, o in offenders[:10]])
+    return DimensionResult("Complexity", grade, headline, [o for _, o in offenders])
 
 
 def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
@@ -204,7 +204,7 @@ def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
     headline = (f"{len(tangled)} fn(s) nested >= depth 3 & CCN >= 10, "
                 f"{len(oversized)} decision-path file(s) > 500 LOC")
     offenders = [f"{loc} LOC: {f.relative_to(REPO_ROOT)}"
-                 for loc, f in sorted(oversized, reverse=True)] + tangled[:10]
+                 for loc, f in sorted(oversized, reverse=True)] + tangled
     return DimensionResult("Modularity", grade, headline, offenders)
 
 
@@ -235,7 +235,7 @@ def grade_documentation(files: list[Path], tiers: dict[Path, str]) -> DimensionR
     headline = (f"{covered}/{len(decision_files)} carry 'Depends on:' "
                 f"({pct:.0f}%), {has_docstring}/{len(decision_files)} have a "
                 "module docstring")
-    return DimensionResult("Documentation", grade, headline, missing[:10])
+    return DimensionResult("Documentation", grade, headline, missing)
 
 
 # --------------------------------------------------------------------------- #
@@ -277,7 +277,7 @@ def grade_typing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     avg = (return_pct + param_pct) / 2
     grade = band(avg, (90.0, 75.0, 60.0, 45.0), lower_is_better=False)
     headline = f"returns {return_pct:.0f}%, params {param_pct:.0f}%"
-    return DimensionResult("Typing", grade, headline, offenders[:10])
+    return DimensionResult("Typing", grade, headline, offenders)
 
 
 # --------------------------------------------------------------------------- #
@@ -328,7 +328,7 @@ def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     pct = covered_count / len(decision_files) * 100
     grade = band(pct, (80.0, 65.0, 50.0, 35.0), lower_is_better=False)
     headline = f"{covered_count}/{len(decision_files)} import-covered by tests ({pct:.0f}%)"
-    return DimensionResult("Testing", grade, headline, uncovered[:10])
+    return DimensionResult("Testing", grade, headline, uncovered)
 
 
 # --------------------------------------------------------------------------- #
@@ -345,13 +345,21 @@ def grade_lint(files: list[Path]) -> DimensionResult:
     issues = json.loads(proc.stdout or "[]")
     grade = band(len(issues), (0, 5, 20, 50), lower_is_better=True)
     offenders = [f"{Path(i['filename']).relative_to(REPO_ROOT)}:{i['location']['row']} "
-                f"{i['code']} {i['message']}" for i in issues[:10]]
+                f"{i['code']} {i['message']}" for i in issues]
     return DimensionResult("Lint", grade, f"{len(issues)} ruff issue(s)", offenders)
 
 
 # --------------------------------------------------------------------------- #
 # Reporting
 # --------------------------------------------------------------------------- #
+
+
+#: Verbose offender lists are capped here, at display time, so headline
+#: counts (over the full set) and the printed list never disagree -- found
+#: live: each grade_*() truncated its own offenders to 10 before this
+#: existed, so Modularity's headline said "11 fn(s)" while only 10 were
+#: ever listed, with no "+more" to say the list wasn't complete.
+MAX_OFFENDERS_SHOWN = 10
 
 
 def render(results: list[DimensionResult], overall_gpa: float,
@@ -361,7 +369,11 @@ def render(results: list[DimensionResult], overall_gpa: float,
     for r in results:
         lines.append(f"  {r.name:<14} [{r.grade}]  {r.headline}")
         if verbose:
-            lines.extend(f"      - {o}" for o in r.offenders)
+            shown = r.offenders[:MAX_OFFENDERS_SHOWN]
+            lines.extend(f"      - {o}" for o in shown)
+            hidden = len(r.offenders) - len(shown)
+            if hidden > 0:
+                lines.append(f"      ... (+{hidden} more)")
     lines.append("-" * 68)
     lines.append(f"  {'OVERALL':<14} [{overall_grade}]  GPA {overall_gpa:.2f} "
                  "(decision-path weighted)")

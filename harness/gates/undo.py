@@ -414,8 +414,16 @@ class UndoGenerator:
             if target.is_dir() and not any(target.iterdir()):
                 target.rmdir()
 
+        # Found live: the prior verify was `not target.exists() or
+        # any(target.iterdir())` -- when undo_mkdir declines to rmdir a
+        # non-empty directory (its own stated safety rule: never delete
+        # real content), that predicate reads "still exists AND has
+        # content" as *success*, so VerifiedRollback reported "undone" for
+        # a directory -- with whatever got written into it -- that was
+        # never actually removed. The prior state was "did not exist";
+        # only "does not exist now" honestly confirms that.
         return UndoAction(f"remove {target} if still empty", undo_mkdir, True,
-                          lambda: not target.exists() or any(target.iterdir()),
+                          lambda: not target.exists(),
                           True, snap, step_id)
 
     def for_step(self, step: Any) -> list[UndoAction]:

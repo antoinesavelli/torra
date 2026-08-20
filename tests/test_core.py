@@ -108,6 +108,57 @@ class TestModelInfo:
         assert OllamaClient(transport=transport).model_info("x") == {}
 
 
+class TestHttpErrorDetail:
+    """OllamaClient._http(): every other test in this file injects a fake
+    `transport`, which never exercises the real urllib path at all. Found
+    live: a bad or unpulled model name reached the operator as the generic
+    "HTTP Error 404: Not Found" -- Ollama's own response body
+    ({"error": "model '...' not found"}) was never read, discarding exactly
+    the detail needed to fix the request."""
+
+    def test_ollamas_own_error_message_surfaces(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json as json_module
+        import urllib.error
+        import urllib.request
+
+        from harness.core.tasks import OllamaError
+
+        error = urllib.error.HTTPError(
+            "http://localhost:11434/api/chat", 404, "Not Found", None, None)
+        monkeypatch.setattr(error, "read",
+                            lambda: json_module.dumps(
+                                {"error": "model 'ghost:latest' not found"}).encode())
+
+        def fake_urlopen(request: object, timeout: float) -> object:
+            raise error
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+        client = OllamaClient()
+        with pytest.raises(OllamaError, match="model 'ghost:latest' not found"):
+            client.chat("ghost:latest", [{"role": "user", "content": "hi"}])
+
+    def test_a_non_json_error_body_falls_back_to_the_http_reason(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import urllib.error
+        import urllib.request
+
+        from harness.core.tasks import OllamaError
+
+        error = urllib.error.HTTPError(
+            "http://localhost:11434/api/chat", 502, "Bad Gateway", None, None)
+        monkeypatch.setattr(error, "read", lambda: b"<html>not json</html>")
+
+        def fake_urlopen(request: object, timeout: float) -> object:
+            raise error
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+        client = OllamaClient()
+        with pytest.raises(OllamaError, match="Bad Gateway"):
+            client.chat("x", [{"role": "user", "content": "hi"}])
+
+
 class TestShellPipefail:
     """`shell()` used /bin/sh (dash on Debian-derived systems) via shell=True,
     whose pipeline exit status is only the *last* command's -- a command that

@@ -99,8 +99,24 @@ class OllamaClient:
                 headers={"Content-Type": "application/json"})
         else:
             request = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8") or "{}")
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8") or "{}")
+        except urllib.error.HTTPError as exc:
+            # Found live: a bad or unpulled model name surfaced to the operator
+            # as the generic "HTTP Error 404: Not Found" -- Ollama's own body
+            # ({"error": "model '...' not found"}) was read by nobody and
+            # discarded, which is exactly the detail needed to fix the request.
+            raise OllamaError(f"HTTP {exc.code}: {self._http_error_detail(exc)}") from exc
+
+    @staticmethod
+    def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+        """Ollama's own error message from the response body, falling back to the HTTP reason."""
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+            return str(body.get("error") or exc.reason)
+        except Exception:
+            return exc.reason
 
     # -- health ------------------------------------------------------------ #
 

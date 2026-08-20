@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from rich.markup import escape
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -94,19 +95,19 @@ class StepCard(Vertical):
         style = LEVEL_STYLE.get(level, "")
 
         yield Static(
-            f"[dim]{self.index}.[/] [bold]{sp.step.step_id}[/]  "
+            f"[dim]{self.index}.[/] [bold]{escape(sp.step.step_id)}[/]  "
             f"[{style}]{level.upper()}[/]", markup=True)
-        yield Static(f"  [white]{sp.step.command}[/]", markup=True,
+        yield Static(f"  [white]{escape(sp.step.command)}[/]", markup=True,
                      classes="step-command")
         if sp.step.description and sp.step.description != sp.step.command:
-            yield Static(f"  [dim]{sp.step.description}[/]", markup=True)
+            yield Static(f"  [dim]{escape(sp.step.description)}[/]", markup=True)
 
         for reason in sp.verdict.reasons[:2]:
-            yield Static(f"  [dim]{reason[:96]}[/]", markup=True)
+            yield Static(f"  [dim]{escape(reason[:96])}[/]", markup=True)
 
         if sp.undos:
             yield Static(
-                f"  [green]undo:[/] {sp.undos[0].description[:80]}"
+                f"  [green]undo:[/] {escape(sp.undos[0].description[:80])}"
                 + (f" [dim](+{len(sp.undos) - 1} more)[/]" if len(sp.undos) > 1 else ""),
                 markup=True)
         else:
@@ -132,21 +133,21 @@ class PlanPane(VerticalScroll):
         style = LEVEL_STYLE.get(worst, "")
 
         await self.mount(Static(
-            f"[bold]{plan.spec.task_id}[/]\n"
-            f"[dim]{plan.spec.request}[/]\n"
-            f"model [bold]{plan.model}[/]  worst [{style}]{worst.upper()}[/]  "
+            f"[bold]{escape(plan.spec.task_id)}[/]\n"
+            f"[dim]{escape(plan.spec.request)}[/]\n"
+            f"model [bold]{escape(plan.model)}[/]  worst [{style}]{worst.upper()}[/]  "
             f"undo coverage {plan.coverage.get('coverage_ratio', 0):.0%}"
             + (f"  [dim]({plan.repairs} repair(s))[/]" if plan.repairs else ""),
             markup=True, classes="plan-header"))
 
         if plan.uncovered:
             await self.mount(Static(
-                f"[yellow]no automatic undo for: {', '.join(plan.uncovered)}[/]",
+                f"[yellow]no automatic undo for: {escape(', '.join(plan.uncovered))}[/]",
                 markup=True))
         if plan.preconditions and not plan.preconditions.passed:
             await self.mount(Static(
                 "[bold red]preconditions failed: "
-                + ", ".join(r.name for r in plan.preconditions.blocking_failures)
+                + escape(", ".join(r.name for r in plan.preconditions.blocking_failures))
                 + "[/]", markup=True))
 
         for index, sp in enumerate(plan.steps, start=1):
@@ -233,14 +234,16 @@ class HarnessApp(App):
         self._say("harness", "Describe what you want done. I plan it, every gate "
                              "checks it, you approve it, then it runs.")
         if status is OllamaStatus.HEALTHY:
-            self._say("harness", f"models available: {', '.join(models) or 'none'}",
+            self._say("harness",
+                      f"models available: {escape(', '.join(models)) or 'none'}",
                       "dim")
         else:
             self._say("error",
-                      f"Ollama is {status.value} at {self.harness.ollama.host}. "
-                      f"{self.harness.ollama.last_error}")
+                      f"Ollama is {status.value} at {escape(self.harness.ollama.host)}. "
+                      f"{escape(self.harness.ollama.last_error)}")
             for option in self.harness.ollama.recovery_options():
-                self._say("harness", f"{option.title}  ->  {option.action}", "dim")
+                self._say("harness",
+                          f"{escape(option.title)}  ->  {escape(option.action)}", "dim")
         self.query_one("#prompt", Input).focus()
 
     # -- helpers ----------------------------------------------------------- #
@@ -274,7 +277,7 @@ class HarnessApp(App):
             return
         event.input.value = ""
         self.last_request = request
-        self._say("you", request)
+        self._say("you", escape(request))
         self.plan_request(request)
 
     @work(thread=True, exclusive=True)
@@ -285,7 +288,7 @@ class HarnessApp(App):
             result = self.harness.plan(request)
         except Exception as exc:
             self.call_from_thread(self._say, "error",
-                                  f"{type(exc).__name__}: {exc}")
+                                  f"{type(exc).__name__}: {escape(str(exc))}")
             self.call_from_thread(self._set_busy, False, "")
             return
         self.call_from_thread(self._planned, result)
@@ -297,7 +300,7 @@ class HarnessApp(App):
 
     def _outcome_needs_answer(self, result: RunResult) -> None:
         for question in (result.turn.questions if result.turn else []):
-            self._say("agent", f"? {question}", "yellow")
+            self._say("agent", f"? {escape(question)}", "yellow")
         self._say("harness", "Answer in the box and I will re-plan.", "dim")
         self._status("[yellow]waiting for your answer[/]")
 
@@ -305,21 +308,22 @@ class HarnessApp(App):
         self._status("[magenta]the model declined this request[/]")
 
     def _outcome_backend_down(self, result: RunResult) -> None:
-        self._say("error", result.abort_reason)
+        self._say("error", escape(result.abort_reason))
         for option in self.harness.ollama.recovery_options():
-            self._say("harness", f"{option.title}  ->  {option.action}", "dim")
+            self._say("harness",
+                      f"{escape(option.title)}  ->  {escape(option.action)}", "dim")
         self._status("[bold red]backend unreachable[/]")
 
     def _outcome_blocked(self, result: RunResult) -> None:
         style = OUTCOME_STYLE.get(result.outcome.value, "")
-        self._say("harness", result.abort_reason, "bold red")
+        self._say("harness", escape(result.abort_reason), "bold red")
         self._status(f"[{style}]blocked before execution[/]")
         if result.plan:
             self.run_worker(self.query_one("#plan", PlanPane).show(result.plan),
                             exclusive=False)
 
     def _outcome_failed(self, result: RunResult) -> None:
-        self._say("error", result.abort_reason)
+        self._say("error", escape(result.abort_reason))
         self._status("[bold red]no usable plan[/]")
 
     def _outcome_plan_ready(self, result: RunResult) -> None:
@@ -339,7 +343,7 @@ class HarnessApp(App):
         self.current = result
         self._set_busy(False, "")
         if result.turn and result.turn.message:
-            self._say("agent", result.turn.message)
+            self._say("agent", escape(result.turn.message))
 
         handlers: dict[Outcome, Callable[[RunResult], None]] = {
             Outcome.ANSWERED: self._outcome_answered,
@@ -392,12 +396,13 @@ class HarnessApp(App):
 
     def action_dry_run(self) -> None:
         """Keyboard shortcut for a dry run."""
-        self.execute_plan(dry_run=True)
+        if not self.busy:
+            self.execute_plan(dry_run=True)
 
     def action_rerun(self) -> None:
         """Re-plan the last request."""
         if self.last_request and not self.busy:
-            self._say("you", f"{self.last_request} [re-plan]")
+            self._say("you", f"{escape(self.last_request)} \\[re-plan]")
             self.plan_request(self.last_request)
 
     def action_clear_chat(self) -> None:
@@ -410,6 +415,15 @@ class HarnessApp(App):
     @work(thread=True, exclusive=True)
     def execute_plan(self, dry_run: bool = False) -> None:
         """Execute in a worker thread, reading approvals from the checkboxes."""
+        # Found live: action_dry_run() (Ctrl+D) has no widget to disable the
+        # way the Run/Dry-run buttons do, so it could dispatch a second
+        # execute_plan() worker while a real run's step is still sleeping --
+        # a Textual "exclusive" thread worker does not preempt an already-
+        # running thread, so both ran Harness.execute() concurrently against
+        # the same mutable RunResult. This guard is the single choke point
+        # all three callers (both buttons and the keybinding) go through.
+        if self.busy:
+            return
         result = self.current
         if result is None or result.plan is None:
             self.call_from_thread(self._say, "harness", "No plan to run.", "dim")
@@ -420,7 +434,8 @@ class HarnessApp(App):
         try:
             done = self.harness.execute(result, approvals, dry_run=dry_run)
         except Exception as exc:
-            self.call_from_thread(self._say, "error", f"{type(exc).__name__}: {exc}")
+            self.call_from_thread(self._say, "error",
+                                  f"{type(exc).__name__}: {escape(str(exc))}")
             self.call_from_thread(self._set_busy, False, "")
             return
         self.call_from_thread(self._executed, done, dry_run)
@@ -435,16 +450,17 @@ class HarnessApp(App):
         for step_result in result.results:
             mark = "[green]ok[/]" if step_result.ok else "[bold red]fail[/]"
             self._say("harness",
-                      f"{prefix}{mark} {step_result.step_id} "
+                      f"{prefix}{mark} {escape(step_result.step_id)} "
                       f"[dim]{step_result.seconds:.2f}s[/]"
-                      + (f"\n     {step_result.error}" if step_result.error else ""))
+                      + (f"\n     {escape(step_result.error)}"
+                         if step_result.error else ""))
 
         if result.outcome is Outcome.COMPLETED:
             self._say("harness", f"{prefix}completed.", "bold green")
         elif result.outcome is Outcome.REJECTED:
-            self._say("harness", result.abort_reason, "dim")
+            self._say("harness", escape(result.abort_reason), "dim")
         else:
-            self._say("error", result.abort_reason)
+            self._say("error", escape(result.abort_reason))
 
         if result.rollback:
             report = result.rollback
@@ -454,10 +470,10 @@ class HarnessApp(App):
                       f"{len(report.failed)} failed",
                       "green" if report.ok else "bold red")
             for entry in report.unverified + report.failed:
-                self._say("error", f"  {entry.description}: {entry.error}")
+                self._say("error", f"  {escape(entry.description)}: {escape(entry.error)}")
 
         if result.audit_path:
-            self._say("harness", f"audit: {result.audit_path}", "dim")
+            self._say("harness", f"audit: {escape(str(result.audit_path))}", "dim")
         self._status(f"[{style}]{result.outcome.value}[/]")
 
     def _set_busy(self, busy: bool, message: str) -> None:

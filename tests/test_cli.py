@@ -61,6 +61,27 @@ def write_task_file(path: Path, task_id: str, request: str,
 # --------------------------------------------------------------------------- #
 
 
+def test_evidence_intent_breakdown_does_not_silently_drop_answer_and_refuse(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Found live: the breakdown only ever counted intent == "plan"/"ask",
+    so "answer" and "refuse" -- on one real machine's traffic, "answered"
+    was 80% of everything recorded -- never appeared anywhere in a summary
+    that reads as a complete accounting of "tasks recorded"."""
+    logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
+    for intent in ["answer", "answer", "answer", "ask", "plan", "refuse"]:
+        logger.record(TaskRecord(task_id="t", request="x", at=1.0, intent=intent))
+    LabelStore(tmp_path / "telemetry" / "labels.jsonl")
+
+    exit_code = cli.cmd_evidence(evidence_args(tmp_path))
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "answered     : 3" in out
+    assert "refused      : 1" in out
+    assert "asked        : 1" in out
+    assert "planned      : 1" in out
+
+
 def test_evidence_prints_the_loophole_audit_alongside_drift(
         tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Found in a full-file audit: LoopholeAudit (harness/telemetry/audit.py)

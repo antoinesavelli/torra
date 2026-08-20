@@ -277,13 +277,65 @@ class Agent:
             return json.loads(cleaned)
         except json.JSONDecodeError:
             pass
-        start, end = cleaned.find("{"), cleaned.rfind("}")
-        if start >= 0 and end > start:
+        candidate = Agent._find_json_object(cleaned)
+        if candidate is not None:
             try:
-                return json.loads(cleaned[start:end + 1])
+                return json.loads(candidate)
             except json.JSONDecodeError as exc:
                 raise AgentError(f"model did not return valid JSON: {exc}") from exc
         raise AgentError("model returned no JSON object")
+
+    @staticmethod
+    def _find_json_object(text: str) -> str | None:
+        """The first brace-balanced substring that also parses as JSON.
+
+        Found live: an OS-engineering agent's own preamble routinely mentions
+        `{something}` -- shell brace expansion, `${VAR}`, an awk script --
+        before its real JSON reply. That prose is itself brace-balanced, so a
+        naive find-first-`{`/find-last-`}` pair (or stopping at the first
+        balanced span) grabs the wrong object. Trying each `{` in turn and
+        keeping the first one that actually parses skips prose braces.
+        """
+        pos = 0
+        while True:
+            start = text.find("{", pos)
+            if start < 0:
+                return None
+            end = Agent._matching_brace(text, start)
+            if end is not None:
+                candidate = text[start:end + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    pass
+            pos = start + 1
+
+    @staticmethod
+    def _matching_brace(text: str, start: int) -> int | None:
+        """Index of the `}` closing the `{` at `start`, skipping braces inside string literals."""
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return i
+        return None
 
     # -- generation -------------------------------------------------------- #
 
