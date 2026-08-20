@@ -83,7 +83,8 @@ which is how the one that mattered gets ticked too.
 | `ctrl+d` | dry run: every gate, nothing executes |
 | `ctrl+r` | re-plan the last request |
 | `ctrl+l` | clear the conversation |
-| `ctrl+c` | quit |
+| `ctrl+q` | quit |
+| `ctrl+c` | copy selected text (Textual's own built-in behavior; select with click-drag first) |
 
 ---
 

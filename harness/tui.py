@@ -191,7 +191,17 @@ class HarnessApp(App):
     """
 
     BINDINGS = [
-        ("ctrl+c", "quit", "Quit"),
+        # Not ctrl+c: Textual's own default for that key is "help_quit",
+        # which deliberately does NOT quit -- its docstring says so
+        # explicitly ("Ctrl+C is now bound to copy if an input / textarea
+        # is focused... this makes it possible, even likely, that a user
+        # may do it accidentally -- which would be maddening"). Screen's
+        # own default binding sends ctrl+c to copy_text (selected-text
+        # copy) instead. Overriding it back to "quit" here silently
+        # re-broke exactly what Textual's maintainers fixed: found live,
+        # any attempt to copy selected chat/plan text via ctrl+c closed
+        # the whole app instead.
+        ("ctrl+q", "quit", "Quit"),
         ("ctrl+r", "rerun", "Re-plan"),
         ("ctrl+d", "dry_run", "Dry run"),
         ("ctrl+l", "clear_chat", "Clear chat"),

@@ -365,9 +365,8 @@ class Agent:
                            bool(self.state))
 
         repairs = 0
-        while (turn.intent is Intent.PLAN and turn.spec is not None
-               and repairs < self.max_repairs):
-            complaint = self._prescreen(turn.spec)
+        while repairs < self.max_repairs:
+            complaint = self._repair_complaint(turn)
             if not complaint:
                 break
             repairs += 1
@@ -376,7 +375,7 @@ class Agent:
                 self._messages(request, gaps, extra=[
                     {"role": "assistant", "content": raw},
                     {"role": "user", "content":
-                     "That plan was rejected before reaching the operator:\n"
+                     "That response needs a revision before reaching the operator:\n"
                      + complaint + "\nRevise it. Same JSON schema."},
                 ]),
                 json_mode=True)
@@ -418,6 +417,50 @@ class Agent:
             except TaskSpecError as exc:
                 raise AgentError(f"proposed task is malformed: {exc}") from exc
         return turn
+
+    def _repair_complaint(self, turn: Turn) -> str:
+        """What, if anything, needs fixing before this turn reaches the operator."""
+        if turn.intent is Intent.PLAN and turn.spec is not None:
+            return self._prescreen(turn.spec)
+        if turn.intent is Intent.ANSWER:
+            return self._answer_dropped_a_task(turn)
+        return ""
+
+    def _answer_dropped_a_task(self, turn: Turn) -> str:
+        """Complaint when intent was 'answer' but a `task` was also
+        attached and silently discarded -- with steps or, just as often,
+        without.
+
+        Found live, two variants of the same underlying habit: asked to
+        summarize disk usage, one reply was `{"intent": "answer",
+        "message": "Here is the storage summary...", "task": {...steps
+        that actually run df...}}` -- `_parse` only reads `task` for
+        intent 'plan', so the operator saw the announcement and nothing
+        else, the real numbers discarded the whole time. A second attempt
+        at the identical request attached `"task": {..., "steps": []}` --
+        an empty scaffold, no steps to lose, but `message` was just as
+        vague ("Here is the storage summary...") with no real content
+        either. SYSTEM_PROMPT rule 6 says intent 'answer' should not
+        include a task at all; a model that emits one regardless,
+        populated or not, reliably correlates with a `message` that
+        promised content it did not actually deliver.
+        """
+        try:
+            data = self._extract_json(turn.raw)
+        except AgentError:
+            return ""
+        if not isinstance(data.get("task"), dict):
+            return ""
+        return (
+            "- intent was 'answer' but a `task` object was also attached, "
+            "which the harness never runs for an answer -- the operator "
+            "sees only your `message` and nothing else, so anything in "
+            "`task` (including steps meant to produce the real values) is "
+            "silently lost. Put the full answer -- real values from the "
+            "observed machine state, not a promise to look them up -- "
+            "directly in `message`, and drop `task` entirely. If you "
+            "actually need to run something to produce the answer, use "
+            "intent 'plan' instead.")
 
     def _prescreen(self, spec: TaskSpec) -> str:
         """Check the model's own plan before an operator ever sees it."""

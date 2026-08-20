@@ -64,6 +64,28 @@ async def test_the_app_starts_and_reports_the_backend(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ctrl_c_copies_rather_than_quitting(tmp_path: Path) -> None:
+    """Found live: BINDINGS bound ctrl+c to "quit", overriding Textual's own
+    deliberate default for that key (Screen sends ctrl+c to copy_text,
+    selected-text copy; App's own help_quit action docstring says outright
+    "Ctrl+C is now bound to copy... this makes it possible, even likely,
+    that a user may do it accidentally -- which would be maddening"). Any
+    attempt to copy selected chat/plan text via ctrl+c closed the whole
+    app instead of copying anything. Quit moved to ctrl+q so ctrl+c falls
+    through to Textual's native copy behavior."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+c")
+        await pilot.pause(0.2)
+        assert app.is_running, "ctrl+c must not quit the app"
+
+        await pilot.press("ctrl+q")
+        await pilot.pause(0.2)
+        assert not app.is_running, "ctrl+q must still quit the app"
+
+
+@pytest.mark.asyncio
 async def test_the_status_line_shows_a_live_spinner_while_busy(tmp_path: Path) -> None:
     """A local model can take anywhere from a couple seconds to over a
     minute (scripts/dev/model_bench/REPORT.md) -- a static "thinking..."

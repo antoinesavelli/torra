@@ -225,6 +225,54 @@ def test_repair_gives_up_rather_than_looping() -> None:
     assert turn.spec is not None, "the last proposal is still returned for gating"
 
 
+def test_an_answer_that_silently_drops_a_populated_task_is_repaired() -> None:
+    """Found live: asked to summarize disk usage, the model replied intent
+    "answer" with a real task attached (steps that would have run `df`)
+    -- _parse only reads `task` for intent "plan", so the operator saw
+    just the announcement ("here is the summary") and none of the actual
+    numbers, discarded along with the task."""
+    agent = build_agent(scripted(
+        {"intent": "answer",
+         "message": "Here is the storage summary from the observed machine state.",
+         "task": {"task_id": "x", "request": "x",
+                  "steps": [{"id": "s", "run": "df -h"}]}},
+        {"intent": "answer", "message": "ParamoStorage: 584GB free of 814GB."}))
+
+    turn = agent.converse("give me a summary of storage")
+
+    assert turn.repairs >= 1
+    assert turn.intent is Intent.ANSWER
+    assert "584GB" in turn.message
+
+
+def test_an_answer_with_an_empty_task_scaffold_is_also_repaired() -> None:
+    """Same habit, different shape: no steps to lose this time, but the
+    message was just as vague ("here is the summary...") with no real
+    content either -- attaching a task object at all for intent "answer"
+    is itself the tell, not just a populated one."""
+    agent = build_agent(scripted(
+        {"intent": "answer",
+         "message": "Here is the storage summary from your machine state.",
+         "task": {"task_id": "storage-summary", "request": "x",
+                  "steps": [], "rollback": []}},
+        {"intent": "answer", "message": "ParamoStorage: 584GB free of 814GB."}))
+
+    turn = agent.converse("give me a summary of storage")
+
+    assert turn.repairs >= 1
+    assert "584GB" in turn.message
+
+
+def test_a_clean_answer_with_no_task_never_wastes_a_repair_round() -> None:
+    """The new check must not fire on ordinary, correct answer turns."""
+    agent = build_agent(scripted(
+        {"intent": "answer", "message": "ParamoStorage: 584GB free."}))
+
+    turn = agent.converse("give me a summary of storage")
+
+    assert turn.repairs == 0
+
+
 # --------------------------------------------------------------------------- #
 # Malformed model output
 # --------------------------------------------------------------------------- #

@@ -339,6 +339,40 @@ vague-qualifier rule on the `old` inside a filename.
 must not spin. The last proposal is still returned for real gating even after
 the budget is spent.
 
+**The repair loop is not just for intent "plan."** It used to trigger only
+when `turn.intent is Intent.PLAN`, on the assumption that "answer" needs no
+gating -- there's no task to check. Found live: a model asked to summarize
+disk usage twice replied `intent: "answer"` with a `task` object also
+attached (once with real steps that would have produced the actual numbers,
+once with an empty scaffold) -- `_parse` only reads `task` for intent
+"plan", so the operator saw just the announcement ("here is the summary")
+and the real content was silently discarded either way. `_repair_complaint`
+now dispatches on intent: `_prescreen` for "plan" as before,
+`_answer_dropped_a_task` for "answer" -- any `task` object attached to an
+answer-intent reply (populated or not) triggers one repair round asking the
+model to either put the real answer in `message` or switch to intent
+"plan". A clean answer with no `task` at all never triggers this, confirmed
+by test.
+
+> Guarded by `tests/test_agent.py::test_an_answer_that_silently_drops_a_populated_task_is_repaired`,
+> `test_an_answer_with_an_empty_task_scaffold_is_also_repaired`,
+> `test_a_clean_answer_with_no_task_never_wastes_a_repair_round`
+
+**`HarnessApp.BINDINGS` must never claim `ctrl+c`.** Textual's own default
+for that key is deliberately not "quit" -- `App.action_help_quit`'s
+docstring says so outright: "Ctrl+C is now bound to copy if an input /
+textarea is focused... this makes it possible, even likely, that a user
+may do it accidentally -- which would be maddening." `Screen`'s own default
+binding sends `ctrl+c` to `screen.copy_text` (selected-text copy) instead.
+An earlier version of this file bound `ctrl+c` to `"quit"` directly,
+silently re-breaking exactly what Textual's maintainers fixed: found live,
+any attempt to copy selected chat/plan text via ctrl+c closed the whole
+app instead of copying anything. Quit now lives on `ctrl+q`; do not move
+it back onto `ctrl+c`, even though that used to be the harness's own
+convention.
+
+> Guarded by `tests/test_tui.py::test_ctrl_c_copies_rather_than_quitting`
+
 **`_finish(write_audit=False)`.** The awaiting-approval case leaves the stage
 list open and writes no audit record, because the run has not happened yet. An
 earlier version appended the report stage during `plan()` and produced
