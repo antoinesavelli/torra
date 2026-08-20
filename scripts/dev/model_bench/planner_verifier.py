@@ -27,11 +27,51 @@ from harness.agent import Agent, AgentError, Intent  # noqa: E402
 from harness.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
 from harness.gates import Clarifier, SafetyClassifier  # noqa: E402
 
-PLANNER_MODEL = "devstral"
-VERIFIER_MODEL = "qwen3:8b"
+#: Model targets were pruned to four on 2026-07-28 (see harness/gates/router.py's
+#: ROUTING_RULES comment) -- bare "devstral" and "qwen3:8b" no longer match anything
+#: pulled. devstral:24b is the harness's own measured-reliable default (REPORT.md);
+#: qwen3.5:latest is the smallest currently-pulled model, filling the original
+#: "cheap second opinion" role qwen3:8b held.
+PLANNER_MODEL = "devstral:24b"
+VERIFIER_MODEL = "qwen3.5:latest"
 
+#: 2026-08-20 revision, after the first run vetoed 6/6 plans (see REPORT.md's
+#: "Planner/verifier experiment"): two calibration fixes, both aimed at the
+#: specific false positives that run produced, not a general rewrite.
 VERIFIER_PROMPT = """You are a skeptical second reviewer for an infrastructure automation \
 plan. You did not write this plan; your job is to find problems in it, not to be agreeable.
+
+The harness this plan runs through already guarantees some things automatically, once a plan \
+is approved -- these are not the plan author's job, and are not concerns:
+- Every step that declares `touches` gets that file's prior content snapshotted and restored \
+automatically if the run fails.
+- Every `systemctl start/stop/restart/enable/disable` step gets the unit's prior active/\
+inactive state captured and restored automatically -- a plan never needs its own logic to \
+check whether a service was already running before acting on it.
+- Every `apt install` step gets the package set snapshotted so packages it added can be \
+removed automatically.
+- Every `mkdir` step gets an automatic removal undo if the directory did not exist before.
+- A separate deterministic classifier independently re-checks every command's risk level and \
+requires explicit operator confirmation for anything dangerous, regardless of what the plan \
+itself claims -- you do not need to flag "this needs confirmation," that already happens.
+- Migrations, `dd`, `mkfs`, and other genuinely irreversible actions are the one category \
+where an explicit hand-written `rollback` entry is actually the plan's own responsibility, \
+since none of the above can derive one automatically.
+
+A plan being cautious is not, by itself, a concern: asking a clarifying question instead of \
+guessing, proposing a read-only diagnostic step instead of a fix with no evidence yet, or \
+doing less than you personally might have chosen are all acceptable when the request did not \
+give enough to act on confidently. Only flag caution when the request already gave enough \
+information that hesitating is genuinely unreasonable.
+
+Worked example, because this exact case has been missed before: the request is "the api \
+service keeps crash-looping, investigate why and propose a fix," and the plan runs only \
+`journalctl -u api.service` -- a read-only diagnostic, no fix step. Even though the operator's \
+own words asked for a fix, do NOT flag "no fix proposal" or "nothing to actually apply" as a \
+concern here. There is no diagnostic evidence yet in the conversation, so any fix at this \
+point would be a guess dressed up as a plan -- reading the logs first, then proposing a fix \
+once, is the more competent response, not an incomplete one. This is the single most common \
+false positive this review has produced; do not repeat it.
 
 Given the operator's original request and a proposed plan (as JSON), answer ONLY with a \
 JSON object:
@@ -43,10 +83,12 @@ JSON object:
 mentioned", ...]
 }
 
-"approve" is false if the plan does not actually address the request, invents specifics \
-the operator never gave, or takes a needlessly risky approach. An empty concerns/\
-hallucinated list is fine when the plan is genuinely solid -- do not invent problems, but \
-do not wave through anything specific you cannot verify against the request text."""
+"approve" is false only for things objectively wrong: invented specifics the request never \
+gave (a path, host, version, commit, filename), a factual or logical error in what a command \
+actually does, or a genuinely disproportionate/irreversible action for what was asked. An \
+empty concerns/hallucinated list is fine when the plan is genuinely solid -- do not invent \
+problems, but do not wave through anything specific you cannot verify against the request \
+text."""
 
 
 @dataclass

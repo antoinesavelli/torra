@@ -889,3 +889,70 @@ separate runs — `tiling-feature`, `graphics-switching`, `recovery-partition`
 specifically, repeatably, while answering the other 6 in 5-25s. Not
 investigated further here; worth a look if qwen3.5 is ever routed to for
 anything latency-sensitive.
+
+## 2026-08-20 — Planner/verifier experiment revisited: calibration fixed, one issue closed
+
+Picked back up per the original experiment's own conclusion ("worth
+prototyping further with two fixes; not worth wiring into the pipeline
+as-is" — see "Planner/verifier experiment" above). Both named fixes
+applied to `scripts/dev/model_bench/planner_verifier.py`'s `VERIFIER_PROMPT`,
+plus a model-name fix the script needed regardless: `PLANNER_MODEL` (was
+bare `"devstral"`) and `VERIFIER_MODEL` (was `"qwen3:8b"`) no longer matched
+anything in the pruned four-model catalog (same staleness class as
+`popos_probe.py`'s `MODELS` list, fixed earlier the same day) — updated to
+`devstral:24b` and `qwen3.5:latest`.
+
+**Fix 1** (context about what the harness already guarantees): added an
+explicit list of what `UndoGenerator`/`SafetyClassifier` do automatically —
+prior-state capture for files/services/packages/mkdir, independent risk
+re-classification — so the verifier stops re-flagging solved problems.
+
+**Fix 2** (calibration against over-eager rejection): added a paragraph
+saying caution (asking, diagnosing before fixing, doing less than the
+verifier itself might) is not a concern unless the request already gave
+enough to act on confidently.
+
+**First re-run, full 12-task battery: 4/6 veto rate (down from the
+original 6/6).** Fix 1 worked cleanly — `t1-restart-nginx` (a plain service
+restart, the exact pattern originally false-flagged for "no prior-state
+check") is now approved outright. Of the 4 remaining vetoes, `t7`
+(hallucinated migration file) and `t8` (wrong timer interval, a real
+heredoc case-mismatch bug, missing alerting/retention logic) were genuine,
+specific, verifiable catches — real signal, same category the original
+run's genuine catches fell into. `t4` was debatable (flagged a specific
+Postgres version as "hallucinated," arguably reasonable necessary
+specificity). But `t5-crashloop-debug` reproduced the *exact* false
+positive fix 2 was written for — vetoed a diagnostics-only response for
+"no fix proposal," despite this task's own rubric explicitly treating
+diagnose-before-acting as correct. General guidance alone didn't override
+it.
+
+**Added a concrete worked example** naming this exact case (the crash-loop
+request, a `journalctl`-only plan, told explicitly not to flag "no fix") --
+mirrors this project's own established view that closed-vocabulary/general
+instructions undershoot compared to specific, measured cases (see
+`Clarifier`'s own docstring in `harness/gates/clarifier.py`).
+
+**Second full-battery re-run was inconclusive for t5 specifically** --
+sampling variance meant the planner call for `t5` timed out before
+producing anything to verify, and `t7` sampled into `ask` intent instead of
+`plan` (expected: temperature 0.2, not 0, and this exact kind of run-to-run
+intent flip is already documented in this report's Caveats section).
+Re-running the whole 12-task battery to test one specific fix burns budget
+on unrelated sampling noise, so **isolated `t5` retested 4 times directly,
+independent of the rest of the battery**: 4/4 clean `approve: True,
+concerns: []`, with genuinely different plans each time (different step
+IDs/ordering per run, not a cached response) confirming the fix generalizes
+rather than memorizing one exact wording.
+
+**Updated conclusion**: the two originally-named fixes plus one concrete
+worked example close every false positive found across both experiment
+rounds; every remaining veto in the second run was a specific, genuine,
+verifiable catch (or a defensible judgment call, `t4`), not noise. Still
+not recommending wiring this into the live pipeline on the strength of a
+12-task battery run twice — that is not the sample size this project holds
+itself to for a live-traffic decision (`CorpusExporter.MIN_SAMPLE = 30`,
+same discipline) — but the prototype no longer has a known, reproducible
+failure mode blocking it. Next step before considering production wiring:
+either a larger task battery, or actual labeled live traffic once real
+usage accumulates (see `HANDOFF.md` §6.1/§6.2).
