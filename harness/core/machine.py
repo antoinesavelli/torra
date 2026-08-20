@@ -110,14 +110,26 @@ def detect_accelerator(
     try:
         listing = execute("ollama ps", None, 10.0)
         for line in listing.splitlines()[1:]:
-            if "%" in line and ("CPU" in line.upper() or "GPU" in line.upper()):
-                processor = " ".join(line.split()[-2:])
+            # The last-two-tokens trick this used to use only worked for the
+            # ollama version it was written against. Found live: current
+            # `ollama ps` also has CONTEXT and UNTIL columns after PROCESSOR
+            # ("100% CPU     4096       5 minutes from now"), so
+            # line.split()[-2:] grabbed trailing UNTIL words ("from now")
+            # instead of the processor split -- "CPU" never matched, so a
+            # model ollama itself was running on pure CPU silently fell
+            # through to nvidia-smi's hardware-capability check and got
+            # reported as GPU-accelerated, exactly backwards from what this
+            # function's own docstring says ollama ps is here to guarantee.
+            match = re.search(r"\d+%(?:/\d+%)?\s+(CPU/GPU|CPU|GPU)", line)
+            if match:
+                processor = match.group(0)
                 if "CPU" in processor.upper() and "GPU" not in processor.upper():
                     return Accelerator(
                         kind="cpu", running_on=processor,
                         detail="ollama ps reports a loaded model on CPU")
-                # Confirmed GPU, but ollama ps carries no VRAM figures --
-                # fall through to nvidia-smi/rocm below for those.
+                # Confirmed GPU (or partial CPU/GPU offload), but ollama ps
+                # carries no VRAM figures -- fall through to nvidia-smi/rocm
+                # below for those.
                 break
     except Exception:
         pass

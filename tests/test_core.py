@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 
 from harness.core import OllamaClient, observe_machine
-from harness.core.machine import OLLAMA_MODELS_DIR_PROBE
-from harness.core.tasks import shell
+from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, detect_accelerator
+from harness.core.tasks import TaskSpec, TaskSpecError, shell
 
 
 def fake_ollama(models: list[str]) -> OllamaClient:
@@ -157,6 +157,120 @@ class TestHttpErrorDetail:
         client = OllamaClient()
         with pytest.raises(OllamaError, match="Bad Gateway"):
             client.chat("x", [{"role": "user", "content": "hi"}])
+
+
+class TestTaskSpecRollbackValidation:
+    """TaskSpec.validate() had zero direct test coverage of its own rejection
+    paths before this -- `_validate_step` (steps) and rollback entries alike.
+    Found live: a rollback entry with a `run` typo (e.g. `cmd` instead of
+    `run`) passed validate() silently, and rollback_actions() then just
+    `continue`d past it with no error -- the operator believed they had a
+    declared rollback and actually had none, discoverable only by reading
+    the entry back by hand or watching it not fire during a real failure.
+    Rollback entries now go through the same strict validation steps
+    already got."""
+
+    def _base(self, rollback: list[dict]) -> dict:
+        return {"task_id": "t", "request": "r",
+               "steps": [{"id": "s1", "run": "true"}], "rollback": rollback}
+
+    def test_a_missing_run_is_rejected_at_validate_time_not_silently_dropped(
+            self) -> None:
+        with pytest.raises(TaskSpecError, match="no 'run' command"):
+            TaskSpec.validate(self._base([{"description": "typo, no run key"}]))
+
+    def test_a_run_typo_is_rejected_as_an_unknown_field(self) -> None:
+        """The typo that actually motivated this: `cmd` instead of `run`.
+        Caught as "unknown field" rather than "no run command" -- either
+        message is honest about the same underlying defect, but this is
+        the literal case that used to validate cleanly and silently drop."""
+        with pytest.raises(TaskSpecError, match="unknown field"):
+            TaskSpec.validate(self._base(
+                [{"cmd": "rm -rf /tmp/x", "description": "typo"}]))
+
+    def test_an_unknown_rollback_field_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="unknown field"):
+            TaskSpec.validate(self._base(
+                [{"run": "true", "retries": 3}]))
+
+    def test_a_non_mapping_rollback_entry_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="must be a mapping"):
+            TaskSpec.validate(self._base(["just a string"]))
+
+    def test_a_well_formed_rollback_entry_still_validates_cleanly(self) -> None:
+        spec = TaskSpec.validate(self._base(
+            [{"run": "rm -f /tmp/x", "description": "cleanup", "safe": True}]))
+        assert len(spec.rollback_actions()) == 1
+
+    def test_an_absent_rollback_list_is_fine(self) -> None:
+        spec = TaskSpec.validate({"task_id": "t", "request": "r",
+                                  "steps": [{"id": "s1", "run": "true"}]})
+        assert spec.rollback_actions() == []
+
+
+class TestDetectAccelerator:
+    """detect_accelerator(): no test anywhere exercised this before -- the
+    module-level "imported by tests" metric passed (observe_machine pulls
+    it in) while the function itself had zero cases. Found live: current
+    `ollama ps` output carries CONTEXT and UNTIL columns after PROCESSOR
+    ("100% CPU     4096       5 minutes from now"), so the old
+    line.split()[-2:] grabbed trailing UNTIL words instead of the
+    processor split -- a model ollama itself was running on pure CPU was
+    silently reported as GPU-accelerated, backwards from what this
+    function's own docstring promises ("ollama ps wins because it is the
+    only one that reflects what the daemon actually decided")."""
+
+    NVIDIA_SMI = "NVIDIA GeForce RTX 4090, 24564, 23800"
+
+    def _runner(self, ps_output: str):
+        def runner(cmd: str, cwd: str | None, timeout: float | None) -> str:
+            if cmd == "ollama ps":
+                return ps_output
+            if cmd.startswith("nvidia-smi"):
+                return self.NVIDIA_SMI
+            raise RuntimeError("not available")
+        return runner
+
+    def test_a_cpu_loaded_model_is_reported_as_cpu_even_with_a_real_gpu_present(
+            self) -> None:
+        ps = ("NAME              ID              SIZE      PROCESSOR    "
+             "CONTEXT    UNTIL              \n"
+             "somemodel:latest  abc123def456    5.0 GB    100% CPU     "
+             "4096       5 minutes from now    \n")
+        acc = detect_accelerator(self._runner(ps))
+        assert acc.kind == "cpu"
+        assert "CPU" in acc.running_on
+
+    def test_a_gpu_loaded_model_falls_through_to_nvidia_smi_for_vram_figures(
+            self) -> None:
+        ps = ("NAME              ID              SIZE      PROCESSOR    "
+             "CONTEXT    UNTIL              \n"
+             "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
+             "32768      3 minutes from now    \n")
+        acc = detect_accelerator(self._runner(ps))
+        assert acc.kind == "cuda"
+        assert acc.free_vram_mb == 23800
+
+    def test_partial_cpu_gpu_offload_is_not_misread_as_pure_cpu(self) -> None:
+        ps = ("NAME              ID              SIZE      PROCESSOR      "
+             "CONTEXT    UNTIL              \n"
+             "qwen3-coder:30b   06c1097efce0    18 GB     43%/57% CPU/GPU  "
+             "8192       10 minutes from now    \n")
+        acc = detect_accelerator(self._runner(ps))
+        assert acc.kind == "cuda"
+
+    def test_no_model_loaded_falls_through_to_nvidia_smi(self) -> None:
+        ps = "NAME    ID    SIZE    PROCESSOR    CONTEXT    UNTIL\n"
+        acc = detect_accelerator(self._runner(ps))
+        assert acc.kind == "cuda"
+        assert acc.name == "NVIDIA GeForce RTX 4090"
+
+    def test_nothing_available_degrades_to_cpu_with_a_reason(self) -> None:
+        def runner(cmd: str, cwd: str | None, timeout: float | None) -> str:
+            raise RuntimeError("not available")
+        acc = detect_accelerator(runner)
+        assert acc.kind == "cpu"
+        assert "nvidia-smi" in acc.detail
 
 
 class TestShellPipefail:

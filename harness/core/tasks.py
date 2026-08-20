@@ -82,6 +82,14 @@ STEP_FIELDS: set[str] = {
     "cwd", "timeout",
 }
 
+#: Fields a rollback entry may declare. Same discipline as STEP_FIELDS --
+#: found live: `rollback_actions()` silently `continue`d past any entry
+#: missing `run` (e.g. a `cmd` typo), so `validate()` accepted the task and
+#: the operator believed they had a declared rollback that had actually
+#: been dropped without a word, at the exact moment (a failed run) they'd
+#: go looking for it.
+ROLLBACK_FIELDS: set[str] = {"run", "description", "cwd", "timeout", "safe"}
+
 
 @dataclass
 class TaskSpec:
@@ -120,6 +128,27 @@ class TaskSpec:
             raise TaskSpecError(f"{source or 'task'}: duplicate step id '{step_id}'")
         seen.add(step_id)
 
+    @staticmethod
+    def _validate_rollback_entry(raw: Any, index: int, source: str) -> None:
+        """Validate one rollback mapping, raising on any defect."""
+        if not isinstance(raw, dict):
+            raise TaskSpecError(
+                f"{source or 'task'}: rollback entry {index} must be a mapping")
+        unknown = set(raw) - ROLLBACK_FIELDS
+        if unknown:
+            raise TaskSpecError(
+                f"{source or 'task'}: rollback entry {index} has unknown field(s) "
+                f"{sorted(unknown)}; known fields are {sorted(ROLLBACK_FIELDS)}")
+        if not raw.get("run"):
+            raise TaskSpecError(
+                f"{source or 'task'}: rollback entry {index} has no 'run' command")
+
+    @classmethod
+    def _validate_rollback(cls, data: dict[str, Any], source: str) -> None:
+        """Validate every declared rollback entry, if any."""
+        for index, raw in enumerate(data.get("rollback") or [], start=1):
+            cls._validate_rollback_entry(raw, index, source)
+
     @classmethod
     def validate(cls, data: dict[str, Any], source: str = "") -> TaskSpec:
         """Build a TaskSpec from a mapping, rejecting anything malformed.
@@ -141,6 +170,8 @@ class TaskSpec:
         seen: set[str] = set()
         for index, raw in enumerate(data["steps"], start=1):
             cls._validate_step(raw, index, seen, source)
+
+        cls._validate_rollback(data, source)
 
         return cls(
             task_id=str(data["task_id"]),

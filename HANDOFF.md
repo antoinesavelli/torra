@@ -124,6 +124,20 @@ equivalence, the same way `Step.command`/`Step.run` has to stay in sync.
 
 > Guarded by `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`
 
+A declared rollback entry has to actually survive `TaskSpec.validate()` to
+matter at all, and until now it didn't have to. Found live: a rollback
+entry with a `run` typo (e.g. `cmd` instead of `run`) validated cleanly --
+`validate()` never checked `rollback` entries the way it checks `steps` --
+and `rollback_actions()` silently `continue`d past it with no error. The
+operator who wrote it believed they had a declared safety net for a
+destructive step; they had none, discoverable only by reading the task
+file back by hand or watching the rollback not fire during a real
+failure. Rollback entries now go through `_validate_rollback_entry`,
+the same strict "unknown field or missing `run` is a hard error" discipline
+`_validate_step` already applied to `steps`.
+
+> Guarded by `tests/test_core.py::TestTaskSpecRollbackValidation`
+
 ### 2.8 `execute()` cannot be replayed on a result that already ran for real
 
 `Harness.execute` refuses immediately if `result.executed` is already
@@ -360,6 +374,29 @@ changed), but that was the luck of the interleaving, not a guarantee.
 (both buttons and the keybinding) go through, rather than relying on each
 caller to remember to guard itself the way `action_rerun()` already did for
 `plan_request()`.
+
+**`detect_accelerator()`'s `ollama ps` column parsing must not assume a
+fixed column count.** This function's own docstring says `ollama ps` wins
+over `nvidia-smi`/`rocm-smi` because it is the only signal that reflects
+what the daemon *actually decided*, not just what the hardware could do in
+principle -- the whole reason it exists is to catch Ollama itself falling
+back to CPU. It used to find the PROCESSOR cell with
+`" ".join(line.split()[-2:])`, which only works if PROCESSOR is the last
+column. Found live: the ollama version on this machine also reports
+CONTEXT and UNTIL after PROCESSOR ("100% CPU     4096       5 minutes from
+now"), so that grabbed trailing UNTIL words ("from now") instead -- "CPU"
+never matched, so a model ollama itself was running on pure CPU fell
+through to `nvidia-smi`, which reports real hardware capability
+regardless of what's actually loaded, and got reported as GPU-accelerated.
+Backwards from what the whole function exists to guarantee, and exactly
+the kind of case `ModelRouter.fits()` depends on being right ("stop
+sending a 32b model to a CPU that will take three minutes to answer" --
+this doc's own module comment). Now matched with a regex on the
+PROCESSOR cell's actual value shape (`\d+%(?:/\d+%)?\s+(CPU/GPU|CPU|GPU)`)
+instead of column position, so it survives however many columns follow it.
+
+> Guarded by `tests/test_core.py::TestDetectAccelerator` -- previously zero
+> test coverage of this function existed at all.
 
 **`shell()`'s explicit `/bin/bash -c 'set -o pipefail; ...'`.** Looks like it
 could be simplified back to `subprocess.run(command, shell=True, ...)` --
