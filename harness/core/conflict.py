@@ -245,9 +245,22 @@ class ConflictDetector:
         self.fast_checks += 1
         self._since_walk += 1
         for path in touched:
+            # Found live: a path that reverts to matching its baseline again
+            # (edited then edited back, an editor's atomic-save round-trip
+            # landing on identical bytes) still had a real inotify event, so
+            # it reaches _classify -- but _classify correctly returns None
+            # for "no longer different," and a bare `if conflict:` here
+            # only ever adds, never removes, from `_known`. A conflict
+            # recorded on an earlier fast check stuck around across every
+            # later detect() call -- feeding Harness._run_steps() a false
+            # "external conflict" and blocking a run for nothing -- until
+            # the next scheduled full walk happened to rebuild `_known`
+            # from scratch.
             conflict = self._classify(path)
             if conflict:
                 self._known[conflict.path] = conflict
+            else:
+                self._known.pop(path, None)
         return list(self._known.values())
 
     def _classify(self, path: str) -> Conflict | None:

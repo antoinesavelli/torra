@@ -325,6 +325,25 @@ directories created after watches attach, and moves in from outside. The full
 walk every `reconcile_every` checks is what makes those survivable, and
 disagreements are counted in `stats()`. Do not remove it for speed.
 
+**`_detect_tree()`'s fast path must clear `_known`, not just add to it.**
+`_known` accumulates across every `detect()` call between full walks --
+that persistence is the whole point of the fast path, so a real conflict
+found on one check is still reported on the next without re-walking. But
+found live: a touched path that reverts to matching its baseline again
+(edited then edited back to the same bytes -- a plausible editor
+autosave/no-op-write round-trip) still generates a real inotify event, so
+it reaches `_classify`, which correctly returns `None` for "no longer
+different" -- but the loop only ever did `if conflict: self._known[...] =
+conflict`, never anything for the `None` case. A conflict recorded on an
+earlier fast check stuck around across every later `detect()` call,
+feeding `Harness._run_steps()` a false "external conflict" and blocking a
+real run on nothing, until the next scheduled full walk happened to
+rebuild `_known` from scratch (up to `reconcile_every` calls later,
+default 20). The loop now does `self._known.pop(path, None)` in the
+`else` branch.
+
+> Guarded by `tests/test_core.py::TestConflictDetectorFastPath`
+
 **`ContextCompressor` degradation ladder.** With many small entries, a per-entry
 summary line costs more than the content it replaces, so compression becomes a
 net loss. There are three fallback tiers and a hard guard that skips the pass

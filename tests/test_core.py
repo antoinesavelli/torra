@@ -1,14 +1,15 @@
 """observe_machine and shell(): the facts the model plans from, and how its
-commands actually run.
+commands actually run. Also ConflictDetector's fast (inotify) path.
 
-Depends on: harness.core (observe_machine, OllamaClient), harness.core.tasks (shell).
+Depends on: harness.core (observe_machine, OllamaClient, ConflictDetector),
+harness.core.tasks (shell).
 """
 
 from __future__ import annotations
 
 import pytest
 
-from harness.core import OllamaClient, observe_machine
+from harness.core import ConflictDetector, OllamaClient, observe_machine
 from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, detect_accelerator
 from harness.core.tasks import TaskSpec, TaskSpecError, shell
 
@@ -271,6 +272,60 @@ class TestDetectAccelerator:
         acc = detect_accelerator(runner)
         assert acc.kind == "cpu"
         assert "nvidia-smi" in acc.detail
+
+
+class TestConflictDetectorFastPath:
+    """_detect_tree()'s inotify fast path. Found live: `_known` is an
+    accumulator across calls, and the per-event loop only ever added to it
+    on a real conflict -- never removed a stale entry when a touched path
+    turned out to no longer differ from baseline (edited then edited back
+    to the same bytes, a plausible editor-autosave or no-op-write pattern).
+    A conflict recorded on one fast check stuck around across every later
+    detect() call until the next scheduled full walk rebuilt `_known` from
+    scratch -- long enough to feed Harness._run_steps() a false "external
+    conflict" and block a real run on nothing."""
+
+    def _detector(self, tmp_path):
+        target = tmp_path / "file.txt"
+        target.write_text("original content", encoding="utf-8")
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([str(target)], roots=[tmp_path])
+        detector._inotify = True  # truthy stand-in; only .read() is ever called on it
+        return detector, target
+
+    def test_a_reverted_file_is_cleared_from_known_conflicts(self, tmp_path) -> None:
+        detector, target = self._detector(tmp_path)
+
+        target.write_text("MODIFIED", encoding="utf-8")
+        detector._events = lambda: {str(target)}
+        found = detector._detect_tree()
+        assert [c.path for c in found] == [str(target)], "the real edit must be reported"
+
+        target.write_text("original content", encoding="utf-8")
+        detector._events = lambda: {str(target)}
+        found = detector._detect_tree()
+        assert found == [], "reverted to baseline -- must not still be reported"
+
+    def test_an_unrelated_conflict_survives_a_different_paths_revert(self, tmp_path) -> None:
+        """The fix must remove only the path that actually reverted, not
+        every known conflict."""
+        detector, target = self._detector(tmp_path)
+        other = tmp_path / "other.txt"
+        other.write_text("original other", encoding="utf-8")
+        detector.hashes[str(other)] = detector.hash_file(other)
+        detector.fingerprints[str(other)] = (
+            other.stat().st_size, other.stat().st_mtime_ns)
+
+        target.write_text("MODIFIED", encoding="utf-8")
+        other.write_text("ALSO MODIFIED", encoding="utf-8")
+        detector._events = lambda: {str(target), str(other)}
+        detector._detect_tree()
+
+        target.write_text("original content", encoding="utf-8")
+        detector._events = lambda: {str(target)}
+        found = detector._detect_tree()
+        assert [c.path for c in found] == [str(other)], \
+            "target reverted and must be gone; other's real conflict must remain"
 
 
 class TestShellPipefail:
