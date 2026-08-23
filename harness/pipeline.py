@@ -1,10 +1,12 @@
 """Harness: the seven-stage orchestrator, the only thing that decides what runs.
 
 Depends on: harness.agent (Agent), harness.core (task/step primitives, OllamaClient,
-ConflictDetector, ResumePoint), harness.gates (all five guardrails).
+ConflictDetector, ResumePoint), harness.gates (all five guardrails), harness.pipeline_types
+(Stage, Outcome, StepPlan, Plan, RunResult -- the data model this module produces).
 
-converse/observe/propose/gate/present/execute/report. `observe`/`propose` live inside `Agent.converse` -- the old
-`clarify` stage (a wall in front of the operator) stopped making sense once a model could ask a better question.
+converse/observe/propose/gate/present/execute/report. `observe`/`propose`
+live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
+the operator) stopped making sense once a model could ask a better question.
 """
 
 from __future__ import annotations
@@ -13,8 +15,6 @@ import json
 import os
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,6 @@ from .core import (
     OllamaClient,
     OllamaError,
     ResumePoint,
-    Step,
     StepResult,
     TaskSpec,
 )
@@ -33,176 +32,22 @@ from .gates import (
     Clarifier,
     DecisionLog,
     ModelRouter,
-    PreconditionReport,
     RiskLevel,
-    RollbackReport,
     SafetyClassifier,
     StateVerifier,
-    UndoAction,
     UndoGenerator,
-    Verdict,
     VerifiedRollback,
 )
+from .pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 from .telemetry import TaskLogger
 
 __all__ = ["Stage", "Outcome", "StepPlan", "Plan", "RunResult", "Harness"]
 
 
-class Stage(str, Enum):
-    """The seven stages, in order."""
-
-    CONVERSE = "converse"
-    OBSERVE = "observe"
-    PROPOSE = "propose"
-    GATE = "gate"
-    PRESENT = "present"
-    EXECUTE = "execute"
-    REPORT = "report"
-
-
-class Outcome(str, Enum):
-    """Terminal state of one request."""
-
-    ANSWERED = "answered"                # a question, nothing to run
-    NEEDS_ANSWER = "needs_answer"        # the model asked something
-    REFUSED = "refused"                  # the model declined
-    AWAITING_APPROVAL = "awaiting_approval"  # a plan is ready, nobody approved
-    REJECTED = "rejected"                # the operator declined the plan
-    BLOCKED = "blocked"                  # a gate stopped it
-    COMPLETED = "completed"
-    FAILED = "failed"
-    BACKEND_DOWN = "backend_down"
-
-
-@dataclass
-class StepPlan:
-    """One proposed step with everything the gates decided about it -- what
-    the operator actually looks at, not the bare plan the model wrote."""
-
-    step: Step
-    verdict: Verdict
-    undos: list[UndoAction] = field(default_factory=list)
-    approved: bool | None = None
-    result: StepResult | None = None
-
-    @property
-    def needs_confirmation(self) -> bool:
-        """True when this step cannot run without an explicit yes."""
-        return self.verdict.needs_confirmation
-
-    @property
-    def has_undo(self) -> bool:
-        """True when failing this step can be reversed."""
-        return bool(self.undos)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serializable dict form, for the audit trail."""
-        return {
-            "step": self.step.to_dict(),
-            "verdict": self.verdict.to_dict(),
-            "undos": [u.to_dict() for u in self.undos],
-            "approved": self.approved,
-            "result": self.result.to_dict() if self.result else None,
-        }
-
-
-@dataclass
-class Plan:
-    """A proposal plus every gate verdict on it, ready to show a human. Deliberately carries no `conflicts` field -- see `_gate()`'s comment;
-    real conflict detection is `execute()`'s per-step `Outcome.BLOCKED`."""
-
-    spec: TaskSpec
-    steps: list[StepPlan] = field(default_factory=list)
-    preconditions: PreconditionReport | None = None
-    coverage: dict[str, Any] = field(default_factory=dict)
-    model: str = ""
-    repairs: int = 0
-
-    @property
-    def worst_level(self) -> RiskLevel:
-        """The highest risk level anywhere in the plan."""
-        order = [RiskLevel.SAFE, RiskLevel.CAUTION, RiskLevel.DANGEROUS,
-                 RiskLevel.CRITICAL]
-        levels = [sp.verdict.level for sp in self.steps] or [RiskLevel.SAFE]
-        return max(levels, key=order.index)
-
-    @property
-    def needs_confirmation(self) -> list[StepPlan]:
-        """Steps that cannot run without an explicit yes."""
-        return [sp for sp in self.steps if sp.needs_confirmation]
-
-    @property
-    def uncovered(self) -> list[str]:
-        """Step ids with no derivable undo."""
-        return list(self.coverage.get("uncovered", []))
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serializable dict form, for the audit trail."""
-        return {
-            "spec": self.spec.to_dict(),
-            "steps": [s.to_dict() for s in self.steps],
-            "preconditions": self.preconditions.to_dict() if self.preconditions else None,
-            "coverage": self.coverage,
-            "model": self.model,
-            "repairs": self.repairs,
-            "worst_level": self.worst_level.value,
-        }
-
-
-@dataclass
-class RunResult:
-    """Everything one request produced."""
-
-    request: str
-    outcome: Outcome
-    stages: list[str] = field(default_factory=list)
-    turn: Turn | None = None
-    plan: Plan | None = None
-    results: list[StepResult] = field(default_factory=list)
-    rollback: RollbackReport | None = None
-    abort_reason: str = ""
-    decisions: list[dict[str, Any]] = field(default_factory=list)
-    audit_path: str = ""
-    seconds: float = 0.0
-    # True once a real (non-dry-run) execution attempt has begun -- distinct
-    # from `outcome`, which a rejected-for-lack-of-approval or dry-run-only
-    # result can also reach without a single real command having run. See
-    # execute()'s replay guard: `outcome != AWAITING_APPROVAL` alone was too
-    # broad and blocked the ordinary "tick the box, click Run again" retry
-    # after a rejection.
-    executed: bool = False
-
-    @property
-    def ok(self) -> bool:
-        """True only when the task completed."""
-        return self.outcome is Outcome.COMPLETED
-
-    @property
-    def message(self) -> str:
-        """What to show the operator as the headline."""
-        if self.turn and self.turn.message:
-            return self.turn.message
-        return self.abort_reason or self.outcome.value
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serializable dict form, the audit record."""
-        return {
-            "request": self.request,
-            "outcome": self.outcome.value,
-            "stages": list(self.stages),
-            "turn": self.turn.to_dict() if self.turn else None,
-            "plan": self.plan.to_dict() if self.plan else None,
-            "results": [r.to_dict() for r in self.results],
-            "rollback": self.rollback.to_dict() if self.rollback else None,
-            "abort_reason": self.abort_reason,
-            "decisions": self.decisions,
-            "seconds": round(self.seconds, 3),
-        }
-
-
 class Harness:
-    """The whole thing: model, gates, execution, audit. Construction is deliberately boring -- every collaborator has a
-    working, injectable default, so the TUI, CLI and test suite drive one object, not three."""
+    """The whole thing: model, gates, execution, audit. Construction is
+    deliberately boring -- every collaborator has a working, injectable
+    default, so the TUI, CLI and test suite drive one object, not three."""
 
     def __init__(
         self,
@@ -495,8 +340,9 @@ class Harness:
 
     @staticmethod
     def _run_one_step(sp: StepPlan, result: RunResult, dry_run: bool) -> StepResult:
-        """Run one step, converting any raise into a failed StepResult. Returns rather than assigns `sp.result` (mypy can't
-        narrow a mutated attribute to non-None across a call boundary)."""
+        """Run one step, converting any raise into a failed StepResult.
+        Returns rather than assigns `sp.result` (mypy can't narrow a
+        mutated attribute to non-None across a call boundary)."""
         step_started = time.perf_counter()
         try:
             if dry_run:
@@ -559,8 +405,10 @@ class Harness:
                            f"{len(result.results)} step(s) ran")
 
     def reject(self, result: RunResult) -> RunResult:
-        """Explicitly decline a plan; refuses if `result.executed` is already True so a late click can't overwrite a real outcome
-        -- execute()'s own implicit refusal only covers an all-safe plan run under `execute(result, {})`."""
+        """Explicitly decline a plan without running anything. Distinct
+        from execute()'s implicit refusal (an all-safe plan runs, not
+        refuses, under `execute(result, {})`). Refuses if `result.executed`
+        is already True, so a late click can't overwrite a real outcome."""
         if result.executed:
             self.decisions.log(
                 Stage.PRESENT.value, "refused: already executed",
@@ -595,6 +443,20 @@ class Harness:
 
     # -- stage 7: report --------------------------------------------------- #
 
+    def _summarize(self, result: RunResult) -> str:
+        """The model's own account of what its steps found, requested only
+        when a model actually authored this plan -- same rule as telemetry:
+        a failure here must never break the run it is reporting on."""
+        assert result.plan is not None
+        try:
+            return self.agent.summarize(
+                result.request, [sp.step for sp in result.plan.steps],
+                result.results, result.plan.model)
+        except Exception as exc:
+            self.decisions.log(Stage.REPORT.value, "summary failed",
+                               f"{type(exc).__name__}: {exc}")
+            return ""
+
     def _finish(self, result: RunResult, started: float,
                 write_audit: bool = True) -> RunResult:
         """Stage report. Always runs, even after an early exit."""
@@ -607,6 +469,8 @@ class Harness:
             return result
         if Stage.REPORT.value not in result.stages:
             result.stages.append(Stage.REPORT.value)
+        if result.plan and result.plan.model and result.results:
+            result.summary = self._summarize(result)
 
         task_id = (result.plan.spec.task_id if result.plan
                    else f"turn-{len(self.agent.turns)}")

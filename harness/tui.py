@@ -472,6 +472,9 @@ class HarnessApp(App):
         else:
             self._say("error", escape(result.abort_reason))
 
+        if result.summary:
+            self._say("agent", escape(result.summary))
+
         if result.rollback:
             report = result.rollback
             self._say("harness",

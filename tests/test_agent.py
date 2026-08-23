@@ -12,7 +12,7 @@ import pytest
 from conftest import plan_reply, scripted
 
 from harness.agent import Agent, AgentError, Intent
-from harness.core import MachineState, OllamaClient, OllamaError, TaskSpec
+from harness.core import MachineState, OllamaClient, OllamaError, Step, StepResult, TaskSpec
 
 
 def build_agent(transport, **kwargs) -> Agent:
@@ -504,3 +504,52 @@ def test_observe_refresh_repopulates_stale_model_metadata() -> None:
 
     assert agent.router.model_params_b == {"qwen3-coder:30b": 30.5}
     assert agent.router.available == {"qwen3-coder:30b"}
+
+
+# --------------------------------------------------------------------------- #
+# Reporting
+# --------------------------------------------------------------------------- #
+
+
+def test_summarize_sends_step_output_as_plain_text_not_json() -> None:
+    """The whole point is a single fixed-shape call, not a second generation
+    path -- json_mode must be off, so the reply can never be mistaken for a
+    task proposal."""
+    seen: dict[str, object] = {}
+
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        seen["payload"] = payload
+        return {"message": {"content": "  the backup last ran Aug 23, 12:01 PM.  "}}
+
+    agent = build_agent(transport)
+    steps = [Step(step_id="check", command="journalctl -u backup")]
+    results = [StepResult(step_id="check", ok=True, output="Aug 23 12:01:00 ran backup")]
+
+    answer = agent.summarize("when did the backup last run", steps, results, "devstral:24b")
+
+    assert answer == "the backup last ran Aug 23, 12:01 PM."
+    payload = seen["payload"]
+    assert "format" not in payload, "summarize must not request json_mode"
+    prompt = payload["messages"][0]["content"]
+    assert "when did the backup last run" in prompt
+    assert "Aug 23 12:01:00 ran backup" in prompt
+
+
+def test_summarize_reports_a_failed_step_by_error_not_output() -> None:
+    """A failed step has no useful `output` -- the model must see why it
+    failed, not an empty string that reads as "nothing happened"."""
+    seen: dict[str, object] = {}
+
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        seen["payload"] = payload
+        return {"message": {"content": "that step failed"}}
+
+    agent = build_agent(transport)
+    steps = [Step(step_id="check", command="grep x /nonexistent")]
+    results = [StepResult(step_id="check", ok=False, error="No such file or directory")]
+
+    agent.summarize("find x", steps, results, "devstral:24b")
+
+    prompt = seen["payload"]["messages"][0]["content"]
+    assert "No such file or directory" in prompt
+    assert "FAILED" in prompt

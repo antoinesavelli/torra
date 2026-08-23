@@ -131,6 +131,8 @@ def _print_execution_report(done: RunResult) -> None:
     for step_result in done.results:
         print(f"  {'ok  ' if step_result.ok else 'FAIL'} {step_result.step_id}"
               + (f": {step_result.error}" if step_result.error else ""))
+    if done.summary:
+        print(f"\n{done.summary}")
     if done.abort_reason:
         print(f"reason : {done.abort_reason}")
     if done.rollback:

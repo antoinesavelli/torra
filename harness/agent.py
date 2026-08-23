@@ -1,7 +1,8 @@
 """The model loop: turns a conversation into a validated TaskSpec, never a shell.
 
-Depends on: harness.core (ContextCompressor, MachineState, OllamaClient,
-TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter, SafetyClassifier).
+Depends on: harness.core (ContextCompressor, MachineState, OllamaClient, Step,
+StepResult, TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter,
+SafetyClassifier).
 
 The design rule throughout: the model produces a TaskSpec and nothing else. It
 does not execute, it does not get a shell, it does not decide what is safe. It
@@ -25,6 +26,8 @@ from .core import (
     ContextCompressor,
     MachineState,
     OllamaClient,
+    Step,
+    StepResult,
     TaskSpec,
     TaskSpecError,
     observe_machine,
@@ -517,6 +520,32 @@ class Agent:
             f"{q} -> {a}" for q, a in zip(turn.questions, answers, strict=True) if a)
         return self.converse(f"{turn.request} [clarified: {combined}]",
                              model or turn.model)
+
+    # -- reporting ----------------------------------------------------------- #
+
+    def summarize(self, request: str, steps: Sequence[Step],
+                  results: Sequence[StepResult], model: str) -> str:
+        """Turn already-executed step output into the plain-language answer the
+        operator asked for -- a single fixed-shape call, not a tool-use loop:
+        the reply is plain text, never parsed as JSON or a task, so nothing
+        here can turn into a further proposed command."""
+        by_id = {r.step_id: r for r in results}
+        lines = []
+        for step in steps:
+            result = by_id.get(step.step_id)
+            if result is None:
+                continue
+            outcome = result.output if result.ok else f"FAILED: {result.error}"
+            lines.append(f"- {step.step_id} (`{step.command}`): {outcome[:2000]}")
+        prompt = (
+            f"The operator asked: {request}\n\n"
+            "These steps already ran; here is exactly what each returned:\n"
+            + "\n".join(lines) +
+            "\n\nWrite a short, direct answer to the operator's question using "
+            "only what is shown above. This is a report, not a plan -- do not "
+            "propose any further command.")
+        return self.ollama.chat(
+            model, [{"role": "user", "content": prompt}], json_mode=False).strip()
 
     # -- conversation ------------------------------------------------------ #
 

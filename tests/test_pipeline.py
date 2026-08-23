@@ -16,7 +16,8 @@ from conftest import plan_reply, scripted
 
 from harness.core import ConflictDetector, TaskSpec
 from harness.gates import Precondition, StateVerifier
-from harness.pipeline import Harness, Outcome, Stage
+from harness.pipeline import Harness
+from harness.pipeline_types import Outcome, RunResult, Stage
 
 SAFE_PLAN = plan_reply(
     "write-config", "set workers to 4 in /tmp/h7/app.conf",
@@ -665,3 +666,93 @@ def test_knowledge_dir_is_none_by_default_with_nothing_configured(
     monkeypatch.delenv("HARNESS_KNOWLEDGE_DIR", raising=False)
     harness = Harness(workdir=tmp_path / "wd")
     assert harness.knowledge_dir is None
+
+
+# --------------------------------------------------------------------------- #
+# Reporting: turning step output into an answer
+# --------------------------------------------------------------------------- #
+
+
+def _chat_transport(plan_content: dict, summary_text: str):
+    """A scripted-like transport that answers /api/tags and /api/show the
+    same way `conftest.scripted` does, but tells the plan call and the
+    summarize call apart by `format` (json_mode) instead of call order --
+    the summarize call always comes after an unknown number of repair
+    rounds, so position alone cannot identify it."""
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/tags":
+            return {"models": [{"name": "devstral:24b"}]}
+        if path == "/api/show":
+            return {}
+        if payload.get("format") == "json":
+            return {"message": {"content": json.dumps(plan_content)}}
+        return {"message": {"content": summary_text}}
+    return transport
+
+
+def test_a_completed_run_gets_a_synthesized_summary(make_harness, tmp_path: Path) -> None:
+    """The gap this closes: `harness ask` used to print only ok/fail per
+    step, never what a read step actually found."""
+    target = tmp_path / "data.txt"
+    target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    plan_content = plan_reply(
+        "read-file", f"read {target}",
+        [{"id": "read", "kind": "read", "run": f"cat {target}"}])
+
+    harness = make_harness(_chat_transport(
+        plan_content, "The file has three lines: one, two, three."))
+    planned = harness.plan(f"how many lines are in {target}")
+    assert planned.outcome is Outcome.AWAITING_APPROVAL
+
+    done = harness.execute(planned, {})
+
+    assert done.outcome is Outcome.COMPLETED
+    assert done.summary == "The file has three lines: one, two, three."
+    assert done.message == done.summary
+
+
+def test_a_hand_written_plan_gets_no_summary_and_consults_no_model(
+        make_harness, tmp_path: Path) -> None:
+    """The same invariant `test_a_hand_written_file_still_works_without_a_model`
+    guards, checked from the summary field's own side: a plan nobody's
+    model wrote must not become the trigger for the first model call."""
+    marker = tmp_path / "made"
+    spec = TaskSpec.validate({
+        "task_id": "manual", "request": f"create {marker}",
+        "steps": [{"id": "t", "run": f"touch {marker}"}]}, source="test")
+
+    harness = make_harness(scripted({}))
+    plan = harness._gate(spec)
+    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
+                       stages=["gate", "present"], plan=plan)
+    done = harness.execute(result, {})
+
+    assert done.summary == ""
+    assert harness.ollama.calls == 0
+
+
+def test_a_failed_summarize_call_does_not_break_the_run(
+        make_harness, tmp_path: Path) -> None:
+    """Same rule as telemetry: a reporting step that can fail a real run
+    would make the harness less reliable than not reporting at all."""
+    target = tmp_path / "data.txt"
+    target.write_text("hello\n", encoding="utf-8")
+    plan_content = plan_reply(
+        "read-file", f"read {target}",
+        [{"id": "read", "kind": "read", "run": f"cat {target}"}])
+
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/tags":
+            return {"models": [{"name": "devstral:24b"}]}
+        if path == "/api/show":
+            return {}
+        if payload.get("format") == "json":
+            return {"message": {"content": json.dumps(plan_content)}}
+        raise RuntimeError("daemon unreachable")
+
+    harness = make_harness(transport)
+    planned = harness.plan(f"what is in {target}")
+    done = harness.execute(planned, {})
+
+    assert done.outcome is Outcome.COMPLETED
+    assert done.summary == ""

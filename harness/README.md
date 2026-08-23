@@ -9,6 +9,7 @@ The package. Model proposes, five gates decide, the operator approves.
 | [`telemetry/`](telemetry/README.md) | Task logging, human labels, drift and loophole audits |
 | `agent.py` | The model loop: conversation to validated `TaskSpec`, never a shell |
 | `pipeline.py` | `Harness`, the seven-stage orchestrator, the only thing that decides what runs |
+| `pipeline_types.py` | The data model `Harness` produces: `Stage`, `Outcome`, `StepPlan`, `Plan`, `RunResult` |
 | `cli.py` | Entry points: `harness`, `ask`, `plan`, `run`, `check`, `doctor`, `evidence`, `label` |
 | `tui.py` | The terminal interface: chat pane plus the gated plan pane |
 | `__init__.py` | Package-level re-exports |

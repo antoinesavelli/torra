@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 193 passed
+python3 -m pytest tests/ -q          # must print 240 passed
 harness doctor
 ```
 
@@ -29,6 +29,8 @@ top-level path, e.g. `from harness.gates import SafetyClassifier`. Read in this 
    see `harness/gates/README.md`
 3. `harness/agent.py` — the model loop
 4. `harness/pipeline.py` — `Harness`, the seven stages, the only orchestrator
+   (`harness/pipeline_types.py` holds the `Stage`/`Outcome`/`Plan`/`RunResult`
+   data model it produces, re-exported from `pipeline.py` unchanged)
 
 `tui.py`, `cli.py` and `harness/telemetry/` are leaves. Nothing depends on them.
 
@@ -255,6 +257,31 @@ after the fact.
 > `test_reject_still_works_on_a_plan_that_never_ran`, and
 > `tests/test_tui.py::test_reject_records_the_decision`,
 > `test_reject_after_a_real_run_does_not_lie_about_it`
+
+### 2.11 The post-execution summary call can report, never act
+
+`Harness._summarize()` (called once from `_finish()`, after a model-authored
+plan has actually executed) is the only place execution results are ever fed
+back to the model. It exists to close a real gap -- `_print_execution_report`
+never showed step output, so "read the docs and tell me" completed with
+nothing readable printed -- but it sits directly next to §2.2 ("the model
+never executes anything") and must never grow into a second one. Three
+things keep it that way, and any change here has to preserve all three:
+`Agent.summarize()` calls `ollama.chat(..., json_mode=False)`, so the reply
+is plain text, never fed through `_parse()`/`_extract_json()` and never able
+to become a `TaskSpec`; `_finish()` only calls it when `result.plan.model` is
+truthy, so a hand-written task file (`plan.model == ""`) still makes zero
+model calls (§2.2's own guarding test asserts exactly this); and a raised
+exception is caught and logged, never allowed to flip a completed run to
+failed. If a future change makes this call's reply drive anything but a
+string shown to the operator, that is the second code path this project has
+repeatedly found and removed elsewhere -- see §7, question 2.
+
+> Guarded by `tests/test_agent.py::test_summarize_sends_step_output_as_plain_text_not_json`,
+> `test_summarize_reports_a_failed_step_by_error_not_output`,
+> `tests/test_pipeline.py::test_a_completed_run_gets_a_synthesized_summary`,
+> `test_a_hand_written_plan_gets_no_summary_and_consults_no_model`,
+> `test_a_failed_summarize_call_does_not_break_the_run`
 
 ---
 
@@ -723,7 +750,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 193
+test command     python3 -m pytest tests/ -q     # 240
 ```
 
 ---
