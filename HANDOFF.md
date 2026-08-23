@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 253 passed
+python3 -m pytest tests/ -q          # must print 255 passed
 harness doctor
 ```
 
@@ -324,6 +324,29 @@ directly, which was always the actual source of truth and didn't need the
 DOM id as a relay in the first place.
 
 > Guarded by `tests/test_tui.py::test_a_step_id_with_a_space_does_not_crash_the_plan_pane`
+
+### 2.14 `TaskRecord.approved` requires every step to be `True`, not merely not-`False`
+
+Same underlying principle as §2.3 ("unapproved means refused, never
+defaulted to True"), recurring in the telemetry read path instead of the
+execution path. `TaskLogger._apply_plan_fields()` computed `approved = all(sp.approved
+is not False for sp in plan.steps)` -- `StepPlan.approved` is `None` until
+`Harness._apply_approvals()` actually runs, which only happens inside
+`execute()`. A plan blocked by a failed precondition never reaches
+`execute()` at all (`Harness.plan()` calls `_finish()` directly), so every
+step's `approved` stays `None` -- and `None is not False` is `True`, so a
+`BLOCKED` task nobody ever saw was persisted with `approved: true`.
+`_apply_approvals()` always resolves every step to a real `True`/`False`
+once it runs (a step needing no confirmation is auto-`True`), so requiring
+`is True` for every step is exactly as strict for a normal completed run
+and correctly `False` for anything that never reached approval. No
+downstream reader consumes this field today, so this was a silent
+data-quality bug rather than a live break -- but it is exactly the kind of
+thing `harness evidence`/model-quality analysis (§6.1) would eventually
+rely on, and it would already have been wrong.
+
+> Guarded by `tests/test_pipeline.py::test_a_precondition_blocked_plan_is_not_recorded_as_approved`,
+> `test_a_normally_completed_plan_is_still_recorded_as_approved`
 
 ---
 
@@ -829,7 +852,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 253
+test command     python3 -m pytest tests/ -q     # 255
 ```
 
 ---

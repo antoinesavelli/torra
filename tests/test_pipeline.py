@@ -121,6 +121,42 @@ def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
     assert "absolute path" in records[-1].clarifier_anchors
 
 
+def test_a_precondition_blocked_plan_is_not_recorded_as_approved(
+        make_harness, tmp_path: Path) -> None:
+    """Found by an independent audit: `_apply_plan_fields` recorded
+    `approved = all(sp.approved is not False for sp in plan.steps)`. A
+    plan blocked by a failed precondition never reaches execute(), so
+    every step's `approved` is still None -- `is not False` treated that
+    as approved, so a BLOCKED task nobody ever saw was persisted as
+    `approved: true`. `_apply_approvals()` always resolves every step to
+    a real True/False once execute() actually runs, so requiring `is
+    True` is exactly as strict for a normal completed run."""
+    marker = tmp_path / "nope"
+    verifier = StateVerifier()
+    verifier.add(Precondition("impossible", lambda: False, "never passes"))
+    harness = make_harness(scripted(plan_reply(
+        "t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])),
+        verifier=verifier)
+
+    result = harness.plan(f"create {marker}")
+
+    assert result.outcome is Outcome.BLOCKED
+    records = harness.telemetry.read()
+    assert records[-1].approved is False
+
+
+def test_a_normally_completed_plan_is_still_recorded_as_approved(
+        make_harness, tmp_path: Path) -> None:
+    target = tmp_path / "app.conf"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"write to {target}",
+        [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
+
+    harness.execute(harness.plan(f"write to {target}"), {})
+
+    assert harness.telemetry.read()[-1].approved is True
+
+
 # --------------------------------------------------------------------------- #
 # Approval
 # --------------------------------------------------------------------------- #

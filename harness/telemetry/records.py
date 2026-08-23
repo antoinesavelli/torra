@@ -217,8 +217,18 @@ class TaskLogger:
     def _apply_plan_fields(record: TaskRecord, plan: Any) -> None:
         record.proposed_steps = len(getattr(plan, "steps", []))
         record.worst_level = getattr(getattr(plan, "worst_level", None), "value", "")
+        # `is True`, not `is not False`: a step's `approved` is None until
+        # Harness._apply_approvals() actually runs (inside execute()), and
+        # that only happens once the operator has been shown the plan. A
+        # plan blocked by a failed precondition (Harness.plan() calling
+        # _finish() before execute() is ever reached) leaves every step's
+        # `approved` at None -- `is not False` treated that as approved,
+        # so a BLOCKED task that was never shown to anyone still recorded
+        # `approved: true`. _apply_approvals() itself always resolves every
+        # step to a real True/False (steps needing no confirmation are
+        # auto-True), so after a real execute() this is exactly as strict.
         record.approved = all(
-            getattr(sp, "approved", None) is not False for sp in getattr(plan, "steps", []))
+            getattr(sp, "approved", None) is True for sp in getattr(plan, "steps", []))
 
     def from_result(self, result: Any, request: str = "") -> TaskRecord | None:
         """Build a TaskRecord from any result object, old pipeline or new."""
