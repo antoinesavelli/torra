@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 240 passed
+python3 -m pytest tests/ -q          # must print 242 passed
 harness doctor
 ```
 
@@ -467,6 +467,24 @@ by test.
 > `test_an_answer_with_an_empty_task_scaffold_is_also_repaired`,
 > `test_a_clean_answer_with_no_task_never_wastes_a_repair_round`
 
+**`_answer_dropped_a_task` doesn't catch a placeholder with no task at
+all.** Found live, testing the knowledge library: asked whether SSH keys
+were configured, a reply was `intent: "answer"`, no `task` attached at all,
+`message` = "Checking system library documentation and actual SSH key
+presence on this machine to answer your question." -- the sibling check
+above only fires when `task` is present, so this variant sailed through
+both repair rounds untouched, and the operator saw that sentence as the
+final answer with no SSH information in it anywhere. `_answer_is_a_placeholder`
+catches this by a structural tell, not a keyword list: `message` opens with
+a deferral verb ("Checking", "I'll look...") *and* closes by naming "your
+question"/"the request" itself -- something only a placeholder needs to
+say, since a real answer is too busy stating it to describe itself doing
+so. Requiring both ends is what keeps it from flagging a real answer that
+happens to open with "Checking the logs, ..." followed by an actual fact.
+
+> Guarded by `tests/test_agent.py::test_an_answer_that_only_promises_to_check_is_repaired`,
+> `test_a_short_answer_that_happens_to_open_with_checking_is_not_flagged`
+
 **`HarnessApp.BINDINGS` must never claim `ctrl+c`.** Textual's own default
 for that key is deliberately not "quit" -- `App.action_help_quit`'s
 docstring says so outright: "Ctrl+C is now bound to copy if an input /
@@ -768,7 +786,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 240
+test command     python3 -m pytest tests/ -q     # 242
 ```
 
 ---

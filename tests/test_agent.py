@@ -273,6 +273,38 @@ def test_a_clean_answer_with_no_task_never_wastes_a_repair_round() -> None:
     assert turn.repairs == 0
 
 
+def test_an_answer_that_only_promises_to_check_is_repaired() -> None:
+    """Found live: asked whether SSH keys were configured, a reply was
+    intent "answer" with no `task` at all (so `_answer_dropped_a_task`
+    never fired) and `message` = "Checking system library documentation
+    and actual SSH key presence on this machine to answer your question."
+    -- no repair round caught it either, and the operator saw that
+    sentence as the final answer with no SSH information anywhere in it."""
+    agent = build_agent(scripted(
+        {"intent": "answer",
+         "message": ("Checking system library documentation and actual SSH "
+                     "key presence on this machine to answer your question.")},
+        {"intent": "answer", "message": "Yes: id_ed25519 (SHA256:Rx1e...)."}))
+
+    turn = agent.converse("do I have SSH keys configured?")
+
+    assert turn.repairs >= 1
+    assert "id_ed25519" in turn.message
+
+
+def test_a_short_answer_that_happens_to_open_with_checking_is_not_flagged() -> None:
+    """The opening verb alone is not the tell -- a real answer that starts
+    with "Checking the logs, ..." must not burn a repair round just
+    because it shares a word with the placeholder pattern."""
+    agent = build_agent(scripted(
+        {"intent": "answer",
+         "message": "Checking the logs, no errors were found in the last 24 hours."}))
+
+    turn = agent.converse("were there any errors overnight?")
+
+    assert turn.repairs == 0
+
+
 # --------------------------------------------------------------------------- #
 # Malformed model output
 # --------------------------------------------------------------------------- #

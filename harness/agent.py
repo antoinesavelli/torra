@@ -1,8 +1,7 @@
 """The model loop: turns a conversation into a validated TaskSpec, never a shell.
 
-Depends on: harness.core (ContextCompressor, MachineState, OllamaClient, Step,
-StepResult, TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter,
-SafetyClassifier).
+Depends on: harness.core (ContextCompressor, MachineState, OllamaClient, Step, StepResult,
+TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter, SafetyClassifier).
 
 The design rule throughout: the model produces a TaskSpec and nothing else. It
 does not execute, it does not get a shell, it does not decide what is safe. It
@@ -162,6 +161,19 @@ class Agent:
 
     #: How many times to hand a rejection back to the model before giving up.
     MAX_REPAIRS: int = 2
+
+    #: A message that only announces an intent to look something up, never
+    #: the result -- "Checking system-library for X to answer your question."
+    #: Requires both ends: an opening deferral verb alone would flag a real
+    #: answer that happens to start with "Checking the logs, ..."; requiring
+    #: it also close by naming the question/request itself is what tells
+    #: "describes the act of answering" apart from "contains an answer".
+    _DEFERRAL_OPENER = re.compile(
+        r"^(?:(?:i(?:'ll|'m|\s+will|\s+am)\s+)?(?:going to\s+)?"
+        r"(?:check|checking|search|searching|look|looking|verify|verifying|"
+        r"determine|determining|read|reading)\b|let me\b)", re.IGNORECASE)
+    _NAMES_THE_QUESTION = re.compile(
+        r"\b(your |this |the )?(question|request)\.?[\"')]*$", re.IGNORECASE)
 
     def __init__(
         self,
@@ -428,8 +440,30 @@ class Agent:
         if turn.intent is Intent.PLAN and turn.spec is not None:
             return self._prescreen(turn.spec)
         if turn.intent is Intent.ANSWER:
-            return self._answer_dropped_a_task(turn)
+            return self._answer_dropped_a_task(turn) or self._answer_is_a_placeholder(turn)
         return ""
+
+    def _answer_is_a_placeholder(self, turn: Turn) -> str:
+        """Complaint when intent was 'answer', no task was attached (see
+        `_answer_dropped_a_task` for that variant), but `message` only
+        describes looking something up rather than stating the result.
+
+        Found live: asked whether SSH keys were configured, message was
+        "Checking system library documentation ... to answer your question."
+        -- no task, so the sibling check never fired, and the operator saw
+        that sentence as the final answer. The tell is structural, not a
+        keyword the request might legitimately contain: it opens with a
+        deferral verb *and* closes by naming "your question"/"the request"
+        itself -- something only a placeholder needs to say."""
+        message = turn.message.strip()
+        if not message or not (self._DEFERRAL_OPENER.match(message)
+                               and self._NAMES_THE_QUESTION.search(message)):
+            return ""
+        return (
+            "- intent was 'answer' but `message` only describes checking "
+            "something, it never states what was actually found. Put the "
+            "real answer directly in `message`; if you have not looked "
+            "anything up yet, use intent 'plan' to propose the step that will.")
 
     def _answer_dropped_a_task(self, turn: Turn) -> str:
         """Complaint when intent was 'answer' but a `task` was also
@@ -525,10 +559,9 @@ class Agent:
 
     def summarize(self, request: str, steps: Sequence[Step],
                   results: Sequence[StepResult], model: str) -> str:
-        """Turn already-executed step output into the plain-language answer the
-        operator asked for -- a single fixed-shape call, not a tool-use loop:
-        the reply is plain text, never parsed as JSON or a task, so nothing
-        here can turn into a further proposed command."""
+        """Turn already-executed step output into the plain-language answer
+        the operator asked for -- a single fixed-shape call, not a tool-use
+        loop: the reply is plain text, never parsed as JSON or a task."""
         by_id = {r.step_id: r for r in results}
         lines = []
         for step in steps:
