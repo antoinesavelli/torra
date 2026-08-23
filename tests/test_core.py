@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from harness.core import ConflictDetector, OllamaClient, observe_machine
+from harness.core import ConflictDetector, ContextCompressor, OllamaClient, observe_machine
 from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, _scan_knowledge_dir, detect_accelerator
-from harness.core.tasks import TaskSpec, TaskSpecError, shell
+from harness.core.tasks import ContextBudgetError, TaskSpec, TaskSpecError, shell
 
 
 def fake_ollama(models: list[str]) -> OllamaClient:
@@ -432,3 +432,87 @@ class TestShellPipefail:
     def test_the_final_command_alone_failing_still_raises(self) -> None:
         with pytest.raises(RuntimeError, match="exit 1"):
             shell("echo hi | false")
+
+
+class TestContextCompressor:
+    """`ContextCompressor` had zero dedicated unit tests before this class --
+    the only place it was ever exercised was one incidental assertion in
+    test_agent.py (`agent.context.compressions >= 1`). It shows up as
+    "covered" in the defensive-coding scorecard's Testing dimension only
+    because some test imports the `harness.core` package for something
+    else entirely -- that check is file-level, not behavioral. Nothing
+    anywhere actually verified the net-saving guarantee, the terser-fallback
+    degradation, `keep_recent`, or `ContextBudgetError`, despite
+    AUDIT_FINDINGS.md's "Things checked and found correct" list claiming
+    the net-saving guard was verified. It wasn't -- not by a test, anyway.
+    """
+
+    def test_a_single_entry_over_budget_is_rejected_loudly(self) -> None:
+        c = ContextCompressor(max_tokens=10)
+        with pytest.raises(ContextBudgetError):
+            c.add("u1", "user", "x" * 1000)
+
+    def test_compression_does_not_trigger_below_the_ratio(self) -> None:
+        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.9, keep_recent=1)
+        c.add("u1", "user", "hi")
+        result = c.maybe_compress()
+        assert result.triggered is False
+        assert len(c.entries) == 1
+
+    def test_keep_recent_entries_are_never_folded_into_the_summary(self) -> None:
+        c = ContextCompressor(max_tokens=40, trigger_ratio=0.5, target_ratio=0.1,
+                              keep_recent=2)
+        for i in range(10):
+            c.add(f"e{i}", "user", f"entry number {i} has some real content in it")
+        result = c.compress(force=True)
+
+        assert result.triggered is True
+        assert [e.entry_id for e in c.entries[-2:]] == ["e8", "e9"]
+
+    def test_compression_never_increases_total_tokens(self) -> None:
+        """The one guarantee the class's own docstring makes ("guaranteeing
+        a net saving") -- checked across every compress() call in a long,
+        realistic-shaped run, not just the first one."""
+        c = ContextCompressor(max_tokens=300, trigger_ratio=0.85, keep_recent=3)
+        for i in range(500):
+            before = c.total_tokens
+            c.add(f"u{i}", "user", f"request number {i} about something specific")
+            c.add(f"a{i}", "assistant", f"done with request {i}, result was fine")
+            result = c.maybe_compress()
+            if result.triggered:
+                assert result.tokens_after <= result.tokens_before
+                assert c.total_tokens == result.tokens_after
+            assert c.total_tokens <= max(before, c.max_tokens) + 50
+
+    def test_a_net_loss_summary_is_skipped_not_applied(self) -> None:
+        """Many entries too tiny for even the terser fallback to beat --
+        compression must decline rather than make the window bigger."""
+        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.01, target_ratio=0.01,
+                              keep_recent=0)
+        c.add("u1", "user", "a")
+        before_entries = list(c.entries)
+
+        result = c.compress(force=True)
+
+        assert result.triggered is False
+        assert "skipped" in result.summary
+        assert c.entries == before_entries
+        assert c.compressions == 0
+
+    def test_force_compresses_even_under_the_trigger_ratio(self) -> None:
+        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.99, target_ratio=0.02,
+                              keep_recent=0)
+        for i in range(20):
+            c.add(f"e{i}", "user", f"entry {i} with a bit of real content in it")
+
+        assert c.maybe_compress().triggered is False
+        assert c.compress(force=True).triggered is True
+
+    def test_as_messages_round_trips_role_and_content(self) -> None:
+        c = ContextCompressor(max_tokens=1000)
+        c.add("u1", "user", "hello")
+        c.add("a1", "assistant", "hi there")
+        assert c.as_messages() == [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ]
