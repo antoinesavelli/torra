@@ -400,6 +400,23 @@ the guard existed.
 anchors blanked out. Without it, `yeet the /srv/api/old.log file` trips the
 vague-qualifier rule on the `old` inside a filename.
 
+**`_check_no_environment` must recognize a target through the anchor
+system, not a separate preposition guess.** It used to fall back to
+`\b(to|into|on)\s+\S+` for phrasing the fixed environment word list
+doesn't cover ("deploy to prod-01"). Found live: that pattern matches
+"to"/"into"/"on" followed by *any* word, not just an environment-shaped
+one -- "deploy the api to fix the bug" matched "to fix" and was silently
+treated as having named an environment, when it hadn't named one at all.
+Fixed to reuse the anchor labels `anchors_in()` already recognizes
+("named environment", "hostname or tagged identifier") instead of a
+second, looser pattern -- this is also why it's deliberately not a
+verb-exclusion list: this file's whole design (see the class docstring)
+already rejected closed-vocabulary approaches once on measurement, so the
+fix reuses existing anchor infrastructure rather than adding a new list
+of "words that don't count."
+
+> Guarded by `tests/test_gates.py::TestClarifier::test_deploy_to_fix_something_is_still_flagged`
+
 **Agent repair loop bound.** `MAX_REPAIRS = 2`. A model that will not improve
 must not spin. The last proposal is still returned for real gating even after
 the budget is spent.

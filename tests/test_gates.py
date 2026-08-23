@@ -729,6 +729,20 @@ class TestClarifier:
         codes = {a.code for a in Clarifier().detect("deploy the api localhost")}
         assert "no_environment" not in codes
 
+    def test_deploy_to_fix_something_is_still_flagged(self) -> None:
+        """Found live: `_check_no_environment`'s fallback pattern was
+        `\\b(to|into|on)\\s+\\S+`, meant to catch "deploy to <environment>"
+        phrasing the fixed word list doesn't cover -- but it matches "to"
+        followed by *any* word, environment or not. "deploy the api to fix
+        the bug" and "...to handle more load" both matched "to fix"/"to
+        handle" and were silently treated as having named an environment,
+        even though neither names one at all."""
+        clarifier = Clarifier()
+        for request in ("deploy the api to fix the bug",
+                        "deploy the api to handle more load"):
+            codes = {a.code for a in clarifier.detect(request)}
+            assert "no_environment" in codes, request
+
     def test_extra_anchors_teach_it_a_local_scheme(self) -> None:
         assert Clarifier().detect("restart the frobnitz gateway")
         taught = Clarifier(extra_anchors=[(r"\bfrobnitz\s+\w+\b", "frobnitz id")])

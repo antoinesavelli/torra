@@ -83,6 +83,15 @@ STRONG_ANCHORS: tuple[str, ...] = (
     "hostname or tagged identifier", "quoted literal", "named service or unit", "date",
 )
 
+#: Anchor labels that plausibly name a deploy target. Reused here instead
+#: of a separate preposition-based guess -- found live: the prior check
+#: matched literally "to"/"into"/"on" followed by *any* word ("deploy the
+#: api to fix the bug" matched "to fix"), so an ordinary deploy request
+#: naming no environment at all was silently treated as having one.
+ENVIRONMENT_ANCHOR_LABELS: frozenset[str] = frozenset({
+    "named environment", "hostname or tagged identifier",
+})
+
 FILTER_PATTERNS: list[str] = [
     r"\b(older|newer|larger|smaller|more|less|greater|fewer)\s+than\b",
     r"\bover\s+\d+", r"\bunder\s+\d+", r"\bat\s+least\b", r"\bat\s+most\b",
@@ -214,15 +223,10 @@ class Clarifier:
             f"'{vague.group(0)}' is a judgement, not a selection rule")
 
     @staticmethod
-    def _check_no_environment(text: str) -> Ambiguity | None:
-        # "localhost", not "local": the anchor pattern recognizes
-        # "localhost" as a named environment, so this alternative has to
-        # match the same word or "deploy the api localhost" trips this
-        # right after anchors_in() already found it -- found in a
-        # full-file audit, self-contradictory but not previously tested.
-        if not re.search(DEPLOY, text, re.IGNORECASE) or re.search(
-                r"\b(to|into|on)\s+\S+|\b(staging|production|prod|localhost|dev)\b",
-                text, re.IGNORECASE):
+    def _check_no_environment(text: str, anchors: list[str]) -> Ambiguity | None:
+        if not re.search(DEPLOY, text, re.IGNORECASE):
+            return None
+        if any(a in ENVIRONMENT_ANCHOR_LABELS for a in anchors):
             return None
         return Ambiguity(
             "no_environment",
@@ -287,7 +291,7 @@ class Clarifier:
             self._check_no_acceptance_criterion(text),
             self._check_unbounded_scope(scrubbed, text),
             self._check_vague_qualifier(scrubbed, text),
-            self._check_no_environment(text),
+            self._check_no_environment(text, anchors),
             self._check_no_backup_plan(text, anchors),
             self._check_dangling_pronoun(text),
             self._check_no_schedule(text),
