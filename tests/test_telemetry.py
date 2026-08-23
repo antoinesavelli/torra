@@ -2,7 +2,8 @@
 tools this project's own standard holds to "a citation you cannot re-run is
 not a citation" -- exercised before only indirectly (test_cli.py's single
 cmd_evidence smoke test), never at the unit level against their own verdict
-thresholds.
+thresholds. Also covers TaskLogger/LabelStore's secret redaction, likewise
+untested before this file.
 """
 
 from __future__ import annotations
@@ -137,3 +138,39 @@ class TestLoopholeAudit:
                                   executed=True, succeeded=True) for i in range(15)]
         report = LoopholeAudit(FakeClarifier(blocks=set())).audit(goalless + with_goal)
         assert "keep measuring" in report.verdict
+
+
+class TestRedaction:
+    """TaskLogger.scrub() / redact_secrets(): patterns replaced before
+    free-form operator/human text is written to disk. Untested before this
+    class -- the multi-word-secret and Label.why gaps below were both
+    found by an independent audit, not by any existing test noticing them."""
+
+    def test_a_multi_word_secret_value_is_fully_redacted(self, tmp_path: Path) -> None:
+        logger = TaskLogger(tmp_path / "tasks.jsonl")
+        scrubbed = logger.scrub("password = super secret phrase")
+        assert scrubbed == "password=<REDACTED>"
+        assert "secret phrase" not in scrubbed
+
+    def test_a_single_token_secret_is_still_redacted(self, tmp_path: Path) -> None:
+        logger = TaskLogger(tmp_path / "tasks.jsonl")
+        assert logger.scrub("token: abc123") == "token=<REDACTED>"
+
+    def test_redaction_can_be_disabled(self, tmp_path: Path) -> None:
+        logger = TaskLogger(tmp_path / "tasks.jsonl", redact=False)
+        assert logger.scrub("password = hunter2") == "password = hunter2"
+
+    def test_label_why_is_redacted_the_same_as_request(self, tmp_path: Path) -> None:
+        """Found by an independent audit: Label.why (a human's free-text
+        rationale for a verdict) went straight to disk with no redaction
+        at all, unlike TaskRecord.request, which TaskLogger already
+        scrubs before writing."""
+        store = LabelStore(tmp_path / "labels.jsonl")
+        entry = store.label(
+            "some request", True,
+            why="ambiguous because it says password=hunter2 with no context")
+
+        assert "hunter2" not in entry.why
+        assert "password=<REDACTED>" in entry.why
+        on_disk = (tmp_path / "labels.jsonl").read_text(encoding="utf-8")
+        assert "hunter2" not in on_disk

@@ -16,7 +16,8 @@ import yaml
 from conftest import plan_reply, scripted
 
 import harness.cli as cli
-from harness.core import OllamaClient
+from harness.core import OllamaClient, TaskSpec
+from harness.pipeline import Harness
 from harness.telemetry import LabelStore, TaskLogger, TaskRecord
 
 # --------------------------------------------------------------------------- #
@@ -54,6 +55,46 @@ def write_task_file(path: Path, task_id: str, request: str,
     data = {"task_id": task_id, "request": request, "steps": steps, **extra}
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     return path
+
+
+# --------------------------------------------------------------------------- #
+# approve_at_prompt
+# --------------------------------------------------------------------------- #
+
+
+def test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found by an independent audit: Ctrl+C/Ctrl+D on the approve prompt
+    used to decline only the current step and keep prompting for the next
+    one -- confusing for an operator who expected the keystroke to bail
+    out entirely, and inconsistent with _collect_answers' handling of the
+    identical exception pair elsewhere in this file."""
+    victim1, victim2 = tmp_path / "v1.txt", tmp_path / "v2.txt"
+    victim1.write_text("keep me", encoding="utf-8")
+    victim2.write_text("keep me too", encoding="utf-8")
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "delete two files",
+        "steps": [
+            {"id": "rm1", "run": f"rm -f {victim1}", "touches": [str(victim1)]},
+            {"id": "rm2", "run": f"rm -f {victim2}", "touches": [str(victim2)]},
+        ]}, source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+    assert len(plan.needs_confirmation) == 2, "both rm steps must need confirmation"
+
+    calls = {"n": 0}
+
+    def fake_input(prompt: str) -> str:
+        calls["n"] += 1
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    approvals = cli.approve_at_prompt(plan)
+
+    assert calls["n"] == 1, "must not prompt again for the remaining step"
+    assert approvals == {}
 
 
 # --------------------------------------------------------------------------- #

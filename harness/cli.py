@@ -29,6 +29,11 @@ __all__ = ["build_parser", "main"]
 EXIT_OK, EXIT_USAGE, EXIT_BLOCKED, EXIT_FAILED = 0, 1, 2, 3
 DEFAULT_WORKDIR = Path.home() / ".harness"
 
+#: Every Outcome value maps to an exit code, including "needs_answer" --
+#: unreachable at every current .get() call site (cmd_ask's while loop
+#: always resolves it to a different outcome first), kept anyway so this
+#: stays a complete Outcome -> exit code table rather than one that is
+#: silently wrong for the one member no current caller happens to hit.
 OUTCOME_EXIT: dict[str, int] = {
     "completed": EXIT_OK,
     "answered": EXIT_OK,
@@ -84,7 +89,14 @@ def approve_at_prompt(plan: Plan) -> dict[str, bool]:
         try:
             answer = input("    approve? [y/N] ").strip().lower()
         except (EOFError, KeyboardInterrupt):
-            answer = "n"
+            # Bail out of the whole loop, not just this step -- matches
+            # _collect_answers' identical keystroke handling elsewhere in
+            # this file. Every step from here on (including this one)
+            # stays refused simply by never being added to the map:
+            # Harness._apply_approvals() already treats "absent" the same
+            # as "False" (§2.3), so no explicit refusal is needed.
+            print()
+            break
         approvals[sp.step.step_id] = answer in ("y", "yes")
     return approvals
 

@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 255 passed
+python3 -m pytest tests/ -q          # must print 260 passed
 harness doctor
 ```
 
@@ -712,6 +712,39 @@ the audit write, after summarize has had its chance to log.
 > (extended to assert the failure reason survives into both `result.decisions`
 > and the written audit file, not just that the run still completes).
 
+**`approve_at_prompt`'s Ctrl+C must abort the whole loop, not just the
+current step.** Found by an independent audit: on `EOFError`/
+`KeyboardInterrupt` it used to set only the current step's answer to `"n"`
+and keep looping, prompting again for the next CONFIRM step -- confusing
+for an operator who expected the keystroke to bail out entirely, and
+inconsistent with `_collect_answers`' handling of the identical exception
+pair a few lines away in the same file. Not unsafe either way (any refused
+step already rejects the whole plan via `_apply_approvals`), but the same
+keystroke should not mean two different things in one command. Now
+`break`s out of the loop immediately; every step from that point on
+(including the interrupted one) stays refused simply by never being added
+to the approvals map -- `_apply_approvals()` already treats "absent" the
+same as "False" (§2.3), so no explicit refusal is needed.
+
+> Guarded by `tests/test_cli.py::test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again`
+
+**Secret redaction: a multi-word value, and `Label.why`, both used to go
+to disk in the clear.** Found by an independent audit, two related gaps in
+`harness/telemetry/`: (1) the `password=`/`token:`/etc. redaction pattern
+matched only one whitespace-free token (`\S+`) after the separator, so
+`"password = super secret phrase"` redacted just `"password = super"`,
+leaving `"secret phrase"` written in the clear -- changed to match to end
+of line (`\S.*$`, multiline). (2) `LabelStore.label()`'s `why` field (a
+human's free-text rationale for a verdict, which can just as easily quote
+a secret as the request it's commenting on) went straight to disk with
+zero redaction, unlike `TaskRecord.request`, which `TaskLogger` already
+scrubs before writing. Extracted the redaction patterns and the apply-step
+into a module-level `redact_secrets()` in `records.py` (was a `TaskLogger`
+instance method) specifically so `labels.py` could reuse the identical
+patterns instead of drifting a second copy.
+
+> Guarded by `tests/test_telemetry.py::TestRedaction` (4 cases)
+
 ---
 
 ## 6. What is actually unfinished
@@ -852,7 +885,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 255
+test command     python3 -m pytest tests/ -q     # 260
 ```
 
 ---

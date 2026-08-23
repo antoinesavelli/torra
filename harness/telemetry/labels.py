@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .records import TaskRecord
+from .records import TaskRecord, redact_secrets
 
 __all__ = ["Label", "LabelStore"]
 
@@ -56,8 +56,15 @@ class LabelStore:
     def label(self, request: str, ambiguous: bool, why: str = "",
               labeler: str = "") -> Label:
         """Record one verdict. A later label for the same text supersedes it."""
-        entry = Label(request=request, ambiguous=bool(ambiguous), why=why,
-                      labeled_at=self._clock(), labeler=labeler)
+        # `why` is a human's free-text rationale for the verdict -- just as
+        # capable of quoting a secret as the request it's commenting on
+        # ("ambiguous because it says password=hunter2 with no context"),
+        # but unlike `request` (scrubbed by TaskLogger before it ever
+        # reaches here) nothing redacted it. Same patterns, not a second
+        # copy of them.
+        entry = Label(request=request, ambiguous=bool(ambiguous),
+                      why=redact_secrets(why), labeled_at=self._clock(),
+                      labeler=labeler)
         try:
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(entry.to_dict(), sort_keys=True) + "\n")

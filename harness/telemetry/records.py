@@ -15,7 +15,37 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-__all__ = ["TaskRecord", "TaskLogger"]
+__all__ = ["TaskRecord", "TaskLogger", "redact_secrets"]
+
+#: Patterns replaced before free-form operator/human text is written to
+#: disk. Module level (not just a TaskLogger attribute) so labels.py's
+#: Label.why -- a human's free-text rationale, which can just as easily
+#: quote a secret as the request it's commenting on -- goes through the
+#: same scrub instead of a second, drifting copy of these patterns.
+REDACTIONS: list[tuple[str, str]] = [
+    (r"\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\b", "<JWT>"),
+    (r"\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}\b", "<GITHUB_TOKEN>"),
+    (r"\bsk-[A-Za-z0-9]{20,}\b", "<API_KEY>"),
+    (r"\bAKIA[0-9A-Z]{16}\b", "<AWS_KEY>"),
+    # \S.*$ (to end of line), not \S+ (one token): a multi-word secret
+    # like "password = super secret phrase" used to redact only
+    # "password = super", leaving "secret phrase" written in the clear.
+    # Most credentials are one token, but this runs over free-form text,
+    # not a config file -- over-redacting the rest of the line is far
+    # cheaper than under-redacting a secret.
+    (r"(?im)\b(password|passwd|secret|token|api[_-]?key)\s*[=:]\s*\S.*$",
+     r"\1=<REDACTED>"),
+    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+     "<PRIVATE_KEY>"),
+]
+
+
+def redact_secrets(text: str) -> str:
+    """Replace secret-looking substrings in `text`, no truncation."""
+    out = text or ""
+    for pattern, replacement in REDACTIONS:
+        out = re.sub(pattern, replacement, out)
+    return out
 
 
 @dataclass
@@ -90,17 +120,9 @@ class TaskLogger:
     secrets are replaced rather than stored.
     """
 
-    #: Patterns replaced before a request is written to disk.
-    REDACTIONS: list[tuple[str, str]] = [
-        (r"\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\b", "<JWT>"),
-        (r"\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}\b", "<GITHUB_TOKEN>"),
-        (r"\bsk-[A-Za-z0-9]{20,}\b", "<API_KEY>"),
-        (r"\bAKIA[0-9A-Z]{16}\b", "<AWS_KEY>"),
-        (r"(?i)\b(password|passwd|secret|token|api[_-]?key)\s*[=:]\s*\S+",
-         r"\1=<REDACTED>"),
-        (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-         "<PRIVATE_KEY>"),
-    ]
+    #: Kept as an alias to the module-level list (not a second copy) so any
+    #: existing reference to `TaskLogger.REDACTIONS` keeps working.
+    REDACTIONS = REDACTIONS
 
     def __init__(
         self,
@@ -126,10 +148,7 @@ class TaskLogger:
 
     def scrub(self, text: str) -> str:
         """Replace secret-looking substrings and truncate."""
-        out = text or ""
-        if self.redact:
-            for pattern, replacement in self.REDACTIONS:
-                out = re.sub(pattern, replacement, out)
+        out = redact_secrets(text) if self.redact else (text or "")
         if len(out) > self.max_request_chars:
             out = out[: self.max_request_chars] + " ...<truncated>"
         return out
