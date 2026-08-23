@@ -112,7 +112,44 @@ class TaskSpec:
     # -- construction ------------------------------------------------------ #
 
     @staticmethod
-    def _validate_step(raw: Any, index: int, seen: set[str], source: str) -> None:
+    def _validate_path_list(value: Any, field_name: str, where: str) -> None:
+        """A path-list field must actually be a list, not a bare string.
+
+        Found live: `touches: /etc/hosts` (missing brackets, an easy slip
+        for a model or a hand-written file -- the schema example in
+        agent.py shows a single-element list) used to pass straight
+        through `[str(t) for t in value]` -- Python iterates a string
+        character by character, so it silently became `['/', 'e', 't',
+        'c', ...]` instead of raising. `to_steps()` and `validate()` both
+        returned successfully; ConflictDetector then baselined that
+        garbage instead of the real path, so the exact step that declared
+        it needed watching was invisible to the conflict-detection safety
+        net, and `Agent._prescreen()`'s "DANGEROUS step with no touches"
+        repair check never fired either, since the (garbage) list was
+        non-empty.
+        """
+        if value is not None and not isinstance(value, list):
+            raise TaskSpecError(
+                f"{where}: '{field_name}' must be a list of paths, not "
+                f"{type(value).__name__}")
+
+    @staticmethod
+    def _validate_estimated_seconds(value: Any, where: str) -> None:
+        """Must be numeric-coercible. `to_steps()` does `float(value)`
+        unguarded -- an invalid value used to raise there instead of here,
+        well past `Harness.plan()`'s narrow `except OllamaError | AgentError`
+        clause, skipping every decision-log/audit/telemetry call that
+        clause's catch normally reaches on the way to a proper `Outcome`.
+        """
+        if value is None:
+            return
+        try:
+            float(value)
+        except (TypeError, ValueError) as exc:
+            raise TaskSpecError(f"{where}: 'estimated_seconds' must be a number") from exc
+
+    @classmethod
+    def _validate_step(cls, raw: Any, index: int, seen: set[str], source: str) -> None:
         """Validate one step mapping, raising on any defect. Adds its id to `seen`."""
         if not isinstance(raw, dict):
             raise TaskSpecError(f"{source or 'task'}: step {index} must be a mapping")
@@ -127,6 +164,9 @@ class TaskSpec:
         if step_id in seen:
             raise TaskSpecError(f"{source or 'task'}: duplicate step id '{step_id}'")
         seen.add(step_id)
+        where = f"{source or 'task'}: step {index}"
+        cls._validate_path_list(raw.get("touches"), "touches", where)
+        cls._validate_estimated_seconds(raw.get("estimated_seconds"), where)
 
     @staticmethod
     def _validate_rollback_entry(raw: Any, index: int, source: str) -> None:
@@ -142,6 +182,16 @@ class TaskSpec:
         if not raw.get("run"):
             raise TaskSpecError(
                 f"{source or 'task'}: rollback entry {index} has no 'run' command")
+        safe = raw.get("safe", True)
+        if not isinstance(safe, bool):
+            # bool("false") is True in Python -- a quoted "false" (an easy
+            # JSON-formatting slip for a model) would otherwise silently
+            # mean the opposite of what was declared, undoing the whole
+            # point of the safe: false authors write to say "do not trust
+            # the classifier alone here."
+            raise TaskSpecError(
+                f"{source or 'task'}: rollback entry {index}'s 'safe' must be "
+                f"true or false, not {safe!r}")
 
     @classmethod
     def _validate_rollback(cls, data: dict[str, Any], source: str) -> None:
@@ -159,13 +209,15 @@ class TaskSpec:
         malformed document is a hard error here rather than a warning
         somewhere downstream where the context to explain it is gone.
         """
+        label = source or "task"
         if not isinstance(data, dict):
-            raise TaskSpecError(f"{source or 'task'}: top level must be a mapping")
+            raise TaskSpecError(f"{label}: top level must be a mapping")
         for key in ("task_id", "request", "steps"):
             if key not in data:
-                raise TaskSpecError(f"{source or 'task'}: missing required key '{key}'")
+                raise TaskSpecError(f"{label}: missing required key '{key}'")
         if not isinstance(data["steps"], list) or not data["steps"]:
-            raise TaskSpecError(f"{source or 'task'}: 'steps' must be a non-empty list")
+            raise TaskSpecError(f"{label}: 'steps' must be a non-empty list")
+        cls._validate_path_list(data.get("watch_roots"), "watch_roots", label)
 
         seen: set[str] = set()
         for index, raw in enumerate(data["steps"], start=1):

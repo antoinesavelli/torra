@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 260 passed
+python3 -m pytest tests/ -q          # must print 266 passed
 harness doctor
 ```
 
@@ -347,6 +347,43 @@ rely on, and it would already have been wrong.
 
 > Guarded by `tests/test_pipeline.py::test_a_precondition_blocked_plan_is_not_recorded_as_approved`,
 > `test_a_normally_completed_plan_is_still_recorded_as_approved`
+
+### 2.15 `TaskSpec.validate()` type-checks every field, not just presence
+
+Found by an independent audit of `tasks.py`, reproduced live, three related
+gaps in the one gate between an arbitrary mapping (hand-written YAML or a
+model's JSON) and a `TaskSpec` that drives root shell commands:
+
+1. **`touches`/`watch_roots` accepted a bare string.** `to_steps()`'s
+   `[str(t) for t in value]` doesn't raise on a string -- Python iterates
+   a string character by character, so `touches: /etc/hosts` (missing
+   brackets, an easy slip: the model's own schema example in `agent.py`
+   shows a *single-element list*) silently became `['/', 'e', 't', 'c',
+   ...]`. Both `validate()` and `to_steps()` returned successfully;
+   `ConflictDetector` then baselined that garbage instead of the real
+   path, so the exact step that declared it needed watching was invisible
+   to the conflict-detection safety net, and `Agent._prescreen()`'s
+   "DANGEROUS step with no touches" repair check never fired either,
+   since the (garbage) list was non-empty.
+2. **`estimated_seconds` accepted anything.** `to_steps()`'s unguarded
+   `float(value)` raised a bare `ValueError` at plan-time -- past
+   `Harness.plan()`'s narrow `except OllamaError | AgentError` clause,
+   skipping every decision-log/audit/telemetry call that catch normally
+   reaches on the way to a proper `Outcome`. Only caught by `cli.py`'s or
+   `tui.py`'s top-level catch-all, several layers removed from where the
+   real cause was.
+3. **A rollback entry's `safe: "false"` (quoted string) meant `true`.**
+   `bool("false")` is `True` in Python -- an easy JSON-formatting slip for
+   a model -- silently meaning the opposite of what §2.7's `safe: false`
+   exists to say ("do not trust the classifier alone here").
+
+All three now raise `TaskSpecError` in `validate()`/`_validate_step`/
+`_validate_rollback_entry`, the same place every other malformed-field
+case already raises, rather than downstream where the context to explain
+it is gone.
+
+> Guarded by `tests/test_core.py::TestTaskSpecStepValidation` (5 cases),
+> `TestTaskSpecRollbackValidation::test_a_quoted_string_safe_value_is_rejected`
 
 ---
 
@@ -885,7 +922,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 260
+test command     python3 -m pytest tests/ -q     # 266
 ```
 
 ---

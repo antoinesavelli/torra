@@ -289,6 +289,57 @@ class TestTaskSpecRollbackValidation:
                                   "steps": [{"id": "s1", "run": "true"}]})
         assert spec.rollback_actions() == []
 
+    def test_a_quoted_string_safe_value_is_rejected(self) -> None:
+        """Found by an independent audit: bool("false") is True in Python
+        -- a rollback entry declaring `safe: "false"` (a quoted string, an
+        easy JSON-formatting slip for a model) used to silently mean the
+        opposite of what was declared."""
+        with pytest.raises(TaskSpecError, match="'safe' must be true or false"):
+            TaskSpec.validate(self._base([{"run": "true", "safe": "false"}]))
+
+
+class TestTaskSpecStepValidation:
+    """Found by an independent audit of tasks.py: `touches`/`watch_roots`/
+    `estimated_seconds` had no type validation at all in `_validate_step`,
+    unlike every other field. `to_steps()`'s `[str(t) for t in value]` on a
+    bare string doesn't raise -- Python iterates a string character by
+    character -- so `touches: /etc/hosts` (a plausible missing-brackets
+    slip) silently became `['/', 'e', 't', 'c', ...]`, and `to_steps()`'s
+    unguarded `float(...)` on `estimated_seconds` raised well past
+    Harness.plan()'s narrow except clause instead of here, skipping every
+    decision-log/audit/telemetry call that clause's catch normally reaches.
+    """
+
+    def _base(self, **step_extra) -> dict:
+        return {"task_id": "t", "request": "r",
+               "steps": [{"id": "s1", "run": "true", **step_extra}]}
+
+    def test_a_bare_string_touches_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="'touches' must be a list"):
+            TaskSpec.validate(self._base(touches="/etc/hosts"))
+
+    def test_a_bare_string_watch_roots_is_rejected(self) -> None:
+        spec = self._base()
+        spec["watch_roots"] = "/etc"
+        with pytest.raises(TaskSpecError, match="'watch_roots' must be a list"):
+            TaskSpec.validate(spec)
+
+    def test_a_non_numeric_estimated_seconds_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="'estimated_seconds' must be a number"):
+            TaskSpec.validate(self._base(estimated_seconds="soon"))
+
+    def test_a_well_formed_step_still_validates_and_builds_cleanly(self) -> None:
+        spec = TaskSpec.validate(self._base(touches=["/etc/hosts"], estimated_seconds=5))
+        steps = spec.to_steps()
+        assert steps[0].touches == ["/etc/hosts"]
+        assert steps[0].estimated_seconds == 5.0
+
+    def test_an_absent_touches_and_estimated_seconds_is_fine(self) -> None:
+        spec = TaskSpec.validate(self._base())
+        steps = spec.to_steps()
+        assert steps[0].touches == []
+        assert steps[0].estimated_seconds is None
+
 
 class TestDetectAccelerator:
     """detect_accelerator(): no test anywhere exercised this before -- the
