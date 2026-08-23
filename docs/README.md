@@ -5,8 +5,11 @@ to *measured* knowledge gaps, not a general Pop!_OS/System76 manual —
 `scripts/dev/model_bench/` is what measures those gaps, and
 `scripts/dev/model_bench/REPORT.md` is the evidence trail for every fact
 below. Blanket documentation would mostly restate what the benchmarked models
-(qwen3:8b, qwen3:32b, devstral) already got right unprompted; these files
-exist for the specific things they got wrong, vague, or hallucinated.
+already got right unprompted; these files exist for the specific things they
+got wrong, vague, or hallucinated. (The original benchmark ran against
+qwen3:8b, qwen3:32b, and bare `devstral` -- the model catalog was pruned to
+four on 2026-07-28, so those exact names are pre-pruning history, not the
+current routed-to set; see `harness/gates/router.py` for what's live today.)
 
 | File | Covers | Measured gap? |
 |---|---|---|

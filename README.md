@@ -50,7 +50,7 @@ pip install -e .
 python3 -m pytest tests/ -q
 ```
 
-Expect **88 passed**. Then:
+Expect **242 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -191,19 +191,25 @@ and measured 0% false negatives on a corpus it was never tuned against.
 
 ## Hardware-aware routing
 
-Ollama silently falls back to CPU when the driver is missing or a model does not
-fit in VRAM, and reports it only in `ollama ps`, which nobody reads before typing
-a request. The router detects the accelerator and refuses to load a model that
-will take minutes to answer.
+`ModelRouter` scores the request against a small set of intent rules (weighted, not
+first-match) to pick a model, then checks it actually fits in whatever VRAM is free
+right now -- Ollama silently falls back to CPU when a model doesn't fit, and reports
+it only in `ollama ps`, which nobody reads before typing a request.
 
-| Hardware | debug request | deploy request |
-|----------|--------------|----------------|
-| GPU 24 GB | qwen3:32b | devstral |
-| GPU 12 GB | qwen3:8b | qwen3:8b |
-| GPU 4 GB | phi3 | phi3 |
-| CPU only | qwen3:8b | qwen3:8b |
+| Request mentions | Routed model | Why |
+|---|---|---|
+| debug, crash, traceback, root cause | `qwen3:32b` | deepest local reasoning budget |
+| deploy, release, provision, systemd unit | `devstral:24b` | benchmarked best at tool/file-editing work |
+| refactor, implement, patch, migrate code | `qwen3-coder:30b` | code-generation specialist (not yet benchmarked here) |
+| plan, architect, design, trade-off | `qwen3:32b` | long-context reasoning |
+| analyze, summarize, review, audit | `qwen3:32b` | reasoning-bound, not tool-bound |
+| list, show, status, "what is" | `qwen3.5:latest` | trivial lookups don't justify a 20b+ model |
+| ambiguous (no clear target) | `qwen3:32b` | measured better at asking a clarifying question than guessing |
+| none of the above | `devstral:24b` | the measured-reliable general default |
 
-Any swap is named in the routing reason, never silent. Check what you are on:
+Whatever gets picked still has to fit: if the free VRAM can't hold it, the router
+downgrades to the next model that does, and says so in the routing reason -- never
+a silent swap. Check what you are on:
 
 ```bash
 ollama ps                                    # PROCESSOR column is the authority
@@ -260,10 +266,11 @@ wearing a percentage sign.
 | `harness/gates/` | the five guardrails, one submodule each |
 | `harness/agent.py` | the model loop |
 | `harness/pipeline.py` | the seven stages |
+| `harness/pipeline_types.py` | the data model `Harness` produces (`Stage`, `Outcome`, `Plan`, `RunResult`) |
 | `harness/telemetry/` | what it records about itself |
 | `harness/tui.py` | the interface |
 | `harness/cli.py` | entry points |
-| `tests/` | 88 cases, organised by subsystem |
+| `tests/` | 242 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
@@ -307,7 +314,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 88 cases
+python3 -m pytest tests/ -v              # 242 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

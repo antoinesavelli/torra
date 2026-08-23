@@ -17,7 +17,7 @@ python3 -m pytest tests/ -q          # must print 242 passed
 harness doctor
 ```
 
-Seven modules, ~5,400 lines shipped. `core.py`, `gates.py` and `telemetry.py` were later
+Eight modules, ~6,900 lines shipped. `core.py`, `gates.py` and `telemetry.py` were later
 each split into a same-named package of single-concern submodules (see
 `DEFENSIVE_CODING_STANDARDS.md` §1.2 for why); every name still imports from the same
 top-level path, e.g. `from harness.gates import SafetyClassifier`. Read in this order:
@@ -766,7 +766,8 @@ For an agent that needs the machine-readable version.
 ```
 entry points     harness.cli:main, harness.tui:run_tui, harness.pipeline:Harness
 core object      Harness(workdir, ollama=, agent=, safety=, verifier=, undo=,
-                         rollback=, conflicts=, clarifier=, router=, decisions=)
+                         rollback=, conflicts=, clarifier=, router=, decisions=,
+                         telemetry=, recheck_between_steps=True, knowledge_dir=None)
 plan             Harness.plan(request, model=None) -> RunResult
 execute          Harness.execute(result, approvals: Dict[str, bool], dry_run=False)
 one shot         Harness.run(request, approve: Callable[[Plan], Dict[str,bool]])
