@@ -170,6 +170,7 @@ class Agent:
         observer: Callable[[], MachineState] | None = None,
         max_repairs: int | None = None,
         system_prompt: str = SYSTEM_PROMPT,
+        knowledge_dir: str | None = None,
     ) -> None:
         """Wire the model client, router, clarifier, safety pre-screen, and context."""
         self.ollama = ollama
@@ -177,7 +178,8 @@ class Agent:
         self.clarifier = clarifier or Clarifier()
         self.safety = safety or SafetyClassifier()
         self.context = compressor or ContextCompressor(max_tokens=24_000)
-        self._observe = observer or (lambda: observe_machine(ollama=ollama))
+        self._observe = observer or (
+            lambda: observe_machine(ollama=ollama, knowledge_dir=knowledge_dir))
         self.max_repairs = self.MAX_REPAIRS if max_repairs is None else int(max_repairs)
         self.system_prompt = system_prompt
 

@@ -559,6 +559,31 @@ this project's own reference machine, and every hardcoded `--user` call
 silently targeting the wrong systemd instance. See `AUDIT_FINDINGS.md`
 MED-2.
 
+**Site-knowledge library gives the model awareness, never a new capability.**
+`HARNESS_KNOWLEDGE_DIR` (read once in `Harness.__init__`, via
+`Harness._resolve_knowledge_dir`) points `observe_machine()` at an optional
+local directory of site-specific docs (this machine's hardware, services,
+storage layout, past fixes, quirks). `_scan_knowledge_dir` only ever reads
+first-headings for a topic index -- it does not feed file contents into the
+prompt. That index rides in `MachineState.render()`'s existing "Current
+machine state" system message (`Agent._messages()`), not in `SYSTEM_PROMPT`
+itself, specifically so the model still has to *propose* a read-only
+grep/cat step through the existing plan-step path to actually read a file --
+`SafetyClassifier` still classifies it (reads are SAFE, auto-run) the same
+as any other step. Do not wire file contents directly into the prompt as a
+"convenience" -- that would bypass the gate a step gets today. Measured,
+not guessed: `devstral:24b` reliably proposes the intended
+`grep -ril 'KEYWORD' {path}/*.md` step first; the smallest routed-to model
+(`qwen3.5:latest`) does not do this reliably even after three rounds of
+instruction-wording iteration (see `scripts/dev/model_bench/REPORT.md`).
+Ship this as an honestly-scoped, capability-dependent mechanism, not as a
+guaranteed behavior.
+
+> Guarded by `tests/test_core.py::TestKnowledgeLibrary`,
+> `tests/test_agent.py::test_knowledge_dir_reaches_the_default_observer`,
+> `tests/test_pipeline.py::test_knowledge_dir_defaults_from_the_environment`
+> + 3 more.
+
 ---
 
 ## 6. What is actually unfinished

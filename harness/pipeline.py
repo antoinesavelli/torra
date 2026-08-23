@@ -3,14 +3,14 @@
 Depends on: harness.agent (Agent), harness.core (task/step primitives, OllamaClient,
 ConflictDetector, ResumePoint), harness.gates (all five guardrails).
 
-converse/observe/propose/gate/present/execute/report. `observe`/`propose`
-live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
-the operator) stopped making sense once a model could ask a better question.
+converse/observe/propose/gate/present/execute/report. `observe`/`propose` live inside `Agent.converse` -- the old
+`clarify` stage (a wall in front of the operator) stopped making sense once a model could ask a better question.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -108,8 +108,7 @@ class StepPlan:
 
 @dataclass
 class Plan:
-    """A proposal plus every gate verdict on it, ready to show a human.
-    Deliberately carries no `conflicts` field -- see `_gate()`'s comment;
+    """A proposal plus every gate verdict on it, ready to show a human. Deliberately carries no `conflicts` field -- see `_gate()`'s comment;
     real conflict detection is `execute()`'s per-step `Outcome.BLOCKED`."""
 
     spec: TaskSpec
@@ -202,9 +201,8 @@ class RunResult:
 
 
 class Harness:
-    """The whole thing: model, gates, execution, audit. Construction is
-    deliberately boring -- every collaborator has a working, injectable
-    default, so the TUI, CLI and test suite drive one object, not three."""
+    """The whole thing: model, gates, execution, audit. Construction is deliberately boring -- every collaborator has a
+    working, injectable default, so the TUI, CLI and test suite drive one object, not three."""
 
     def __init__(
         self,
@@ -221,6 +219,7 @@ class Harness:
         decisions: DecisionLog | None = None,
         telemetry: TaskLogger | None = None,
         recheck_between_steps: bool = True,
+        knowledge_dir: str | None = None,
     ) -> None:
         """Wire the workdir, model backend, and gate implementations (all injectable)."""
         self.workdir = Path(workdir) if workdir is not None else Path.home() / ".harness"
@@ -233,7 +232,7 @@ class Harness:
         self.router = router or ModelRouter()
         self.verifier = verifier or StateVerifier()
         self.undo = undo or UndoGenerator(
-            shadow_dir=self.workdir / f"harness-shadow-{__import__('os').getpid()}")
+            shadow_dir=self.workdir / f"harness-shadow-{os.getpid()}")
         self.rollback = rollback or VerifiedRollback()
         self.conflicts = conflicts or ConflictDetector()
         self.decisions = decisions or DecisionLog()
@@ -246,10 +245,16 @@ class Harness:
         # file's own choke point.
         self.telemetry = telemetry or TaskLogger(self.workdir / "telemetry" / "tasks.jsonl")
         self.recheck_between_steps = bool(recheck_between_steps)
+        self.knowledge_dir = self._resolve_knowledge_dir(knowledge_dir)
 
         self.agent = agent or Agent(
             ollama=self.ollama, router=self.router,
-            clarifier=self.clarifier, safety=self.safety)
+            clarifier=self.clarifier, safety=self.safety, knowledge_dir=self.knowledge_dir)
+
+    @staticmethod
+    def _resolve_knowledge_dir(explicit: str | None) -> str | None:
+        """Explicit value (incl. `""` to disable) wins; else `HARNESS_KNOWLEDGE_DIR`."""
+        return (explicit if explicit is not None else os.environ.get("HARNESS_KNOWLEDGE_DIR")) or None
 
     # -- stage 1 to 3: the model ------------------------------------------- #
 
@@ -490,9 +495,8 @@ class Harness:
 
     @staticmethod
     def _run_one_step(sp: StepPlan, result: RunResult, dry_run: bool) -> StepResult:
-        """Run one step, converting any raise into a failed StepResult.
-        Returns rather than assigns `sp.result` (mypy can't narrow a
-        mutated attribute to non-None across a call boundary)."""
+        """Run one step, converting any raise into a failed StepResult. Returns rather than assigns `sp.result` (mypy can't
+        narrow a mutated attribute to non-None across a call boundary)."""
         step_started = time.perf_counter()
         try:
             if dry_run:
@@ -555,10 +559,8 @@ class Harness:
                            f"{len(result.results)} step(s) ran")
 
     def reject(self, result: RunResult) -> RunResult:
-        """Explicitly decline a plan without running anything. Distinct
-        from execute()'s implicit refusal (an all-safe plan runs, not
-        refuses, under `execute(result, {})`). Refuses if `result.executed`
-        is already True, so a late click can't overwrite a real outcome."""
+        """Explicitly decline a plan; refuses if `result.executed` is already True so a late click can't overwrite a real outcome
+        -- execute()'s own implicit refusal only covers an all-safe plan run under `execute(result, {})`."""
         if result.executed:
             self.decisions.log(
                 Stage.PRESENT.value, "refused: already executed",

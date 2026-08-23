@@ -86,6 +86,16 @@ which is how the one that mattered gets ticked too.
 | `ctrl+q` | quit |
 | `ctrl+c` | copy selected text (Textual's own built-in behavior; select with click-drag first) |
 
+**`ctrl+c` copy not landing in your real clipboard?** Textual copies via an OSC 52
+terminal escape sequence, which some terminals don't honor -- confirmed live on
+GNOME Terminal (VTE), which drops it silently: the in-app selection highlights
+fine, but nothing reaches the system clipboard. Workaround, terminal-native and
+independent of Textual entirely: hold `Shift` while you click-drag to select
+(bypasses the app's own mouse capture the same way it would in `vim` or `htop`),
+then use your terminal's own copy shortcut -- on GNOME Terminal that's
+`ctrl+shift+c` (plain `ctrl+c` there is reserved for the running program), or
+middle-click to paste the X11 primary selection with no explicit copy step at all.
+
 ---
 
 ## Commands
@@ -202,6 +212,27 @@ journalctl --user -u ollama | grep -i vram   # why it fell back
 ```
 
 A 32b model at q4 wants roughly 20 GB. Under that, it offloads.
+
+---
+
+## Site-knowledge library
+
+Point the harness at a directory of Markdown docs about this specific machine
+(hardware, services, storage layout, past fixes, quirks) and the model gets a
+topic index of it on every turn -- so "where is the backup repo" gets answered
+from what you have already written down instead of a guess or a clarifying
+question:
+
+```bash
+export HARNESS_KNOWLEDGE_DIR=/path/to/your/docs
+```
+
+This only gives the model *awareness* that the library exists, never a new
+capability: reading a file still goes through an ordinary, gated plan step
+(a `grep`/`cat`, always SAFE, auto-run) -- nothing bypasses the five gates.
+It also only reliably works with a capable-enough model behind it; the
+smallest routed-to model does not consistently use it (measured in
+`scripts/dev/model_bench/REPORT.md`).
 
 ---
 

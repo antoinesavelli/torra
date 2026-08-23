@@ -10,6 +10,7 @@ import os
 import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .ollama import OllamaClient
@@ -174,6 +175,14 @@ class MachineState:
     accelerator: Accelerator = field(default_factory=Accelerator)
     ollama_models: list[str] = field(default_factory=list)
     ollama_models_dir: str = ""
+    #: A configured, optional local directory of site-specific documentation
+    #: (hardware/services/quirks/etc. for *this* machine) -- keyed by
+    #: filename, valued by that file's first heading, not its full content
+    #: (some of these run past 100KB; the model gets an index, then reads
+    #: the relevant file itself via an ordinary read-only step, the same
+    #: way it reads anything else). Empty when unconfigured or absent.
+    knowledge_library_path: str = ""
+    knowledge_library: dict[str, str] = field(default_factory=dict)
     extras: dict[str, str] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
@@ -199,6 +208,23 @@ class MachineState:
             lines += ["", f"local models: {', '.join(self.ollama_models)}"]
         if self.ollama_models_dir:
             lines += [f"local models directory: {self.ollama_models_dir}"]
+        if self.knowledge_library:
+            lines += [
+                "", f"site knowledge library at {self.knowledge_library_path} "
+                "documents this exact machine: hardware, services, storage layout, "
+                "past fixes, known quirks. The relevant fact is often buried in "
+                "one file's prose, not named in any file's own topic below -- so "
+                "when the request needs a specific fact about this machine "
+                "(a path, a repository location, a config value, whether "
+                "something is set up at all), do not guess and do not ask the "
+                "operator first. Propose a read-only step that greps every file "
+                "for the relevant keyword before anything else, for example:\n"
+                f"    grep -ril 'KEYWORD' {self.knowledge_library_path}/*.md\n"
+                "then read whichever file(s) that finds. Topics, for a narrower "
+                "first guess when one obviously fits:",
+            ]
+            lines += [f"  {name}: {heading}"
+                     for name, heading in self.knowledge_library.items()]
         for name, value in self.extras.items():
             lines += ["", f"{name}:", value]
         return "\n".join(lines)
@@ -240,10 +266,51 @@ OLLAMA_MODELS_DIR_PROBE = (
 )
 
 
+#: Standardized meta-filenames (agent instructions, changelog, license --
+#: about the library's own upkeep, not a fact about the machine) excluded
+#: from the topic index. Deliberately a small, well-known, industry-wide
+#: set rather than anything specific to one library's own naming, so this
+#: stays generalizable to any configured knowledge directory.
+KNOWLEDGE_META_FILENAMES: frozenset[str] = frozenset({
+    "claude.md", "changelog.md", "readme.md", "agents.md",
+    "license.md", "contributing.md",
+})
+
+
+def _scan_knowledge_dir(path: os.PathLike[str] | str) -> tuple[str, dict[str, str]]:
+    """First heading of every top-level `.md` file in a configured
+    site-knowledge directory.
+
+    Only the heading, not the content: some of these files run past
+    100KB, and the point is an index cheap enough to include on every
+    turn, not the library itself -- the model reads a specific file via
+    an ordinary step once it decides it needs one. Not recursive: `fixes/`,
+    `raw/`, `lists/`-style subdirectories are implementation detail for
+    whatever maintains the library, not something to advertise as a
+    top-level topic.
+    """
+    root = Path(path)
+    if not root.is_dir():
+        return "", {}
+    headings: dict[str, str] = {}
+    for md in sorted(root.glob("*.md")):
+        lower = md.name.lower()
+        if lower in KNOWLEDGE_META_FILENAMES or lower.endswith("-claude.md"):
+            continue
+        try:
+            with md.open("r", encoding="utf-8", errors="replace") as fh:
+                heading = next((s for line in fh if (s := line.strip())), "")
+        except OSError:
+            continue
+        headings[md.name] = heading.lstrip("#").strip()[:80]
+    return str(root), headings
+
+
 def observe_machine(
     extra: dict[str, str] | None = None,
     ollama: OllamaClient | None = None,
     runner: Callable[[str, str | None, float | None], str] | None = None,
+    knowledge_dir: os.PathLike[str] | str | None = None,
 ) -> MachineState:
     """Gather read-only facts about the machine."""
     # A probe that fails is recorded on state.errors rather than raised: an
@@ -251,6 +318,13 @@ def observe_machine(
     # reliable than no observation at all.
     execute = runner or shell
     state = MachineState(cwd=os.getcwd())
+
+    if knowledge_dir is not None:
+        try:
+            state.knowledge_library_path, state.knowledge_library = \
+                _scan_knowledge_dir(knowledge_dir)
+        except Exception as exc:
+            state.errors.append(f"knowledge_library: {type(exc).__name__}: {exc}")
 
     for name, command in OBSERVE_COMMANDS:
         try:

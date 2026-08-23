@@ -988,3 +988,28 @@ first to discover the name, not asking the operator for it -- exactly the
 tool-reaching gap this task exists to measure. Single run, not yet a
 trend -- worth re-running alongside a real benchmark pass rather than
 concluding anything from one sample per model.
+
+## 2026-08-23 — Site-knowledge library instruction wording, measured live
+
+Motivated by a real request ("when was the last borg backup made") that the
+harness answered by asking a clarifying question, when `/mnt/ParamoStorage/system-library/`
+already documented the exact backup setup on this machine and the harness
+had zero code path to it. Built `HARNESS_KNOWLEDGE_DIR` (see `HANDOFF.md`
+§5's new "Site-knowledge library" entry) and iterated the instruction text
+in `MachineState.render()` three times, measuring live each time rather than
+guessing wording would work:
+
+| Round | Wording | Result (4 live attempts) |
+|---|---|---|
+| 1 | Generic "a knowledge library is available, consult it" | 0/4 |
+| 2 | Strengthened "before proposing any other action, check the library" | 0/4, same failure modes |
+| 3 | Concrete worked example: `grep -ril 'KEYWORD' {path}/*.md` | 0/4 on `qwen3.5:latest`; 4/4 on `devstral:24b` when forced to that model |
+
+Round 3's wording works, but only for a sufficiently capable model — the
+smallest routed-to model (`qwen3.5:latest`) never reliably used the
+mechanism in this testing, even with the concrete example. Shipping this as
+a capability-dependent mechanism (documented as such in `HANDOFF.md`), not
+as a guaranteed behavior across every model in `ROUTING_RULES`. Worth
+revisiting if/when a stronger default model is routed to for this task
+shape, or if `ModelRouter` grows a way to prefer a more capable model when
+a knowledge library is configured.

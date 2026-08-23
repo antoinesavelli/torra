@@ -451,6 +451,27 @@ def test_observe_populates_the_routers_real_model_sizes() -> None:
         "qwen3.5:latest": True, "nomic-embed-text:latest": False}
 
 
+def test_knowledge_dir_reaches_the_default_observer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent's default observer is a closure built at construction time --
+    this confirms knowledge_dir actually reaches observe_machine() through
+    it, not just that the parameter exists."""
+    import harness.agent as agent_module
+
+    seen: dict[str, object] = {}
+
+    def fake_observe_machine(extra=None, ollama=None, runner=None, knowledge_dir=None):
+        seen["knowledge_dir"] = knowledge_dir
+        return MachineState(hostname="pop-os")
+
+    monkeypatch.setattr(agent_module, "observe_machine", fake_observe_machine)
+
+    agent = Agent(OllamaClient(transport=lambda p, pay, t: {}),
+                  knowledge_dir="/some/library")
+    agent.observe()
+
+    assert seen["knowledge_dir"] == "/some/library"
+
+
 def test_observe_refresh_repopulates_stale_model_metadata() -> None:
     """Found in a full-file audit: the model-metadata block only ran when
     `router.available` was still falsy, so `observe(refresh=True)` -- whose

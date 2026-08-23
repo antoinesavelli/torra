@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from harness.core import ConflictDetector, OllamaClient, observe_machine
-from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, detect_accelerator
+from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, _scan_knowledge_dir, detect_accelerator
 from harness.core.tasks import TaskSpec, TaskSpecError, shell
 
 
@@ -58,6 +58,87 @@ def test_fallback_model_default_is_actually_pulled() -> None:
     catalog change has to touch this constant deliberately, not by
     accident."""
     assert OllamaClient().fallback_model == "qwen3.5:latest"
+
+
+class TestKnowledgeLibrary:
+    """observe_machine(knowledge_dir=...): a configured, optional local
+    directory of site-specific documentation the model can propose a
+    read-only step against, instead of guessing or asking the operator for
+    something already documented. See scripts/dev/model_bench/REPORT.md's
+    2026-08-23 entry for the measured, model-capability-dependent result
+    this was actually built to close a gap on."""
+
+    def test_top_level_md_files_are_indexed_by_first_heading(self, tmp_path) -> None:
+        (tmp_path / "services.md").write_text(
+            "# Services and processes\n\nbody text\n", encoding="utf-8")
+        (tmp_path / "quirks.md").write_text(
+            "\n\n# Known quirks and gotchas\nbody\n", encoding="utf-8")
+
+        path, headings = _scan_knowledge_dir(tmp_path)
+        assert path == str(tmp_path)
+        assert headings == {
+            "quirks.md": "Known quirks and gotchas",
+            "services.md": "Services and processes",
+        }
+
+    def test_meta_filenames_are_excluded(self, tmp_path) -> None:
+        """CLAUDE.md/CHANGELOG.md document the library's own upkeep, not a
+        fact about the machine -- including them risks the model trying
+        to "consult" agent instructions for hardware facts."""
+        (tmp_path / "CLAUDE.md").write_text("# instructions\n", encoding="utf-8")
+        (tmp_path / "home-CLAUDE.md").write_text("# more instructions\n", encoding="utf-8")
+        (tmp_path / "CHANGELOG.md").write_text("# changes\n", encoding="utf-8")
+        (tmp_path / "hardware.md").write_text("# Hardware\n", encoding="utf-8")
+
+        _path, headings = _scan_knowledge_dir(tmp_path)
+        assert headings == {"hardware.md": "Hardware"}
+
+    def test_a_missing_directory_degrades_to_empty_not_a_crash(self) -> None:
+        path, headings = _scan_knowledge_dir("/no/such/directory/at/all")
+        assert path == ""
+        assert headings == {}
+
+    def test_observe_machine_populates_the_new_fields(self, tmp_path) -> None:
+        (tmp_path / "storage.md").write_text("# Storage layout\n", encoding="utf-8")
+
+        def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            return ""
+
+        state = observe_machine(runner=runner, knowledge_dir=tmp_path)
+        assert state.knowledge_library_path == str(tmp_path)
+        assert state.knowledge_library == {"storage.md": "Storage layout"}
+
+    def test_render_includes_the_section_only_when_configured(self, tmp_path) -> None:
+        (tmp_path / "storage.md").write_text("# Storage layout\n", encoding="utf-8")
+
+        def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            return ""
+
+        with_library = observe_machine(runner=runner, knowledge_dir=tmp_path)
+        without_library = observe_machine(runner=runner)
+
+        assert "storage.md: Storage layout" in with_library.render()
+        assert "knowledge library" in with_library.render()
+        assert "knowledge library" not in without_library.render()
+        assert "storage.md" not in without_library.render()
+
+    def test_a_bad_knowledge_dir_probe_does_not_abort_observation(self, monkeypatch) -> None:
+        """Matches every other probe in observe_machine: a failure here is
+        recorded, not raised."""
+        import harness.core.machine as machine_module
+
+        def broken_scan(path):
+            raise RuntimeError("scan failed")
+
+        monkeypatch.setattr(machine_module, "_scan_knowledge_dir", broken_scan)
+
+        def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            return "ok"
+
+        state = observe_machine(runner=runner, knowledge_dir="/whatever")
+        assert state.knowledge_library == {}
+        assert any("knowledge_library" in e for e in state.errors)
+        assert state.hostname == "ok"
 
 
 class TestModelInfo:

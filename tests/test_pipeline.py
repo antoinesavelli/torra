@@ -11,11 +11,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from conftest import plan_reply, scripted
 
 from harness.core import ConflictDetector, TaskSpec
 from harness.gates import Precondition, StateVerifier
-from harness.pipeline import Outcome, Stage
+from harness.pipeline import Harness, Outcome, Stage
 
 SAFE_PLAN = plan_reply(
     "write-config", "set workers to 4 in /tmp/h7/app.conf",
@@ -633,3 +634,34 @@ def test_a_hand_written_file_still_works_without_a_model(make_harness,
     assert done.outcome is Outcome.COMPLETED
     assert marker.exists()
     assert harness.ollama.calls == 0, "no model should have been consulted"
+
+
+def test_knowledge_dir_defaults_from_the_environment(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """cli.py/tui.py construct Harness() with no knowledge_dir argument at
+    all -- this is the only place that has to read HARNESS_KNOWLEDGE_DIR,
+    so they need no changes to pick up a configured library."""
+    monkeypatch.setenv("HARNESS_KNOWLEDGE_DIR", str(tmp_path))
+    harness = Harness(workdir=tmp_path / "wd")
+    assert harness.knowledge_dir == str(tmp_path)
+
+
+def test_an_explicit_knowledge_dir_overrides_the_environment(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HARNESS_KNOWLEDGE_DIR", "/from/env")
+    harness = Harness(workdir=tmp_path / "wd", knowledge_dir=str(tmp_path))
+    assert harness.knowledge_dir == str(tmp_path)
+
+
+def test_an_explicit_empty_knowledge_dir_disables_it_even_with_env_set(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HARNESS_KNOWLEDGE_DIR", "/from/env")
+    harness = Harness(workdir=tmp_path / "wd", knowledge_dir="")
+    assert harness.knowledge_dir is None
+
+
+def test_knowledge_dir_is_none_by_default_with_nothing_configured(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("HARNESS_KNOWLEDGE_DIR", raising=False)
+    harness = Harness(workdir=tmp_path / "wd")
+    assert harness.knowledge_dir is None
