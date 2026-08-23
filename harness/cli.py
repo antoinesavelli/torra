@@ -14,6 +14,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -195,21 +196,27 @@ def cmd_run(args: argparse.Namespace) -> int:
         return EXIT_USAGE
 
     harness = build_harness(Path(args.workdir), offline=True)
+    started = time.perf_counter()
     plan = harness._gate(spec)
     print_plan(plan)
 
     result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
                        stages=["gate", "present"], plan=plan)
     if plan.preconditions and not plan.preconditions.passed:
-        print("\npreconditions failed: " + ", ".join(
-            r.name for r in plan.preconditions.blocking_failures))
+        result.outcome = Outcome.BLOCKED
+        result.abort_reason = "preconditions failed: " + ", ".join(
+            r.name for r in plan.preconditions.blocking_failures)
+        # Same choke point Harness.plan() uses for the identical case --
+        # calling _finish() (not printing and returning) is what actually
+        # writes the audit record and telemetry entry; skipping it here
+        # silently discarded both for every precondition-blocked run file.
+        done = harness._finish(result, started)
+        _print_execution_report(done)
         return EXIT_BLOCKED
 
     approvals = {} if args.non_interactive else approve_at_prompt(plan)
     done = harness.execute(result, approvals, dry_run=args.dry_run)
-    print(f"\noutcome: {done.outcome.value}")
-    if done.abort_reason:
-        print(f"reason : {done.abort_reason}")
+    _print_execution_report(done)
     return OUTCOME_EXIT.get(done.outcome.value, EXIT_FAILED)
 
 
@@ -373,8 +380,11 @@ def cmd_label(args: argparse.Namespace) -> int:
         if answer == "q":
             break
         if answer == "a":
-            labels.label(request, True, input("    why? ").strip(),
-                         os.environ.get("USER", ""))
+            try:
+                why = input("    why? ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            labels.label(request, True, why, os.environ.get("USER", ""))
             labeled += 1
         elif answer == "s":
             labels.label(request, False, labeler=os.environ.get("USER", ""))

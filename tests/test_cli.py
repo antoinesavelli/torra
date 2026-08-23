@@ -241,7 +241,56 @@ def test_run_executes_a_hand_written_task_file_with_no_model(
     out = capsys.readouterr().out
     assert exit_code == cli.EXIT_OK
     assert "outcome: completed" in out
+
+
+def test_run_reports_per_step_results_and_the_audit_path(
+        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`cmd_run` used to hand-roll its own post-execution print instead of
+    reusing `_print_execution_report` -- it showed only the bare outcome,
+    with no per-step ok/FAIL breakdown and no audit path, unlike `harness
+    ask`. A failed or partially-run task file gave no way to tell which
+    step failed without opening the audit JSON by hand."""
+    marker = tmp_path / "marker"
+    task_file = write_task_file(
+        tmp_path / "task.yaml", "t", f"touch {marker}",
+        [{"id": "touch", "run": f"touch {marker}"}])
+
+    exit_code = cli.cmd_run(run_args(tmp_path, task_file))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_OK
+    assert "ok   touch" in out
+    assert "audit  :" in out
     assert marker.exists()
+
+
+def test_run_still_writes_an_audit_record_when_preconditions_fail(
+        tmp_path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """`cmd_run` used to print "preconditions failed: ..." and return
+    directly, never calling `_finish()` -- the same choke point
+    `Harness.plan()` uses for the identical case. The full decision trail
+    `_gate()` already built (every per-step classification, the precondition
+    failure itself) was silently discarded: no audit JSON, no telemetry
+    record, for every precondition-blocked run file."""
+    from harness.gates import StateVerifier
+
+    monkeypatch.setattr(StateVerifier, "disk_free_gb", staticmethod(lambda path="/": 0.0))
+    marker = tmp_path / "marker"
+    task_file = write_task_file(
+        tmp_path / "task.yaml", "t", f"touch {marker}",
+        [{"id": "touch", "run": f"touch {marker}"}])
+
+    exit_code = cli.cmd_run(run_args(tmp_path, task_file))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_BLOCKED
+    assert "audit  :" in out
+    audit_files = list((tmp_path / "audit").glob("*.audit.json"))
+    assert len(audit_files) == 1
+    telemetry = (tmp_path / "telemetry" / "tasks.jsonl").read_text(encoding="utf-8")
+    assert '"status": "blocked"' in telemetry
+    assert not marker.exists()
 
 
 def test_run_rejects_a_malformed_task_file(
