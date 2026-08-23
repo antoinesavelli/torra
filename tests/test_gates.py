@@ -125,6 +125,20 @@ class TestSafety:
         assert verdict.level is RiskLevel.CRITICAL
         assert any("base64 payload" in r for r in verdict.reasons)
 
+    def test_an_unquoted_base64_payload_is_decoded_too(self) -> None:
+        """Found live: the blob-extraction regex only matched a quoted
+        string, but base64's own alphabet has no whitespace in it, so
+        `echo BLOB | base64 -d | sh` (no quotes needed or used) is at
+        least as natural to write as the quoted form -- and evaded
+        decoding entirely, silently downgrading a CRITICAL recursive
+        delete to a generic DANGEROUS "piped into a shell" backstop
+        finding instead of the real verdict."""
+        import base64
+        blob = base64.b64encode(b"rm -rf /home").decode()
+        verdict = SafetyClassifier().classify(f"echo {blob} | base64 -d | sh")
+        assert verdict.level is RiskLevel.CRITICAL
+        assert any("base64 payload" in r for r in verdict.reasons)
+
     def test_quoted_semicolons_do_not_split_the_payload(self) -> None:
         """A naive split on `;` tears `python3 -c "a;b"` apart, and that is
         exactly how a destructive call escapes classification."""
@@ -146,6 +160,26 @@ class TestSafety:
         safety = SafetyClassifier()
         for cmd in ("kill -9 1", "kill -s KILL 1", "kill -SIGKILL 1",
                    "kill -s 9 1", "kill 1", "kill -9 1 12345"):
+            assert safety.classify(cmd).level is RiskLevel.CRITICAL, cmd
+
+    def test_kill_of_pid_1_is_caught_even_behind_timeouts_value_taking_flag(
+            self) -> None:
+        """Found live, the most severe gap this project's own audits have
+        caught: `timeout -s KILL 5 kill -9 1` classified SAFE outright.
+        `_strip` popped "timeout" as a wrapper, then treated "-s" as a
+        bare boolean flag and stopped -- leaving "KILL" (the *value* of
+        `-s`, not a flag itself) as the next token. The duration-skip
+        check only matches digits, so "KILL" was never consumed either,
+        and it became the resolved argv's program name. `kill` never ran
+        through `_judge_kill` at all, and there is no regex BACKSTOP entry
+        for "kill of PID 1" (that check is argv-only) to catch it as a
+        fallback the way rm/mkfs/dd are. `timeout -s KILL 5 kill -9 1` is
+        an entirely ordinary shell idiom, not a contrived adversarial
+        string."""
+        safety = SafetyClassifier()
+        for cmd in ("timeout -s KILL 5 kill -9 1",
+                   "timeout --signal=KILL 5 kill -9 1",
+                   "timeout -k 10 5 kill -9 1"):
             assert safety.classify(cmd).level is RiskLevel.CRITICAL, cmd
 
     def test_kill_of_a_different_pid_is_not_mistaken_for_pid_1(self) -> None:

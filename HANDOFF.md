@@ -319,6 +319,52 @@ applies to itself.
 
 Places where an obvious-looking change is wrong.
 
+**`SafetyClassifier._decode_base64`'s blob pattern must not require quotes.**
+Base64's own alphabet has no whitespace in it, so `echo BLOB | base64 -d |
+sh` needs no quotes around `BLOB` -- it's at least as natural to write as
+the quoted form, arguably more so. The original blob-extraction regex
+required quote delimiters (`['\"]([A-Za-z0-9+/=]{8,})['\"]`), so the
+unquoted form evaded decoding entirely: `resolve()` never saw the real
+payload, and `classify()` fell back to the generic BACKSTOP's "piped into
+a shell" finding (DANGEROUS) instead of the actual resolved verdict
+(CRITICAL, for a payload that was itself a recursive force delete).
+Confirmed live: encoding `rm -rf /home` and piping it unquoted through
+`base64 -d | sh` classified DANGEROUS, not CRITICAL, before this fix. The
+pattern now matches a bounded run of base64-alphabet characters directly
+(`(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{8,}(?![A-Za-z0-9+/=])`) -- the
+boundary is the charset itself, so it still naturally stops at a quote
+when one happens to be present, without requiring one.
+
+> Guarded by `tests/test_gates.py::TestSafety::test_an_unquoted_base64_payload_is_decoded_too`
+
+**`_strip` must know which wrapper flags consume a value.** The most
+severe gap this project's own audits have found: `timeout -s KILL 5 kill
+-9 1` classified **SAFE outright**. `_strip` popped `timeout` as a
+wrapper, then treated `-s` as a bare boolean flag and stopped -- leaving
+`KILL` (the *value* `-s` takes, not a flag) as the next token. The
+duration-skip check only matches digits, so `KILL` was never consumed
+either, and it became the resolved argv's program name. `kill` itself
+never reached `_judge_kill` at all -- and there is no regex BACKSTOP entry
+for "kill of PID 1" (that check is inherently argv-only: it has to walk
+past `-s`/`-n`/`--signal`'s own argument to find the real PID, which a
+flat regex can't do) to catch it as a fallback the way rm/mkfs/dd are.
+`timeout -s KILL 5 kill -9 1` is an entirely ordinary shell idiom, not a
+contrived adversarial string -- a model writing a defensive script
+("kill this hung process, but time out after 5s") could produce it with
+zero adversarial intent and still slip a PID-1 kill straight past every
+gate. Fixed with `WRAPPER_VALUE_FLAGS`, a per-wrapper set of flags known
+to take a value (`timeout`'s `-s`/`--signal`/`-k`/`--kill-after`,
+`nice`'s `-n`, `ionice`'s `-c`/`-n`/`-p`, `stdbuf`'s `-i`/`-o`/`-e`,
+`xargs`'s several, `env`'s `-u`/`-C`/`-S`, `sudo`'s `-u`/`-g`/`-h`/`-p`) --
+`--flag=value` needs no extra consumption since it's already one token.
+If you add a new wrapper to `WRAPPERS`, check whether it has any
+value-taking flags and add them here in the same change; an unlisted one
+silently reintroduces this exact class of gap.
+
+> Guarded by `tests/test_gates.py::TestSafety::test_kill_of_pid_1_is_caught_even_behind_timeouts_value_taking_flag`
+
+> Guarded by `tests/test_gates.py::TestSafety::test_an_unquoted_base64_payload_is_decoded_too`
+
 **`ConflictDetector` reconcile schedule.** The event fast path is 5,000x cheaper
 than walking, but inotify has three silent failure modes: queue overflow,
 directories created after watches attach, and moves in from outside. The full

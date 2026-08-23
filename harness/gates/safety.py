@@ -124,6 +124,29 @@ INTERPRETERS: tuple[str, ...] = ("sh", "bash", "zsh", "ksh", "dash", "python",
 WRAPPERS: tuple[str, ...] = ("sudo", "doas", "env", "nohup", "nice", "ionice",
                              "setsid", "time", "timeout", "stdbuf", "xargs")
 
+#: Flags that consume the *next* token as their own value, per wrapper --
+#: used so _strip doesn't mistake a flag's value for the start of the
+#: wrapped command. Found live: `timeout -s KILL 5 kill -9 1` left "KILL"
+#: (the value of `-s`, not a flag) unconsumed; _strip's duration-skip only
+#: matches digits, so "KILL" became the resolved argv's program name --
+#: never "kill" -- and `_judge_kill`'s PID-1 check never ran. There is no
+#: regex BACKSTOP entry for "kill of PID 1" (that check is argv-only) to
+#: catch it as a fallback the way rm/mkfs/dd are, so the whole command
+#: classified SAFE outright for an entirely ordinary shell idiom, not a
+#: contrived adversarial string.
+WRAPPER_VALUE_FLAGS: dict[str, frozenset[str]] = {
+    "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "ionice": frozenset({"-c", "--class", "-n", "--classdata", "-p", "--pid"}),
+    "stdbuf": frozenset({"-i", "--input", "-o", "--output", "-e", "--error"}),
+    "xargs": frozenset({"-n", "--max-args", "-I", "-P", "--max-procs", "-L",
+                        "--max-lines", "-s", "--max-chars", "-a",
+                        "--arg-file", "-d", "--delimiter", "-E"}),
+    "env": frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}),
+    "sudo": frozenset({"-u", "--user", "-g", "--group", "-h", "--host",
+                       "-p", "--prompt"}),
+}
+
 #: Regex backstop. Parsing can fail on exotic syntax, and when it does the
 #: answer should be the old answer rather than silence.
 BACKSTOP: list[tuple[str, RiskLevel, str]] = [
@@ -219,6 +242,28 @@ class SafetyClassifier:
             self.parse_failures.append(f"{segment!r}: {exc}")
             return segment.split()
 
+    @staticmethod
+    def _consume_wrapper(out: list[str]) -> bool:
+        """Pop a leading wrapper program with its flags and duration, if
+        present. Mutates `out` in place; returns whether anything was
+        consumed."""
+        if not out or out[0].rsplit("/", 1)[-1] not in WRAPPERS:
+            return False
+        wrapper = out.pop(0).rsplit("/", 1)[-1]
+        value_flags = WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
+        while out and (out[0] == "--" or out[0].startswith("-")):
+            flag = out.pop(0)
+            if flag == "--":
+                break
+            # A flag known to take a value consumes the next token too --
+            # unless it was given as "--flag=value", which already carries
+            # its value in the one token just popped.
+            if flag in value_flags and "=" not in flag and out:
+                out.pop(0)
+        if out and re.fullmatch(r"\d+[smhd]?", out[0]):
+            out.pop(0)
+        return True
+
     def _strip(self, argv: list[str], env: dict[str, str]) -> list[str]:
         """Remove leading VAR=value assignments and wrapper programs."""
         # Repeats until nothing changes because wrappers nest: `env FOO=bar
@@ -236,14 +281,8 @@ class SafetyClassifier:
                 env[name] = value
                 out.pop(0)
                 changed = True
-            if out and out[0].rsplit("/", 1)[-1] in WRAPPERS:
-                out.pop(0)
+            if self._consume_wrapper(out):
                 changed = True
-                while out and (out[0] == "--" or out[0].startswith("-")):
-                    if out.pop(0) == "--":
-                        break
-                if out and re.fullmatch(r"\d+[smhd]?", out[0]):
-                    out.pop(0)
         return out
 
     @staticmethod
@@ -257,11 +296,25 @@ class SafetyClassifier:
         return out
 
     def _decode_base64(self, command: str) -> str | None:
-        """Decode a literal base64 blob piped into a shell."""
+        """Decode a literal base64 blob piped into a shell.
+
+        Found live: base64's own alphabet has no whitespace in it, so
+        `echo BLOB | base64 -d | sh` needs no quotes around BLOB and is at
+        least as natural to write as the quoted form -- but the blob
+        pattern used to require surrounding quotes, so the unquoted form
+        evaded decoding entirely and silently fell back to the generic
+        BACKSTOP's lower-severity "piped into a shell" finding instead of
+        the real, resolved verdict. Matching a bounded run of base64-alphabet
+        characters directly (not requiring quotes) catches both forms; the
+        boundary is the charset itself -- a quote, space, or pipe is never a
+        base64 character, so it still naturally stops at a quote when one
+        is present.
+        """
         if not (re.search(r"base64\s+(-d|--decode)", command)
                 and re.search(r"\|\s*(sudo\s+)?(ba|z|k|da)?sh\b", command)):
             return None
-        for blob in re.findall(r"['\"]([A-Za-z0-9+/=]{8,})['\"]", command):
+        for blob in re.findall(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{8,}(?![A-Za-z0-9+/=])",
+                               command):
             try:
                 decoded = base64.b64decode(blob, validate=True).decode("utf-8", "replace")
                 if decoded.strip():
