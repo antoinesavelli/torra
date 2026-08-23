@@ -956,3 +956,35 @@ same discipline) — but the prototype no longer has a known, reproducible
 failure mode blocking it. Next step before considering production wiring:
 either a larger task battery, or actual labeled live traffic once real
 usage accumulates (see `HANDOFF.md` §6.1/§6.2).
+
+## 2026-08-23 — New task added: `t1-when-did-backup-last-run`
+
+Found live, twice in a row, on a real request ("when was the last backup of
+paramo") before this task existed to measure it: two different models
+(`qwen3.5:latest`, `devstral:24b`), two different VRAM/routing states, both
+defaulted to a flat "I don't have that information" or generic clarifying
+questions instead of proposing the obvious `systemctl`/`journalctl` check —
+one of them gave up even after being told the exact commands to run.
+Neither reached for a tool already available to it. Added
+`t1-when-did-backup-last-run` to the tier-1 battery to make this a measured
+case rather than an anecdote.
+
+With more explicit wording than the original live request ("Check systemd
+(user scope) for a backup timer or service and tell me when it last ran,
+and whether it succeeded" — naming the subsystem directly, unlike the
+original "when was the last backup of paramo"), a single run against the
+three routed-to models split 1/3:
+
+| Model | Intent | Verdict |
+|---|---|---|
+| `qwen3.5:latest` | plan | HIT — proposed checking systemd, then reporting |
+| `devstral:24b` | ask | MISS — asked for the exact unit name |
+| `qwen3:32b` | ask | MISS — asked for the exact unit name |
+
+The two misses are more defensible than the original failure (asking which
+unit to check is reasonable when there could be several matching timers),
+but the ideal response is `systemctl --user list-timers | grep -i backup`
+first to discover the name, not asking the operator for it -- exactly the
+tool-reaching gap this task exists to measure. Single run, not yet a
+trend -- worth re-running alongside a real benchmark pass rather than
+concluding anything from one sample per model.

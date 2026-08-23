@@ -53,6 +53,26 @@ TASKS: list[Task] = [
         good_looks_like="One step, `systemctl restart nginx` (or --user), CAUTION risk level, "
                         "no rollback needed (service state undo is automatic).",
     ),
+    Task(
+        id="t1-when-did-backup-last-run",
+        tier=1,
+        title="Diagnostic question answerable by checking systemd, not by giving up",
+        request=("Check systemd (user scope) for a backup timer or service and tell me when "
+                 "it last ran, and whether it succeeded."),
+        acceptable_intents=("plan",),
+        good_looks_like="Proposes read-only diagnostic steps -- e.g. `systemctl --user "
+                        "list-timers`, `systemctl --user status <service>`, `journalctl "
+                        "--user -u <service>` -- to find the actual answer. A flat 'I don't "
+                        "have that information' or a request for the operator to describe "
+                        "their own backup setup is a miss: the request already named "
+                        "exactly where to look.",
+        notes="Found live: two consecutive real requests for \"when was the last backup\", "
+             "different models (qwen3.5:latest, devstral:24b) and different VRAM/routing "
+             "states, both defaulted to a flat non-answer or generic clarifying questions "
+             "instead of proposing the obvious systemd/journalctl check -- one of them "
+             "gave up even after being told the exact commands to run. Neither reached "
+             "for a tool already available to it.",
+    ),
 
     # -- Tier 2: moderate, multi-step, well-anchored ----------------------- #
     Task(
