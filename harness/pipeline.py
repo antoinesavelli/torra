@@ -464,13 +464,18 @@ class Harness:
         # complete but the run is not, so the stage list is left open for
         # execute() to continue and no audit record is written yet.
         result.seconds = time.perf_counter() - started
-        result.decisions = self.decisions.trail()
         if not write_audit:
+            result.decisions = self.decisions.trail()
             return result
         if Stage.REPORT.value not in result.stages:
             result.stages.append(Stage.REPORT.value)
+        # Summarize before the trail() snapshot below, not after -- a failed
+        # call logs its own decision (see _summarize()), and a snapshot
+        # taken first would silently drop that entry from both `result` and
+        # the audit file, leaving no record of why summary ended up empty.
         if result.plan and result.plan.model and result.results:
             result.summary = self._summarize(result)
+        result.decisions = self.decisions.trail()
 
         task_id = (result.plan.spec.task_id if result.plan
                    else f"turn-{len(self.agent.turns)}")

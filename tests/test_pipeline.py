@@ -756,3 +756,10 @@ def test_a_failed_summarize_call_does_not_break_the_run(
 
     assert done.outcome is Outcome.COMPLETED
     assert done.summary == ""
+    # Found live: _finish() used to snapshot result.decisions before calling
+    # _summarize(), so a failure here logged a decision that never made it
+    # into `result` or the audit file -- an empty summary with no recorded
+    # reason why.
+    assert any(d["decision"] == "summary failed" for d in done.decisions)
+    assert json.loads(Path(done.audit_path).read_text(encoding="utf-8"))["decisions"] == \
+        done.decisions

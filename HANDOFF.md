@@ -611,6 +611,24 @@ guaranteed behavior.
 > `tests/test_pipeline.py::test_knowledge_dir_defaults_from_the_environment`
 > + 3 more.
 
+**`_finish()` must snapshot `result.decisions` *after* `_summarize()`, not
+before.** Found live, testing the knowledge library above: a question that
+triggered a real (transient) summarize failure completed with an empty
+`result.summary` and, worse, no record anywhere of why -- `_summarize()`
+does log a "summary failed" decision on the exception path (§2.11), but
+`_finish()` used to call `self.decisions.log(...)`'s own `trail()` snapshot
+into `result.decisions` *before* calling `_summarize()`, so that decision
+landed in `self.decisions`'s internal log but never in the `result` object
+or the audit JSON built from it moments later. Same shape as the "ollama
+model_info once, not stale forever" bug elsewhere in this doc: the
+snapshot was taken at a point that looked like "after everything relevant
+happened" but wasn't. Fixed by moving the `trail()` call to right before
+the audit write, after summarize has had its chance to log.
+
+> Guarded by `tests/test_pipeline.py::test_a_failed_summarize_call_does_not_break_the_run`
+> (extended to assert the failure reason survives into both `result.decisions`
+> and the written audit file, not just that the run still completes).
+
 ---
 
 ## 6. What is actually unfinished
