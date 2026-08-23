@@ -101,6 +101,23 @@ class Harness:
         """Explicit value (incl. `""` to disable) wins; else `HARNESS_KNOWLEDGE_DIR`."""
         return (explicit if explicit is not None else os.environ.get("HARNESS_KNOWLEDGE_DIR")) or None
 
+    @staticmethod
+    def _safe_filename(task_id: str) -> str:
+        """A model- or human-chosen `task_id` as a single, contained path component.
+
+        Found live: the resume-file path built `task_id` straight into
+        `self.workdir / "resume" / f"{task_id}.json"` with no sanitizing at
+        all -- unlike the audit path below, which already did this. A
+        `task_id` of `"../../../../tmp/evil"` wrote a real file outside
+        `workdir/resume/` on any run where a later step failed before
+        cleanup. Replacing every character outside alnum/`-`/`_`/`.` is
+        what makes this safe: `/` is the only character that can turn one
+        path component into several, and it can no longer survive into the
+        result -- a leftover `..` with no `/` around it is just a funny
+        filename, not a traversal.
+        """
+        return "".join(c if c.isalnum() or c in "-_." else "_" for c in task_id)
+
     # -- stage 1 to 3: the model ------------------------------------------- #
 
     def plan(self, request: str, model: str | None = None) -> RunResult:
@@ -242,7 +259,7 @@ class Harness:
         # stub entries alongside the first.
         result.results = []
         resume = ResumePoint(task_id=plan.spec.task_id, total=len(plan.steps))
-        resume_path = self.workdir / "resume" / f"{plan.spec.task_id}.json"
+        resume_path = self.workdir / "resume" / f"{self._safe_filename(plan.spec.task_id)}.json"
 
         failed = self._run_steps(plan, result, dry_run, resume, resume_path)
 
@@ -479,8 +496,7 @@ class Harness:
 
         task_id = (result.plan.spec.task_id if result.plan
                    else f"turn-{len(self.agent.turns)}")
-        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in task_id)
-        path = self.audit_dir / f"{safe}.audit.json"
+        path = self.audit_dir / f"{self._safe_filename(task_id)}.audit.json"
         try:
             path.write_text(json.dumps(result.to_dict(), indent=2, default=str),
                             encoding="utf-8")

@@ -637,6 +637,31 @@ def test_a_hand_written_file_still_works_without_a_model(make_harness,
     assert harness.ollama.calls == 0, "no model should have been consulted"
 
 
+def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
+        make_harness, tmp_path: Path) -> None:
+    """Found live: the resume-file path was built straight from
+    `plan.spec.task_id` with no sanitizing at all -- unlike the audit path
+    built in the very same function, which already sanitized. A task_id of
+    "../../evil-poc" wrote a real file outside workdir/resume/ on any run
+    where a later step failed before _finish_success()'s cleanup ran (which
+    only fires on a fully successful run). task_id is fully model- or
+    human-controlled -- TaskSpec.validate() does `task_id=str(data[...])`
+    with no character restriction at all."""
+    evil_id = "../../evil-poc"
+    harness = make_harness(scripted(plan_reply(
+        evil_id, "do something",
+        [{"id": "ok", "run": "true"}, {"id": "bad", "run": "false"}])))
+
+    planned = harness.plan("do something")
+    done = harness.execute(planned, {})
+
+    assert done.outcome is Outcome.FAILED
+    escaped = tmp_path / "evil-poc.json"
+    assert not escaped.exists(), "resume file escaped the harness's own workdir"
+    resume_dir = tmp_path / "wd" / "resume"
+    assert list(resume_dir.glob("*.json")), "the sanitized file should land here instead"
+
+
 def test_knowledge_dir_defaults_from_the_environment(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """cli.py/tui.py construct Harness() with no knowledge_dir argument at

@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 242 passed
+python3 -m pytest tests/ -q          # must print 252 passed
 harness doctor
 ```
 
@@ -282,6 +282,27 @@ repeatedly found and removed elsewhere -- see §7, question 2.
 > `tests/test_pipeline.py::test_a_completed_run_gets_a_synthesized_summary`,
 > `test_a_hand_written_plan_gets_no_summary_and_consults_no_model`,
 > `test_a_failed_summarize_call_does_not_break_the_run`
+
+### 2.12 Every filename built from `task_id` goes through `_safe_filename`
+
+`task_id` is fully model- or human-controlled: `TaskSpec.validate()` does
+`task_id=str(data["task_id"])` with no character restriction at all, and a
+model's own JSON `task` object supplies it directly (`Agent._parse` only
+defaults it when the model omits the field). Found live: `execute()`'s
+resume-file path was built as `self.workdir / "resume" / f"{task_id}.json"`
+with no sanitizing, right next to `_finish()`'s audit-file path in the same
+class, which already sanitized. A `task_id` of `"../../../../tmp/evil"`
+wrote a real file outside `workdir/resume/` on any run where a later step
+failed before `_finish_success()`'s cleanup ran (that only fires on a fully
+successful run). `_safe_filename()` (a static helper both call sites now
+share) replaces every character outside alnum/`-`/`_`/`.` -- `/` is the
+only character that can turn one path component into several, and with it
+gone a leftover `..` is just a funny filename, not a traversal. If you add
+a third place that turns `task_id` (or any other model-supplied string)
+into a filename, route it through this helper rather than re-deriving the
+character set by hand.
+
+> Guarded by `tests/test_pipeline.py::test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir`
 
 ---
 
@@ -787,7 +808,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 242
+test command     python3 -m pytest tests/ -q     # 252
 ```
 
 ---
