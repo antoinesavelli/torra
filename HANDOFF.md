@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 252 passed
+python3 -m pytest tests/ -q          # must print 253 passed
 harness doctor
 ```
 
@@ -303,6 +303,27 @@ into a filename, route it through this helper rather than re-deriving the
 character set by hand.
 
 > Guarded by `tests/test_pipeline.py::test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir`
+
+### 2.13 A step's DOM id in the TUI is never built from `step_id` itself
+
+`StepCard.compose()`'s approval `Checkbox` needs a Textual DOM id, and DOM
+ids must match `[A-Za-z0-9_-]+` -- `sp.step.step_id` is arbitrary model- or
+human-chosen text with no such restriction (a space, period, or colon is
+entirely ordinary; nothing in `TaskSpec.validate()` or the model's schema
+hint enforces one). Found live: embedding `step_id` directly into the id
+(`id=f"approve-{sp.step.step_id}"`) raised `BadIdentifier` out of
+`Checkbox`'s own constructor for a step id as plausible as `"delete old
+logs"`, crashing the whole plan pane before a human ever saw it -- and only
+DANGEROUS/CRITICAL steps get a checkbox at all (§2.4), so this hit exactly
+the highest-risk steps the review UI exists to gate. Fixed by building the
+DOM id from the card's own 1-based index instead (always safe), and
+escaping the label text the same way every other field in this method
+already is. `_approvals()` was reading the real `step_id` back out of that
+same DOM id string -- it now reads it off `StepCard.plan_step.step.step_id`
+directly, which was always the actual source of truth and didn't need the
+DOM id as a relay in the first place.
+
+> Guarded by `tests/test_tui.py::test_a_step_id_with_a_space_does_not_crash_the_plan_pane`
 
 ---
 
@@ -808,7 +829,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 252
+test command     python3 -m pytest tests/ -q     # 253
 ```
 
 ---

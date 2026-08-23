@@ -132,6 +132,33 @@ async def test_a_plan_renders_with_verdicts_and_a_checkbox(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_a_step_id_with_a_space_does_not_crash_the_plan_pane(tmp_path: Path) -> None:
+    """Found live: a DANGEROUS/CRITICAL step's id is arbitrary model-chosen
+    text -- "delete old logs" is exactly as plausible as "rm". Textual DOM
+    ids must be [A-Za-z0-9_-]+; embedding step_id directly into one used to
+    raise BadIdentifier out of Checkbox's own constructor, crashing the
+    whole plan pane before a human ever saw the approval box -- for exactly
+    the highest-risk steps this checkbox exists to gate."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"remove {tmp_path}/v.txt",
+        [{"id": "delete old logs", "run": f"rm -f {tmp_path}/v.txt",
+          "touches": [f"{tmp_path}/v.txt"]}])))
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = f"delete {tmp_path}/v.txt"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        assert app.is_running, "the app crashed on a non-identifier-safe step id"
+        boxes = [b for b in app.query(Checkbox) if (b.id or "").startswith("approve-")]
+        assert len(boxes) == 1, "a dangerous step needs an approve box"
+
+        boxes[0].value = True
+        assert app._approvals() == {"delete old logs": True}, \
+            "approvals must be keyed by the real step id, not the sanitized DOM id"
+
+
+@pytest.mark.asyncio
 async def test_a_safe_plan_gets_no_checkbox(tmp_path: Path) -> None:
     """Ticking boxes for `df -h` is how the one that matters gets ticked too."""
     app = build(tmp_path, scripted(plan_reply(

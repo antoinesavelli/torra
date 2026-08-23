@@ -114,8 +114,18 @@ class StepCard(Vertical):
             yield Static("  [yellow]no automatic undo for this step[/]", markup=True)
 
         if sp.needs_confirmation:
-            yield Checkbox(f"approve {sp.step.step_id}", value=False,
-                           id=f"approve-{sp.step.step_id}")
+            # id must be a Textual-safe identifier (letters/digits/_/- only)
+            # -- sp.step.step_id is arbitrary model- or human-chosen text (a
+            # space, period, or colon is entirely ordinary), so the DOM id
+            # is built from the always-safe 1-based index instead. Found
+            # live: a DANGEROUS step id like "delete old logs" raised
+            # BadIdentifier out of Checkbox's own constructor, crashing the
+            # whole plan pane before a human ever saw the approval box --
+            # for exactly the highest-risk steps this checkbox exists for.
+            # _approvals() below reads the real step_id back off
+            # `plan_step`, never off this id string.
+            yield Checkbox(f"approve {escape(sp.step.step_id)}", value=False,
+                           id=f"approve-{self.index}")
 
 
 class PlanPane(VerticalScroll):
@@ -269,12 +279,13 @@ class HarnessApp(App):
         self.query_one("#status", Static).update(text)
 
     def _approvals(self) -> dict[str, bool]:
-        """Read every approve checkbox in the plan pane."""
+        """Read every approve checkbox in the plan pane, keyed by the
+        step's real id -- not the checkbox's own DOM id, which is built
+        from the card's index and cannot hold an arbitrary step id."""
         out: dict[str, bool] = {}
-        for box in self.query(Checkbox):
-            box_id = box.id or ""
-            if box_id.startswith("approve-"):
-                out[box_id[len("approve-"):]] = bool(box.value)
+        for card in self.query(StepCard):
+            for box in card.query(Checkbox):
+                out[card.plan_step.step.step_id] = bool(box.value)
         return out
 
     # -- input ------------------------------------------------------------- #
