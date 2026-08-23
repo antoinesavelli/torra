@@ -6,8 +6,8 @@ Benchmarks local Ollama models as the harness's planner, using the real
 
 | File | Holds |
 |---|---|
-| `tasks.py` | The graduated difficulty test battery (12 tasks, tiers 1-8) with an explicit correctness rubric per task |
-| `bench.py` | Runs the battery against one or more models, grading via the real gates; `python3 bench.py qwen3:8b qwen3:32b devstral` |
+| `tasks.py` | The graduated difficulty test battery (13 tasks, tiers 1-8) with an explicit correctness rubric per task |
+| `bench.py` | Runs the battery against one or more models, grading via the real gates; `python3 bench.py qwen3:32b devstral:24b qwen3.5:latest` |
 | `planner_verifier.py` | Prototype: a fast model reviews a larger model's plan as a second opinion alongside the deterministic gates |
 | `popos_probe.py` | Probes Pop!_OS/System76-specific factual knowledge, to decide whether reference docs are worth adding |
 | `domain_exploration.py` | Open-ended, ungraded scenarios (user/permission mgmt, networking, backups, firewall, containers, git) for qualitative review -- extend `SCENARIOS` as new domains come up |
