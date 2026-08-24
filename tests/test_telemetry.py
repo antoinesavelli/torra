@@ -174,3 +174,77 @@ class TestRedaction:
         assert "password=<REDACTED>" in entry.why
         on_disk = (tmp_path / "labels.jsonl").read_text(encoding="utf-8")
         assert "hunter2" not in on_disk
+
+
+class TestLabelStoreFailureEdges:
+    """LabelStore's own failure handling -- had no dedicated coverage
+    beyond incidental use in other test files. Monkeypatches below are
+    scoped to the exact Path object under test (passing every other path
+    through to the real implementation) rather than patching the Path
+    class globally -- an earlier attempt at a similarly-shaped test for a
+    different file patched Path.stat unscoped and took down pytest's own
+    internals with it."""
+
+    def test_an_unusable_label_directory_degrades_gracefully(self, tmp_path: Path) -> None:
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory", encoding="utf-8")
+        store = LabelStore(blocker / "labels.jsonl")  # "blocker" is a file, not a dir
+        assert any("directory unusable" in e for e in store.errors)
+
+    def test_a_write_failure_is_recorded_not_raised(
+            self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "labels.jsonl"
+        store = LabelStore(path)
+        real_open = Path.open
+
+        def selective_broken_open(self, *args, **kwargs):
+            if self == path:
+                raise OSError("simulated write failure")
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", selective_broken_open)
+        entry = store.label("some request", True, why="vague")
+
+        assert entry.request == "some request", "must still return a real Label"
+        assert any("write failed" in e for e in store.errors)
+
+    def test_a_corrupt_line_is_skipped_not_fatal_to_the_rest(self, tmp_path: Path) -> None:
+        path = tmp_path / "labels.jsonl"
+        store = LabelStore(path)
+        store.label("good one", True, why="clear")
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("not valid json at all\n")
+        store.label("good two", False)
+
+        labeled = store.all()
+
+        assert set(labeled) == {"good one", "good two"}
+        assert any("line unreadable" in e for e in store.errors)
+
+    def test_blank_lines_between_entries_are_skipped_silently(self, tmp_path: Path) -> None:
+        path = tmp_path / "labels.jsonl"
+        store = LabelStore(path)
+        store.label("some request", True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("\n\n")
+
+        assert list(store.all()) == ["some request"]
+        assert store.errors == []
+
+    def test_a_read_failure_is_recorded_not_raised(
+            self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "labels.jsonl"
+        store = LabelStore(path)
+        store.label("some request", True)
+        real_read_text = Path.read_text
+
+        def selective_broken_read_text(self, *args, **kwargs):
+            if self == path:
+                raise OSError("simulated read failure")
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", selective_broken_read_text)
+        result = store.all()
+
+        assert result == {}
+        assert any("read failed" in e for e in store.errors)
