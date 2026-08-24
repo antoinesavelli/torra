@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 279 passed
+python3 -m pytest tests/ -q          # must print 300 passed
 harness doctor
 ```
 
@@ -541,6 +541,40 @@ to capable" stance so this can't block every model when `/api/show`
 metadata is missing.
 
 > Guarded by `tests/test_agent.py::test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat`
+
+### 2.21 `TestConflictDetectorFastPath` was not testing the fast path
+
+Found while raising `harness/core/conflict.py`'s test coverage (59% -> 74%,
+the single worst-covered file in the tree), not by reading the test in
+isolation: its shared `_detector()` fixture built the detector with
+`use_inotify=False`. `_detect_tree()`'s own guard --
+`if not self.use_inotify or not self._inotify or self._since_walk >=
+self.reconcile_every: return self._reconcile()` -- means `not
+self.use_inotify` alone was enough to always take the full-walk branch,
+regardless of the `detector._inotify = True` truthy stand-in the fixture
+set up right after. `_reconcile()` rebuilds `self._known` from scratch on
+every call, so the exact stale-conflict bug this test class exists to
+guard (§5's "`_known` is an accumulator... never removed a stale entry")
+**cannot reproduce there at all** -- both tests passed, but never reached
+the event-based per-path accumulate/pop logic the fix is actually in.
+
+Confirmed by breaking the real fix (temporarily reverting
+`self._known.pop(path, None)` to a no-op) and watching both tests still
+pass under the old fixture, then fail correctly under the fixed one.
+Fixed by constructing with `use_inotify=True` and stubbing
+`_start_inotify` to a no-op (so `baseline()` doesn't open a real inotify
+file descriptor in a test) -- `self.use_inotify` now stays `True`, the
+guard's first condition never fires, and `_detect_tree()` actually takes
+the fast path these tests are named for.
+
+The lesson generalizes: a green test with a name that promises coverage
+of one code path is not proof that path actually ran. When a fix lives in
+a specific branch, verify the test reaches that branch (a counter, a spy,
+or -- as here -- literally breaking the fix and watching the test catch
+it) rather than trusting the test's own docstring.
+
+> Guarded by the same two tests, now actually exercising `_detect_tree()`'s
+> event branch: `tests/test_core.py::TestConflictDetectorFastPath`
 
 ---
 
@@ -1079,7 +1113,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 279
+test command     python3 -m pytest tests/ -q     # 300
 ```
 
 ---

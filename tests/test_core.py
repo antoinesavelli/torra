@@ -15,6 +15,7 @@ import pytest
 
 from harness.core import (
     ConflictDetector,
+    ConflictKind,
     ContextCompressor,
     OllamaClient,
     OllamaError,
@@ -518,6 +519,246 @@ class TestHashFileSkipsNonRegularFiles:
         assert ConflictDetector().hash_file(tmp_path / "nope") is None
 
 
+class TestConflictDetection:
+    """ConflictDetector's core classification logic -- feeds
+    Harness._run_steps()'s external-conflict check directly, which decides
+    whether a real run gets BLOCKED, but had no dedicated test coverage for
+    almost any of its branches beyond the inotify fast path's stale-conflict
+    fix (TestConflictDetectorFastPath, below)."""
+
+    # -- _detect_declared(): explicitly tracked paths ------------------- #
+
+    def test_a_declared_path_created_after_baseline_is_reported(self, tmp_path) -> None:
+        target = tmp_path / "new.txt"
+        detector = ConflictDetector()
+        detector.baseline([str(target)])  # doesn't exist yet
+        target.write_text("appeared", encoding="utf-8")
+
+        found = detector._detect_declared()
+
+        assert len(found) == 1
+        assert found[0].kind is ConflictKind.CREATED
+        assert found[0].baseline_hash is None
+        assert found[0].current_hash is not None
+
+    def test_a_declared_path_deleted_after_baseline_is_reported(self, tmp_path) -> None:
+        target = tmp_path / "gone.txt"
+        target.write_text("here", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.baseline([str(target)])
+        target.unlink()
+
+        found = detector._detect_declared()
+
+        assert len(found) == 1
+        assert found[0].kind is ConflictKind.DELETED
+        assert found[0].current_hash is None
+
+    def test_a_declared_path_that_becomes_unreadable_is_reported(self, tmp_path) -> None:
+        target = tmp_path / "locked.txt"
+        target.write_text("secret", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.baseline([str(target)])
+        target.chmod(0o000)
+        try:
+            found = detector._detect_declared()
+        finally:
+            target.chmod(0o644)  # restore, or tmp_path cleanup can't remove it
+
+        assert len(found) == 1
+        assert found[0].kind is ConflictKind.UNREADABLE
+
+    def test_a_declared_path_content_change_is_reported(self, tmp_path) -> None:
+        target = tmp_path / "app.conf"
+        target.write_text("original", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.baseline([str(target)])
+        target.write_text("modified", encoding="utf-8")
+
+        found = detector._detect_declared()
+
+        assert len(found) == 1
+        assert found[0].kind is ConflictKind.MODIFIED
+
+    def test_an_unchanged_declared_path_reports_nothing(self, tmp_path) -> None:
+        target = tmp_path / "stable.txt"
+        target.write_text("same", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.baseline([str(target)])
+
+        assert detector._detect_declared() == []
+
+    # -- _reconcile(): the full-walk source of truth --------------------- #
+
+    def test_reconcile_reports_a_new_file_appearing_in_the_tree(self, tmp_path) -> None:
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([], roots=[tmp_path])
+        (tmp_path / "new.txt").write_text("surprise", encoding="utf-8")
+
+        found = detector._reconcile()
+
+        assert len(found) == 1
+        assert found[0].kind is ConflictKind.CREATED
+
+    def test_reconcile_reports_a_file_removed_from_the_tree(self, tmp_path) -> None:
+        target = tmp_path / "gone.txt"
+        target.write_text("here", encoding="utf-8")
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([], roots=[tmp_path])
+        target.unlink()
+
+        found = detector._reconcile()
+
+        assert len(found) == 1
+        assert found[0].kind is ConflictKind.DELETED
+
+    def test_reconcile_reports_a_content_change_via_size_or_mtime(self, tmp_path) -> None:
+        target = tmp_path / "app.conf"
+        target.write_text("original", encoding="utf-8")
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([str(target)], roots=[tmp_path])
+        target.write_text("modified content, a different size", encoding="utf-8")
+
+        found = detector._reconcile()
+
+        assert len(found) == 1
+        assert found[0].kind is ConflictKind.MODIFIED
+
+    def test_reconcile_reports_nothing_for_an_unchanged_tree(self, tmp_path) -> None:
+        (tmp_path / "stable.txt").write_text("same", encoding="utf-8")
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([], roots=[tmp_path])
+
+        assert detector._reconcile() == []
+
+    # -- _classify(): the inotify fast path's per-event classifier ------ #
+
+    def test_classify_reports_a_new_path_not_in_fingerprints(self, tmp_path) -> None:
+        target = tmp_path / "new.txt"
+        target.write_text("surprise", encoding="utf-8")
+        detector = ConflictDetector()
+
+        conflict = detector._classify(str(target))
+
+        assert conflict is not None
+        assert conflict.kind is ConflictKind.CREATED
+
+    def test_classify_reports_a_known_path_that_disappeared(self, tmp_path) -> None:
+        target = tmp_path / "gone.txt"
+        detector = ConflictDetector()
+        detector.fingerprints[str(target)] = (0, 0)
+
+        conflict = detector._classify(str(target))
+
+        assert conflict is not None
+        assert conflict.kind is ConflictKind.DELETED
+
+    def test_classify_returns_none_for_an_untracked_missing_path(self, tmp_path) -> None:
+        detector = ConflictDetector()
+        assert detector._classify(str(tmp_path / "never-existed.txt")) is None
+
+    def test_classify_returns_none_when_fingerprint_still_matches(self, tmp_path) -> None:
+        target = tmp_path / "stable.txt"
+        target.write_text("same", encoding="utf-8")
+        detector = ConflictDetector()
+        st = target.stat()
+        detector.fingerprints[str(target)] = (st.st_size, st.st_mtime_ns)
+
+        assert detector._classify(str(target)) is None
+
+    def test_classify_returns_none_when_fingerprint_changed_but_hash_did_not(
+            self, tmp_path) -> None:
+        """A same-content rewrite (an editor's atomic-save round-trip
+        landing on identical bytes) changes mtime but not content -- the
+        hash layer exists precisely so this doesn't report as a conflict."""
+        target = tmp_path / "app.conf"
+        target.write_text("content", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.hashes[str(target)] = detector.hash_file(target)
+        detector.fingerprints[str(target)] = (999999, 0)  # force a fingerprint mismatch
+        target.write_text("content", encoding="utf-8")  # rewritten, same bytes
+
+        assert detector._classify(str(target)) is None
+
+    def test_classify_reports_a_real_content_change(self, tmp_path) -> None:
+        target = tmp_path / "app.conf"
+        target.write_text("original", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.hashes[str(target)] = detector.hash_file(target)
+        st = target.stat()
+        detector.fingerprints[str(target)] = (st.st_size, st.st_mtime_ns)
+        target.write_text("changed content here", encoding="utf-8")
+
+        conflict = detector._classify(str(target))
+
+        assert conflict is not None
+        assert conflict.kind is ConflictKind.MODIFIED
+
+    # -- detect(): declared + tree layers merged ------------------------- #
+
+    def test_detect_dedups_a_path_flagged_by_both_declared_and_tree_layers(
+            self, tmp_path) -> None:
+        target = tmp_path / "app.conf"
+        target.write_text("original", encoding="utf-8")
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([str(target)], roots=[tmp_path])
+        target.write_text("modified", encoding="utf-8")
+
+        found = detector.detect()
+
+        # Both layers would independently notice this same change --
+        # detect() must report it once, not twice.
+        matching = [c for c in found if c.path == str(target)]
+        assert len(matching) == 1
+
+    # -- edges: unreadable files, oversized trees, missing roots -------- #
+
+    def test_hash_file_records_an_error_when_read_fails_mid_file(self, tmp_path) -> None:
+        target = tmp_path / "locked.txt"
+        target.write_text("secret", encoding="utf-8")
+        target.chmod(0o000)
+        detector = ConflictDetector()
+        try:
+            result = detector.hash_file(target)
+        finally:
+            target.chmod(0o644)
+
+        assert result is None
+        assert detector.errors
+
+    def test_walk_stops_and_records_an_error_past_max_files(self, tmp_path) -> None:
+        for i in range(5):
+            (tmp_path / f"f{i}.txt").write_text("x", encoding="utf-8")
+        detector = ConflictDetector(max_files=2)
+
+        fingerprints = detector._walk(tmp_path)
+
+        assert len(fingerprints) <= 2
+        assert any("max_files" in e for e in detector.errors)
+
+    def test_walk_on_a_missing_root_returns_empty_not_an_error(self, tmp_path) -> None:
+        detector = ConflictDetector()
+        assert detector._walk(tmp_path / "does-not-exist") == {}
+        assert detector.errors == []
+
+    def test_refresh_re_baselines_so_the_harnesss_own_write_is_not_a_conflict(
+            self, tmp_path) -> None:
+        target = tmp_path / "app.conf"
+        target.write_text("v1", encoding="utf-8")
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([str(target)], roots=[tmp_path])
+        target.write_text("v2, written by the harness itself", encoding="utf-8")
+
+        detector.refresh([str(target)])
+
+        assert detector._detect_declared() == []
+
+    def test_close_is_a_no_op_when_inotify_was_never_started(self) -> None:
+        detector = ConflictDetector(use_inotify=False)
+        detector.close()  # must not raise
+        assert detector._inotify is None
+
+
 class TestConflictDetectorFastPath:
     """_detect_tree()'s inotify fast path. Found live: `_known` is an
     accumulator across calls, and the per-event loop only ever added to it
@@ -532,7 +773,18 @@ class TestConflictDetectorFastPath:
     def _detector(self, tmp_path):
         target = tmp_path / "file.txt"
         target.write_text("original content", encoding="utf-8")
-        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=True)
+        # Found while raising this file's test coverage: `use_inotify=False`
+        # here made `_detect_tree()`'s own guard (`if not self.use_inotify
+        # or not self._inotify or ...: return self._reconcile()`) always
+        # take the full-walk branch instead -- `_reconcile()` rebuilds
+        # `_known` from scratch every call, so the stale-conflict bug this
+        # class exists to guard against literally cannot reproduce there.
+        # Every test below passed, but not because the fix held; they never
+        # reached the code the fix is in. `use_inotify=True` plus stubbing
+        # `_start_inotify` (so `baseline()` doesn't open a real inotify fd
+        # in a test) is what actually routes through the event-based path.
+        detector._start_inotify = lambda: None
         detector.baseline([str(target)], roots=[tmp_path])
         detector._inotify = True  # truthy stand-in; only .read() is ever called on it
         return detector, target
