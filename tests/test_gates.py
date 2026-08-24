@@ -57,6 +57,10 @@ class TestSafety:
         ("kill -9 1", "kill of PID 1"),
         ("apt-get purge --yes ollama", "package purge"),
         ("xargs rm -rf < targets.txt", "xargs indirection"),
+        ("$(echo cm0gLXJmIC8=|base64 -d)", "base64 via command substitution"),
+        ("eval \"$(echo cm0gLXJmIC8=|base64 -d)\"", "base64 via eval + substitution"),
+        ("`echo cm0gLXJmIC8=|base64 -d`", "base64 via backtick substitution"),
+        ("rm${IFS}-rf${IFS}/srv/data", "IFS-obfuscated rm -rf"),
     ]
 
     ROUTINE = [
@@ -67,14 +71,34 @@ class TestSafety:
         "grep -r TODO src/", "echo hello", "ss -tlnp", "ps aux", "nvidia-smi",
         "lsblk", "curl -s http://localhost:11434/api/tags",
         "systemctl status nginx > /dev/null", "grep foo bar.txt 2>/dev/null",
+        "echo \"today is $(date)\"", "tar czf backup-$(date +%Y%m%d).tar.gz /home/user/docs",
+        "VERSION=$(git rev-parse --short HEAD)", "echo \"free: $(df -h / | tail -1)\"",
     ]
 
     def test_every_evasion_is_caught(self) -> None:
-        """20/20, including eight the phase 1 set never contained."""
+        """24/24: the original 20, plus four found by an independent
+        security audit (command-substitution and IFS obfuscation)."""
         safety = SafetyClassifier()
         missed = [f"{label}: {cmd!r}" for cmd, label in self.EVASIONS
                   if not safety.classify(cmd).needs_confirmation]
         assert not missed, missed
+
+    def test_command_substitution_and_ifs_evasions_are_critical_not_just_gated(
+            self) -> None:
+        """`needs_confirmation` alone doesn't distinguish CRITICAL from
+        DANGEROUS -- these specific bugs were found live because a real
+        `rm -rf /` classified as one severity too low (or not gated at
+        all), not because it slipped past the gate outright. Pin the
+        actual level so a regression back to "gated, but wrong severity"
+        would still fail this test even though it would still pass the
+        looser needs_confirmation check above."""
+        safety = SafetyClassifier()
+        for cmd in ("$(echo cm0gLXJmIC8=|base64 -d)",
+                    "sh -c \"$(echo cm0gLXJmIC8=|base64 -d)\"",
+                    "`echo cm0gLXJmIC8=|base64 -d`",
+                    "rm${IFS}-rf${IFS}/", "rm${IFS}-rf${IFS}/home"):
+            verdict = safety.classify(cmd)
+            assert verdict.level is RiskLevel.CRITICAL, (cmd, verdict.level, verdict.reasons)
 
     def test_no_false_positives_on_routine_work(self) -> None:
         """A classifier that interrupts normal work trains people to ignore it."""

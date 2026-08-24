@@ -170,14 +170,11 @@ BACKSTOP: list[tuple[str, RiskLevel, str]] = [
 class SafetyClassifier:
     """Classifies what a command will actually run, not what it looks like.
 
-    Regex over raw text caught five evasions out of twelve on the first pass in
-    testing. This resolves first: quote-aware segment splitting, `VAR=value`
-    substitution, wrapper unwrapping, recursion into `sh -c` payloads, base64
-    decode of blobs piped to a shell, then classification on resolved argv. The
-    regex table is kept as a backstop.
-
-    With an agent generating commands this stops being a convenience and starts
-    being the thing standing between a hallucinated `rm -rf /var` and the disk.
+    Regex over raw text caught five evasions out of twelve on the first pass
+    in testing. This resolves first (quotes, `VAR=value`, wrappers, `sh -c`
+    and `$(...)` recursion, base64) then classifies resolved argv, keeping
+    the regex table only as a backstop -- what stands between an agent's
+    hallucinated `rm -rf /var` and the disk.
     """
 
     def __init__(self, max_depth: int = 4) -> None:
@@ -245,8 +242,7 @@ class SafetyClassifier:
     @staticmethod
     def _consume_wrapper(out: list[str]) -> bool:
         """Pop a leading wrapper program with its flags and duration, if
-        present. Mutates `out` in place; returns whether anything was
-        consumed."""
+        present. Mutates `out` in place; returns whether anything was consumed."""
         if not out or out[0].rsplit("/", 1)[-1] not in WRAPPERS:
             return False
         wrapper = out.pop(0).rsplit("/", 1)[-1]
@@ -295,23 +291,20 @@ class SafetyClassifier:
             out.append(token)
         return out
 
-    def _decode_base64(self, command: str) -> str | None:
+    def _decode_base64(self, command: str, require_pipe_to_shell: bool = True) -> str | None:
         """Decode a literal base64 blob piped into a shell.
 
-        Found live: base64's own alphabet has no whitespace in it, so
-        `echo BLOB | base64 -d | sh` needs no quotes around BLOB and is at
-        least as natural to write as the quoted form -- but the blob
-        pattern used to require surrounding quotes, so the unquoted form
-        evaded decoding entirely and silently fell back to the generic
-        BACKSTOP's lower-severity "piped into a shell" finding instead of
-        the real, resolved verdict. Matching a bounded run of base64-alphabet
-        characters directly (not requiring quotes) catches both forms; the
-        boundary is the charset itself -- a quote, space, or pipe is never a
-        base64 character, so it still naturally stops at a quote when one
-        is present.
+        Found live: base64's own alphabet has no whitespace, so unquoted
+        `echo BLOB | base64 -d | sh` used to evade the quote-requiring blob
+        pattern. Matching a bounded charset run instead (no quotes needed)
+        catches both forms -- the charset itself is the boundary.
+        `require_pipe_to_shell=False` (for `_resolve_substitutions`) skips
+        the `| sh` check: `$(echo BLOB | base64 -d)` proves it will run
+        just by being inside a substitution span.
         """
-        if not (re.search(r"base64\s+(-d|--decode)", command)
-                and re.search(r"\|\s*(sudo\s+)?(ba|z|k|da)?sh\b", command)):
+        if not re.search(r"base64\s+(-d|--decode)", command):
+            return None
+        if require_pipe_to_shell and not re.search(r"\|\s*(sudo\s+)?(ba|z|k|da)?sh\b", command):
             return None
         for blob in re.findall(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{8,}(?![A-Za-z0-9+/=])",
                                command):
@@ -322,6 +315,64 @@ class SafetyClassifier:
             except Exception as exc:
                 self.parse_failures.append(f"base64 decode failed: {exc}")
         return None
+
+    @staticmethod
+    def _matching_paren(command: str, open_at: int) -> int | None:
+        """Index just past the `)` balancing the `(` at `open_at`, or None."""
+        depth, j, n = 1, open_at, len(command)
+        while j < n and depth > 0:
+            depth += 1 if command[j] == "(" else -1 if command[j] == ")" else 0
+            j += 1
+        return j if depth == 0 else None
+
+    def _find_command_substitutions(self, command: str) -> list[str]:
+        """Every `$(...)`/backtick span's inner text -- captured stdout
+        becomes the text that runs next, like a `sh -c` payload.
+
+        Found live: `$(echo BLOB|base64 -d)` classified SAFE outright --
+        `split_segments` split on the `|` *inside* the substitution, and
+        `_decode_base64` never saw a pipe to `sh`, only to `base64`.
+        Ignores quote context deliberately (a false positive here costs
+        one prompt; a false negative is the bypass this closes)."""
+        spans: list[str] = []
+        i, n = 0, len(command)
+        while i < n:
+            if command[i:i + 2] == "$(":
+                j = self._matching_paren(command, i + 2)
+                if j is None:
+                    break
+                spans.append(command[i + 2:j - 1])
+                i = j
+            elif command[i] == "`":
+                j = command.find("`", i + 1)
+                if j == -1:
+                    break
+                spans.append(command[i + 1:j])
+                i = j + 1
+            else:
+                i += 1
+        return spans
+
+    def _resolve_substitutions(self, command: str, depth: int) -> list[ResolvedCommand]:
+        """Recurse into every command-substitution span -- captured stdout is what runs next."""
+        out: list[ResolvedCommand] = []
+        for sub in self._find_command_substitutions(command):
+            decoded = self._decode_base64(sub, require_pipe_to_shell=False)
+            if decoded:
+                out += [ResolvedCommand(r.argv, r.source, "base64 via substitution")
+                       for r in self.resolve(decoded, depth + 1)]
+            out += [ResolvedCommand(r.argv, r.source, "command substitution")
+                   for r in self.resolve(sub, depth + 1)]
+        return out
+
+    @staticmethod
+    def _expand_ifs(segment: str) -> str:
+        """`${IFS}`/`$IFS` between tokens is a well-known obfuscation: bash
+        expands IFS (default: space/tab/newline) and field-splits on it, so
+        `rm${IFS}-rf${IFS}/` runs like `rm -rf /`. Found live: a whitespace
+        tokenizer saw one token instead, and the command downgraded from
+        CRITICAL to DANGEROUS -- still gated, but the wrong severity."""
+        return re.sub(r"\$\{?IFS\}?", " ", segment)
 
     def resolve(self, command: str, depth: int = 0) -> list[ResolvedCommand]:
         """Expand a shell line into the concrete commands it will run."""
@@ -340,9 +391,11 @@ class SafetyClassifier:
         if decoded:
             resolved += [ResolvedCommand(r.argv, r.source, "base64 payload")
                          for r in self.resolve(decoded, depth + 1)]
+        resolved += self._resolve_substitutions(command, depth)
 
         env: dict[str, str] = {}
         for segment in self.split_segments(command):
+            segment = self._expand_ifs(segment)
             argv = self._substitute(self._strip(self._tokenize(segment), env), env)
             if not argv:
                 continue
@@ -389,15 +442,10 @@ class SafetyClassifier:
     def _judge(self, rc: ResolvedCommand) -> list[tuple[RiskLevel, str]]:
         """Risk findings for one resolved command, dispatched per program.
 
-        Still one recognized program, one rule, one `_judge_*` helper --
-        not a lookup table encoding risk levels or a class per program.
-        `_JUDGE_RULES` only wires a predicate to the helper that already
-        holds that program's real logic (including its own escalation-by-
-        target-path handling where relevant); it doesn't duplicate or
-        replace that logic, so this stays a dispatcher, not a table of
-        behavior. classify() below merges this with the regex BACKSTOP and
-        takes the max across both, so a program missing here is caught by
-        the backstop rather than passing silently.
+        One recognized program, one rule, one `_judge_*` helper holding
+        that program's real logic -- not a lookup table encoding risk
+        levels or a class per program. classify() takes the max of this
+        and the regex BACKSTOP, so a program missing here is still caught.
         """
         found: list[tuple[RiskLevel, str]] = []
         program, argv = rc.program, rc.argv
@@ -530,15 +578,10 @@ class SafetyClassifier:
                 if re.search(pattern, text, re.IGNORECASE)]
 
     def _check_redirect(self, text: str) -> list[tuple[RiskLevel, str]]:
-        """Redirect-target risk: a concern neither _judge nor BACKSTOP looks at.
-
-        Captures the operator itself (`>` or `>>`) alongside the target --
-        found in a full-file audit: the classification here was already
-        correct for `>>` (a protected path is CRITICAL either way, and this
-        regex matches starting at the second `>` of `>>` regardless), but
-        the reason text always said "overwrites" even for an append, which
-        is simply the wrong word for what the command does.
-        """
+        """Redirect-target risk: a concern neither _judge nor BACKSTOP looks
+        at. Captures the operator (`>`/`>>`) alongside the target -- found
+        in a full-file audit: classification was already correct for `>>`,
+        but the reason text always said "overwrites" even for an append."""
         redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+)", text)
         if redirect and redirect.group(2) in SAFE_REDIRECT_TARGETS:
             return []  # a stream sink or documented no-op; nothing is overwritten

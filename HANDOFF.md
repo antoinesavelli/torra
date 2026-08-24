@@ -442,6 +442,54 @@ promised, instead of a new, undocumented failure mode past it.
 > Guarded by `tests/test_core.py::TestModelInfo::test_a_response_of_the_wrong_shape_returns_an_empty_dict_not_a_crash`,
 > `TestChatResponseShape` (3 cases)
 
+### 2.18 `resolve()` recurses into command substitutions, and IFS is a separator
+
+The single most severe finding an independent audit found this session,
+against `SafetyClassifier` -- the primary defense, the thing standing
+between a hallucinated command and the disk. Two combined evasions
+classified `$(echo cm0gLXJmIC8=|base64 -d)` (decodes to `rm -rf /`) as
+**SAFE -- auto-run, zero confirmation**:
+
+1. `split_segments` doesn't track paren/backtick nesting, so it split on
+   the `|` *inside* `$(...)`, fracturing the payload before either half
+   could match anything dangerous.
+2. `_decode_base64`'s trigger required an explicit `| sh` in the text --
+   but a command-substitution span's captured stdout becomes the command
+   that runs next *without* ever literally piping to a shell name.
+
+Fixed with two additions to `resolve()`, both recursive the same way
+`sh -c` payloads already are: `_find_command_substitutions()` scans for
+every `$(...)`/backtick span (a small paren-balance scanner,
+`_matching_paren`, factored out the same way `Agent._matching_brace`
+already handles JSON braces); `_resolve_substitutions()` recurses `resolve()`
+into each span's inner text, and separately tries `_decode_base64()` on it
+with a new `require_pipe_to_shell=False` mode -- being inside a
+substitution span already proves the decoded output will run, the same
+"will execute" property `| sh` proves explicitly. Deliberately ignores
+quote context (a `$(...)` inside single quotes wouldn't actually expand in
+real bash): a false positive here costs one unneeded confirmation prompt;
+a false negative is the exact bypass this closes.
+
+A second, related evasion found in the same audit: `rm${IFS}-rf${IFS}/`
+downgraded from CRITICAL to DANGEROUS (still gated, but the wrong severity
+and the wrong reason) -- `${IFS}`/`$IFS` between tokens is a well-known
+obfuscation (bash expands IFS, default space/tab/newline, then
+field-splits on it), but a plain whitespace tokenizer saw one token and
+`rm` never resolved as the program. `_expand_ifs()` substitutes `${IFS}`/
+`$IFS` for a literal space before tokenizing each segment.
+
+If you find a *third* way text can become "the command that actually
+runs" without appearing as a literal top-level program name (process
+substitution `<(...)`, here-docs, `exec`, unicode homoglyphs), add it to
+`resolve()` the same way -- as another source `resolved` accumulates from,
+never as a replacement for what's already there. `classify()`'s own design
+(§2's "three independent signal sources... max across all of them") is
+what limits the blast radius of the next gap someone finds the same way
+this one was.
+
+> Guarded by `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`
+> (24/24, four new), `test_command_substitution_and_ifs_evasions_are_critical_not_just_gated`
+
 ---
 
 ## 3. Things already tried that failed
