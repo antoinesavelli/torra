@@ -151,13 +151,12 @@ Output schema:
 class Agent:
     """Turns a conversation into a validated TaskSpec.
 
-    The clarifier is used here as a *tool the model consults*, not as a wall in
-    front of it. Before generation the agent runs `Clarifier.detect()` on the
-    request and hands the model the resulting gaps, so instead of guessing at a
-    vague request it is told precisely what structure is missing and can ask one
-    good question. That inverts six phases of the clarifier's role without
-    changing a line of its logic.
-    """
+    The clarifier is used here as a *tool the model consults*, not as a wall
+    in front of it. Before generation the agent runs `Clarifier.detect()` on
+    the request and hands the model the resulting gaps, so instead of
+    guessing at a vague request it is told precisely what's missing and can
+    ask one good question -- inverting the clarifier's role without
+    changing a line of its logic."""
 
     #: How many times to hand a rejection back to the model before giving up.
     MAX_REPAIRS: int = 2
@@ -306,13 +305,11 @@ class Agent:
     def _find_json_object(text: str) -> str | None:
         """The first brace-balanced substring that also parses as JSON.
 
-        Found live: an OS-engineering agent's own preamble routinely mentions
-        `{something}` -- shell brace expansion, `${VAR}`, an awk script --
-        before its real JSON reply. That prose is itself brace-balanced, so a
-        naive find-first-`{`/find-last-`}` pair (or stopping at the first
-        balanced span) grabs the wrong object. Trying each `{` in turn and
-        keeping the first one that actually parses skips prose braces.
-        """
+        Found live: preamble routinely mentions `{something}` (shell brace
+        expansion, `${VAR}`, an awk script) before the real JSON reply,
+        itself brace-balanced -- a naive find-first/find-last pair grabs
+        the wrong object. Trying each `{` in turn and keeping the first
+        that actually parses skips prose braces."""
         pos = 0
         while True:
             start = text.find("{", pos)
@@ -356,6 +353,20 @@ class Agent:
 
     # -- generation -------------------------------------------------------- #
 
+    def _degraded_fallback(self, available: list[str]) -> str:
+        """Pick a replacement when the chosen model isn't pulled, preferring
+        one the router already knows can chat -- `model_available()` is a
+        pure name check with no capability awareness, so the last-resort
+        `available[0]` pick used to ignore an embedding-only model the
+        router had already marked not chat-capable via `observe()`,
+        reintroducing §2.9's fixed failure through a second code path.
+        Reuses `ModelRouter._chat_capable` rather than a driftable copy."""
+        capable = [m for m in available if self.router._chat_capable(m)]
+        candidates = capable or available
+        return (self.ollama.fallback_model
+                if model_available(self.ollama.fallback_model, candidates)
+                else candidates[0])
+
     def converse(self, request: str, model: str | None = None) -> Turn:
         """Take one operator message and decide what to do with it."""
         # Returns a Turn whose intent is PLAN (validated TaskSpec attached),
@@ -374,8 +385,7 @@ class Agent:
         if self.ollama.last_status.value != "healthy":
             available = self.ollama.models()
             if available and not model_available(chosen, available):
-                chosen = self.ollama.fallback_model if model_available(
-                    self.ollama.fallback_model, available) else available[0]
+                chosen = self._degraded_fallback(available)
 
         raw = self.ollama.chat(chosen, self._messages(request, gaps), json_mode=True)
         turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
@@ -445,16 +455,14 @@ class Agent:
 
     def _answer_is_a_placeholder(self, turn: Turn) -> str:
         """Complaint when intent was 'answer', no task was attached (see
-        `_answer_dropped_a_task` for that variant), but `message` only
-        describes looking something up rather than stating the result.
+        `_answer_dropped_a_task`), but `message` only describes looking
+        something up rather than stating the result.
 
-        Found live: asked whether SSH keys were configured, message was
-        "Checking system library documentation ... to answer your question."
-        -- no task, so the sibling check never fired, and the operator saw
-        that sentence as the final answer. The tell is structural, not a
-        keyword the request might legitimately contain: it opens with a
-        deferral verb *and* closes by naming "your question"/"the request"
-        itself -- something only a placeholder needs to say."""
+        Found live: message was "Checking system library documentation ...
+        to answer your question." -- no task, so the sibling check never
+        fired. Structural tell, not a keyword: opens with a deferral verb
+        *and* closes naming "your question"/"the request" -- something
+        only a placeholder needs to say."""
         message = turn.message.strip()
         if not message or not (self._DEFERRAL_OPENER.match(message)
                                and self._NAMES_THE_QUESTION.search(message)):
@@ -470,19 +478,14 @@ class Agent:
         attached and silently discarded -- with steps or, just as often,
         without.
 
-        Found live, two variants of the same underlying habit: asked to
-        summarize disk usage, one reply was `{"intent": "answer",
-        "message": "Here is the storage summary...", "task": {...steps
-        that actually run df...}}` -- `_parse` only reads `task` for
-        intent 'plan', so the operator saw the announcement and nothing
-        else, the real numbers discarded the whole time. A second attempt
-        at the identical request attached `"task": {..., "steps": []}` --
-        an empty scaffold, no steps to lose, but `message` was just as
-        vague ("Here is the storage summary...") with no real content
-        either. SYSTEM_PROMPT rule 6 says intent 'answer' should not
-        include a task at all; a model that emits one regardless,
-        populated or not, reliably correlates with a `message` that
-        promised content it did not actually deliver.
+        Found live, two variants: one reply attached a real task (steps
+        that would have run `df`) alongside a vague `message` -- `_parse`
+        only reads `task` for intent 'plan', so the operator saw the
+        announcement and lost the real numbers. A second attempt attached
+        `"steps": []`, an empty scaffold, with `message` just as vague.
+        SYSTEM_PROMPT rule 6 says 'answer' should carry no task at all; a
+        model that emits one anyway reliably correlates with a `message`
+        that promised content it never delivered.
         """
         try:
             data = self._extract_json(turn.raw)

@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 278 passed
+python3 -m pytest tests/ -q          # must print 279 passed
 harness doctor
 ```
 
@@ -515,6 +515,32 @@ nothing real to summarize, so there's nothing worth hallucinating an
 answer from.
 
 > Guarded by `tests/test_pipeline.py::test_a_dry_run_never_gets_a_summary`
+
+### 2.20 The degraded-status model fallback consults chat-capability, not just the name
+
+Found by an independent audit, reproduced live: `Agent.converse()`'s
+degraded/unknown-status fallback (`self.ollama.last_status.value !=
+"healthy"`, true on essentially every session's first turn) falls through
+to `available[0]` -- whatever the daemon lists first -- when neither the
+router's choice nor `fallback_model` is pulled. `model_available()` is a
+pure name-membership check with zero capability awareness. Confirmed
+live: with an embedding-only model listed *first* in the catalog and a
+real chat model listed second, this picked the embedding model and sent
+it a real `/api/chat` request -- reintroducing, through a second,
+hand-rolled selection path, exactly the failure §2.9 already fixed once
+for the primary routing path ("nomic-embed-text... no amount of size
+information would have made it a safe chat target").
+
+`Agent._degraded_fallback()` now filters candidates through
+`ModelRouter._chat_capable()` (already daemon-first, already populated by
+the `observe()` call immediately before this runs) before falling back to
+listing order -- reusing the existing check rather than a second,
+driftable copy. Falls back to the full `available` list only when *no*
+candidate is known chat-capable, matching the existing "unknown defaults
+to capable" stance so this can't block every model when `/api/show`
+metadata is missing.
+
+> Guarded by `tests/test_agent.py::test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat`
 
 ---
 
@@ -1053,7 +1079,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 278
+test command     python3 -m pytest tests/ -q     # 279
 ```
 
 ---

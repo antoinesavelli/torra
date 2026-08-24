@@ -438,6 +438,40 @@ def test_routing_falls_back_to_a_model_that_exists() -> None:
     )
 
 
+def test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat() -> None:
+    """Found by an independent audit: model_available() is a pure name
+    check with no capability awareness -- the last-resort available[0]
+    pick used to ignore router.model_chat_capable entirely, which
+    observe() (called just before this fallback runs) had already
+    populated with real daemon data. An embedding-only model listed
+    first in the catalog used to win the fallback over a real chat
+    candidate listed second."""
+    import json
+
+    calls: list[str] = []
+
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/tags":
+            return {"models": [{"name": "nomic-embed-text:latest"},
+                               {"name": "qwen3.5:latest"}]}
+        if path == "/api/show":
+            name = payload.get("name")
+            caps = ["embedding"] if name == "nomic-embed-text:latest" else ["completion"]
+            return {"capabilities": caps}
+        calls.append(payload.get("model"))
+        return {"message": {"content": json.dumps({"intent": "answer", "message": "ok"})}}
+
+    agent = Agent(OllamaClient(transport=transport, probe_timeout=0.1))
+    agent._observe = lambda: MachineState(hostname="pop-os")
+
+    turn = agent.converse("what is the disk usage?")
+
+    assert agent.router.model_chat_capable == {
+        "nomic-embed-text:latest": False, "qwen3.5:latest": True}
+    assert turn.model == "qwen3.5:latest"
+    assert calls == ["qwen3.5:latest"]
+
+
 def test_an_untagged_pull_is_not_mistaken_for_absent() -> None:
     """Ollama registers `ollama pull devstral` as 'devstral:latest'. An explicit
     model= request for the bare name must still be honored on a fresh client
