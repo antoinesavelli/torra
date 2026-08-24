@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -298,6 +299,13 @@ def _scan_knowledge_dir(path: os.PathLike[str] | str) -> tuple[str, dict[str, st
         if lower in KNOWLEDGE_META_FILENAMES or lower.endswith("-claude.md"):
             continue
         try:
+            # Same fix as ConflictDetector.hash_file(): a FIFO opened for
+            # reading with no writer blocks forever. observe() runs this
+            # on essentially every conversation turn, so a single stray
+            # FIFO named *.md in a configured knowledge directory would
+            # wedge every turn after it, not just one.
+            if not stat.S_ISREG(md.stat().st_mode):
+                continue
             with md.open("r", encoding="utf-8", errors="replace") as fh:
                 heading = next((s for line in fh if (s := line.strip())), "")
         except OSError:

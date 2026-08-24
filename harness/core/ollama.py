@@ -157,23 +157,32 @@ class OllamaClient:
         the name-based guess as a fallback for that case, same as an
         unreachable daemon already degrades every other probe here.
         """
+        # The whole parse, not just the transport call, is in this try:
+        # a daemon that returns valid JSON in an unexpected shape (a list,
+        # or "capabilities" as something non-iterable) used to raise an
+        # uncaught TypeError/AttributeError here -- past this method's own
+        # "returns {} on any failure" contract, and past Harness.plan()'s
+        # narrow except clause, so the operator got a raw traceback instead
+        # of the intended backend-down handling. Found live.
         try:
             data = self._transport("/api/show", {"name": model}, self.probe_timeout)
+            if not isinstance(data, dict):
+                raise TypeError(f"expected a mapping, got {type(data).__name__}")
+            raw_size = ((data.get("details") or {}).get("parameter_size") or "").strip().upper()
+            match = re.match(r"^([\d.]+)\s*([BM])$", raw_size)
+            params_b = 0.0
+            if match:
+                value = float(match.group(1))
+                params_b = value if match.group(2) == "B" else value / 1000
+            capabilities = data.get("capabilities")
+            return {
+                "params_b": params_b,
+                "chat_capable": ("completion" in capabilities
+                                 if capabilities is not None else True),
+            }
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             return {}
-        raw_size = ((data.get("details") or {}).get("parameter_size") or "").strip().upper()
-        match = re.match(r"^([\d.]+)\s*([BM])$", raw_size)
-        params_b = 0.0
-        if match:
-            value = float(match.group(1))
-            params_b = value if match.group(2) == "B" else value / 1000
-        capabilities = data.get("capabilities")
-        return {
-            "params_b": params_b,
-            "chat_capable": ("completion" in capabilities
-                             if capabilities is not None else True),
-        }
 
     def recovery_options(self, current_model: str = "unknown") -> list[RecoveryOption]:
         """The three paths out of an outage. Never touches the network."""
@@ -225,6 +234,15 @@ class OllamaClient:
         started = time.perf_counter()
         try:
             data = self._transport("/api/chat", payload, self.timeout)
+            # Shape validation lives inside this try too, not after it: a
+            # daemon returning valid JSON in an unexpected shape (a list,
+            # or "message" as something with no .get) used to raise an
+            # uncaught TypeError/AttributeError past this method's own
+            # "raises OllamaError on ... an unusable response" contract.
+            # Found live.
+            if not isinstance(data, dict):
+                raise TypeError(f"expected a mapping, got {type(data).__name__}")
+            content = ((data.get("message") or {}).get("content") or "").strip()
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             self.last_status = OllamaStatus.UNREACHABLE
@@ -234,7 +252,6 @@ class OllamaClient:
             self.total_seconds += time.perf_counter() - started
             self.calls += 1
 
-        content = ((data.get("message") or {}).get("content") or "").strip()
         if not content:
             raise OllamaError(f"{model} returned an empty response")
         self.last_status = OllamaStatus.HEALTHY

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from enum import Enum
@@ -88,9 +89,24 @@ class ConflictDetector:
     # -- hashing ----------------------------------------------------------- #
 
     def hash_file(self, path: os.PathLike[str] | str) -> str | None:
-        """SHA256 of a file, or None when absent or unreadable."""
+        """SHA256 of a file, or None when absent, not a regular file, or unreadable."""
         p = Path(path)
-        if not p.exists():
+        try:
+            is_regular = stat.S_ISREG(p.stat().st_mode)
+        except OSError:
+            return None
+        if not is_regular:
+            # A FIFO opened for reading with no writer blocks forever --
+            # found live, reachable pre-approval: a model-declared
+            # `touches` path gets baselined during the GATE stage, before
+            # any operator ever sees the plan, so a single stray FIFO (or
+            # one placed adversarially) at a touched path wedges the whole
+            # harness, with no timeout anywhere in the call chain. A
+            # device or socket node has the same problem. p.stat() already
+            # follows symlinks to their real target, so a symlink pointing
+            # at a FIFO is caught the same way a direct FIFO path is --
+            # only a symlink whose final target is a genuine regular file
+            # still gets hashed.
             return None
         digest = hashlib.sha256()
         try:

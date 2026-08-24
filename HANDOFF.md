@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 266 passed
+python3 -m pytest tests/ -q          # must print 276 passed
 harness doctor
 ```
 
@@ -384,6 +384,63 @@ it is gone.
 
 > Guarded by `tests/test_core.py::TestTaskSpecStepValidation` (5 cases),
 > `TestTaskSpecRollbackValidation::test_a_quoted_string_safe_value_is_rejected`
+
+### 2.16 A watched path is opened only after confirming it's a regular file
+
+Found by an independent security audit, reproduced live: `ConflictDetector.hash_file()`
+opened whatever `Path.open("rb")` was pointed at with no check on what kind
+of filesystem entry it actually was. Opening a FIFO for reading with no
+writer blocks **forever** -- and `baseline()` runs during `Harness`'s GATE
+stage, before any operator ever sees the plan (`pipeline.py`'s `_gate()`
+baselines every `touches` path a model's own JSON proposal declares). A
+single stray FIFO at a model-declared `touches` path -- no malice required,
+any real FIFO already present at that path works -- wedged the entire
+harness with no timeout anywhere in the call chain. `_scan_knowledge_dir()`
+(`machine.py`) had the identical flaw for a FIFO named `*.md` in a
+configured knowledge directory, and since `Agent.observe()` runs it on
+essentially every conversation turn, one stray FIFO there wedged every
+turn after it, not just one.
+
+Both now check `stat.S_ISREG(path.stat().st_mode)` before opening --
+`.stat()` (not `.lstat()`) still follows symlinks to their real target, so
+a symlink pointing at a legitimate regular file is still hashed/read
+normally; only a symlink (or direct path) whose *final* target is a FIFO,
+device, socket, or directory is skipped. If you add a third place that
+opens a model- or operator-declared path for reading, add the same check
+first -- `open()` on an arbitrary path is not safe by default in this
+codebase's threat model.
+
+> Guarded by `tests/test_core.py::TestHashFileSkipsNonRegularFiles` (5 cases,
+> including a symlink-to-FIFO case), the `_scan_knowledge_dir` FIFO case in
+> `TestKnowledgeLibrary`
+
+### 2.17 `OllamaClient` validates response *shape*, not just transport success
+
+Found by an independent security audit, reproduced live: `model_info()` and
+`chat()` each wrapped only the transport call in `try/except`; everything
+that parsed the response body afterward (`data.get(...)`, `"completion" in
+capabilities`) ran unguarded. Both methods' own docstrings promise a
+contract for failure (`model_info`: "Returns `{}` on any failure";
+`chat`: "Raises `OllamaError` on transport failure or an unusable
+response") -- neither held for a response that was valid JSON in the wrong
+*shape* (a list instead of a mapping; `capabilities` as a non-iterable
+int). That's exactly the kind of input a misbehaving daemon can return --
+`OllamaClient`'s own docstring already frames "Ollama" as something that
+can be pointed elsewhere, not necessarily trustworthy by construction.
+Confirmed live end-to-end: a scripted `/api/show` returning
+`{"capabilities": 42}` made `Harness.plan()` raise a raw uncaught
+`TypeError` instead of returning `Outcome.BACKEND_DOWN` with
+`recovery_options` -- `plan()`'s own `except OllamaError | AgentError`
+clause (§2.2's home) never saw it, because the exception wasn't an
+`OllamaError` at all.
+
+Both methods now validate `isinstance(data, dict)` and do the rest of
+their parsing inside the same `try` that already wrapped the transport
+call, so any shape mismatch degrades exactly the way the docstring already
+promised, instead of a new, undocumented failure mode past it.
+
+> Guarded by `tests/test_core.py::TestModelInfo::test_a_response_of_the_wrong_shape_returns_an_empty_dict_not_a_crash`,
+> `TestChatResponseShape` (3 cases)
 
 ---
 
@@ -922,7 +979,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 266
+test command     python3 -m pytest tests/ -q     # 276
 ```
 
 ---

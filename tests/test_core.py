@@ -7,11 +7,37 @@ harness.core.tasks (shell).
 
 from __future__ import annotations
 
+import contextlib
+import os
+import signal
+
 import pytest
 
-from harness.core import ConflictDetector, ContextCompressor, OllamaClient, observe_machine
+from harness.core import (
+    ConflictDetector,
+    ContextCompressor,
+    OllamaClient,
+    OllamaError,
+    observe_machine,
+)
 from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, _scan_knowledge_dir, detect_accelerator
 from harness.core.tasks import ContextBudgetError, TaskSpec, TaskSpecError, shell
+
+
+@contextlib.contextmanager
+def hang_guard(seconds: float = 3.0):
+    """Fail fast with TimeoutError instead of hanging the whole suite if a
+    regression on a FIFO/blocking-file-type fix reintroduces a real hang."""
+    def handler(signum, frame):
+        raise TimeoutError(f"blocked for over {seconds}s -- a real hang, not a slow op")
+
+    previous = signal.signal(signal.SIGALRM, handler)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def fake_ollama(models: list[str]) -> OllamaClient:
@@ -97,6 +123,19 @@ class TestKnowledgeLibrary:
         path, headings = _scan_knowledge_dir("/no/such/directory/at/all")
         assert path == ""
         assert headings == {}
+
+    def test_a_fifo_named_dot_md_is_skipped_instead_of_hanging(self, tmp_path) -> None:
+        """Found by an independent audit, reproduced live: opening a FIFO
+        for reading with no writer blocks forever. Agent.observe() runs
+        this on essentially every conversation turn, so one stray FIFO
+        named *.md in a configured knowledge directory used to wedge every
+        turn after it, not just one."""
+        os.mkfifo(tmp_path / "quirks.md")
+        (tmp_path / "real.md").write_text("# Real Doc\n", encoding="utf-8")
+
+        with hang_guard():
+            _path, headings = _scan_knowledge_dir(tmp_path)
+        assert headings == {"real.md": "Real Doc"}
 
     def test_observe_machine_populates_the_new_fields(self, tmp_path) -> None:
         (tmp_path / "storage.md").write_text("# Storage layout\n", encoding="utf-8")
@@ -188,6 +227,40 @@ class TestModelInfo:
             raise ConnectionRefusedError("no daemon")
 
         assert OllamaClient(transport=transport).model_info("x") == {}
+
+    def test_a_response_of_the_wrong_shape_returns_an_empty_dict_not_a_crash(
+            self) -> None:
+        """Found by an independent audit: valid JSON in an unexpected shape
+        (a list instead of a mapping, or "capabilities" as something
+        non-iterable) used to raise an uncaught TypeError/AttributeError
+        here, past this method's own "returns {} on any failure" contract
+        and past Harness.plan()'s narrow except clause -- the operator got
+        a raw traceback instead of the intended backend-down handling."""
+        assert self._client(["not", "a", "mapping"]).model_info("x") == {}
+        assert self._client({"details": {"parameter_size": "8B"},
+                             "capabilities": 42}).model_info("x") == {}
+        assert self._client({"details": "not a mapping either"}).model_info("x") == {}
+
+
+class TestChatResponseShape:
+    """OllamaClient.chat(): found by the same audit -- a response of the
+    wrong shape raised an uncaught TypeError/AttributeError instead of the
+    OllamaError the docstring promises for "an unusable response"."""
+
+    def test_a_list_response_raises_ollama_error_not_a_crash(self) -> None:
+        client = OllamaClient(transport=lambda path, payload, timeout: ["not", "a", "mapping"])
+        with pytest.raises(OllamaError, match="generation failed"):
+            client.chat("model", [{"role": "user", "content": "hi"}])
+
+    def test_a_non_mapping_message_field_raises_ollama_error_not_a_crash(self) -> None:
+        client = OllamaClient(transport=lambda path, payload, timeout: {"message": "not a dict"})
+        with pytest.raises(OllamaError, match="generation failed"):
+            client.chat("model", [{"role": "user", "content": "hi"}])
+
+    def test_a_well_formed_response_still_works(self) -> None:
+        client = OllamaClient(
+            transport=lambda path, payload, timeout: {"message": {"content": "hi there"}})
+        assert client.chat("model", [{"role": "user", "content": "hi"}]) == "hi there"
 
 
 class TestHttpErrorDetail:
@@ -404,6 +477,45 @@ class TestDetectAccelerator:
         acc = detect_accelerator(runner)
         assert acc.kind == "cpu"
         assert "nvidia-smi" in acc.detail
+
+
+class TestHashFileSkipsNonRegularFiles:
+    """ConflictDetector.hash_file(): found by an independent audit,
+    reproduced live -- opening a FIFO for reading with no writer blocks
+    forever. `baseline()` runs during Harness's GATE stage, before any
+    operator ever sees the plan, so a single stray FIFO at a model-declared
+    `touches` path used to wedge the whole harness, with no timeout
+    anywhere in the call chain."""
+
+    def test_a_fifo_returns_none_instead_of_hanging(self, tmp_path) -> None:
+        fifo = tmp_path / "pipe"
+        os.mkfifo(fifo)
+        with hang_guard():
+            assert ConflictDetector().hash_file(fifo) is None
+
+    def test_a_symlink_to_a_fifo_also_returns_none_instead_of_hanging(
+            self, tmp_path) -> None:
+        fifo = tmp_path / "pipe"
+        os.mkfifo(fifo)
+        link = tmp_path / "link_to_pipe"
+        link.symlink_to(fifo)
+        with hang_guard():
+            assert ConflictDetector().hash_file(link) is None
+
+    def test_a_regular_file_is_still_hashed_normally(self, tmp_path) -> None:
+        target = tmp_path / "file.txt"
+        target.write_text("hello", encoding="utf-8")
+        assert ConflictDetector().hash_file(target) is not None
+
+    def test_a_symlink_to_a_regular_file_is_still_hashed(self, tmp_path) -> None:
+        target = tmp_path / "real.txt"
+        target.write_text("hello", encoding="utf-8")
+        link = tmp_path / "link.txt"
+        link.symlink_to(target)
+        assert ConflictDetector().hash_file(link) == ConflictDetector().hash_file(target)
+
+    def test_a_missing_file_still_returns_none(self, tmp_path) -> None:
+        assert ConflictDetector().hash_file(tmp_path / "nope") is None
 
 
 class TestConflictDetectorFastPath:
