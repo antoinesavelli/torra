@@ -120,5 +120,7 @@ model_routing:
       reason: analysis is reasoning bound, not tool bound
     - name: quick
       pattern: '\b(list|show|print|cat|what\s+is|check|status)\b'
-      model: qwen3.5:latest
-      reason: trivial lookups do not justify loading a 20b+ model
+      model: devstral:24b
+      reason: >-
+        changed 2026-08-17 from qwen3.5:latest -- live testing found qwen3.5
+        gave a content-free non-answer on 1 of 5 real disk/status checks

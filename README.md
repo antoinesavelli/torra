@@ -203,7 +203,7 @@ it only in `ollama ps`, which nobody reads before typing a request.
 | refactor, implement, patch, migrate code | `qwen3-coder:30b` | code-generation specialist (not yet benchmarked here) |
 | plan, architect, design, trade-off | `qwen3:32b` | long-context reasoning |
 | analyze, summarize, review, audit | `qwen3:32b` | reasoning-bound, not tool-bound |
-| list, show, status, "what is" | `qwen3.5:latest` | trivial lookups don't justify a 20b+ model |
+| list, show, status, "what is" | `devstral:24b` | measured live: qwen3.5:latest gave a content-free non-answer on 1 of 5 real disk/status checks |
 | ambiguous (no clear target) | `qwen3:32b` | measured better at asking a clarifying question than guessing |
 | none of the above | `devstral:24b` | the measured-reliable general default |
 
@@ -270,7 +270,7 @@ wearing a percentage sign.
 | `harness/telemetry/` | what it records about itself |
 | `harness/tui.py` | the interface |
 | `harness/cli.py` | entry points |
-| `tests/` | 481 cases, organised by subsystem |
+| `tests/` | 482 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
@@ -314,7 +314,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 481 cases
+python3 -m pytest tests/ -v              # 482 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

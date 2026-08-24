@@ -1422,7 +1422,7 @@ class TestRouting:
         ("release the new systemd unit", "devstral:24b"),
         ("debug why nginx keeps crashing", "qwen3:32b"),
         ("find the root cause of this traceback", "qwen3:32b"),
-        ("list the running containers", "qwen3.5:latest"),
+        ("list the running containers", "devstral:24b"),
         ("debug the failing deploy to production", "qwen3:32b"),
         ("deploy the fix for the crash", "qwen3:32b"),
         ("check why the release is broken", "qwen3:32b"),

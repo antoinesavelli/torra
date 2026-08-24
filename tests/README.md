@@ -1,6 +1,6 @@
 # tests/
 
-481 cases, organised by subsystem. Nothing here needs a live Ollama, systemd,
+482 cases, organised by subsystem. Nothing here needs a live Ollama, systemd,
 or network -- every external dependency is an injected callable (see
 `conftest.py`), which is also how it's wired to the real thing in `harness/`.
 

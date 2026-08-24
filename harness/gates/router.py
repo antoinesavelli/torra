@@ -53,12 +53,37 @@ class ModelChoice:
 #: result in scripts/dev/model_bench/REPORT.md (only the tag changed, from
 #: bare "devstral" to the real pulled tag "devstral:24b" -- it silently
 #: stopped matching `available` the moment anything else was pulled under
-#: a different tag). "code" -> qwen3-coder:30b and "quick" -> qwen3.5:latest
-#: are NOT benchmarked against this harness's JSON-planning task; they are
-#: the obvious fit by name (a coder-specialized model for code generation,
-#: the smallest pulled model for trivial lookups) standing in until they
-#: are actually measured. Do not read them as a benchmark result the way
-#: the other four rules are.
+#: a different tag). "code" -> qwen3-coder:30b is NOT benchmarked against
+#: this harness's JSON-planning task; it is the obvious fit by name (a
+#: coder-specialized model for code generation) standing in until it is
+#: actually measured. Do not read it as a benchmark result the way the
+#: other four rules are.
+#:
+#: "quick" originally targeted qwen3.5:latest on the same "obvious fit by
+#: name" basis (the smallest pulled model, for lookups assumed too trivial
+#: to justify a bigger one) -- changed 2026-08-17 after live testing this
+#: harness's actual real-world routine (disk/status checks, exactly what
+#: "quick" is meant to route) found qwen3.5 gave a content-free non-answer
+#: ("Here is the status of all mounted drives based on the current system
+#: state.", no numbers) on 1 of 5 near-identical real prompts. devstral
+#: answered the other four correctly and is already the measured-reliable
+#: default_model, so this removes an unmeasured guess for those.
+#:
+#: It is NOT a full fix, and do not read it as one: devstral was retested
+#: directly against the exact failing phrasing ("status of all mounted
+#: drives") in isolation and gave the identical content-free non-answer,
+#: 3 of 3 tries, real data present (`machine_observed: true`) every time.
+#: Only qwen3:32b answered that phrasing correctly (every mount, real
+#: numbers). This looks like a shared weakness of both mid-size models on
+#: "enumerate/summarize across everything" phrasing specifically, not
+#: something qwen3.5-vs-devstral choice resolves -- and qwen3:32b (32.8B
+#: real params) needs ~23.5GB, which this 24GB card essentially never has
+#: free even fully idle, so routing "quick" to it would mostly downgrade
+#: right back to devstral or qwen3.5 anyway. Net effect of this change:
+#: better than qwen3.5 on ordinary single-target lookups, no better on
+#: "summarize everything" phrasing. If that specific phrasing pattern
+#: matters enough to chase further, it needs its own measurement, not
+#: another reactive swap.
 ROUTING_RULES: list[tuple[str, str, str, str]] = [
     ("debug", r"\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)"
               r"|root\s*cause|failing|broken|bug)\b",
@@ -75,7 +100,9 @@ ROUTING_RULES: list[tuple[str, str, str, str]] = [
     ("analyze", r"\b(analy[sz]e|summar[iy]|review|audit|explain)\b",
      "qwen3:32b", "analysis is reasoning bound, not tool bound"),
     ("quick", r"\b(list|show|print|cat|what\s+is|check|status)\b",
-     "qwen3.5:latest", "trivial lookups do not justify loading a 20b+ model"),
+     "devstral:24b", "measured live 2026-08-17: qwen3.5 gave a content-free "
+                     "non-answer on 1 of 5 real disk/status checks, devstral "
+                     "answered all correctly at comparable speed"),
 ]
 
 #: Parameter counts for models whose name does not carry one. Without this,

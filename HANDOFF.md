@@ -639,7 +639,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 481, must stay green
+python3 -m pytest tests/ -q                       # 482, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -909,6 +909,19 @@ because only 5660 MB VRAM free" that still resolved to `"model":
 "devstral"`. `self.default_model` is only correct as the *true* last
 resort, when `available` is empty or unset entirely.
 
+**The "quick" routing rule targets `devstral:24b`, not `qwen3.5:latest`,
+as of 2026-08-17.** Recovered from an abandoned worktree and re-verified
+against current `router.py` -- do not revert this to "the smallest pulled
+model" as a simplification. Live testing found `qwen3.5:latest` gave a
+content-free non-answer on 1 of 5 real disk/status checks; `devstral:24b`
+answered all five correctly. See `ROUTING_RULES`' own inline comment in
+`router.py` for the full reasoning, including the honest caveat this is
+NOT a full fix (both `devstral` and `qwen3.5` fail identically on
+"enumerate/summarize across everything" phrasing specifically -- only
+`qwen3:32b` handles that, and it essentially never fits this card's free
+VRAM). If you find yourself reaching for `qwen3.5:latest` as an obvious
+"smallest model" default anywhere in routing, read that comment first.
+
 **`UndoGenerator.cleanup()` recreates `shadow_dir` after deleting it.**
 Simplifying it to just `shutil.rmtree(self.shadow_dir, ignore_errors=True)`
 looks harmless -- it isn't, because one `UndoGenerator` is built once per
@@ -947,9 +960,12 @@ grep/cat step through the existing plan-step path to actually read a file --
 as any other step. Do not wire file contents directly into the prompt as a
 "convenience" -- that would bypass the gate a step gets today. Measured,
 not guessed: `devstral:24b` reliably proposes the intended
-`grep -ril 'KEYWORD' {path}/*.md` step first; the smallest routed-to model
-(`qwen3.5:latest`) does not do this reliably even after three rounds of
-instruction-wording iteration (see `scripts/dev/model_bench/REPORT.md`).
+`grep -ril 'KEYWORD' {path}/*.md` step first; the smallest pulled model
+(`qwen3.5:latest` -- no longer routed to by name as of the 2026-08-17
+"quick" rule change below, but still reachable via the generic downgrade
+fallback when nothing bigger fits) does not do this reliably even after
+three rounds of instruction-wording iteration (see
+`scripts/dev/model_bench/REPORT.md`).
 Ship this as an honestly-scoped, capability-dependent mechanism, not as a
 guaranteed behavior.
 
@@ -1149,7 +1165,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 481
+test command     python3 -m pytest tests/ -q     # 482
 ```
 
 ---
