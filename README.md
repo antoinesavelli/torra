@@ -50,7 +50,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **361 passed**. Then:
+Expect **381 passed**. Then:
 
 ```bash
 harness doctor     # environment check

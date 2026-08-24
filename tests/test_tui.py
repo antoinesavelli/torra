@@ -3,19 +3,26 @@ The interface.
 
 Textual's test harness drives the real app headless, so these assert what an
 operator would actually see rather than what the widgets contain in principle.
+
+Depends on: harness.gates (Precondition, StateVerifier, RollbackReport,
+RollbackResult) for the blocked-plan and rollback-report coverage below, and
+harness.pipeline (Outcome, RunResult) for the outcome-dispatch coverage that
+constructs a RunResult directly rather than round-tripping the whole pipeline.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import plan_reply, scripted
 from textual.widgets import Checkbox, Input, Static
 
 from harness.core import MachineState, OllamaClient
-from harness.pipeline import Harness
-from harness.tui import SPINNER_FRAMES, HarnessApp, StepCard
+from harness.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
+from harness.pipeline import Harness, Outcome, RunResult
+from harness.tui import SPINNER_FRAMES, HarnessApp, StepCard, run_tui
 
 
 def screen_text(app: HarnessApp) -> str:
@@ -44,10 +51,11 @@ def status_text(app: HarnessApp) -> str:
     return ""
 
 
-def build(tmp_path: Path, transport) -> HarnessApp:
+def build(tmp_path: Path, transport, **harness_kwargs: Any) -> HarnessApp:
     """A HarnessApp wired to a scripted backend."""
     harness = Harness(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=transport, probe_timeout=0.1))
+                      ollama=OllamaClient(transport=transport, probe_timeout=0.1),
+                      **harness_kwargs)
     harness.agent._observe = lambda: MachineState(hostname="pop-os")
     return HarnessApp(harness=harness)
 
@@ -347,3 +355,405 @@ async def test_questions_are_shown_not_guessed(tmp_path: Path) -> None:
         text = screen_text(app)
         assert "Which host do you mean?" in text
         assert not app.query(StepCard), "a question is not a plan"
+
+
+@pytest.mark.asyncio
+async def test_on_mount_reports_an_unreachable_backend_with_recovery_options(
+        tmp_path: Path) -> None:
+    """Complement to test_the_app_starts_and_reports_the_backend: when the
+    daemon can't even be probed, on_mount must say so plainly and list a way
+    out, not just silently show an empty model list."""
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        raise ConnectionRefusedError("nobody home")
+
+    app = build(tmp_path, transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        text = screen_text(app)
+        assert "unreachable" in text or "degraded" in text
+        assert "nobody home" in text
+        assert "restart" in text.lower() and "manual" in text.lower(), \
+            "recovery options must be listed when the backend is down"
+
+
+@pytest.mark.asyncio
+async def test_blank_and_busy_submissions_are_ignored(tmp_path: Path) -> None:
+    """An empty prompt or a submission while a plan is already in flight
+    must not dispatch a second plan_request() worker."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        before = len(list(app.query("ChatLine")))
+
+        app.query_one("#prompt", Input).value = "   "
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert len(list(app.query("ChatLine"))) == before, \
+            "a blank prompt must not add a chat line or plan"
+
+        app.busy = True
+        app.query_one("#prompt", Input).value = "do something"
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert len(list(app.query("ChatLine"))) == before, \
+            "a submission while busy must be ignored"
+
+
+@pytest.mark.asyncio
+async def test_plan_request_reports_an_unexpected_exception(tmp_path: Path) -> None:
+    """harness.plan() already narrows OllamaError/AgentError into
+    BACKEND_DOWN/FAILED outcomes -- this covers what happens when something
+    else entirely goes wrong, which plan_request()'s own try/except guards
+    against so the worker thread doesn't just die silently."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    app.harness.plan = lambda request, model=None: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        ValueError("boom"))
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "do something"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        text = screen_text(app)
+        assert "ValueError" in text and "boom" in text
+        assert not app.busy, "busy must clear even when plan() raises"
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_is_shown_in_the_status_line(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted(
+        {"intent": "refuse", "message": "I won't do that."}))
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "wipe the whole disk"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        assert "I won't do that." in screen_text(app)
+        assert "declined" in status_text(app)
+
+
+@pytest.mark.asyncio
+async def test_backend_down_during_planning_shows_recovery_options(tmp_path: Path) -> None:
+    """The daemon answers the startup probe fine, but generation itself
+    fails -- distinct from test_on_mount_reports_an_unreachable_backend,
+    which fails before the app ever gets that far."""
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:32b"}]}
+        if path == "/api/show":
+            return {}
+        raise TimeoutError("generation timed out")
+
+    app = build(tmp_path, transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt", Input).value = "do something"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        text = screen_text(app)
+        assert "generation timed out" in text
+        assert "restart" in text.lower()
+        assert "unreachable" in status_text(app)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_precondition_blocks_the_plan(tmp_path: Path) -> None:
+    """A blocking Precondition that fails must stop the plan before
+    execution and say exactly what failed, in both the plan pane
+    (PlanPane.show's own preconditions branch) and the outcome handler."""
+    verifier = StateVerifier().add(
+        Precondition("disk space", lambda: False, detail="disk full", blocking=True))
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "clean up", [{"id": "df", "run": "df -h /"}])), verifier=verifier)
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "clean up"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        text = screen_text(app)
+        assert "preconditions failed" in text
+        assert "disk space" in text
+        assert "blocked" in status_text(app)
+
+
+@pytest.mark.asyncio
+async def test_an_unparseable_model_reply_fails_the_plan(tmp_path: Path) -> None:
+    """No JSON object anywhere in the reply -- Agent._extract_json's own
+    "returned no JSON object" AgentError, surfaced as Outcome.FAILED."""
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:32b"}]}
+        if path == "/api/show":
+            return {}
+        return {"message": {"content": "sure, here you go, no braces at all"}}
+
+    app = build(tmp_path, transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt", Input).value = "do something"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        text = screen_text(app)
+        assert "no usable plan" in status_text(app)
+        assert "did not produce a usable plan" in text
+
+
+@pytest.mark.asyncio
+async def test_outcome_plan_ready_is_a_no_op_with_no_plan(tmp_path: Path) -> None:
+    """Defensive guard: the AWAITING_APPROVAL default handler bails out if
+    somehow called with no plan attached. Every real pipeline path that
+    reaches AWAITING_APPROVAL has already assigned a plan, so this branch
+    is dispatched directly rather than contorting the pipeline into
+    producing an impossible RunResult."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test():
+        result = RunResult(request="x", outcome=Outcome.AWAITING_APPROVAL, plan=None)
+        app._outcome_plan_ready(result)  # must not raise
+        assert not app.query(StepCard)
+
+
+@pytest.mark.asyncio
+async def test_pressed_dry_button_runs_a_dry_run(tmp_path: Path) -> None:
+    """Clicking Dry run (as opposed to Ctrl+D) must run every gate and
+    execute nothing."""
+    target = tmp_path / "v.txt"
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"touch {target}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#dryrun")
+        await pilot.pause(0.3)
+
+        assert not target.exists(), "a dry run must not touch the filesystem"
+        assert "[dry run]" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_ctrl_d_runs_a_dry_run_when_idle(tmp_path: Path) -> None:
+    """The keyboard shortcut takes the same path as the button when the app
+    isn't busy."""
+    target = tmp_path / "v.txt"
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"touch {target}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.press("ctrl+d")
+        await pilot.pause(0.3)
+
+        assert not target.exists()
+        assert "[dry run]" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_ctrl_d_with_no_plan_says_so(tmp_path: Path) -> None:
+    """The Ctrl+D shortcut before ever asking for a plan must say there's
+    nothing to run, not silently do nothing or crash. Driven by calling
+    action_dry_run() directly, same as the existing race-condition test
+    above: Input's own BINDINGS claim ctrl+d for delete_right while the
+    prompt has focus (which it does at startup), so pilot.press("ctrl+d")
+    here would just exercise Input's editing, never reach the app."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.current is None
+
+        app.action_dry_run()
+        await pilot.pause(0.4)
+
+        assert "No plan to run." in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_ignores_a_second_call_while_busy(tmp_path: Path) -> None:
+    """execute_plan()'s own busy guard is the single choke point all three
+    callers share -- this drives it directly rather than through
+    action_dry_run(), which has its own separate busy check that would
+    otherwise short-circuit before this guard is ever reached."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    calls: list[str] = []
+
+    def fake_execute(*a: object, **k: object) -> Any:
+        calls.append("called")
+
+    app.harness.execute = fake_execute  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.busy = True
+        app.execute_plan(dry_run=True)
+        await pilot.pause(0.2)
+
+        assert calls == [], "execute() must not run while the app is already busy"
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_reports_an_unexpected_exception(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))
+    app.harness.execute = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        RuntimeError("disk exploded"))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = "report disk usage on /"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await pilot.pause(0.3)
+
+        text = screen_text(app)
+        assert "RuntimeError" in text and "disk exploded" in text
+        assert not app.busy
+
+
+@pytest.mark.asyncio
+async def test_run_without_ticking_the_box_is_rejected(tmp_path: Path) -> None:
+    """The implicit-refusal path through execute(): a DANGEROUS step left
+    unticked and Run clicked anyway must be reported as rejected, distinct
+    from clicking the Reject button."""
+    target = tmp_path / "v.txt"
+    target.write_text("x", encoding="utf-8")
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"remove {target}",
+        [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"delete {target}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await pilot.pause(0.3)
+
+        assert target.exists(), "an unticked box must not let the step run"
+        text = screen_text(app)
+        assert "not approved" in text
+
+
+@pytest.mark.asyncio
+async def test_a_failing_step_is_reported_as_failed(tmp_path: Path) -> None:
+    """A step whose command genuinely fails must land in the "else" branch
+    of _executed()'s outcome reporting -- neither COMPLETED nor REJECTED."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "do the impossible", [{"id": "bad", "run": "exit 1"}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = "do the impossible"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await pilot.pause(0.4)
+
+        text = screen_text(app)
+        assert "bad failed" in text
+        assert app.current is not None and app.current.outcome is Outcome.FAILED
+
+
+@pytest.mark.asyncio
+async def test_a_rollback_report_is_summarised_with_every_entry(tmp_path: Path) -> None:
+    """_executed()'s rollback block (undone/unverified/failed counts, plus a
+    line per unverified/failed entry) is driven directly with a hand-built
+    RollbackReport -- forcing a real undo into "unverified" or "failed"
+    would mean deliberately sabotaging the filesystem mid-rollback, which
+    tests VerifiedRollback's own logic (already covered in test_gates.py)
+    far more than anything in tui.py."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    report = RollbackReport(ok=False, results=[
+        RollbackResult("remove /tmp/x", "unverified", "", order=1, verified=None),
+        RollbackResult("restart ollama", "failed", "systemctl exited 1", order=2),
+    ])
+    result = RunResult(request="break things", outcome=Outcome.FAILED,
+                       abort_reason="step 2 failed", rollback=report)
+
+    async with app.run_test():
+        app._executed(result, dry_run=False)
+        text = screen_text(app)
+        assert "1 unverified" in text and "1 failed" in text
+        assert "remove /tmp/x" in text
+        assert "restart ollama" in text and "systemctl exited 1" in text
+
+
+@pytest.mark.asyncio
+async def test_ctrl_r_reruns_the_last_request(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted(
+        {"intent": "answer", "message": "first answer"},
+        {"intent": "answer", "message": "second answer"}))
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "what's the disk usage"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert "first answer" in screen_text(app)
+
+        await pilot.press("ctrl+r")
+        await pilot.pause(0.3)
+
+        text = screen_text(app)
+        assert "re-plan" in text
+        assert "second answer" in text
+
+
+@pytest.mark.asyncio
+async def test_ctrl_l_clears_the_chat(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "hello"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert "ok" in screen_text(app)
+
+        await pilot.press("ctrl+l")
+        await pilot.pause(0.1)
+
+        text = screen_text(app)
+        assert "ok" not in text
+        assert "Conversation cleared." in text
+
+
+@pytest.mark.asyncio
+async def test_set_busy_false_with_a_message_updates_the_status_line(
+        tmp_path: Path) -> None:
+    """No current caller passes a non-empty message alongside busy=False,
+    but the method itself must still honour it rather than silently drop
+    it -- called directly since there is no real caller to drive it."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test():
+        app._set_busy(True, "thinking...")
+        app._set_busy(False, "wrapped up")
+        assert "wrapped up" in status_text(app)
+        assert app._spinner_timer is None
+
+
+def test_run_tui_builds_and_runs_the_app(tmp_path: Path, monkeypatch) -> None:
+    """run_tui()'s own body is a single call into Textual's real event loop
+    (App.run(), which takes over the terminal) -- genuinely impractical to
+    drive headlessly, so this checks it builds the right app and hands off
+    to run() exactly once, with App.run() itself replaced."""
+    calls: list[HarnessApp] = []
+    monkeypatch.setattr(HarnessApp, "run", lambda self: calls.append(self))
+
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=scripted(
+                          {"intent": "answer", "message": "ok"}), probe_timeout=0.1))
+    run_tui(harness=harness)
+
+    assert len(calls) == 1
+    assert calls[0].harness is harness

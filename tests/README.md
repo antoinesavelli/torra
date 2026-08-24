@@ -17,5 +17,5 @@ or network -- every external dependency is an injected callable (see
 | `test_telemetry.py` | `CorpusExporter.drift()` and `LoopholeAudit.audit()` at the unit level, plus secret redaction (`TaskLogger.scrub()`/`Label.why`) |
 
 ```bash
-python3 -m pytest tests/ -q              # must stay 361 passed
+python3 -m pytest tests/ -q              # must stay 381 passed
 ```
