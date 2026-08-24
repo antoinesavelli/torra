@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 from conftest import plan_reply, scripted
 
-from harness.core import ConflictDetector, TaskSpec
-from harness.gates import Precondition, StateVerifier
+from harness.core import ConflictDetector, Step, TaskSpec
+from harness.gates import Precondition, RiskLevel, StateVerifier, Verdict
 from harness.pipeline import Harness
-from harness.pipeline_types import Outcome, RunResult, Stage
+from harness.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 
 SAFE_PLAN = plan_reply(
     "write-config", "set workers to 4 in /tmp/h7/app.conf",
@@ -554,6 +554,50 @@ def test_a_dry_run_executes_nothing_but_gates_everything(make_harness,
 # --------------------------------------------------------------------------- #
 
 
+def test_an_audit_write_failure_is_logged_not_raised(
+        make_harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Telemetry can never break a run (invariant §2.5) -- the audit
+    write is the same principle applied to the file it writes, not just
+    the JSONL log."""
+    marker = tmp_path / "marker"
+    spec = TaskSpec.validate({
+        "task_id": "audit-blocked", "request": f"create {marker}",
+        "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
+    harness = make_harness(scripted({}))
+    audit_path = harness.audit_dir / "audit-blocked.audit.json"
+    real_write_text = Path.write_text
+
+    def selective_broken_write_text(self, *args, **kwargs):
+        if self == audit_path:
+            raise OSError("simulated disk full")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", selective_broken_write_text)
+    plan = harness._gate(spec)
+    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL, plan=plan)
+
+    done = harness.execute(result, {})
+
+    assert done.outcome is Outcome.COMPLETED, "the run itself must still succeed"
+    assert done.audit_path == ""
+    # Not done.decisions: result.decisions is snapshotted from the log
+    # before this failure is logged (the same "_finish() snapshots too
+    # early" shape as the summary-failure case in another test above),
+    # so the record only shows up on the harness's own live log.
+    assert any(d.decision == "audit write failed" for d in harness.decisions.records)
+
+
+def test_stats_reports_every_subsystem(make_harness) -> None:
+    harness = make_harness(scripted({}))
+    stats = harness.stats()
+    assert set(stats) == {"agent", "conflicts", "verifier", "undo", "decisions"}
+
+
+def test_close_releases_watches_without_raising(make_harness) -> None:
+    harness = make_harness(scripted({}))
+    harness.close()  # must not raise
+
+
 def test_a_question_is_answered_not_planned(make_harness) -> None:
     harness = make_harness(scripted(
         {"intent": "answer", "message": "40 GB free on /, 60% used."}))
@@ -562,6 +606,89 @@ def test_a_question_is_answered_not_planned(make_harness) -> None:
     assert result.outcome is Outcome.ANSWERED
     assert result.plan is None
     assert "40 GB" in result.message
+
+
+def test_run_returns_a_non_awaiting_outcome_without_calling_approve(make_harness) -> None:
+    """The convenience run() wrapper's early exit -- nothing to gate means
+    nothing to approve, so `approve` must never even be called."""
+    harness = make_harness(scripted(
+        {"intent": "answer", "message": "40 GB free on /, 60% used."}))
+    calls = []
+
+    result = harness.run("how much disk is free", approve=lambda plan: calls.append(plan))
+
+    assert result.outcome is Outcome.ANSWERED
+    assert calls == []
+
+
+def test_answer_on_a_result_with_no_turn_is_a_no_op(make_harness) -> None:
+    """`answer()` re-plans by reading the original turn's questions --
+    a result built without ever going through the model (a hand-written
+    task file's RunResult) has no turn to answer against."""
+    harness = make_harness(scripted({}))
+    result = RunResult(request="r", outcome=Outcome.NEEDS_ANSWER)
+
+    same = harness.answer(result, ["some answer"])
+
+    assert same is result
+
+
+def test_a_resume_point_that_cannot_be_written_does_not_stop_the_run(
+        make_harness, tmp_path: Path) -> None:
+    """A resume point is a nicety, not a reason to stop -- both the
+    mid-run save() failure and _finish_success's own best-effort cleanup
+    of the (never successfully written) resume file must be swallowed.
+    Forced by making the resume path itself a pre-existing directory, so
+    both `ResumePoint.save()` (os.replace onto a directory) and the later
+    `resume_path.unlink()` (can't unlink a directory) fail for real."""
+    marker = tmp_path / "marker"
+    spec = TaskSpec.validate({
+        "task_id": "resume-blocked", "request": f"create {marker}",
+        "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
+    harness = make_harness(scripted({}))
+    resume_dir = harness.workdir / "resume" / "resume-blocked.json"
+    resume_dir.mkdir(parents=True)
+
+    plan = harness._gate(spec)
+    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL, plan=plan)
+    done = harness.execute(result, {})
+
+    assert done.outcome is Outcome.COMPLETED
+    assert marker.exists(), "the real step still ran despite the resume-point failure"
+
+
+def test_a_step_with_no_run_action_fails_instead_of_crashing(make_harness) -> None:
+    """`TaskSpec.to_steps()` always attaches a real closure -- this guards
+    a `Step` built some other way (a `Plan` assembled by hand, as this
+    test does, rather than through `_gate()`)."""
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "r", "steps": [{"id": "s1", "run": "true"}]},
+        source="test")
+    step = Step(step_id="s1", command="true", run=None)
+    sp = StepPlan(step=step, verdict=Verdict("true", RiskLevel.SAFE))
+    plan = Plan(spec=spec, steps=[sp])
+    harness = make_harness(scripted({}))
+    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL, plan=plan)
+
+    done = harness.execute(result, {})
+
+    assert done.outcome is Outcome.FAILED
+    assert "has no run action attached" in done.results[0].error
+
+
+def test_execute_on_a_result_with_no_plan_fails_rather_than_crashing(make_harness) -> None:
+    """execute() is only ever called on an AWAITING_APPROVAL result with a
+    plan attached in normal use -- this is the defensive guard for a
+    caller that skips straight to execute() on something else, e.g. an
+    ANSWERED result."""
+    harness = make_harness(scripted(
+        {"intent": "answer", "message": "40 GB free on /, 60% used."}))
+    answered = harness.plan("how much disk is free")
+
+    done = harness.execute(answered, {})
+
+    assert done.outcome is Outcome.FAILED
+    assert done.abort_reason == "nothing to execute"
 
 
 def test_a_vague_request_becomes_a_question(make_harness) -> None:

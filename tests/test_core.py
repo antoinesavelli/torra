@@ -25,7 +25,12 @@ from harness.core import (
     observe_machine,
 )
 from harness.core.conflict import Conflict
-from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, _scan_knowledge_dir, detect_accelerator
+from harness.core.machine import (
+    OLLAMA_MODELS_DIR_PROBE,
+    Accelerator,
+    _scan_knowledge_dir,
+    detect_accelerator,
+)
 from harness.core.tasks import ContextBudgetError, TaskSpec, TaskSpecError, shell
 
 
@@ -127,6 +132,25 @@ def test_an_accelerator_detection_failure_is_recorded_not_raised() -> None:
     # try/except around it is also reachable without breaking anything,
     # not that it necessarily fires for this specific runner.
     assert state.accelerator.kind in ("cpu", "cuda", "rocm")
+
+
+def test_observe_machine_records_a_genuine_accelerator_bug_not_raises(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """detect_accelerator() guards every branch it controls, so the outer
+    try/except in observe_machine can only fire for a bug in
+    detect_accelerator itself, not a misbehaving runner -- forced here by
+    replacing the function outright, the same way the module's own tests
+    scope every other monkeypatch to a specific target."""
+    import harness.core.machine as machine_module
+
+    def broken_detect_accelerator(runner=None):
+        raise RuntimeError("simulated internal bug")
+
+    monkeypatch.setattr(machine_module, "detect_accelerator", broken_detect_accelerator)
+
+    state = observe_machine(runner=lambda cmd, cwd, timeout: "ok")
+
+    assert any("accelerator: RuntimeError" in e for e in state.errors)
 
 
 def test_machine_state_to_dict_round_trips_the_basics() -> None:
@@ -659,6 +683,33 @@ class TestDetectAccelerator:
         acc = detect_accelerator(runner)
         assert acc.kind == "cpu"
         assert "nvidia-smi" in acc.detail
+
+    def test_fits_is_always_false_on_cpu_regardless_of_model_size(self) -> None:
+        acc = Accelerator(kind="cpu")
+        assert acc.fits("qwen3:8b") is False
+
+    def test_fits_defaults_an_unknown_model_size_to_fitting_anywhere(self) -> None:
+        acc = Accelerator(kind="cuda", free_vram_mb=100)
+        assert acc.fits("some-totally-unrecognized-model-xyz") is True
+
+    def test_fits_compares_a_known_size_against_free_vram(self) -> None:
+        acc = Accelerator(kind="cuda", free_vram_mb=100)
+        assert acc.fits("qwen3:32b") is False, "32b needs far more than 100 MB free"
+        roomy = Accelerator(kind="cuda", free_vram_mb=100_000)
+        assert roomy.fits("qwen3:8b") is True
+
+    def test_to_dict_excludes_model_params_b_but_includes_gpu(self) -> None:
+        acc = Accelerator(kind="cuda", name="RTX 4090", vram_mb=24564, free_vram_mb=23800,
+                          model_params_b={"qwen3:8b": 8.0})
+        d = acc.to_dict()
+        assert "model_params_b" not in d
+        assert d["gpu"] is True
+        assert d["name"] == "RTX 4090"
+
+    def test_render_reports_gpu_name_and_free_vram(self) -> None:
+        acc = Accelerator(kind="cuda", name="RTX 4090", vram_mb=24564, free_vram_mb=23800)
+        assert "RTX 4090" in acc.render()
+        assert "23800 MB free of 24564 MB" in acc.render()
 
 
 class TestHashFileSkipsNonRegularFiles:
@@ -1246,6 +1297,50 @@ class TestContextCompressor:
         c = ContextCompressor(max_tokens=10)
         with pytest.raises(ContextBudgetError):
             c.add("u1", "user", "x" * 1000)
+
+    def test_an_out_of_range_trigger_ratio_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="trigger_ratio must be in"):
+            ContextCompressor(trigger_ratio=1.5)
+
+    def test_context_step_and_compression_result_to_dict_are_serializable(self) -> None:
+        c = ContextCompressor(max_tokens=1000)
+        step = c.add("u1", "user", "hello")
+        assert step.to_dict() == {
+            "entry_id": "u1", "role": "user", "content": "hello",
+            "tokens": step.tokens, "compressed": False}
+
+        result = c.compress(force=True)
+        assert result.to_dict()["triggered"] is False
+
+    def test_the_cut_search_stops_as_soon_as_the_target_is_met(self) -> None:
+        """Compressing more than needed would throw away recoverable
+        detail for no benefit -- the search must stop at the smallest
+        `cut` that already gets under target, not walk all the way to
+        `compressible` every time."""
+        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.5, target_ratio=0.5,
+                              keep_recent=0)
+        for i in range(6):
+            c.add(f"e{i}", "user",
+                 f"entry number {i} has a decent amount of real content padding it out")
+
+        result = c.compress(force=True)
+
+        assert result.triggered is True
+        assert c.entries[0].entry_id == "summary::e0..e0", (
+            "the search should have stopped after folding just the first entry"
+        )
+
+    def test_force_with_too_few_entries_to_touch_keep_recent_is_a_no_op(self) -> None:
+        """`force=True` still must not fold entries the caller asked to
+        always keep -- with fewer entries than keep_recent, there is
+        nothing left that is even eligible to compress."""
+        c = ContextCompressor(max_tokens=1000, keep_recent=5)
+        c.add("u1", "user", "hello")
+
+        result = c.compress(force=True)
+
+        assert result.triggered is False
+        assert len(c.entries) == 1
 
     def test_compression_does_not_trigger_below_the_ratio(self) -> None:
         c = ContextCompressor(max_tokens=1000, trigger_ratio=0.9, keep_recent=1)

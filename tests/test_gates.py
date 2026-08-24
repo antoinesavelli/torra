@@ -1326,6 +1326,54 @@ class TestClarifier:
         taught = Clarifier(extra_anchors=[(r"\bfrobnitz\s+\w+\b", "frobnitz id")])
         assert taught.detect("restart the frobnitz gateway") == []
 
+    def test_clarify_reports_needs_clarification_questions_and_serializes(self) -> None:
+        clarification = Clarifier().clarify("fix it")
+        assert clarification.needs_clarification is True
+        assert clarification.questions()
+        d = clarification.to_dict()
+        assert d["request"] == "fix it"
+        assert d["ambiguities"][0]["code"]
+
+    def test_clarify_on_a_specific_request_needs_no_clarification(self) -> None:
+        clarification = Clarifier().clarify("remove docker images older than 30 days")
+        assert clarification.needs_clarification is False
+        assert clarification.questions() == []
+
+    def test_a_request_with_no_dangling_pronoun_is_not_flagged(self) -> None:
+        """`_has_antecedent`'s own no-match short circuit -- most specific
+        requests never even mention "it"/"this"/"that"."""
+        codes = {a.code for a in Clarifier().detect(
+            "remove docker images older than 30 days")}
+        assert "dangling_pronoun" not in codes
+
+    def test_has_antecedent_defaults_true_with_no_pronoun_present(self) -> None:
+        """`_has_antecedent`'s own `if not match: return True` -- its one
+        caller (`_check_dangling_pronoun`) already short-circuits on the
+        identical regex before ever reaching this, so the only way to
+        exercise this defensive default is calling the helper directly."""
+        assert Clarifier()._has_antecedent("remove docker images") is True
+
+    def test_open_timing_with_no_concrete_schedule_is_flagged(self) -> None:
+        codes = {a.code for a in Clarifier().detect(
+            "restart ollama.service on popos-01 sometime soon")}
+        assert "no_schedule" in codes
+
+    def test_detect_on_an_empty_request_reports_it_as_empty(self) -> None:
+        ambiguities = Clarifier().detect("   ")
+        assert len(ambiguities) == 1
+        assert ambiguities[0].code == "empty"
+
+    def test_explain_renders_anchors_filter_and_verdict_for_a_blocked_request(
+            self) -> None:
+        text = Clarifier().explain("fix it")
+        assert "anchors:" in text
+        assert "filter:" in text
+        assert "BLOCKED" in text
+
+    def test_explain_reports_executable_for_a_specific_request(self) -> None:
+        text = Clarifier().explain("remove docker images older than 30 days")
+        assert "executable" in text
+
 
 # --------------------------------------------------------------------------- #
 # Routing and transparency
@@ -1631,3 +1679,21 @@ class TestHardwareAwareRouting:
         plain = ModelRouter(available=self.AVAILABLE)
         assert plain.select("debug why nginx keeps crashing").model == "qwen3:32b"
         assert plain.downgrades == []
+
+    def test_model_choice_to_dict_is_serializable(self) -> None:
+        choice = ModelRouter().select("debug why nginx keeps crashing")
+        d = choice.to_dict()
+        assert d["model"] == "qwen3:32b"
+        assert d["rule"] == "debug"
+
+    def test_explain_reports_no_rule_matched_for_an_unmatched_request(self) -> None:
+        router = ModelRouter()
+        text = router.explain("xyzzy plugh quux")
+        assert "no rule matched" in text
+        assert router.default_model in text
+
+    def test_explain_reports_the_score_table_for_a_matched_request(self) -> None:
+        router = ModelRouter()
+        text = router.explain("debug why nginx keeps crashing")
+        assert "debug" in text
+        assert "qwen3:32b" in text
