@@ -364,6 +364,7 @@ class TestVerifier:
         report = verifier.run()
         assert report.passed is False
         assert "OSError" in report.results[0].error
+        assert [r.name for r in report.failures] == ["boom"]
 
     def test_non_blocking_failures_do_not_stop_a_task(self) -> None:
         """Not every check is worth refusing over."""

@@ -21,6 +21,7 @@ from harness.core import (
     MachineState,
     OllamaClient,
     OllamaError,
+    OllamaStatus,
     observe_machine,
 )
 from harness.core.conflict import Conflict
@@ -336,6 +337,12 @@ class TestChatResponseShape:
             transport=lambda path, payload, timeout: {"message": {"content": "hi there"}})
         assert client.chat("model", [{"role": "user", "content": "hi"}]) == "hi there"
 
+    def test_a_blank_content_raises_ollama_error(self) -> None:
+        client = OllamaClient(
+            transport=lambda path, payload, timeout: {"message": {"content": "   "}})
+        with pytest.raises(OllamaError, match="empty response"):
+            client.chat("model", [{"role": "user", "content": "hi"}])
+
 
 class TestHttpErrorDetail:
     """OllamaClient._http(): every other test in this file injects a fake
@@ -386,6 +393,19 @@ class TestHttpErrorDetail:
         client = OllamaClient()
         with pytest.raises(OllamaError, match="Bad Gateway"):
             client.chat("x", [{"role": "user", "content": "hi"}])
+
+    def test_a_real_empty_payload_request_hits_the_daemon_over_get(self) -> None:
+        """The one `_http` path no other test reaches: a real GET (empty
+        payload, as health()/models() send) against the actual Ollama
+        daemon on this machine -- matching the project's own precedent of
+        testing real integration boundaries (systemctl/dpkg/tcp probes)
+        rather than mocking urlopen for every case."""
+        client = OllamaClient()
+        status = client.health()
+        assert status is OllamaStatus.HEALTHY, (
+            "this machine's ollama.service is expected to be up; if it "
+            "genuinely is not, this is measuring a real environment gap"
+        )
 
 
 class TestTaskSpecRollbackValidation:
@@ -485,6 +505,19 @@ class TestTaskSpecStepValidation:
         spec = TaskSpec.validate(self._base())
         steps = spec.to_steps()
         assert steps[0].touches == []
+
+    def test_a_dry_run_step_describes_instead_of_running(self) -> None:
+        """`to_steps(dry_run=True)`'s own closure branch -- distinct from
+        Harness._run_one_step's separate runtime dry-run short-circuit,
+        which never calls Step.run at all and so never reaches this. The
+        only way to exercise it is calling .run() directly on a step
+        built this way, the way `harness plan`/`check` never currently do
+        (Agent._prescreen builds with dry_run=True but only classifies
+        step.command, never calls .run())."""
+        spec = TaskSpec.validate(self._base())
+        steps = spec.to_steps(dry_run=True)
+        assert steps[0].run is not None
+        assert steps[0].run() == "[dry-run] true"
         assert steps[0].estimated_seconds is None
 
 

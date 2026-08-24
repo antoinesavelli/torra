@@ -60,3 +60,30 @@ def test_save_is_atomic_no_partial_file_left_on_a_write_failure(
 
     assert not target.exists()
     assert not target.with_suffix(".tmp").exists(), "a stray .tmp file was left behind"
+
+
+def test_save_swallows_a_cleanup_failure_after_a_write_failure(
+        tmp_path: Path, monkeypatch) -> None:
+    """The original write failure is what must reach the caller -- a
+    second failure while merely trying to clean up the stray .tmp file
+    must not replace or mask it."""
+    target = tmp_path / "t.json"
+    tmp = target.with_suffix(".tmp")
+
+    def broken_replace(src, dst):
+        raise OSError("simulated crash mid-rename")
+
+    real_unlink = Path.unlink
+
+    def broken_unlink(self, *args, **kwargs):
+        if self == tmp:
+            raise OSError("simulated cleanup failure")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr("os.replace", broken_replace)
+    monkeypatch.setattr(Path, "unlink", broken_unlink)
+
+    with pytest.raises(HarnessError, match="resume point write failed"):
+        ResumePoint(task_id="t").save(target)
+
+    assert tmp.exists(), "the unlink failure means the stray .tmp file survives"

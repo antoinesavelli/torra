@@ -849,3 +849,47 @@ def test_a_failed_summarize_call_does_not_break_the_run(
     assert any(d["decision"] == "summary failed" for d in done.decisions)
     assert json.loads(Path(done.audit_path).read_text(encoding="utf-8"))["decisions"] == \
         done.decisions
+
+
+# --------------------------------------------------------------------------- #
+# pipeline_types convenience properties
+# --------------------------------------------------------------------------- #
+
+
+def test_step_plan_has_undo_reflects_whether_any_undo_was_derived(
+        make_harness, tmp_path: Path) -> None:
+    marker = tmp_path / "touched"
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": f"create {marker}",
+        "steps": [{"id": "touch", "run": f"touch {marker}", "touches": [str(marker)]},
+                 {"id": "no-undo", "run": "true"}]}, source="test")
+    harness = make_harness(scripted({}))
+
+    plan = harness._gate(spec)
+
+    by_id = {sp.step.step_id: sp for sp in plan.steps}
+    assert by_id["touch"].has_undo is True
+    assert by_id["no-undo"].has_undo is False
+
+
+def test_run_result_ok_is_true_only_when_completed(make_harness, tmp_path: Path) -> None:
+    marker = tmp_path / "made"
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": f"create {marker}",
+        "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
+    harness = make_harness(scripted({}))
+    planned = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
+                        plan=harness._gate(spec))
+
+    done = harness.execute(planned, {})
+
+    assert done.outcome is Outcome.COMPLETED
+    assert done.ok is True
+    assert RunResult(request="r", outcome=Outcome.REJECTED).ok is False
+
+
+def test_run_result_message_falls_back_to_the_outcome_when_nothing_else_is_set() -> None:
+    """The last resort in `message`'s fallback chain -- no summary, no
+    turn (or a turn with no message), no abort_reason."""
+    result = RunResult(request="r", outcome=Outcome.REJECTED)
+    assert result.message == "rejected"
