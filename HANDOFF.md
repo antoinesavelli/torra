@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 276 passed
+python3 -m pytest tests/ -q          # must print 278 passed
 harness doctor
 ```
 
@@ -489,6 +489,32 @@ this one was.
 
 > Guarded by `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`
 > (24/24, four new), `test_command_substitution_and_ifs_evasions_are_critical_not_just_gated`
+
+### 2.19 A dry run never reaches `_summarize()`
+
+Found by an independent audit, reproduced live: `_run_one_step()` fabricates
+`"[dry-run] <command>"` as every step's "output" under a dry run -- nothing
+was actually checked. `_finish()`'s summarize gate checked only
+`plan.model`/`result.results`, never `dry_run`, so that fabricated text got
+handed to `Agent.summarize()` the same as real output. The model has no
+real evidence to work from, only command text, but produces a confident,
+plausible-sounding answer anyway -- confirmed live: a dry-run plan
+proposing `ls -la ~/.ssh` came back with `"Your SSH keys are present and
+correctly configured; no action needed."`, indistinguishable from a
+genuine post-execution summary to an operator reading it. An operator
+using `--dry-run`/Ctrl+D specifically to preview a task safely could be
+told a fabricated "fact" about their system -- the opposite of what a dry
+run is supposed to guarantee.
+
+`dry_run` is a parameter local to `execute()`, never stored on `RunResult`
+itself, so `_finish()` couldn't have known either way before this: it's
+now threaded through as `_finish()`'s own `dry_run` parameter, defaulting
+`False` everywhere except the one call site inside `execute()` where it
+matters. Excluded entirely, not just labeled -- a dry-run preview has
+nothing real to summarize, so there's nothing worth hallucinating an
+answer from.
+
+> Guarded by `tests/test_pipeline.py::test_a_dry_run_never_gets_a_summary`
 
 ---
 
@@ -1027,7 +1053,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 276
+test command     python3 -m pytest tests/ -q     # 278
 ```
 
 ---

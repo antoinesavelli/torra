@@ -268,7 +268,7 @@ class Harness:
         else:
             self._finish_success(result, dry_run, resume_path)
 
-        return self._finish(result, started)
+        return self._finish(result, started, dry_run=dry_run)
 
     def _refuse_replay(self, result: RunResult) -> RunResult:
         """Refuse a second execute() call on a result that already ran for
@@ -475,7 +475,7 @@ class Harness:
             return ""
 
     def _finish(self, result: RunResult, started: float,
-                write_audit: bool = True) -> RunResult:
+                write_audit: bool = True, dry_run: bool = False) -> RunResult:
         """Stage report. Always runs, even after an early exit."""
         # write_audit=False is the awaiting-approval case: the plan is
         # complete but the run is not, so the stage list is left open for
@@ -490,7 +490,15 @@ class Harness:
         # call logs its own decision (see _summarize()), and a snapshot
         # taken first would silently drop that entry from both `result` and
         # the audit file, leaving no record of why summary ended up empty.
-        if result.plan and result.plan.model and result.results:
+        #
+        # dry_run excludes it entirely, not just labels it: _run_one_step()
+        # fabricates "[dry-run] <command>" as every step's "output" under a
+        # dry run -- nothing was actually checked. Found live: summarizing
+        # that fabricated text got a confident, plausible-sounding answer
+        # ("your SSH keys are present and correctly configured") with zero
+        # real evidence behind it, indistinguishable from a genuine
+        # post-execution summary to the operator reading it.
+        if not dry_run and result.plan and result.plan.model and result.results:
             result.summary = self._summarize(result)
         result.decisions = self.decisions.trail()
 

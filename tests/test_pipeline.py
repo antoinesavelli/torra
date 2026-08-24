@@ -772,6 +772,31 @@ def test_a_completed_run_gets_a_synthesized_summary(make_harness, tmp_path: Path
     assert done.message == done.summary
 
 
+def test_a_dry_run_never_gets_a_summary(make_harness, tmp_path: Path) -> None:
+    """Found by an independent audit: _run_one_step() fabricates
+    "[dry-run] <command>" as every step's "output" under a dry run --
+    nothing was actually checked. Summarizing that fabricated text got a
+    confident, plausible-sounding answer with zero real evidence behind
+    it, indistinguishable from a genuine post-execution summary. A dry
+    run must never reach _summarize() at all, not just label the result
+    as a preview."""
+    target = tmp_path / "data.txt"
+    target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    plan_content = plan_reply(
+        "read-file", f"read {target}",
+        [{"id": "read", "kind": "read", "run": f"cat {target}"}])
+
+    harness = make_harness(_chat_transport(
+        plan_content, "The file has three lines: one, two, three."))
+    planned = harness.plan(f"how many lines are in {target}")
+
+    done = harness.execute(planned, {}, dry_run=True)
+
+    assert done.outcome is Outcome.COMPLETED
+    assert done.results[0].output == f"[dry-run] cat {target}"
+    assert done.summary == ""
+
+
 def test_a_hand_written_plan_gets_no_summary_and_consults_no_model(
         make_harness, tmp_path: Path) -> None:
     """The same invariant `test_a_hand_written_file_still_works_without_a_model`
