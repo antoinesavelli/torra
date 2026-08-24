@@ -11,6 +11,7 @@ Exit codes: 0 ok, 1 usage error, 2 stopped by a gate or unapproved, 3 failed.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import os
 import subprocess
 import sys
@@ -45,6 +46,14 @@ OUTCOME_EXIT: dict[str, int] = {
     "failed": EXIT_FAILED,
     "backend_down": EXIT_FAILED,
 }
+
+
+def _package_version() -> str:
+    """The installed package version, single-sourced from pyproject.toml."""
+    try:
+        return importlib.metadata.version("terminal-agent-harness")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown (not installed as a package)"
 
 
 def build_harness(workdir: Path, offline: bool = False) -> Harness:
@@ -420,6 +429,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="harness",
         description="A local model proposes, five gates decide, you approve.",
         epilog="exit codes: 0 ok, 1 usage, 2 stopped by a gate, 3 failed")
+    parser.add_argument("--version", action="version",
+                        version=f"harness {_package_version()}")
     parser.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
     sub = parser.add_subparsers(dest="command")
 

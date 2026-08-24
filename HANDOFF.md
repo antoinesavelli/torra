@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 482 passed
+python3 -m pytest tests/ -q          # must print 484 passed
 harness doctor
 ```
 
@@ -639,7 +639,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 482, must stay green
+python3 -m pytest tests/ -q                       # 484, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1165,7 +1165,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 482
+test command     python3 -m pytest tests/ -q     # 484
 ```
 
 ---
