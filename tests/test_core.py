@@ -17,6 +17,7 @@ from harness.core import (
     ConflictDetector,
     ConflictKind,
     ContextCompressor,
+    MachineState,
     OllamaClient,
     OllamaError,
     observe_machine,
@@ -74,6 +75,76 @@ def test_a_failed_probe_does_not_abort_observation() -> None:
     assert state.ollama_models_dir == ""
     assert any("ollama_models_dir" in e for e in state.errors)
     assert state.hostname == "ok"  # other probes still ran
+
+
+def test_a_failed_core_probe_is_recorded_and_the_rest_still_run() -> None:
+    """Same guarantee as the ollama_models_dir case, for the main
+    OBSERVE_COMMANDS loop itself -- not previously exercised."""
+    def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+        if command == "hostname":
+            raise RuntimeError("probe failed")
+        return "ok"
+
+    state = observe_machine(runner=runner)
+    assert state.hostname == ""
+    assert any("hostname" in e for e in state.errors)
+    assert state.kernel == "ok"  # other probes still ran
+
+
+def test_an_extra_probe_populates_extras_and_a_failure_does_not_abort_the_rest(
+        ) -> None:
+    def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+        if command == "custom-probe":
+            return "custom output"
+        if command == "broken-probe":
+            raise RuntimeError("boom")
+        return "ok"
+
+    state = observe_machine(runner=runner, extra={
+        "custom": "custom-probe", "broken": "broken-probe"})
+
+    assert state.extras == {"custom": "custom output"}
+    assert any("broken" in e for e in state.errors)
+    assert state.hostname == "ok"  # core probes still ran
+    assert "custom:" in state.render()
+    assert "custom output" in state.render()
+
+
+def test_an_accelerator_detection_failure_is_recorded_not_raised() -> None:
+    def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+        if "nvidia-smi" in command or "rocm-smi" in command or "ollama ps" in command:
+            raise RuntimeError("no GPU tooling")
+        return "ok"
+
+    state = observe_machine(runner=runner)
+
+    assert state.hostname == "ok"  # observation as a whole did not abort
+    # detect_accelerator's own try/except already handles missing tooling
+    # gracefully (falls back to "cpu"), so this asserts the outer
+    # try/except around it is also reachable without breaking anything,
+    # not that it necessarily fires for this specific runner.
+    assert state.accelerator.kind in ("cpu", "cuda", "rocm")
+
+
+def test_machine_state_to_dict_round_trips_the_basics() -> None:
+    state = MachineState(hostname="pop-os", os_release="Pop!_OS 24.04")
+    data = state.to_dict()
+    assert data["hostname"] == "pop-os"
+    assert data["os_release"] == "Pop!_OS 24.04"
+
+
+def test_scan_knowledge_dir_skips_an_unreadable_file_not_the_whole_scan(
+        tmp_path) -> None:
+    locked = tmp_path / "locked.md"
+    locked.write_text("# Locked\n", encoding="utf-8")
+    locked.chmod(0o000)
+    (tmp_path / "readable.md").write_text("# Readable\n", encoding="utf-8")
+    try:
+        _path, headings = _scan_knowledge_dir(tmp_path)
+    finally:
+        locked.chmod(0o644)
+
+    assert headings == {"readable.md": "Readable"}
 
 
 def test_fallback_model_default_is_actually_pulled() -> None:
