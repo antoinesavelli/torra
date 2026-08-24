@@ -486,6 +486,81 @@ class TestTaskSpecStepValidation:
         assert steps[0].estimated_seconds is None
 
 
+class TestTaskSpecBasicValidation:
+    """validate()'s own guard-clause cascade (non-mapping top level, missing
+    keys, empty steps list, a non-mapping step, a step with no 'run', a
+    duplicate step id) had zero direct test coverage -- only the touches/
+    watch_roots/estimated_seconds/rollback-safe checks added this session
+    were ever exercised. Also TaskSpec.load()'s two failure paths and
+    to_yaml(), neither tested anywhere before this."""
+
+    def test_a_non_mapping_top_level_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="must be a mapping"):
+            TaskSpec.validate(["not", "a", "mapping"])
+
+    def test_a_missing_required_key_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="missing required key"):
+            TaskSpec.validate({"task_id": "t", "steps": [{"id": "s", "run": "true"}]})
+
+    def test_an_empty_steps_list_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="non-empty list"):
+            TaskSpec.validate({"task_id": "t", "request": "r", "steps": []})
+
+    def test_a_non_mapping_step_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="must be a mapping"):
+            TaskSpec.validate({"task_id": "t", "request": "r", "steps": ["just a string"]})
+
+    def test_a_step_with_no_run_command_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="no 'run' command"):
+            TaskSpec.validate({"task_id": "t", "request": "r",
+                              "steps": [{"id": "s", "description": "typo, no run"}]})
+
+    def test_a_duplicate_step_id_is_rejected(self) -> None:
+        with pytest.raises(TaskSpecError, match="duplicate step id"):
+            TaskSpec.validate({"task_id": "t", "request": "r", "steps": [
+                {"id": "s", "run": "true"}, {"id": "s", "run": "false"}]})
+
+    def test_load_of_a_missing_file_is_rejected(self, tmp_path) -> None:
+        with pytest.raises(TaskSpecError, match="task file not found"):
+            TaskSpec.load(tmp_path / "no-such-file.yaml")
+
+    def test_load_of_unreadable_yaml_is_rejected(self, tmp_path) -> None:
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("key: [unterminated", encoding="utf-8")
+        with pytest.raises(TaskSpecError, match="unreadable YAML"):
+            TaskSpec.load(bad)
+
+    def test_to_yaml_round_trips_through_load(self, tmp_path) -> None:
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r", "watch_roots": ["/etc"],
+            "steps": [{"id": "s", "run": "true"}],
+            "rollback": [{"run": "echo undo"}]})
+        out = tmp_path / "roundtrip.yaml"
+        out.write_text(spec.to_yaml(), encoding="utf-8")
+
+        reloaded = TaskSpec.load(out)
+
+        assert reloaded.task_id == "t"
+        assert reloaded.watch_roots == ["/etc"]
+        assert reloaded.steps == spec.steps
+        assert reloaded.rollback == spec.rollback
+
+    def test_to_yaml_omits_empty_watch_roots_and_rollback(self) -> None:
+        spec = TaskSpec.validate({"task_id": "t", "request": "r",
+                                  "steps": [{"id": "s", "run": "true"}]})
+        rendered = spec.to_yaml()
+        assert "watch_roots" not in rendered
+        assert "rollback" not in rendered
+
+    def test_rollback_actions_defensively_skips_an_invalid_entry(self) -> None:
+        """validate() already rejects this at construction time -- this
+        guards a TaskSpec built directly, bypassing validate()."""
+        spec = TaskSpec(task_id="t", request="r",
+                        steps=[{"id": "s", "run": "true"}],
+                        rollback=["not a mapping", {"description": "no run key"}])
+        assert spec.rollback_actions() == []
+
+
 class TestDetectAccelerator:
     """detect_accelerator(): no test anywhere exercised this before -- the
     module-level "imported by tests" metric passed (observe_machine pulls
