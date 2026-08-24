@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 481 passed
+python3 -m pytest tests/ -q          # must print 482 passed
 harness doctor
 ```
 
@@ -488,7 +488,7 @@ what limits the blast radius of the next gap someone finds the same way
 this one was.
 
 > Guarded by `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`
-> (24/24, four new), `test_command_substitution_and_ifs_evasions_are_critical_not_just_gated`
+> (26/26; see §2.22 for the other two), `test_command_substitution_and_ifs_evasions_are_critical_not_just_gated`
 
 ### 2.19 A dry run never reaches `_summarize()`
 
@@ -575,6 +575,42 @@ it) rather than trusting the test's own docstring.
 
 > Guarded by the same two tests, now actually exercising `_detect_tree()`'s
 > event branch: `tests/test_core.py::TestConflictDetectorFastPath`
+
+### 2.22 `su -c` and Perl's bareword `unlink` both evaded the classifier
+
+Found live 2026-08-12, then recovered from an abandoned `git worktree`
+that was never merged into `main` -- the fix sat idle for weeks while
+`resolve()`/`classify()` were independently hardened further (§2.18's
+command-substitution/IFS fix among them), so it had to be re-verified
+against the current file rather than merged blindly.
+
+Two independent gaps, same audit:
+
+1. `su` was in neither `WRAPPERS` nor `INTERPRETERS`. `su -c 'rm -rf /x'`
+   resolved to program `"su"`, no `PROGRAM_RISK` entry, no `_judge` rule
+   -- silently SAFE unless the regex BACKSTOP happened to still see the
+   literal text (it usually does for a bare `rm -rf`, which is exactly
+   why this is a plausible thing to have shipped for weeks without
+   anyone noticing: the direct case still got caught by the backstop most
+   of the time). Adding `su` to `INTERPRETERS` makes `resolve()` recurse
+   into its `-c` payload as shell syntax, the same as `sh -c`'s. This also
+   structurally fixes a second, worse case the backstop genuinely never
+   caught at all: `su -c "python3 -c 'import os; os.system(...)'" user` --
+   the nested interpreter call was invisible to both `_judge` (opaque `su`
+   argv) and the BACKSTOP (never checked for `os.system` inside a nested
+   payload like this).
+2. `_judge_script_source`'s regex required a leading dot (`\.unlink\(`,
+   matching Python's `os.unlink(...)`), so Perl's bareword
+   `unlink(...)`/`unlink glob(...)` -- no dot -- never matched. Generalized
+   to `\bunlink\b`.
+
+Verified against the current file (not the state it was written against):
+plain `su - user` (no `-c`) still classifies SAFE, no false positive;
+`su -c` wrapping a direct `rm -rf` and wrapping a nested `python3 -c
+os.system(...)` both classify as needing confirmation.
+
+> Guarded by `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`
+> (now 26/26), `test_su_c_wrapping_a_nested_interpreter_call_is_still_caught`
 
 ---
 

@@ -49,7 +49,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **481 passed**. Then:
+Expect **482 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -160,11 +160,11 @@ shell commands should stop the run.
 
 **SAFETY_FIRST.** Resolves what a command will actually run before classifying
 it: quote-aware segment splitting, `VAR=value` substitution, wrapper unwrapping
-(`sudo`, `env`, `timeout`, `nohup`, `nice`, `xargs`), recursion into `sh -c`
-payloads and command substitutions (`$(...)`/backticks), base64 decode of
-blobs piped to a shell, and `$IFS` field-splitting obfuscation. Regex over raw
-text missed five of twelve evasions in testing. This catches 24 out of 24
-with no false positives on 26 routine commands.
+(`sudo`, `env`, `timeout`, `nohup`, `nice`, `xargs`), recursion into `sh -c`/
+`su -c` payloads and command substitutions (`$(...)`/backticks), base64
+decode of blobs piped to a shell, and `$IFS` field-splitting obfuscation.
+Regex over raw text missed five of twelve evasions in testing. This catches
+26 out of 26 with no false positives on 27 routine commands.
 
 **TRANSPARENCY.** Every branch the harness takes is recorded with its reasoning
 and lands in a JSON audit file. Reasoning is not optional; a decision logged
@@ -282,7 +282,7 @@ wearing a percentage sign.
 
 | Claim | Measured how |
 |---|---|
-| 24/24 evasions caught, 0 false positives | `tests/test_gates.py::TestSafety` |
+| 26/26 evasions caught, 0 false positives | `tests/test_gates.py::TestSafety` |
 | Clarifier 0% false negatives | `tests/test_gates.py::TestClarifier` |
 
 Every one of those came from data generated in testing, not from real use. That

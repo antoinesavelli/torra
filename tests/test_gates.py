@@ -64,6 +64,8 @@ class TestSafety:
         ("eval \"$(echo cm0gLXJmIC8=|base64 -d)\"", "base64 via eval + substitution"),
         ("`echo cm0gLXJmIC8=|base64 -d`", "base64 via backtick substitution"),
         ("rm${IFS}-rf${IFS}/srv/data", "IFS-obfuscated rm -rf"),
+        ("su -c 'rm -rf /var/lib/x' postgres", "su -c wrapper"),
+        ("perl -e 'unlink(\"/etc/passwd\")'", "perl bareword unlink, no leading dot"),
     ]
 
     ROUTINE = [
@@ -76,11 +78,15 @@ class TestSafety:
         "systemctl status nginx > /dev/null", "grep foo bar.txt 2>/dev/null",
         "echo \"today is $(date)\"", "tar czf backup-$(date +%Y%m%d).tar.gz /home/user/docs",
         "VERSION=$(git rev-parse --short HEAD)", "echo \"free: $(df -h / | tail -1)\"",
+        "su - postgres",
     ]
 
     def test_every_evasion_is_caught(self) -> None:
-        """24/24: the original 20, plus four found by an independent
-        security audit (command-substitution and IFS obfuscation)."""
+        """26/26: the original 20, four found by an independent security
+        audit (command-substitution and IFS obfuscation), and two found via
+        live probing outside the documented corpus (su -c wrapping a shell
+        payload; Perl's bareword unlink, which the old regex's required
+        leading dot never matched)."""
         safety = SafetyClassifier()
         missed = [f"{label}: {cmd!r}" for cmd, label in self.EVASIONS
                   if not safety.classify(cmd).needs_confirmation]
@@ -102,6 +108,18 @@ class TestSafety:
                     "rm${IFS}-rf${IFS}/", "rm${IFS}-rf${IFS}/home"):
             verdict = safety.classify(cmd)
             assert verdict.level is RiskLevel.CRITICAL, (cmd, verdict.level, verdict.reasons)
+
+    def test_su_c_wrapping_a_nested_interpreter_call_is_still_caught(self) -> None:
+        """A second, structural benefit of adding `su` to INTERPRETERS,
+        beyond the direct `su -c 'rm -rf ...'` case already in EVASIONS:
+        `su -c "python3 -c 'import os; os.system(...)'" user` used to be
+        invisible to both _judge (su was an opaque, unjudged argv) and the
+        regex BACKSTOP (which never checked for os.system inside a nested
+        payload like this). Recursing into su's -c payload as shell syntax
+        means the nested `python3 -c ...` is itself resolved and judged."""
+        verdict = SafetyClassifier().classify(
+            "su -c \"python3 -c 'import os; os.system(\\\"rm -rf /var/lib/x\\\")'\" postgres")
+        assert verdict.needs_confirmation, verdict.reasons
 
     def test_no_false_positives_on_routine_work(self) -> None:
         """A classifier that interrupts normal work trains people to ignore it."""

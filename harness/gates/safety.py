@@ -118,7 +118,14 @@ SAFE_REDIRECT_TARGETS: frozenset[str] = frozenset({
     "/dev/null", "/dev/zero", "/dev/full", "/dev/stdout", "/dev/stderr",
 })
 
-INTERPRETERS: tuple[str, ...] = ("sh", "bash", "zsh", "ksh", "dash", "python",
+#: `su`'s `-c` payload is executed by a shell exactly like `sh -c`'s is, even
+#: though `su` isn't itself an interpreter -- listing it here is what makes
+#: `resolve()` recurse into it as shell syntax instead of leaving it as one
+#: opaque, unjudged argv. Found live: a bare `su` was in neither WRAPPERS nor
+#: here, so `su -c 'rm -rf /x'` resolved to program "su", no PROGRAM_RISK
+#: entry, no `_judge` rule, and silently fell through to SAFE unless the
+#: regex BACKSTOP happened to still see the literal text.
+INTERPRETERS: tuple[str, ...] = ("sh", "bash", "zsh", "ksh", "dash", "su", "python",
                                  "python3", "perl", "ruby", "node")
 
 WRAPPERS: tuple[str, ...] = ("sudo", "doas", "env", "nohup", "nice", "ionice",
@@ -528,7 +535,10 @@ class SafetyClassifier:
 
     @staticmethod
     def _judge_script_source(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
-        if re.search(r"rmtree|os\.remove|os\.unlink|\.unlink\(|subprocess|os\.system"
+        # `\bunlink\b`, not `\.unlink\(` -- Perl's bareword `unlink(...)` /
+        # `unlink glob(...)` has no leading dot, unlike Python's os.unlink,
+        # and the old pattern required the dot so it never matched.
+        if re.search(r"rmtree|os\.remove|\bunlink\b|subprocess|os\.system"
                      r"|unlinkSync|rmSync", " ".join(argv)):
             return [(RiskLevel.DANGEROUS,
                      f"{program} source performs filesystem or process operations")]
