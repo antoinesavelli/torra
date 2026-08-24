@@ -9,5 +9,6 @@ Runnable task files, no model involved.
 
 ```bash
 harness check examples/deploy-api.yaml   # classify without running
-harness run examples/vague.yaml          # the clarifier check happens in `ask`/`plan`, not `run`
+harness check examples/vague.yaml        # the clarifier blocks it here; `run` skips the
+                                          # clarifier entirely and would just execute it
 ```

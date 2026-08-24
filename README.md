@@ -39,8 +39,7 @@ report     back into the conversation, and into telemetry
 Needs Python 3.10+, Ollama running locally with at least one model pulled.
 
 ```bash
-cd ~/Downloads
-mkdir -p ~/harness && unzip -o harness_phase7.zip -d ~/harness
+git clone https://github.com/antoinesavelli/harness.git ~/harness
 cd ~/harness
 python3 -m venv .venv
 source .venv/bin/activate
@@ -162,9 +161,10 @@ shell commands should stop the run.
 **SAFETY_FIRST.** Resolves what a command will actually run before classifying
 it: quote-aware segment splitting, `VAR=value` substitution, wrapper unwrapping
 (`sudo`, `env`, `timeout`, `nohup`, `nice`, `xargs`), recursion into `sh -c`
-payloads, base64 decode of blobs piped to a shell. Regex over raw text missed
-five of twelve evasions in testing. This catches 20 out of 20 with no false
-positives on 20 routine commands.
+payloads and command substitutions (`$(...)`/backticks), base64 decode of
+blobs piped to a shell, and `$IFS` field-splitting obfuscation. Regex over raw
+text missed five of twelve evasions in testing. This catches 24 out of 24
+with no false positives on 26 routine commands.
 
 **TRANSPARENCY.** Every branch the harness takes is recorded with its reasoning
 and lands in a JSON audit file. Reasoning is not optional; a decision logged
@@ -270,7 +270,7 @@ wearing a percentage sign.
 | `harness/telemetry/` | what it records about itself |
 | `harness/tui.py` | the interface |
 | `harness/cli.py` | entry points |
-| `tests/` | 266 cases, organised by subsystem |
+| `tests/` | 481 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
@@ -282,7 +282,7 @@ wearing a percentage sign.
 
 | Claim | Measured how |
 |---|---|
-| 20/20 evasions caught, 0 false positives | `tests/test_gates.py::TestSafety` |
+| 24/24 evasions caught, 0 false positives | `tests/test_gates.py::TestSafety` |
 | Clarifier 0% false negatives | `tests/test_gates.py::TestClarifier` |
 
 Every one of those came from data generated in testing, not from real use. That
@@ -314,7 +314,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 266 cases
+python3 -m pytest tests/ -v              # 481 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

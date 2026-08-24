@@ -418,18 +418,40 @@ class TestHttpErrorDetail:
         with pytest.raises(OllamaError, match="Bad Gateway"):
             client.chat("x", [{"role": "user", "content": "hi"}])
 
-    def test_a_real_empty_payload_request_hits_the_daemon_over_get(self) -> None:
-        """The one `_http` path no other test reaches: a real GET (empty
-        payload, as health()/models() send) against the actual Ollama
-        daemon on this machine -- matching the project's own precedent of
-        testing real integration boundaries (systemctl/dpkg/tcp probes)
-        rather than mocking urlopen for every case."""
+    def test_an_empty_payload_request_uses_get_not_post(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`_http`'s GET branch (empty payload, as health()/models() send) --
+        every other test here either injects a fake `transport` (bypassing
+        `_http` entirely) or already goes through the POST branch. This
+        deliberately still mocks `urlopen` rather than hitting a real
+        daemon: CLAUDE.md's own rule for this test suite is that nothing in
+        `tests/` touches a live Ollama, systemd, or network, precisely so
+        the suite stays green in CI, which has no Ollama installed."""
+        import urllib.request
+
+        seen: dict[str, object] = {}
+
+        class FakeResponse:
+            def read(self) -> bytes:
+                return b'{"models": []}'
+
+            def __enter__(self) -> FakeResponse:
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float) -> FakeResponse:
+            seen["method"] = request.get_method()
+            return FakeResponse()
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
         client = OllamaClient()
         status = client.health()
-        assert status is OllamaStatus.HEALTHY, (
-            "this machine's ollama.service is expected to be up; if it "
-            "genuinely is not, this is measuring a real environment gap"
-        )
+
+        assert seen["method"] == "GET"
+        assert status is OllamaStatus.HEALTHY
 
 
 class TestTaskSpecRollbackValidation:

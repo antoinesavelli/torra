@@ -10,5 +10,6 @@ was one file.
 | `labels.py` | `Label`/`LabelStore`, human verdicts attached to logged requests (depends on `records.py` for `TaskRecord`) |
 | `audit.py` | `CorpusExporter` (drift against the synthetic clarifier corpus) and `LoopholeAudit` (the anchored-but-goalless gap), both depend on `records.py`/`labels.py` |
 
-Not yet covered by `tests/`: see the Testing dimension in
-`python3 scripts/dev/defensive_coding_report.py --verbose`.
+Covered by `tests/test_telemetry.py`: redaction, `CorpusExporter.drift()`,
+`LoopholeAudit.audit()`, and each file's own failure-handling paths (a logger
+degrades to a no-op rather than raising, per invariant §2.5).
