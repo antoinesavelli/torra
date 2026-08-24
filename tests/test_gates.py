@@ -280,6 +280,60 @@ class TestVerifier:
         verifier.add(Precondition("nice-to-have", lambda: False, "", blocking=False))
         assert verifier.run().passed is True
 
+    def test_stats_reports_a_real_cache_hit_ratio(self) -> None:
+        verifier = StateVerifier()
+        verifier.add(Precondition("p", lambda: True, "", ttl_seconds=60))
+        verifier.run()
+        verifier.guard()
+        verifier.guard()
+
+        stats = verifier.stats()
+
+        assert stats["probe_runs"] == 1
+        assert stats["cache_hits"] == 2
+        assert stats["cache_hit_ratio"] == round(2 / 3, 4)
+
+
+class TestStateVerifierRealProbes:
+    """disk_free_gb/tcp_reachable/service_active's own error handling --
+    had no dedicated coverage; only the scope-injected tests below
+    exercise service_active at all."""
+
+    def test_disk_free_gb_returns_a_real_positive_number(self) -> None:
+        assert StateVerifier.disk_free_gb("/") > 0
+
+    def test_disk_free_gb_returns_minus_one_on_a_bad_path(self) -> None:
+        assert StateVerifier.disk_free_gb("/no/such/path/at/all") == -1.0
+
+    def test_tcp_reachable_is_true_for_a_real_listening_port(self) -> None:
+        import socket as socket_module
+
+        with socket_module.socket(socket_module.AF_INET,
+                                  socket_module.SOCK_STREAM) as srv:
+            srv.bind(("127.0.0.1", 0))
+            srv.listen(1)
+            port = srv.getsockname()[1]
+            assert StateVerifier.tcp_reachable("127.0.0.1", port) is True
+
+    def test_tcp_reachable_is_false_when_nothing_is_listening(self) -> None:
+        import socket as socket_module
+
+        with socket_module.socket(socket_module.AF_INET,
+                                  socket_module.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            free_port = probe.getsockname()[1]
+        # probe closed above, freeing the port -- nothing listens on it now
+        assert StateVerifier.tcp_reachable(
+            "127.0.0.1", free_port, timeout=0.5) is False
+
+    def test_service_active_returns_false_on_a_probe_exception(
+            self, monkeypatch) -> None:
+        def broken_run(cmd, **kwargs):
+            raise OSError("systemctl not found")
+
+        monkeypatch.setattr(subprocess, "run", broken_run)
+        assert StateVerifier.service_active("anything") is False
+
 
 class TestSystemctlScope:
     """Found in a full-file audit: every systemctl call in this codebase
