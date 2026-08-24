@@ -97,6 +97,34 @@ def test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again(
     assert approvals == {}
 
 
+def test_approve_at_prompt_records_a_real_yes_and_no(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """The ordinary path: an operator actually typing y/n at the prompt,
+    not hitting Ctrl+D. Also covers the "no automatic undo" notice for a
+    dangerous step that declares no `touches`."""
+    victim = tmp_path / "v.txt"
+    victim.write_text("keep me", encoding="utf-8")
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "two dangerous steps",
+        "steps": [
+            {"id": "no-undo", "run": "rm -f /nonexistent-path-xyz"},
+            {"id": "has-undo", "run": f"rm -f {victim}", "touches": [str(victim)]},
+        ]}, source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+    assert len(plan.needs_confirmation) == 2
+
+    answers = iter(["y", "n"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    approvals = cli.approve_at_prompt(plan)
+
+    assert approvals == {"no-undo": True, "has-undo": False}
+    assert "no automatic undo for this step" in capsys.readouterr().out
+
+
 # --------------------------------------------------------------------------- #
 # evidence (pre-existing)
 # --------------------------------------------------------------------------- #
@@ -141,6 +169,22 @@ def test_evidence_prints_the_loophole_audit_alongside_drift(
     assert exit_code == 0
     assert "anchored-but-goalless" in out
     assert "verdict" in out
+
+
+def test_evidence_prints_loophole_examples_when_present(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`loophole.examples` -- untested before this despite the loophole
+    count itself being covered above: a request that clears the clarifier
+    (it has a path anchor) but is goalless (vague verb, no stated outcome)."""
+    logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
+    logger.record(TaskRecord(task_id="t", request="fix /etc/nginx/nginx.conf", at=1.0))
+
+    exit_code = cli.cmd_evidence(evidence_args(tmp_path))
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "examples:" in out
+    assert "fix /etc/nginx/nginx.conf" in out
 
 
 # --------------------------------------------------------------------------- #
@@ -241,6 +285,58 @@ def test_plan_command_is_always_plan_only_and_noninteractive(
     assert not marker.exists()
 
 
+def test_ask_answer_intent_prints_the_bare_outcome_and_exits_ok(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """No plan at all -- intent 'answer' -- must not reach print_plan()
+    or the approval prompt, just report the outcome and stop."""
+    patch_observe(monkeypatch)
+    patch_ollama(monkeypatch, scripted({"intent": "answer", "message": "40 GB free"}))
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, "how much disk is free"))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_OK
+    assert "outcome: answered" in out
+
+
+def test_ask_reports_the_abort_reason_alongside_the_outcome(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """The early-outcome branch's `reason :` line -- an unparseable model
+    reply is the simplest way to reach a non-AWAITING_APPROVAL outcome
+    that also carries a non-empty abort_reason."""
+    patch_observe(monkeypatch)
+
+    def transport(path, payload, timeout):
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:8b"}]}
+        return {"message": {"content": "I cannot help with that."}}
+
+    patch_ollama(monkeypatch, transport)
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, "do something"))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_FAILED
+    assert "outcome: failed" in out
+    assert "reason :" in out
+
+
+def test_ask_interactive_gives_up_on_eof_while_answering_a_question(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Interactive mode (not non_interactive) hitting Ctrl+D mid-question
+    must bail out the same way non_interactive's early-exit does, rather
+    than crash or hang."""
+    patch_observe(monkeypatch)
+    patch_ollama(monkeypatch, scripted(
+        {"intent": "ask", "message": "which host?", "questions": ["Which host?"]}))
+    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(EOFError))
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, "tidy up the box"))
+
+    assert exit_code == cli.EXIT_BLOCKED
+    assert "Which host?" in capsys.readouterr().out
+
+
 def test_ask_reports_a_dangerous_step_awaiting_approval_when_declined(
         tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Non-interactive mode with an unapproved dangerous step must refuse,
@@ -303,6 +399,28 @@ def test_run_reports_per_step_results_and_the_audit_path(
     assert "ok   touch" in out
     assert "audit  :" in out
     assert marker.exists()
+
+
+def test_run_prints_the_rollback_summary_line_after_a_failure(
+        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`_print_execution_report`'s rollback line -- untested before this,
+    despite failure/rollback itself being covered at the pipeline level
+    (test_pipeline.py::test_a_failed_step_reverts_a_file_nobody_registered)."""
+    conf = tmp_path / "app.conf"
+    conf.write_text("ORIGINAL\n", encoding="utf-8")
+    task_file = write_task_file(
+        tmp_path / "task.yaml", "t", f"rewrite {conf} then fail",
+        [{"id": "write", "kind": "write", "run": f"printf 'NEW\\n' > {conf}",
+          "touches": [str(conf)]},
+         {"id": "boom", "run": "exit 7"}])
+
+    exit_code = cli.cmd_run(run_args(tmp_path, task_file))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_FAILED
+    assert "rollback:" in out
+    assert "undone" in out
+    assert conf.read_text(encoding="utf-8") == "ORIGINAL\n"
 
 
 def test_run_still_writes_an_audit_record_when_preconditions_fail(
@@ -381,6 +499,18 @@ def check_args(task_file: Path, *, verbose=False) -> argparse.Namespace:
     return argparse.Namespace(task_file=str(task_file), verbose=verbose)
 
 
+def test_check_rejects_a_malformed_task_file(
+        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(yaml.safe_dump({"task_id": "t"}), encoding="utf-8")
+
+    exit_code = cli.cmd_check(check_args(bad))
+
+    err = capsys.readouterr().err
+    assert exit_code == cli.EXIT_USAGE
+    assert "missing required key" in err
+
+
 def test_check_passes_a_clean_specific_task(
         tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     marker = tmp_path / "marker"
@@ -438,6 +568,63 @@ def test_doctor_reports_python_and_ollama_status(
     assert exit_code == cli.EXIT_OK
     assert "python >= 3.10" in out
     assert "ollama at" in out
+
+
+def test_doctor_reports_a_missing_optional_module(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """`inotify_simple` genuinely is installed in this venv, so its
+    ImportError branch never fires without simulating the absence."""
+    import builtins
+
+    patch_ollama(monkeypatch, scripted(models=["qwen3:32b"]))
+    real_import = builtins.__import__
+
+    def broken_import(name, *args, **kwargs):
+        if name == "inotify_simple":
+            raise ImportError("simulated: not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", broken_import)
+    args = argparse.Namespace(workdir=str(tmp_path / "wd"))
+
+    exit_code = cli.cmd_doctor(args)
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_OK
+    assert "missing: optional, falls back to full walks" in out
+
+
+def test_doctor_reports_a_failing_reflink_probe(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    patch_ollama(monkeypatch, scripted(models=["qwen3:32b"]))
+
+    def broken_run(*args, **kwargs):
+        raise FileNotFoundError("cp not found")
+
+    monkeypatch.setattr("harness.cli.subprocess.run", broken_run)
+    args = argparse.Namespace(workdir=str(tmp_path / "wd"))
+
+    exit_code = cli.cmd_doctor(args)
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_OK
+    assert "cp --reflink" in out
+    assert "FileNotFoundError" in out
+
+
+def test_doctor_prints_the_fallback_note_when_a_check_fails(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    def broken_transport(path, payload, timeout):
+        raise ConnectionRefusedError("connection refused")
+
+    patch_ollama(monkeypatch, broken_transport)
+    args = argparse.Namespace(workdir=str(tmp_path / "wd"))
+
+    exit_code = cli.cmd_doctor(args)
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_OK
+    assert "blocks planning but not" in out
 
 
 def test_doctor_workdir_check_walks_up_to_an_existing_ancestor(
@@ -504,6 +691,48 @@ def test_label_quit_stops_early_without_losing_prior_labels(
 
     assert exit_code == cli.EXIT_OK
     assert LabelStore(tmp_path / "telemetry" / "labels.jsonl").all() == {}
+
+
+def test_label_eof_on_the_verdict_prompt_stops_without_losing_prior_labels(
+        tmp_path, monkeypatch) -> None:
+    logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
+    logger.record(TaskRecord(task_id="t1", request="clean up the box", at=1.0))
+    logger.record(TaskRecord(task_id="t2", request="tidy the thing", at=1.0))
+    answers = iter(["s"])
+
+    def fake_input(prompt: str = "") -> str:
+        try:
+            return next(answers)
+        except StopIteration:
+            raise EOFError from None
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    exit_code = cli.cmd_label(label_args(tmp_path))
+
+    assert exit_code == cli.EXIT_OK
+    assert len(LabelStore(tmp_path / "telemetry" / "labels.jsonl").all()) == 1
+
+
+def test_label_eof_on_the_why_prompt_stops_without_losing_prior_labels(
+        tmp_path, monkeypatch) -> None:
+    logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
+    logger.record(TaskRecord(task_id="t1", request="clean up the box", at=1.0))
+    logger.record(TaskRecord(task_id="t2", request="tidy the thing", at=1.0))
+    answers = iter(["s", "a"])
+
+    def fake_input(prompt: str = "") -> str:
+        try:
+            return next(answers)
+        except StopIteration:
+            raise EOFError from None
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    exit_code = cli.cmd_label(label_args(tmp_path))
+
+    assert exit_code == cli.EXIT_OK
+    assert len(LabelStore(tmp_path / "telemetry" / "labels.jsonl").all()) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -576,6 +805,27 @@ def test_main_converts_a_task_spec_error_to_usage_exit(
     exit_code = cli.main(["--workdir", str(tmp_path), "run", str(bad)])
 
     assert exit_code == cli.EXIT_USAGE
+
+
+def test_main_catches_a_task_spec_error_that_escapes_a_command(
+        monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """`main()`'s own TaskSpecError handler is a second, outer safety net --
+    every current command that can raise one (`run`, `check`) already
+    catches it internally and never lets it reach here. Monkeypatches a
+    command to raise directly, the same way the unhandled-exception test
+    below does for a bare Exception."""
+    from harness.core import TaskSpecError
+
+    def boom(args):
+        raise TaskSpecError("simulated: escaped a command's own catch")
+
+    monkeypatch.setattr(cli, "cmd_doctor", boom)
+
+    exit_code = cli.main(["doctor"])
+
+    err = capsys.readouterr().err
+    assert exit_code == cli.EXIT_USAGE
+    assert "simulated: escaped" in err
 
 
 def test_main_converts_an_unhandled_exception_to_a_failed_exit(
