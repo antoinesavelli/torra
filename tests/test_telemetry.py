@@ -10,7 +10,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harness.telemetry import CorpusExporter, LabelStore, LoopholeAudit, TaskLogger, TaskRecord
+from harness.telemetry import (
+    CorpusExporter,
+    DriftReport,
+    LabelStore,
+    LoopholeAudit,
+    LoopholeReport,
+    TaskLogger,
+    TaskRecord,
+)
 
 
 class FakeClarifier:
@@ -248,3 +256,76 @@ class TestLabelStoreFailureEdges:
 
         assert result == {}
         assert any("read failed" in e for e in store.errors)
+
+
+class TestCorpusExporterExtras:
+    """CorpusExporter.write_corpus() and DriftReport.render() -- had zero
+    coverage; every existing test reads .drift()'s structured fields
+    directly, never the generated corpus file or the human-readable report."""
+
+    def test_write_corpus_generates_an_importable_python_module(self, tmp_path: Path) -> None:
+        labels = LabelStore(tmp_path / "labels.jsonl")
+        labels.label("fix the thing", True, why="vague")
+        labels.label("restart nginx", False)
+        exporter = CorpusExporter(TaskLogger(tmp_path / "tasks.jsonl"), labels)
+
+        target = exporter.write_corpus(tmp_path / "generated" / "live_corpus.py")
+
+        assert target.exists()
+        namespace: dict = {}
+        exec(target.read_text(encoding="utf-8"), namespace)
+        assert namespace["LIVE_AMBIGUOUS"] == [("fix the thing", "vague")]
+        assert namespace["LIVE_SPECIFIC"] == ["restart nginx"]
+
+    def test_drift_report_render_includes_examples_when_present(self) -> None:
+        report = DriftReport(
+            labeled_total=2, ambiguous_total=1, specific_total=1,
+            false_negatives=[("missed request", "vague")],
+            false_positives=[("blocked request", ["anchor_missing"])],
+            fn_rate=1.0, fp_rate=1.0, verdict="DRIFT: something")
+
+        rendered = report.render()
+
+        assert "missed request" in rendered
+        assert "blocked request" in rendered
+        assert "MISSED" in rendered
+        assert "BLOCKED" in rendered
+
+    def test_loophole_report_to_dict_is_serializable(self) -> None:
+        report = LoopholeReport(total=5, passed_clarifier=3, anchored_but_goalless=1,
+                                verdict="keep measuring")
+        assert report.to_dict()["total"] == 5
+        assert report.to_dict()["verdict"] == "keep measuring"
+
+
+class TestLoopholeAuditEdges:
+    """audit()'s own exception-handling and no-anchor branches -- untested
+    beyond the happy paths in TestLoopholeAudit above."""
+
+    def _record(self, request: str, *, anchors: list[str] | None = None) -> TaskRecord:
+        return TaskRecord(task_id="t", request=request, at=1.0,
+                          clarifier_anchors=anchors or [])
+
+    def test_a_raising_clarifier_is_skipped_not_fatal_to_the_audit(self) -> None:
+        class Explodes:
+            def detect(self, request: str):
+                raise RuntimeError("boom")
+
+        records = [self._record(f"fix /etc/app{i}.conf", anchors=["absolute path"])
+                  for i in range(30)]
+        report = LoopholeAudit(Explodes()).audit(records)
+
+        # Every record's detect() call raised, so none ever counted as
+        # "passed the clarifier" -- the audit itself must not crash.
+        assert report.passed_clarifier == 0
+        assert report.total == 30
+
+    def test_a_request_with_no_anchor_is_excluded_from_the_loophole_count(self) -> None:
+        """anchored_but_goalless only measures requests that both cleared
+        the clarifier AND named a concrete target -- a vague request with
+        no anchor at all is a different (already-caught) problem."""
+        no_anchor = [self._record("fix it", anchors=[]) for _ in range(30)]
+        report = LoopholeAudit(FakeClarifier(blocks=set())).audit(no_anchor)
+
+        assert report.passed_clarifier == 30
+        assert report.anchored_but_goalless == 0
