@@ -184,6 +184,107 @@ class TestRedaction:
         assert "hunter2" not in on_disk
 
 
+class TestTaskLoggerFailureEdges:
+    """TaskLogger's own construction/record/read failure paths -- exercised
+    only incidentally via test_cli.py before this, never at the unit level
+    against a forced failure. Same scoped-monkeypatch discipline as
+    TestLabelStoreFailureEdges below: patch only the exact Path object
+    under test, never Path globally."""
+
+    def _record(self, **overrides: object) -> TaskRecord:
+        fields = {"task_id": "t1", "request": "r", "at": 0.0}
+        fields.update(overrides)
+        return TaskRecord(**fields)  # type: ignore[arg-type]
+
+    def test_an_unusable_log_directory_degrades_gracefully(self, tmp_path: Path) -> None:
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory", encoding="utf-8")
+        logger = TaskLogger(blocker / "tasks.jsonl")
+        assert any("directory unusable" in e for e in logger.errors)
+
+    def test_scrub_truncates_text_past_the_configured_limit(self, tmp_path: Path) -> None:
+        logger = TaskLogger(tmp_path / "tasks.jsonl", max_request_chars=10)
+        assert logger.scrub("a request far longer than ten characters") == \
+            "a request  ...<truncated>"
+
+    def test_record_stamps_a_missing_timestamp_from_the_injected_clock(
+            self, tmp_path: Path) -> None:
+        logger = TaskLogger(tmp_path / "tasks.jsonl", clock=lambda: 12345.0)
+        record = self._record(at=0.0)
+        assert logger.record(record) is True
+        assert record.at == 12345.0
+
+    def test_a_write_failure_is_recorded_not_raised(
+            self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "tasks.jsonl"
+        logger = TaskLogger(path)
+        real_open = Path.open
+
+        def selective_broken_open(self, *args, **kwargs):
+            if self == path:
+                raise OSError("simulated write failure")
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", selective_broken_open)
+        ok = logger.record(self._record())
+
+        assert ok is False
+        assert any("OSError" in e for e in logger.errors)
+
+    def test_from_result_records_the_error_instead_of_raising(self, tmp_path: Path) -> None:
+        logger = TaskLogger(tmp_path / "tasks.jsonl")
+
+        class ExplodingResult:
+            @property
+            def plan(self):
+                raise RuntimeError("simulated result access failure")
+
+        assert logger.from_result(ExplodingResult()) is None
+        assert any("from_result failed" in e for e in logger.errors)
+
+    def test_read_skips_blank_lines_and_a_corrupt_line(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.jsonl"
+        logger = TaskLogger(path)
+        logger.record(self._record(task_id="good-one"))
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("\n")
+            fh.write("not valid json at all\n")
+        logger.record(self._record(task_id="good-two"))
+
+        records = logger.read()
+
+        assert [r.task_id for r in records] == ["good-one", "good-two"]
+        assert any("unreadable" in e for e in logger.errors)
+
+    def test_read_records_a_failure_instead_of_raising(
+            self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "tasks.jsonl"
+        logger = TaskLogger(path)
+        logger.record(self._record())
+        real_read_text = Path.read_text
+
+        def selective_broken_read_text(self, *args, **kwargs):
+            if self == path:
+                raise OSError("simulated read failure")
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", selective_broken_read_text)
+        result = logger.read()
+
+        assert result == []
+        assert any("read failed" in e for e in logger.errors)
+
+    def test_stats_reports_written_on_disk_and_errors(self, tmp_path: Path) -> None:
+        logger = TaskLogger(tmp_path / "tasks.jsonl")
+        logger.record(self._record())
+
+        stats = logger.stats()
+
+        assert stats["written"] == 1
+        assert stats["on_disk"] == 1
+        assert stats["errors"] == []
+
+
 class TestLabelStoreFailureEdges:
     """LabelStore's own failure handling -- had no dedicated coverage
     beyond incidental use in other test files. Monkeypatches below are

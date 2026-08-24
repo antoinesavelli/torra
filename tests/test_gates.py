@@ -862,6 +862,65 @@ class TestVerifiedRollback:
         assert len(report.cancelled) == 1
         assert rollback.depth == 2, "the declined action and its dependents survive"
 
+    def test_peek_and_actions_on_an_empty_stack(self) -> None:
+        rollback = VerifiedRollback()
+        assert rollback.peek() is None
+        assert rollback.actions() == []
+
+    def test_peek_and_actions_reflect_the_pushed_order(self) -> None:
+        rollback = VerifiedRollback()
+        rollback.add("bottom", lambda: None)
+        rollback.add("top", lambda: None)
+        top = rollback.peek()
+        assert top is not None
+        assert top.description == "top"
+        assert [a.description for a in rollback.actions()] == ["bottom", "top"]
+
+    def test_a_raising_confirm_callback_is_treated_as_a_decline(self) -> None:
+        def broken_confirm(action):
+            raise RuntimeError("simulated confirm crash")
+
+        rollback = VerifiedRollback(confirm_unsafe=broken_confirm)
+        rollback.add("drop the table", lambda: None, safe=False)
+
+        report = rollback.rollback()
+        assert report.results[0].status == "cancelled"
+        assert "confirm raised RuntimeError" in report.results[0].error
+
+    def test_an_approved_unsafe_undo_actually_runs(self) -> None:
+        order = []
+        rollback = VerifiedRollback(confirm_unsafe=lambda a: True)
+        rollback.add("drop the table", lambda: order.append("dropped"),
+                     safe=False, verify=lambda: True)
+
+        report = rollback.rollback()
+        assert order == ["dropped"]
+        assert report.results[0].status == "undone"
+
+    def test_a_raising_undo_is_reported_as_failed(self) -> None:
+        def broken_undo():
+            raise OSError("disk full")
+
+        rollback = VerifiedRollback()
+        rollback.add("r", broken_undo)
+        report = rollback.rollback()
+
+        assert report.results[0].status == "failed"
+        assert "OSError" in report.results[0].error
+        assert report.ok is False
+
+    def test_stop_on_cancel_false_continues_past_a_declined_action(self) -> None:
+        order = []
+        rollback = VerifiedRollback(confirm_unsafe=lambda a: False, stop_on_cancel=False)
+        rollback.add("bottom", lambda: order.append("bottom"), verify=lambda: True)
+        rollback.add("drop the table", lambda: None, safe=False)
+
+        report = rollback.rollback()
+        assert order == ["bottom"], "the sweep continued past the cancelled action"
+        assert len(report.cancelled) == 1
+        assert len(report.undone) == 1
+        assert rollback.depth == 0
+
     def test_rollback_actions_reports_the_command_for_classification(self) -> None:
         """`rollback_actions()` used to return only (description, undo, safe),
         which is exactly why HANDOFF.md §6.4's gap was possible: nothing
