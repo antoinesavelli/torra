@@ -45,12 +45,12 @@ cd ~/harness
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip -q
-pip install pytest pytest-asyncio pyyaml textual inotify_simple
-pip install -e .
+pip install -r requirements-lock.txt
+pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **242 passed**. Then:
+Expect **266 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -270,7 +270,7 @@ wearing a percentage sign.
 | `harness/telemetry/` | what it records about itself |
 | `harness/tui.py` | the interface |
 | `harness/cli.py` | entry points |
-| `tests/` | 242 cases, organised by subsystem |
+| `tests/` | 266 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
@@ -314,7 +314,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 242 cases
+python3 -m pytest tests/ -v              # 266 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

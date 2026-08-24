@@ -22,11 +22,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
+        # Pinned (requirements-lock.txt), not floating latest -- a
+        # transitive dependency's breaking release used to be able to
+        # change what CI tests against between one run and the next with
+        # no corresponding code change to explain a sudden failure.
         run: |
           pip install --upgrade pip
-          pip install pytest pytest-asyncio pyyaml textual inotify_simple
-          pip install ruff mypy radon coverage
-          pip install -e .
+          pip install -r requirements-lock.txt
+          pip install -e . --no-deps
 
       - name: Run the test suite
         run: python3 -m pytest tests/ -q
