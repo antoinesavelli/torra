@@ -21,6 +21,7 @@ from harness.gates import (
     Precondition,
     RiskLevel,
     SafetyClassifier,
+    Snapshot,
     SnapshotKind,
     StateVerifier,
     UndoGenerator,
@@ -219,6 +220,96 @@ class TestSafety:
         assert verdict.level is RiskLevel.SAFE
         verdict.approved = True
         assert verdict.blocked is False
+
+
+class TestSafetyCoverageEdges:
+    """The routine (non-evasion) side of resolve()/classify(): the "nothing
+    to flag here" return in each _judge_* helper, and the failure paths
+    around tokenizing/base64/substitution parsing that TestSafety's evasion
+    corpus never exercises because every one of those cases is deliberately
+    well-formed enough to succeed."""
+
+    def test_an_unclosed_quote_is_a_recorded_parse_failure_not_a_crash(self) -> None:
+        """`shlex.split` raises on an unterminated quote; `_tokenize` falls
+        back to a whitespace split and records why, and classify() surfaces
+        that as a NOTE rather than letting the exception propagate."""
+        safety = SafetyClassifier()
+        verdict = safety.classify('echo "unterminated')
+        assert safety.parse_failures
+        assert any("parse issue" in r for r in verdict.reasons)
+
+    def test_a_charset_match_that_is_not_valid_base64_is_a_recorded_failure(
+            self) -> None:
+        """9 characters from base64's alphabet is not a valid base64 length
+        (not a multiple of 4) -- `b64decode(validate=True)` raises, and
+        that has to be caught per-candidate, not let one bad match abort
+        decoding of a real payload elsewhere in the same command."""
+        safety = SafetyClassifier()
+        safety.classify("echo ABCDEFGHI | base64 -d | sh")
+        assert any("base64 decode failed" in f for f in safety.parse_failures)
+
+    def test_an_unmatched_command_substitution_paren_does_not_crash(self) -> None:
+        verdict = SafetyClassifier().classify("echo $(echo hi")
+        assert verdict.level is RiskLevel.SAFE
+
+    def test_an_unmatched_backtick_does_not_crash(self) -> None:
+        verdict = SafetyClassifier().classify("echo `unterminated")
+        assert verdict.level is RiskLevel.SAFE
+
+    def test_max_unwrap_depth_stops_recursion_instead_of_looping_forever(
+            self) -> None:
+        safety = SafetyClassifier(max_depth=-1)
+        resolved = safety.resolve("rm -rf /")
+        assert resolved == []
+        assert any("max unwrap depth" in f for f in safety.parse_failures)
+
+    def test_a_shell_dash_c_with_no_payload_resolves_without_crashing(self) -> None:
+        """`argv.index("-c") + 1` is out of range when `-c` is the last
+        token -- an empty payload is falsy, so nothing recurses, but the
+        IndexError itself must not propagate."""
+        verdict = SafetyClassifier().classify("sh -c")
+        assert verdict.level is RiskLevel.SAFE
+
+    def test_dd_without_a_block_device_target_is_not_flagged(self) -> None:
+        verdict = SafetyClassifier().classify("dd if=/dev/zero of=/tmp/out.img bs=1M count=1")
+        assert verdict.level is RiskLevel.SAFE
+
+    def test_find_without_delete_or_exec_is_not_flagged(self) -> None:
+        verdict = SafetyClassifier().classify('find /tmp -name "*.tmp" -mtime +7')
+        assert verdict.level is RiskLevel.SAFE
+
+    def test_a_package_manager_verb_outside_the_known_lists_is_not_flagged(
+            self) -> None:
+        """`list` is neither a removal nor an install/upgrade verb."""
+        verdict = SafetyClassifier().classify("apt list --installed")
+        assert verdict.level is RiskLevel.SAFE
+
+    def test_a_package_install_verb_is_flagged_as_a_package_change(self) -> None:
+        verdict = SafetyClassifier().classify("apt install python3-pytest")
+        assert verdict.level is RiskLevel.CAUTION
+        assert any("package change" in r for r in verdict.reasons)
+
+    def test_chmod_on_an_unprotected_path_is_not_escalated(self) -> None:
+        """chmod carries a baseline CAUTION from PROGRAM_RISK regardless;
+        this only checks that `_judge_chmod_chown`'s own protected-path
+        escalation stays silent for an ordinary target."""
+        verdict = SafetyClassifier().classify("chmod 644 /tmp/file.txt")
+        assert verdict.level is RiskLevel.CAUTION
+        assert not any("system path" in r for r in verdict.reasons)
+
+    def test_mv_to_an_unprotected_path_is_not_escalated(self) -> None:
+        verdict = SafetyClassifier().classify("mv /tmp/a /tmp/b")
+        assert verdict.level is RiskLevel.CAUTION
+        assert not any("writes to a system path" in r for r in verdict.reasons)
+
+    def test_explain_renders_the_full_trace_including_an_unwrap_origin(self) -> None:
+        safety = SafetyClassifier()
+        text = safety.explain('sh -c "rm -rf /var/lib/x"')
+        assert "command: sh -c" in text
+        assert "verdict: critical" in text
+        assert "resolved into" in text
+        assert "<- sh -c" in text
+        assert "reasons:" in text
 
 
 # --------------------------------------------------------------------------- #
@@ -800,6 +891,174 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         action = generator.capture_packages("nginx")
         assert action.snapshot is not None
         assert action.snapshot.to_dict()["payload"] == ["alpha", "mid", "zeta"]
+
+
+class TestUndoGeneratorRemainingEdges:
+    """What's left after TestUndoGeneratorRealProbesAndFailureEdges (91%):
+    Snapshot.to_dict()'s own set-payload branch (capture_packages always
+    hands it an already-sorted list, so nothing else reaches it directly),
+    _pid_alive's PermissionError/OSError arms, a real permission failure
+    while scanning for sibling shadow dirs, the "user"-scope return of
+    _systemctl_scope (every other test's real unit resolves to "system"),
+    the real dpkg/reflink probes' own except branches, _copy's reflink
+    subprocess-raises fallback (distinct from the already-covered
+    returncode-!=0 fallback), undo_packages' closure actually running
+    (only ever built, never invoked, before this), and stats().
+
+    Two branches stay uncovered, matching the same call made one round
+    earlier for capture_file's stat-after-exists TOCTOU (see the "79% ->
+    91%" commit): _reap_stale_shadows' `entry.stat()` at the tail of its
+    loop can only fail if the entry vanishes between the `is_dir()` check
+    a few lines above and the `stat()` call itself (pathlib's own is_dir()
+    already swallows ENOENT/ELOOP, so a dangling symlink or a real
+    permission wall doesn't reach this line) -- a genuine race, not
+    reachable without monkeypatching Path itself, which the project
+    already ruled out after it broke pytest's own internals once.
+    """
+
+    def test_snapshot_to_dict_sorts_a_set_payload(self) -> None:
+        snap = Snapshot(SnapshotKind.PACKAGE_SET, "pkgs",
+                        payload={"zeta", "alpha", "mid"})
+        assert snap.to_dict()["payload"] == ["alpha", "mid", "zeta"]
+
+    def test_pid_alive_treats_permission_denied_as_alive(self, monkeypatch) -> None:
+        """A pid we're not allowed to signal still definitely exists."""
+        def fake_kill(pid: int, sig: int) -> None:
+            raise PermissionError("not ours to signal")
+
+        monkeypatch.setattr(os, "kill", fake_kill)
+        assert UndoGenerator._pid_alive(1) is True
+
+    def test_pid_alive_treats_other_os_errors_as_dead(self, monkeypatch) -> None:
+        def fake_kill(pid: int, sig: int) -> None:
+            raise OSError("some other kill failure")
+
+        monkeypatch.setattr(os, "kill", fake_kill)
+        assert UndoGenerator._pid_alive(123456) is False
+
+    def test_reap_stale_shadows_returns_quietly_when_the_parent_cannot_be_listed(
+            self, tmp_path: Path) -> None:
+        """A real permission failure (not mocked) on the directory
+        _reap_stale_shadows scans -- must skip reaping this round, not
+        crash __init__. is_dir() on `parent` itself only needs traversal
+        permission on parent's own ancestors (which tmp_path still grants),
+        so it stays True; iterdir() needs read+execute on `parent` itself,
+        which the chmod below removes."""
+        parent = tmp_path / "restricted"
+        parent.mkdir()
+        generator = UndoGenerator(shadow_dir=parent / "s")
+        os.chmod(parent, 0o000)
+        try:
+            generator._reap_stale_shadows()
+        finally:
+            os.chmod(parent, 0o755)
+
+    def test_the_real_systemctl_scope_probe_recognizes_user_scope(
+            self, monkeypatch) -> None:
+        """test_the_real_systemctl_scope_probe_does_not_crash only ever
+        resolves this machine's real units, which are all "system" --
+        nothing exercises the "user" return itself."""
+        def fake_run(cmd, **kwargs):
+            assert cmd[:2] == ["systemctl", "--user"]
+            class Result:
+                stdout = "LoadState=loaded\n"
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert UndoGenerator._systemctl_scope("some.service") == "user"
+
+    def test_the_real_dpkg_probe_returns_empty_on_a_real_failure(
+            self, monkeypatch) -> None:
+        def broken_run(cmd, **kwargs):
+            raise FileNotFoundError("dpkg-query not found")
+
+        monkeypatch.setattr(subprocess, "run", broken_run)
+        assert UndoGenerator._dpkg_set() == set()
+
+    def test_reflink_probe_is_false_when_the_probe_subprocess_itself_fails(
+            self, tmp_path: Path, monkeypatch) -> None:
+        """Distinct from test_reflink_probe_is_false_when_cp_is_unavailable:
+        `cp` is genuinely on PATH here, it's the probe invocation itself
+        that blows up (killed, vanished mid-run, etc.)."""
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+
+        def broken_run(cmd, **kwargs):
+            raise OSError("cp vanished mid-probe")
+
+        monkeypatch.setattr(subprocess, "run", broken_run)
+        assert generator._probe_reflink() is False
+
+    def test_copy_falls_back_to_a_byte_copy_when_the_reflink_subprocess_itself_fails(
+            self, tmp_path: Path, monkeypatch) -> None:
+        """Distinct from test_copy_falls_back_to_a_byte_copy_when_reflink_is_unsupported
+        (probe says no) and the returncode-!=0 path exercised by the
+        success test's mirror image: here the reflink subprocess call
+        raises outright, and _copy must still swallow it and finish the
+        copy as a byte copy."""
+        source = tmp_path / "src.txt"
+        source.write_text("content", encoding="utf-8")
+        dest = tmp_path / "dst.txt"
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        generator.reflink_supported = True
+
+        def broken_run(cmd, **kwargs):
+            raise OSError("cp vanished mid-copy")
+
+        monkeypatch.setattr(subprocess, "run", broken_run)
+        how = generator._copy(source, dest)
+
+        assert how == "copy"
+        assert generator.byte_copies == 1
+        assert dest.read_text(encoding="utf-8") == "content"
+        assert any("reflink copy of" in s for s in generator.skipped)
+
+    def test_undo_packages_removes_only_the_packages_added_since_the_snapshot(
+            self, tmp_path: Path, monkeypatch) -> None:
+        """Every existing capture_packages test only ever builds the
+        UndoAction -- nothing calls .undo() itself, so the closure that
+        diffs against the snapshot and issues the real removal never ran."""
+        calls = {"n": 0}
+
+        def probe() -> set[str]:
+            calls["n"] += 1
+            return {"curl"} if calls["n"] == 1 else {"curl", "nginx", "nginx-common"}
+
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", package_probe=probe)
+        action = generator.capture_packages("nginx nginx-common")
+
+        recorded: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            recorded.append(cmd)
+            class Result:
+                returncode = 0
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        action.undo()
+
+        assert recorded and recorded[0][:3] == ["apt-get", "remove", "--yes"]
+        assert set(recorded[0][3:]) == {"nginx", "nginx-common"}
+
+    def test_undo_packages_issues_no_removal_when_nothing_new_was_added(
+            self, tmp_path: Path, monkeypatch) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "s",
+                                  package_probe=lambda: {"curl"})
+        action = generator.capture_packages("nginx")
+
+        calls = []
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
+        action.undo()
+
+        assert calls == []
+
+    def test_stats_reports_the_copy_mode_counters(self, tmp_path: Path) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        stats = generator.stats()
+        assert stats["shadow_dir"] == str(generator.shadow_dir)
+        assert stats["snapshots"] == 0
+        assert stats["reflink_copies"] == 0
+        assert stats["byte_copies"] == 0
 
 
 class TestVerifiedRollback:

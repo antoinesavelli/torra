@@ -398,6 +398,12 @@ class TestCorpusExporterExtras:
         assert report.to_dict()["total"] == 5
         assert report.to_dict()["verdict"] == "keep measuring"
 
+    def test_drift_report_to_dict_is_serializable(self) -> None:
+        report = DriftReport(labeled_total=2, ambiguous_total=1, specific_total=1,
+                             fn_rate=0.5, verdict="looks fine")
+        assert report.to_dict()["labeled_total"] == 2
+        assert report.to_dict()["verdict"] == "looks fine"
+
 
 class TestLoopholeAuditEdges:
     """audit()'s own exception-handling and no-anchor branches -- untested
