@@ -567,6 +567,187 @@ class TestUndoGeneration:
         assert live.exists()
 
 
+class TestUndoGeneratorRealProbesAndFailureEdges:
+    """The rest of undo.py that TestUndoGeneration doesn't reach: the real
+    (non-injected) systemctl/dpkg probes every UndoGenerator falls back to
+    when no fake is passed in, and the failure edges (unreadable file,
+    oversized shadow, reflink unsupported) that only fire when something
+    actually goes wrong. undo.py was the second-worst-covered file in the
+    tree (79%) with almost none of this exercised."""
+
+    def test_the_real_systemctl_scope_probe_does_not_crash(self) -> None:
+        """Exercises the real subprocess.run path (every other scope test
+        injects scope_probe), against a unit this project's own docs
+        already establish is a real system-scope service on this machine."""
+        assert UndoGenerator._systemctl_scope("ollama.service") in ("user", "system")
+
+    def test_the_real_systemctl_state_probe_does_not_crash(self, tmp_path: Path) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        state = generator._systemctl_state("ollama.service")
+        assert state and state != "unknown"
+
+    def test_the_real_systemctl_probes_do_not_crash_on_a_nonexistent_unit(self) -> None:
+        """A unit name guaranteed not to exist still gets a real answer
+        from systemctl (typically "inactive" -- systemctl is-active does
+        not distinguish "never existed" from "loaded and stopped", which
+        is exactly the ambiguity _systemctl_scope's own docstring
+        describes), not a crash."""
+        assert UndoGenerator._systemctl_scope("definitely-not-a-real-unit.service") \
+            in ("user", "system")
+        generator = UndoGenerator(shadow_dir=Path(tempfile.mkdtemp()))
+        state = generator._systemctl_state("definitely-not-a-real-unit.service")
+        assert state, "must return a real status string, not raise"
+
+    def test_the_real_systemctl_state_probe_degrades_to_unknown_on_a_real_failure(
+            self, monkeypatch) -> None:
+        """"unknown" is the fallback for when systemctl itself cannot be
+        invoked at all (binary missing, timeout) -- not for an ordinary
+        "unit doesn't exist" miss, which still returns a real status."""
+        generator = UndoGenerator(shadow_dir=Path(tempfile.mkdtemp()))
+
+        def broken_run(cmd, **kwargs):
+            raise FileNotFoundError("systemctl not found")
+
+        monkeypatch.setattr(subprocess, "run", broken_run)
+        assert generator._systemctl_state("anything") == "unknown"
+
+    def test_the_real_dpkg_probe_returns_a_real_package_set(self) -> None:
+        packages = UndoGenerator._dpkg_set()
+        assert len(packages) > 10, "a real Pop!_OS install has far more than 10 packages"
+        assert all(isinstance(p, str) and p for p in packages)
+
+    def test_digest_of_a_missing_file_is_none(self, tmp_path: Path) -> None:
+        assert UndoGenerator.digest(tmp_path / "nope") is None
+
+    def test_digest_of_an_unreadable_file_is_none(self, tmp_path: Path) -> None:
+        target = tmp_path / "locked.bin"
+        target.write_bytes(b"secret")
+        target.chmod(0o000)
+        try:
+            result = UndoGenerator.digest(target)
+        finally:
+            target.chmod(0o644)
+        assert result is None
+
+    def test_reflink_is_not_probed_twice(self, tmp_path: Path) -> None:
+        """The result is cached on first probe -- a second call must not
+        shell out again."""
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        first = generator._probe_reflink()
+        calls = []
+        real_run = subprocess.run
+
+        def spy(*args, **kwargs):
+            calls.append(args)
+            return real_run(*args, **kwargs)
+
+        subprocess.run = spy
+        try:
+            second = generator._probe_reflink()
+        finally:
+            subprocess.run = real_run
+        assert first == second
+        assert calls == [], "a cached probe result must not shell out again"
+
+    def test_reflink_probe_is_false_when_cp_is_unavailable(
+            self, tmp_path: Path, monkeypatch) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert generator._probe_reflink() is False
+
+    def test_copy_falls_back_to_a_byte_copy_when_reflink_is_unsupported(
+            self, tmp_path: Path) -> None:
+        source = tmp_path / "src.txt"
+        source.write_text("content", encoding="utf-8")
+        dest = tmp_path / "dst.txt"
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", prefer_reflink=False)
+
+        how = generator._copy(source, dest)
+
+        assert how == "copy"
+        assert generator.byte_copies == 1
+        assert dest.read_text(encoding="utf-8") == "content"
+
+    def test_copy_uses_reflink_when_the_probe_reports_it_works(
+            self, tmp_path: Path, monkeypatch) -> None:
+        """This filesystem (ext4, per HANDOFF §6.5) doesn't really support
+        --reflink=always -- forcing the probe result is what exercises the
+        success branch _copy would take on btrfs/xfs without needing one."""
+        source = tmp_path / "src.txt"
+        source.write_text("content", encoding="utf-8")
+        dest = tmp_path / "dst.txt"
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        generator.reflink_supported = True
+
+        def fake_run(cmd, **kwargs):
+            assert cmd[:2] == ["cp", "--reflink=always"]
+            dest.write_bytes(source.read_bytes())
+            class Result:
+                returncode = 0
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        how = generator._copy(source, dest)
+
+        assert how == "reflink"
+        assert generator.reflink_copies == 1
+
+    def test_capture_file_records_an_error_when_the_shadow_copy_fails(
+            self, tmp_path: Path, monkeypatch) -> None:
+        target = tmp_path / "app.conf"
+        target.write_text("x", encoding="utf-8")
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+
+        def broken_copy(self, source, destination):
+            raise OSError("simulated copy failure")
+
+        monkeypatch.setattr(UndoGenerator, "_copy", broken_copy)
+        assert generator.capture_file(target) is None
+        assert any("shadow copy failed" in s for s in generator.skipped)
+
+    def test_capture_mkdir_declines_when_the_directory_already_exists(
+            self, tmp_path: Path) -> None:
+        """Only worth an undo when the step is the one creating it -- a
+        directory that already exists is not this step's to remove."""
+        target = tmp_path / "already-there"
+        target.mkdir()
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        assert generator.capture_mkdir(str(target)) is None
+
+    def test_for_step_derives_a_service_undo_from_a_systemctl_command(
+            self, tmp_path: Path) -> None:
+        """Found gap: TestUndoGeneration's service test calls
+        capture_service() directly -- nothing exercised SERVICE_PATTERN's
+        match inside for_step() itself."""
+        generator = UndoGenerator(shadow_dir=tmp_path / "s",
+                                  service_probe=lambda unit: "active",
+                                  scope_probe=lambda unit: "system")
+        actions = generator.for_step(
+            Step("restart", command="sudo systemctl restart nginx"))
+        assert len(actions) == 1
+        assert actions[0].snapshot.target == "nginx"
+
+    def test_for_step_marks_a_package_removal_as_uncovered_not_inverted(
+            self, tmp_path: Path) -> None:
+        """apt install gets an undo (test_package_undo_is_unsafe_by_design);
+        apt remove/purge cannot be safely auto-inverted (what was removed
+        may have had its own config already gone) and must not pretend
+        otherwise -- named uncovered instead."""
+        generator = UndoGenerator(shadow_dir=tmp_path / "s",
+                                  package_probe=lambda: {"curl"})
+        actions = generator.for_step(
+            Step("cleanup", command="sudo apt remove --yes nginx"))
+        assert actions == []
+        assert any("cannot be auto-inverted" in s for s in generator.skipped)
+
+    def test_a_captured_packages_snapshot_serializes_its_payload_sorted(
+            self) -> None:
+        generator = UndoGenerator(package_probe=lambda: {"zeta", "alpha", "mid"})
+        action = generator.capture_packages("nginx")
+        assert action.snapshot is not None
+        assert action.snapshot.to_dict()["payload"] == ["alpha", "mid", "zeta"]
+
+
 class TestVerifiedRollback:
     """`undone` used to mean only that the callable did not raise."""
 
