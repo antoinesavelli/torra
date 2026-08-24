@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import os
 import signal
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,7 @@ from harness.core import (
     OllamaError,
     observe_machine,
 )
+from harness.core.conflict import Conflict
 from harness.core.machine import OLLAMA_MODELS_DIR_PROBE, _scan_knowledge_dir, detect_accelerator
 from harness.core.tasks import ContextBudgetError, TaskSpec, TaskSpecError, shell
 
@@ -903,6 +905,205 @@ class TestConflictDetection:
         detector = ConflictDetector(use_inotify=False)
         detector.close()  # must not raise
         assert detector._inotify is None
+
+    def test_conflict_to_dict_serializes_the_kind_as_its_value(self) -> None:
+        conflict = Conflict("/tmp/x", ConflictKind.MODIFIED, "before", "after", "changed")
+        assert conflict.to_dict()["kind"] == "modified"
+
+    def test_walk_records_an_error_on_a_scandir_failure_and_keeps_going(
+            self, tmp_path: Path) -> None:
+        locked = tmp_path / "locked-dir"
+        locked.mkdir()
+        (locked / "inside.txt").write_text("x", encoding="utf-8")
+        (tmp_path / "readable.txt").write_text("y", encoding="utf-8")
+        locked.chmod(0o000)
+        detector = ConflictDetector()
+        try:
+            fingerprints = detector._walk(tmp_path)
+        finally:
+            locked.chmod(0o755)
+
+        assert any(str(tmp_path / "readable.txt") == p for p in fingerprints)
+        assert any(str(locked) in e for e in detector.errors)
+
+    def test_classify_records_a_conflict_when_stat_fails_after_a_known_path_exists(
+            self, tmp_path: Path, monkeypatch) -> None:
+        target = tmp_path / "locked.txt"
+        target.write_text("x", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.fingerprints[str(target)] = (0, 0)  # known, forces past exists()
+        real_stat = Path.stat
+        calls = {"n": 0}
+
+        def selective_broken_stat(self, *args, **kwargs):
+            # target.exists() (called first, inside _classify) also goes
+            # through Path.stat -- only the SECOND call (_classify's own
+            # explicit `target.stat()`) is the one under test, so the first
+            # call must still succeed or exists() itself raises.
+            if self == target:
+                calls["n"] += 1
+                if calls["n"] > 1:
+                    raise OSError("simulated stat failure")
+            return real_stat(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", selective_broken_stat)
+        conflict = detector._classify(str(target))
+
+        assert conflict is not None
+        assert conflict.kind is ConflictKind.UNREADABLE
+
+    def test_close_swallows_an_error_from_the_real_inotify_object(self) -> None:
+        class BrokenInotify:
+            def close(self):
+                raise OSError("simulated close failure")
+
+        detector = ConflictDetector(use_inotify=False)
+        detector._inotify = BrokenInotify()
+        detector.close()  # must not raise
+        assert detector._inotify is None
+
+    def test_walk_skips_a_non_regular_non_directory_entry(self, tmp_path: Path) -> None:
+        (tmp_path / "real.txt").write_text("x", encoding="utf-8")
+        os.mkfifo(tmp_path / "a.fifo")
+        detector = ConflictDetector()
+
+        fingerprints = detector._walk(tmp_path)
+
+        assert str(tmp_path / "real.txt") in fingerprints
+        assert not any("fifo" in p for p in fingerprints)
+
+    def test_walk_records_no_error_when_a_single_entry_stat_fails(
+            self, tmp_path: Path, monkeypatch) -> None:
+        (tmp_path / "real.txt").write_text("x", encoding="utf-8")
+
+        class BrokenEntry:
+            name = "broken.txt"
+            path = str(tmp_path / "broken.txt")
+
+            def is_dir(self, follow_symlinks=False):
+                return False
+
+            def is_file(self, follow_symlinks=False):
+                return True
+
+            def stat(self, follow_symlinks=False):
+                raise OSError("simulated per-entry stat failure")
+
+        real_scandir = os.scandir
+
+        @contextlib.contextmanager
+        def scandir_with_one_broken_entry(path):
+            with real_scandir(path) as it:
+                yield [*it, BrokenEntry()]
+
+        monkeypatch.setattr(os, "scandir", scandir_with_one_broken_entry)
+        detector = ConflictDetector()
+
+        fingerprints = detector._walk(tmp_path)
+
+        assert str(tmp_path / "real.txt") in fingerprints
+        assert "broken.txt" not in str(fingerprints)
+        assert not detector.errors  # a per-entry OSError is swallowed, not recorded
+
+    def test_start_inotify_degrades_when_add_watch_fails(
+            self, tmp_path: Path, monkeypatch) -> None:
+        from inotify_simple import INotify
+
+        def broken_add_watch(self, path, mask):
+            raise OSError("simulated add_watch failure")
+
+        monkeypatch.setattr(INotify, "add_watch", broken_add_watch)
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=True)
+        try:
+            detector._start_inotify()
+            assert detector.use_inotify is False
+            assert detector._inotify is None
+            assert any("inotify setup failed" in e for e in detector.errors)
+        finally:
+            detector.close()
+
+    def test_events_records_an_error_and_returns_none_when_read_fails(
+            self, tmp_path: Path) -> None:
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=True)
+        try:
+            detector._start_inotify()
+
+            def broken_read(timeout=0):
+                raise OSError("simulated read failure")
+
+            detector._inotify.read = broken_read
+            assert detector._events() is None
+            assert any("inotify read failed" in e for e in detector.errors)
+        finally:
+            detector.close()
+
+    def test_stats_reports_fast_checks_and_full_walks(self) -> None:
+        detector = ConflictDetector(use_inotify=False)
+        detector.fast_checks = 3
+        detector.full_walks = 1
+        detector.errors.append("oops")
+
+        stats = detector.stats()
+
+        assert stats["fast_checks"] == 3
+        assert stats["full_walks"] == 1
+        assert stats["errors"] == ["oops"]
+
+
+class TestConflictDetectorRealInotify:
+    """_start_inotify()/_events() against the real inotify_simple library --
+    every other test in this file injects a truthy stand-in for
+    `_inotify` and a fake `_events`, so nothing exercised the actual OS
+    integration `_detect_tree()`'s fast path depends on in production."""
+
+    def test_start_inotify_attaches_a_real_watch(self, tmp_path: Path) -> None:
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=True)
+        try:
+            detector._start_inotify()
+            assert detector.use_inotify is True
+            assert detector._inotify is not None
+            assert detector._watch_paths
+        finally:
+            detector.close()
+
+    def test_events_reports_a_real_file_creation(self, tmp_path: Path) -> None:
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=True)
+        try:
+            detector._start_inotify()
+            (tmp_path / "new.txt").write_text("surprise", encoding="utf-8")
+            # inotify delivery is asynchronous; a short real wait is the
+            # only reliable way to observe it without mocking the library
+            # this test exists specifically to exercise.
+            import time as time_module
+            deadline = time_module.time() + 2.0
+            touched: set[str] = set()
+            while time_module.time() < deadline and not touched:
+                touched = detector._events() or set()
+            assert any("new.txt" in p for p in touched)
+        finally:
+            detector.close()
+
+    def test_events_returns_none_when_inotify_was_never_started(self) -> None:
+        detector = ConflictDetector(use_inotify=False)
+        assert detector._events() is None
+
+    def test_start_inotify_degrades_when_the_library_is_unavailable(
+            self, tmp_path: Path, monkeypatch) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def broken_import(name, *args, **kwargs):
+            if name == "inotify_simple":
+                raise ImportError("simulated: inotify_simple not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", broken_import)
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=True)
+        detector._start_inotify()
+
+        assert detector.use_inotify is False
+        assert any("inotify unavailable" in e for e in detector.errors)
 
 
 class TestConflictDetectorFastPath:
