@@ -11,7 +11,7 @@ import json
 import pytest
 from conftest import plan_reply, scripted
 
-from harness.agent import Agent, AgentError, Intent
+from harness.agent import Agent, AgentError, Intent, Turn
 from harness.core import MachineState, OllamaClient, OllamaError, Step, StepResult, TaskSpec
 
 
@@ -225,6 +225,28 @@ def test_repair_gives_up_rather_than_looping() -> None:
     assert turn.spec is not None, "the last proposal is still returned for gating"
 
 
+def test_repair_sends_the_gates_own_complaint_back_and_returns_a_revised_turn() -> None:
+    """`repair()` is the public entry point a gate rejection calls after
+    the operator has already seen and approved a plan that a *later*
+    gate (state/conflict, not the model's own pre-screen) then rejected
+    -- distinct from the automatic in-converse() repair loop, which never
+    fires here because the original proposal is not itself flagged."""
+    original = plan_reply("t", "check disk usage on /srv/api",
+                          [{"id": "check", "run": "df -h /srv/api"}])
+    revised = plan_reply("t", "check disk usage on /srv/api",
+                         [{"id": "check", "run": "df -h /srv/api2"}])
+    agent = build_agent(scripted(original, revised))
+    turn = agent.converse("check disk usage on /srv/api")
+    assert turn.repairs == 0, "the original proposal should not need auto-repair"
+
+    fixed = agent.repair(turn, "- the target path no longer exists")
+
+    assert fixed.repairs == turn.repairs + 1
+    assert fixed.spec is not None
+    assert fixed.spec.commands() == ["df -h /srv/api2"]
+    assert fixed in agent.turns
+
+
 def test_an_answer_that_silently_drops_a_populated_task_is_repaired() -> None:
     """Found live: asked to summarize disk usage, the model replied intent
     "answer" with a real task attached (steps that would have run `df`)
@@ -271,6 +293,19 @@ def test_a_clean_answer_with_no_task_never_wastes_a_repair_round() -> None:
     turn = agent.converse("give me a summary of storage")
 
     assert turn.repairs == 0
+
+
+def test_answer_dropped_a_task_check_tolerates_unparseable_raw() -> None:
+    """`_answer_dropped_a_task` re-extracts JSON from `turn.raw` rather
+    than caching what `_parse` already found -- in normal operation that
+    string always parsed once already, so this is a defensive catch for
+    a `Turn` built some other way. Calls the private method directly
+    since there is no way to reach it through `converse()` with an
+    already-invalid `raw`."""
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}))
+    turn = Turn(request="r", intent=Intent.ANSWER, raw="not json at all")
+
+    assert agent._answer_dropped_a_task(turn) == ""
 
 
 def test_an_answer_that_only_promises_to_check_is_repaired() -> None:
@@ -351,6 +386,60 @@ def test_preamble_with_its_own_braces_does_not_confuse_the_json_pull() -> None:
                 + json.dumps({"intent": "answer", "message": "ok"})}}
 
     assert build_agent(transport).converse("hi").intent is Intent.ANSWER
+
+
+def test_an_escaped_quote_inside_the_json_does_not_break_brace_matching() -> None:
+    """`_matching_brace` has to skip over braces (and everything else)
+    inside a string literal, including one that itself contains an
+    escaped quote -- a naive scan would end the string early at the
+    escaped `\\"` and lose track of whether it is still inside one."""
+    raw = ('noise before {"intent": "answer", "message": "she said \\"hi\\""} '
+          "noise after")
+    data = Agent._extract_json(raw)
+    assert data == {"intent": "answer", "message": 'she said "hi"'}
+
+
+def test_an_unbalanced_brace_is_reported_as_no_json_object() -> None:
+    with pytest.raises(AgentError, match="no JSON object"):
+        Agent._extract_json("some unbalanced { text with no closing brace")
+
+
+def test_an_unrecognized_intent_with_a_task_falls_back_to_plan() -> None:
+    """`Intent(intent_text)` raises for anything outside the enum; a task
+    object attached anyway is a stronger signal than the label the model
+    picked, so it is treated as a plan rather than discarded."""
+    def transport(path, payload, timeout):
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:8b"}]}
+        return {"message": {"content": json.dumps({
+            "intent": "not-a-real-intent", "message": "ok",
+            "task": {"task_id": "t", "request": "r",
+                     "steps": [{"id": "a", "run": "true"}]}})}}
+
+    turn = build_agent(transport).converse("do something")
+    assert turn.intent is Intent.PLAN
+
+
+def test_an_unrecognized_intent_with_no_task_falls_back_to_answer() -> None:
+    def transport(path, payload, timeout):
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:8b"}]}
+        return {"message": {"content": json.dumps(
+            {"intent": "not-a-real-intent", "message": "ok"})}}
+
+    turn = build_agent(transport).converse("do something")
+    assert turn.intent is Intent.ANSWER
+
+
+def test_intent_plan_with_a_non_dict_task_is_rejected() -> None:
+    def transport(path, payload, timeout):
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:8b"}]}
+        return {"message": {"content": json.dumps(
+            {"intent": "plan", "message": "ok", "task": "not a dict"})}}
+
+    with pytest.raises(AgentError, match="no task object"):
+        build_agent(transport).converse("do something")
 
 
 def test_unparseable_output_raises_rather_than_guessing() -> None:
@@ -470,6 +559,37 @@ def test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat() -> None:
         "nomic-embed-text:latest": False, "qwen3.5:latest": True}
     assert turn.model == "qwen3.5:latest"
     assert calls == ["qwen3.5:latest"]
+
+
+def test_an_explicit_model_override_that_is_not_pulled_falls_back() -> None:
+    """`_degraded_fallback` only ever runs when `chosen` did not come from
+    the router's own resolution -- `select()` already downgrades onto
+    whatever `observe()` populated `available` with, so the one way to
+    reach this path is a caller-supplied `model=` naming something never
+    pulled. Two existing tests named "fallback" (routing_falls_back_to,
+    degraded_fallback_skips) both exercise ModelRouter's own downgrade,
+    not this method, despite the name."""
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"},
+                                 models=["qwen3.5:latest"]))
+
+    turn = agent.converse("anything", model="totally-not-pulled:99b")
+
+    assert turn.model == "qwen3.5:latest", (
+        "the only pulled model happens to be the class fallback model"
+    )
+
+
+def test_an_explicit_model_override_falls_back_to_the_first_available() -> None:
+    """Same path, but the fallback model itself is not among what is
+    pulled -- `_degraded_fallback` must still pick something rather than
+    raising, and with no chat-capability data available it takes the
+    first of what is on hand."""
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"},
+                                 models=["qwen3:8b"]))
+
+    turn = agent.converse("anything", model="totally-not-pulled:99b")
+
+    assert turn.model == "qwen3:8b"
 
 
 def test_an_untagged_pull_is_not_mistaken_for_absent() -> None:
@@ -619,3 +739,51 @@ def test_summarize_reports_a_failed_step_by_error_not_output() -> None:
     prompt = seen["payload"]["messages"][0]["content"]
     assert "No such file or directory" in prompt
     assert "FAILED" in prompt
+
+
+def test_summarize_skips_a_step_with_no_matching_result() -> None:
+    """A step the pipeline never got to (e.g. an early abort) has no
+    entry in `results` at all -- it must be left out of the report
+    rather than crash on a missing lookup."""
+    seen: dict[str, dict] = {}
+
+    def transport(path: str, payload: dict, timeout: float) -> dict:
+        seen["payload"] = payload
+        return {"message": {"content": "one step ran"}}
+
+    agent = build_agent(transport)
+    steps = [Step(step_id="ran", command="true"),
+             Step(step_id="never-reached", command="true")]
+    results = [StepResult(step_id="ran", ok=True, output="done")]
+
+    agent.summarize("did it work", steps, results, "devstral:24b")
+
+    prompt = seen["payload"]["messages"][0]["content"]
+    assert "ran" in prompt
+    assert "never-reached" not in prompt
+
+
+def test_stats_reports_turns_repairs_and_context_usage() -> None:
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}))
+    agent.converse("hello")
+
+    stats = agent.stats()
+
+    assert stats["turns"] == 1
+    assert stats["repairs"] == 0
+    assert "context_tokens" in stats
+    assert "ollama" in stats
+
+
+def test_remember_failure_does_not_break_the_turn() -> None:
+    """Context bookkeeping is a nice-to-have; a broken compressor must
+    not take down the conversation it is only supposed to be logging."""
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}))
+
+    def broken_add(*args, **kwargs):
+        raise RuntimeError("simulated context failure")
+
+    agent.context.add = broken_add  # type: ignore[method-assign]
+    turn = agent.converse("hello")
+
+    assert turn.intent is Intent.ANSWER, "the turn itself must still complete"
