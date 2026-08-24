@@ -7,6 +7,7 @@ Organised by what the agent has to get right, not by which phase built it.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from conftest import plan_reply, scripted
@@ -539,7 +540,7 @@ def test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat() -> None:
 
     calls: list[str] = []
 
-    def transport(path: str, payload: dict, timeout: float) -> dict:
+    def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         if path == "/api/tags":
             return {"models": [{"name": "nomic-embed-text:latest"},
                                {"name": "qwen3.5:latest"}]}
@@ -547,7 +548,7 @@ def test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat() -> None:
             name = payload.get("name")
             caps = ["embedding"] if name == "nomic-embed-text:latest" else ["completion"]
             return {"capabilities": caps}
-        calls.append(payload.get("model"))
+        calls.append(str(payload.get("model")))
         return {"message": {"content": json.dumps({"intent": "answer", "message": "ok"})}}
 
     agent = Agent(OllamaClient(transport=transport, probe_timeout=0.1))
@@ -701,7 +702,7 @@ def test_summarize_sends_step_output_as_plain_text_not_json() -> None:
     """The whole point is a single fixed-shape call, not a second generation
     path -- json_mode must be off, so the reply can never be mistaken for a
     task proposal."""
-    seen: dict[str, object] = {}
+    seen: dict[str, dict] = {}
 
     def transport(path: str, payload: dict, timeout: float) -> dict:
         seen["payload"] = payload
@@ -724,7 +725,7 @@ def test_summarize_sends_step_output_as_plain_text_not_json() -> None:
 def test_summarize_reports_a_failed_step_by_error_not_output() -> None:
     """A failed step has no useful `output` -- the model must see why it
     failed, not an empty string that reads as "nothing happened"."""
-    seen: dict[str, object] = {}
+    seen: dict[str, dict] = {}
 
     def transport(path: str, payload: dict, timeout: float) -> dict:
         seen["payload"] = payload

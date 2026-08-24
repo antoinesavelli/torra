@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from harness.core import Step, TaskSpec
@@ -24,6 +25,7 @@ from harness.gates import (
     Snapshot,
     SnapshotKind,
     StateVerifier,
+    UndoAction,
     UndoGenerator,
     VerifiedRollback,
     model_available,
@@ -502,6 +504,13 @@ class TestSystemctlScope:
 # --------------------------------------------------------------------------- #
 
 
+def _verify(action: UndoAction) -> bool:
+    """Narrows `UndoAction.verify`'s `Callable[[], bool] | None` for tests
+    that know a verifier was supplied and just want to call it."""
+    assert action.verify is not None
+    return action.verify()
+
+
 class TestUndoGeneration:
     """Undo actions used to be caller supplied. With a model writing the steps,
     'whose author forgot' becomes the default case."""
@@ -520,12 +529,13 @@ class TestUndoGeneration:
 
         assert target.read_text(encoding="utf-8") == "original\n"
         assert target.stat().st_mode & 0o7777 == 0o640
-        assert action.verify() is True
+        assert _verify(action) is True
 
     def test_a_created_file_is_deleted_not_restored(self, tmp_path: Path) -> None:
         target = tmp_path / "new.conf"
         action = UndoGenerator(shadow_dir=tmp_path / "s").for_step(
             Step("create", touches=[str(target)]))[0]
+        assert action.snapshot is not None
         assert action.snapshot.kind is SnapshotKind.FILE_ABSENT
 
         target.write_text("made by the step", encoding="utf-8")
@@ -563,12 +573,12 @@ class TestUndoGeneration:
         target.mkdir()
         (target / "someone_elses.txt").write_text("important", encoding="utf-8")
         action.undo()
-        assert action.verify() is False, \
+        assert _verify(action) is False, \
             "a directory left behind with real content must not verify as undone"
 
         (target / "someone_elses.txt").unlink()
         action.undo()
-        assert action.verify() is True
+        assert _verify(action) is True
 
     def test_service_undo_uses_the_same_scope_it_was_captured_under(
             self, tmp_path: Path, monkeypatch) -> None:
@@ -608,7 +618,7 @@ class TestUndoGeneration:
         action = generator.for_step(Step("i", command="sudo apt install -y nginx"))[0]
         assert action.safe is False
         installed.add("nginx")
-        assert action.verify() is False
+        assert _verify(action) is False
 
     def test_a_non_debian_package_manager_gets_no_undo(self) -> None:
         """Found in a full-file audit: the pattern used to also match dnf
@@ -871,7 +881,9 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         actions = generator.for_step(
             Step("restart", command="sudo systemctl restart nginx"))
         assert len(actions) == 1
-        assert actions[0].snapshot.target == "nginx"
+        snapshot = actions[0].snapshot
+        assert snapshot is not None
+        assert snapshot.target == "nginx"
 
     def test_for_step_marks_a_package_removal_as_uncovered_not_inverted(
             self, tmp_path: Path) -> None:
@@ -1075,10 +1087,14 @@ class TestVerifiedRollback:
         assert report.results[0].verified is False
 
     def test_lifo_order(self) -> None:
-        order = []
+        order: list[str] = []
+
+        def record(n: str) -> Callable[[], None]:
+            return lambda: order.append(n)
+
         rollback = VerifiedRollback()
         for name in ("bottom", "middle", "top"):
-            rollback.add(name, lambda n=name: order.append(n), verify=lambda: True)
+            rollback.add(name, record(name), verify=lambda: True)
         rollback.rollback()
         assert order == ["top", "middle", "bottom"]
 

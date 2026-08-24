@@ -741,7 +741,7 @@ def test_label_eof_on_the_why_prompt_stops_without_losing_prior_labels(
 
 
 def test_tui_launches_when_textual_is_importable(tmp_path, monkeypatch) -> None:
-    called = {}
+    called: dict[str, object] = {}
     monkeypatch.setattr("harness.tui.run_tui", lambda workdir=None, harness=None:
                         called.setdefault("workdir", workdir))
 

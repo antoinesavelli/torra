@@ -280,9 +280,10 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
     calls: list[str] = []
     orig_execute = app.harness.execute
 
-    def spy(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+    def spy(result: RunResult, approvals: dict[str, bool] | None = None,
+            dry_run: bool = False) -> RunResult:
         calls.append("enter")
-        return orig_execute(*args, **kwargs)
+        return orig_execute(result, approvals, dry_run)
 
     app.harness.execute = spy  # type: ignore[method-assign]
 

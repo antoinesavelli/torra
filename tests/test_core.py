@@ -11,6 +11,7 @@ import contextlib
 import os
 import signal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -288,7 +289,10 @@ class TestModelInfo:
     which let the embedding model win a VRAM-starved downgrade fallback
     over every real chat candidate."""
 
-    def _client(self, show_response: dict) -> OllamaClient:
+    def _client(self, show_response: Any) -> OllamaClient:
+        """`Any`, not `dict`: some tests deliberately inject a malformed
+        (non-dict) response to exercise the "response of the wrong shape"
+        defensive path -- see test_a_response_of_the_wrong_shape_..."""
         return OllamaClient(transport=lambda path, payload, timeout: show_response)
 
     def test_billions_are_parsed(self) -> None:
@@ -347,7 +351,10 @@ class TestChatResponseShape:
     OllamaError the docstring promises for "an unusable response"."""
 
     def test_a_list_response_raises_ollama_error_not_a_crash(self) -> None:
-        client = OllamaClient(transport=lambda path, payload, timeout: ["not", "a", "mapping"])
+        # Deliberately the wrong shape (list, not dict) -- exercising the
+        # defensive path, not a real transport contract violation.
+        client = OllamaClient(
+            transport=lambda path, payload, timeout: ["not", "a", "mapping"])  # type: ignore[arg-type,return-value]
         with pytest.raises(OllamaError, match="generation failed"):
             client.chat("model", [{"role": "user", "content": "hi"}])
 
@@ -377,6 +384,7 @@ class TestHttpErrorDetail:
     the detail needed to fix the request."""
 
     def test_ollamas_own_error_message_surfaces(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import email.message
         import json as json_module
         import urllib.error
         import urllib.request
@@ -384,7 +392,8 @@ class TestHttpErrorDetail:
         from harness.core.tasks import OllamaError
 
         error = urllib.error.HTTPError(
-            "http://localhost:11434/api/chat", 404, "Not Found", None, None)
+            "http://localhost:11434/api/chat", 404, "Not Found",
+            email.message.Message(), None)
         monkeypatch.setattr(error, "read",
                             lambda: json_module.dumps(
                                 {"error": "model 'ghost:latest' not found"}).encode())
@@ -400,13 +409,15 @@ class TestHttpErrorDetail:
 
     def test_a_non_json_error_body_falls_back_to_the_http_reason(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import email.message
         import urllib.error
         import urllib.request
 
         from harness.core.tasks import OllamaError
 
         error = urllib.error.HTTPError(
-            "http://localhost:11434/api/chat", 502, "Bad Gateway", None, None)
+            "http://localhost:11434/api/chat", 502, "Bad Gateway",
+            email.message.Message(), None)
         monkeypatch.setattr(error, "read", lambda: b"<html>not json</html>")
 
         def fake_urlopen(request: object, timeout: float) -> object:
@@ -490,7 +501,9 @@ class TestTaskSpecRollbackValidation:
 
     def test_a_non_mapping_rollback_entry_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="must be a mapping"):
-            TaskSpec.validate(self._base(["just a string"]))
+            # Deliberately the wrong shape -- exercising validate()'s own
+            # rejection of a non-mapping rollback entry.
+            TaskSpec.validate(self._base(["just a string"]))  # type: ignore[list-item]
 
     def test_a_well_formed_rollback_entry_still_validates_cleanly(self) -> None:
         spec = TaskSpec.validate(self._base(
@@ -577,7 +590,9 @@ class TestTaskSpecBasicValidation:
 
     def test_a_non_mapping_top_level_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="must be a mapping"):
-            TaskSpec.validate(["not", "a", "mapping"])
+            # Deliberately the wrong shape -- exercising validate()'s own
+            # top-level mapping check.
+            TaskSpec.validate(["not", "a", "mapping"])  # type: ignore[arg-type]
 
     def test_a_missing_required_key_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="missing required key"):
@@ -638,7 +653,10 @@ class TestTaskSpecBasicValidation:
         guards a TaskSpec built directly, bypassing validate()."""
         spec = TaskSpec(task_id="t", request="r",
                         steps=[{"id": "s", "run": "true"}],
-                        rollback=["not a mapping", {"description": "no run key"}])
+                        # Deliberately the wrong shape in the first entry --
+                        # exercising the defensive skip, not a real caller.
+                        rollback=["not a mapping",  # type: ignore[list-item]
+                                 {"description": "no run key"}])
         assert spec.rollback_actions() == []
 
 
