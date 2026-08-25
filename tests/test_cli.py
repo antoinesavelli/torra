@@ -828,32 +828,6 @@ def test_tui_reports_usage_error_when_textual_is_missing(tmp_path, monkeypatch,
 
 
 # --------------------------------------------------------------------------- #
-# --version
-# --------------------------------------------------------------------------- #
-
-
-def test_version_flag_prints_the_installed_package_version_and_exits_ok(
-        capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        cli.build_parser().parse_args(["--version"])
-
-    assert exc.value.code == 0
-    assert capsys.readouterr().out.strip() == f"harness {cli._package_version()}"
-
-
-def test_package_version_falls_back_when_not_installed(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    import importlib.metadata
-
-    def raise_not_found(name: str) -> str:
-        raise importlib.metadata.PackageNotFoundError(name)
-
-    monkeypatch.setattr(importlib.metadata, "version", raise_not_found)
-
-    assert cli._package_version() == "unknown (not installed as a package)"
-
-
-# --------------------------------------------------------------------------- #
 # parser and main()
 # --------------------------------------------------------------------------- #
 

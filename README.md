@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **539 passed**. Then:
+Expect **568 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -126,7 +126,6 @@ harness check task.yaml       # classify a task file without running it
 harness doctor                # environment check
 harness evidence              # what the harness has recorded about itself
 harness label                 # label recorded traffic
-harness --version             # what's actually installed
 ```
 
 Exit codes: **0** ok, **1** usage, **2** stopped by a gate or unapproved, **3** failed.
@@ -313,11 +312,10 @@ wearing a percentage sign.
 | `harness/tui.py` | the interface: tabs, one session per tab |
 | `harness/core/session.py` | `SessionStore` -- one persisted transcript per conversation |
 | `harness/cli.py` | entry points |
-| `tests/` | 539 cases, organised by subsystem |
+| `tests/` | 568 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
-| `HANDOFF.md` | for whoever or whatever picks this up next |
-| `CHANGELOG.md` | what changed release to release |
+| `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
 | `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
 
 ---
@@ -358,7 +356,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 539 cases
+python3 -m pytest tests/ -v              # 568 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

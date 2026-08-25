@@ -9,12 +9,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "terminal-agent-harness"
-# Bumping this without tagging the same commit is how v7.0.0 went untagged
-# for a long time -- `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`
-# in the same change that changes this line. `harness --version` reads this
-# at runtime (importlib.metadata), so it drifts from reality the moment
-# they disagree.
-version = "7.2.0"
+# Not maintained -- this is a solo, private tool with no external
+# consumers of the package as an API. `git log`/GitHub's own commit and
+# compare views are the record of what changed and when; there is no
+# CHANGELOG.md, no tags, and no `harness --version` flag to keep in sync
+# with a number here. Required by the packaging spec (PEP 621: `version`
+# is mandatory unless declared `dynamic`), so it stays present and fixed.
+version = "0.0.0"
 description = "A local model proposes, five gates decide, you approve. Pop-OS terminal agent."
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0", "textual>=0.60"]
