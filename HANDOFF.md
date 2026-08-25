@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 513 passed
+python3 -m pytest tests/ -q          # must print 514 passed
 harness doctor
 ```
 
@@ -612,6 +612,45 @@ os.system(...)` both classify as needing confirmation.
 > Guarded by `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`
 > (now 26/26), `test_su_c_wrapping_a_nested_interpreter_call_is_still_caught`
 
+### 2.23 Multiple `Harness` instances sharing a `workdir` need session-scoped `undo=` and `task_id_prefix`
+
+Found during design review for multi-tab TUI sessions, before any tab code
+existed -- these are latent collisions that only matter once more than one
+`Harness` can share a `workdir` in one process, which nothing did before
+this feature.
+
+1. **Shadow-dir collision.** `UndoGenerator`'s default shadow_dir
+   (`pipeline.py`'s `self.undo = undo or UndoGenerator(shadow_dir=self.workdir
+   / f"harness-shadow-{os.getpid()}")`) is keyed only by `(workdir, pid)` --
+   two `Harness` instances built with the same `workdir` in the same process
+   collide on it. Confirmed live (not just reasoned about): one session's
+   `UndoGenerator.cleanup()` really does `shutil.rmtree` the other session's
+   shadow copies out from under it, breaking that session's rollback
+   guarantee mid-run. Fix: every caller building more than one `Harness`
+   against the same `workdir` must pass an explicit, session-derived
+   `undo=UndoGenerator(shadow_dir=workdir / f"harness-shadow-{session_id}")`
+   -- `Harness.__init__` needed no change, `undo` was already injectable.
+2. **`task_id` collision.** `Agent`'s fallback `task_id`
+   (`f"agent-{self._turn_counter}"`) restarts at 0 per `Agent` instance, so
+   two sessions' first turns both default to `task_id="agent-1"` --
+   **deterministically**, not as an edge case -- silently overwriting each
+   other's `workdir/audit/agent-1.audit.json`. Fix: `Agent.__init__` gained
+   `task_id_prefix: str = ""`, applied only at the one `setdefault` fallback
+   line, never to a model-chosen `task_id` (a model choosing the same id
+   across two tabs remains a low-probability residual risk, not meaningfully
+   worse than today's single-session behavior, and deliberately out of
+   scope). Every caller building more than one `Agent`/`Harness` against the
+   same `workdir` should pass a distinct `task_id_prefix` per session.
+
+Telemetry and the `audit`/`resume` directories deliberately stay **unscoped**
+(shared across every session on one `workdir`) -- that's what keeps `harness
+evidence`/`harness label` seeing everything across every tab instead of
+fragmenting per-session. Only the two collisions above needed fixing; do not
+over-scope by giving every session its own subtree of `workdir`.
+
+> Guarded by `tests/test_pipeline.py::test_two_harnesses_sharing_a_workdir_do_not_collide_on_shadow_files`,
+> `tests/test_agent.py::test_task_id_prefix_reaches_the_default_task_id`
+
 ---
 
 ## 3. Things already tried that failed
@@ -639,7 +678,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 513, must stay green
+python3 -m pytest tests/ -q                       # 514, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1165,7 +1204,7 @@ telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
 shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
 
-test command     python3 -m pytest tests/ -q     # 513
+test command     python3 -m pytest tests/ -q     # 514
 ```
 
 ---

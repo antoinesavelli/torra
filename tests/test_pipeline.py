@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from conftest import plan_reply, scripted
 
-from harness.core import ConflictDetector, Step, TaskSpec
-from harness.gates import Precondition, RiskLevel, StateVerifier, Verdict
+from harness.core import ConflictDetector, OllamaClient, Step, TaskSpec
+from harness.gates import Precondition, RiskLevel, StateVerifier, UndoGenerator, Verdict
 from harness.pipeline import Harness
 from harness.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 
@@ -1020,3 +1020,49 @@ def test_run_result_message_falls_back_to_the_outcome_when_nothing_else_is_set()
     turn (or a turn with no message), no abort_reason."""
     result = RunResult(request="r", outcome=Outcome.REJECTED)
     assert result.message == "rejected"
+
+
+# --------------------------------------------------------------------------- #
+# Multi-session workdir sharing (the shadow-dir collision the tabs feature closes)
+# --------------------------------------------------------------------------- #
+
+
+def test_two_harnesses_sharing_a_workdir_do_not_collide_on_shadow_files(
+        tmp_path: Path) -> None:
+    """`UndoGenerator`'s default shadow_dir is keyed only by (workdir, pid)
+    -- two Harness instances sharing a workdir in one process (exactly
+    what tabs are) would collide on it, and one session's cleanup() could
+    wipe another session's shadow copies mid-run. The fix is session-scoped:
+    each tab's Harness gets an explicit undo=UndoGenerator(shadow_dir=...)
+    keyed by session id instead of the shared default. This proves the
+    pattern actually prevents the collision, not just that construction
+    succeeds."""
+    session_a_file = tmp_path / "a.conf"
+    session_a_file.write_text("session a content", encoding="utf-8")
+    harness_a = Harness(
+        workdir=tmp_path, ollama=OllamaClient(transport=lambda p, pay, t: {}),
+        undo=UndoGenerator(shadow_dir=tmp_path / "harness-shadow-session-a"))
+    harness_b = Harness(
+        workdir=tmp_path, ollama=OllamaClient(transport=lambda p, pay, t: {}),
+        undo=UndoGenerator(shadow_dir=tmp_path / "harness-shadow-session-b"))
+
+    assert harness_a.undo.shadow_dir != harness_b.undo.shadow_dir
+
+    spec_a = TaskSpec.validate({
+        "task_id": "t", "request": f"edit {session_a_file}",
+        "steps": [{"id": "edit", "run": f"echo overwritten > {session_a_file}",
+                  "touches": [str(session_a_file)]}]}, source="test")
+    # _gate() snapshots at propose time -- before execute() runs, and
+    # regardless of dry-run/real, matching how the real pipeline works
+    # (see pipeline.py's own comment on why cleanup() only fires on a
+    # successful real execute(), not here).
+    harness_a._gate(spec_a)
+    assert harness_a.undo.shadow_dir.exists()
+    shadow_files_before = list(harness_a.undo.shadow_dir.iterdir())
+    assert shadow_files_before, "session a should have a real shadow copy on disk"
+
+    harness_b.undo.cleanup()
+
+    assert list(harness_a.undo.shadow_dir.iterdir()) == shadow_files_before, (
+        "session b's cleanup must never touch session a's shadow directory"
+    )
