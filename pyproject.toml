@@ -14,7 +14,7 @@ name = "terminal-agent-harness"
 # in the same change that changes this line. `harness --version` reads this
 # at runtime (importlib.metadata), so it drifts from reality the moment
 # they disagree.
-version = "7.0.0"
+version = "7.1.0"
 description = "A local model proposes, five gates decide, you approve. Pop-OS terminal agent."
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0", "textual>=0.60"]

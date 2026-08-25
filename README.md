@@ -1,5 +1,7 @@
 # harness
 
+[![CI](https://github.com/antoinesavelli/harness/actions/workflows/ci.yml/badge.svg)](https://github.com/antoinesavelli/harness/actions/workflows/ci.yml)
+
 A local model proposes. Five gates decide. You approve. Then it runs.
 
 ```bash
@@ -287,6 +289,7 @@ wearing a percentage sign.
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
+| `CHANGELOG.md` | what changed release to release |
 | `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
 
 ---
