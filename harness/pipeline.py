@@ -124,6 +124,17 @@ class Harness:
         """Stages converse, observe and propose. Runs nothing."""
         # Returns a RunResult whose outcome is AWAITING_APPROVAL when a gated
         # plan is attached, or ANSWERED / NEEDS_ANSWER / REFUSED / BACKEND_DOWN.
+        #
+        # A fresh task starts a fresh decision trail. Before the TUI could
+        # keep one Harness alive across many turns (one tab, many
+        # requests), this didn't need saying: a new Harness meant a new
+        # DecisionLog for free. Found live once tabs made that assumption
+        # false: without this, turn 2's audit record silently included
+        # turn 1's decisions too, growing without bound for the life of
+        # the tab. plan() -> execute() of the *same* task still correctly
+        # share one trail (execute() never clears it) -- only a new plan()
+        # call is a new task boundary.
+        self.decisions.clear()
         started = time.perf_counter()
         result = RunResult(request=request, outcome=Outcome.AWAITING_APPROVAL)
 
@@ -502,8 +513,16 @@ class Harness:
             result.summary = self._summarize(result)
         result.decisions = self.decisions.trail()
 
+        # task_id_prefix (session-scoped, see HANDOFF.md §2.23/§2.26)
+        # applies here too, not just to the plan path's model-visible
+        # task_id -- without it, two tabs' first non-plan turn (answer/
+        # ask/refuse) both landed on "turn-1", one silently overwriting
+        # the other's audit file. _turn_counter, not len(self.agent.turns):
+        # the two aren't interchangeable (Agent.repair() appends to
+        # `turns` without incrementing the counter), and _turn_counter is
+        # the one fast-forwarded past a reopened session's prior turns.
         task_id = (result.plan.spec.task_id if result.plan
-                   else f"turn-{len(self.agent.turns)}")
+                   else f"{self.agent.task_id_prefix}turn-{self.agent._turn_counter}")
         path = self.audit_dir / f"{self._safe_filename(task_id)}.audit.json"
         try:
             path.write_text(json.dumps(result.to_dict(), indent=2, default=str),

@@ -602,6 +602,51 @@ async def test_execute_plan_ignores_a_second_call_while_busy(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_execute_plan_sets_busy_synchronously_before_the_worker_starts(
+        tmp_path: Path) -> None:
+    """Found by a full-codebase audit: `busy` used to flip to True only
+    once the worker thread itself got around to it (a call_from_thread
+    round trip after fetching approvals), leaving a real window where a
+    fast second dispatch (a double-click, or Ctrl+D right after a click)
+    still read busy=False and started a second, genuinely concurrent
+    Harness.execute(). It must now be True the instant execute_plan()
+    returns, with no pilot.pause() at all -- proving there is no worker
+    round trip in between."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))
+    app.harness.execute = lambda *a, **k: RunResult(  # type: ignore[method-assign]
+        request="r", outcome=Outcome.COMPLETED)
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "report disk usage on /"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        session_id = app.active_session_id
+        assert not app.sessions[session_id].busy
+
+        app.execute_plan(session_id, dry_run=True)
+
+        assert app.sessions[session_id].busy, \
+            "busy must flip synchronously, before the worker is even dispatched"
+
+
+@pytest.mark.asyncio
+async def test_plan_request_sets_busy_synchronously_before_the_worker_starts(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+        assert not app.sessions[session_id].busy
+
+        app.plan_request(session_id, "hello")
+
+        assert app.sessions[session_id].busy, \
+            "busy must flip synchronously, before the worker is even dispatched"
+
+
+@pytest.mark.asyncio
 async def test_execute_plan_reports_an_unexpected_exception(tmp_path: Path) -> None:
     app = build(tmp_path, scripted(plan_reply(
         "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))

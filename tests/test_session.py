@@ -277,6 +277,66 @@ def test_rehydrate_compressor_preserves_compressed_and_token_fields(tmp_path: Pa
         assert restored_entry.compressed == original_entry.compressed
 
 
+def test_rehydrate_compressor_brings_a_long_history_back_within_budget(
+        tmp_path: Path) -> None:
+    """The persisted transcript is deliberately the full, pre-compression
+    history (on_context_change persists every entry as it's added, before
+    a live session's own periodic compression ever folds it). A long
+    enough session can land well over max_tokens on reload even though it
+    never was over budget in its own live run -- rehydrate_compressor must
+    close that gap itself, not leave it to whichever caller remembers to."""
+    store = SessionStore(tmp_path)
+    meta = store.create()
+    fixed_cost = ContextCompressor(token_counter=lambda _: 10)
+    for i in range(20):
+        step = fixed_cost.add(f"e{i}", "user", f"entry {i}")
+        store.append(meta.session_id, step)
+    # 20 entries * 10 tokens = 200 raw tokens, well over a 50-token budget --
+    # exactly what a live session's own periodic compression would have
+    # prevented, and what the raw on-disk transcript never reflects.
+
+    restored = ContextCompressor(max_tokens=50, token_counter=lambda _: 10)
+    raw_count = store.rehydrate_compressor(meta.session_id, restored)
+
+    assert raw_count == 20, "the raw record count must reflect what was on disk"
+    assert restored.total_tokens <= 50, \
+        "a rehydrated compressor must not start out over its own budget"
+
+
+def test_rename_updates_the_name_and_persists_it(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    meta = store.create(name="")
+
+    renamed = store.rename(meta.session_id, "a new name")
+
+    assert renamed is not None
+    assert renamed.name == "a new name"
+    assert store.load_meta(meta.session_id).name == "a new name"
+
+
+def test_rename_of_a_missing_session_returns_none(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    assert store.rename("does-not-exist", "x") is None
+
+
+def test_rename_never_raises_on_a_write_failure(tmp_path: Path, monkeypatch) -> None:
+    """append() already never raises on a transient disk failure -- rename()
+    used to be the one exception, sitting on the single most common path
+    there is (the first message of every tab)."""
+    store = SessionStore(tmp_path)
+    meta = store.create(name="")
+
+    def boom(self, data, encoding="utf-8"):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", boom)
+
+    result = store.rename(meta.session_id, "a new name")
+
+    assert result is None
+    assert any("rename failed" in e for e in store.errors)
+
+
 def test_session_meta_from_dict_ignores_unknown_fields() -> None:
     meta = SessionMeta.from_dict({
         "session_id": "abc", "name": "n", "created_at": 1.0, "updated_at": 2.0,

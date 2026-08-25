@@ -459,11 +459,9 @@ class Agent:
         return ""
 
     def _answer_is_a_placeholder(self, turn: Turn) -> str:
-        """Complaint when `message` only describes looking something up
-        rather than stating the result (no task attached, see
-        `_answer_dropped_a_task`). Structural tell, not a keyword: opens
-        with a deferral verb *and* closes naming "your question"/"the
-        request" -- something only a placeholder needs to say."""
+        """Complaint when `message` describes looking something up rather
+        than stating the result. Structural tell: opens with a deferral
+        verb *and* names "your question"/"the request", not a keyword."""
         message = turn.message.strip()
         if not message or not (self._DEFERRAL_OPENER.match(message)
                                and self._NAMES_THE_QUESTION.search(message)):
@@ -475,11 +473,9 @@ class Agent:
             "anything up yet, use intent 'plan' to propose the step that will.")
 
     def _answer_dropped_a_task(self, turn: Turn) -> str:
-        """Complaint when intent was 'answer' but a `task` (steps or an
-        empty scaffold) was also attached and silently discarded --
-        `_parse` only reads `task` for intent 'plan'. Found live: the
-        operator saw a vague `message` and lost the real numbers a
-        dropped `task` would have produced."""
+        """Complaint when intent was 'answer' but a `task` was also
+        attached and silently discarded (`_parse` only reads `task` for
+        'plan'). Found live: a vague `message` lost the real numbers."""
         try:
             data = self._extract_json(turn.raw)
         except AgentError:
@@ -601,6 +597,12 @@ class Agent:
         self.context.entries.clear()
         self.turns.clear()
         self._turn_counter = 0
+
+    def fast_forward_turn_counter(self, at_least: int) -> None:
+        """Never moves it backwards -- for a reopened session's fresh
+        Agent, so it doesn't reuse task_id/audit values from before
+        (HANDOFF.md §2.26); `at_least` only needs to be a safe upper bound."""
+        self._turn_counter = max(self._turn_counter, at_least)
 
     def stats(self) -> dict[str, Any]:
         """Counters, for the audit trail."""

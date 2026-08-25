@@ -155,14 +155,25 @@ class SessionStore:
         return True
 
     def rename(self, session_id: str, name: str) -> SessionMeta | None:
-        """Give a session an operator-facing name. None if the session doesn't exist."""
-        meta = self.load_meta(session_id)
-        if meta is None:
+        """Give a session an operator-facing name. None if the session
+        doesn't exist, or the write failed -- never raises.
+
+        Every other write path here (`append()`) already never raises, on
+        the grounds that a transient disk hiccup for one session must not
+        break the run; this one was the exception, and it sits on the most
+        common path there is (the first message of every tab).
+        """
+        try:
+            meta = self.load_meta(session_id)
+            if meta is None:
+                return None
+            meta.name = name
+            meta.updated_at = time.time()
+            self._save_meta(meta)
+            return meta
+        except Exception as exc:
+            self.errors.append(f"rename failed for {session_id}: {type(exc).__name__}: {exc}")
             return None
-        meta.name = name
-        meta.updated_at = time.time()
-        self._save_meta(meta)
-        return meta
 
     def load_meta(self, session_id: str) -> SessionMeta | None:
         """Read one session's metadata, or None when absent.
@@ -218,12 +229,37 @@ class SessionStore:
             self.errors.append(f"{session_id}: read failed: {exc!r}")
         return records
 
-    def rehydrate_compressor(self, session_id: str, compressor: ContextCompressor) -> None:
-        """Load a session's transcript straight into `compressor.entries`.
+    def rehydrate_compressor(self, session_id: str, compressor: ContextCompressor) -> int:
+        """Load a session's transcript straight into `compressor.entries`,
+        then bring it back within budget if it isn't already. Returns the
+        raw record count loaded, from *before* that compression -- callers
+        that need a safe upper bound on how many turns this session has
+        actually taken (to fast-forward a fresh Agent's turn counter past
+        them) must use this, not `len(compressor.entries)` afterward,
+        which can be far smaller once compression has folded old entries
+        into a handful of summaries.
 
-        Bypasses `compressor.add()` deliberately: the persisted `tokens`/
-        `compressed` fields are already authoritative, so re-running the
-        token estimator or re-triggering compression on load would just
-        recompute what was already decided once, and could compress twice.
+        The transcript itself is deliberately the full, uncompressed
+        history -- `on_context_change` persists every entry as it's added,
+        before any live compression ever folds it, so a reopened
+        conversation's visible replay shows exactly what was said.
+        Loading, not re-adding: `compressor.add()` is bypassed, since the
+        persisted `tokens`/`compressed` fields are already authoritative
+        and re-running the token estimator would just recompute what was
+        already decided once.
+
+        `maybe_compress()` afterward is not redundant with that, though --
+        it's a *different* correctness gap. A live session compresses
+        itself as it goes, so its in-memory `.entries` normally stays near
+        or under budget; the raw transcript being replayed here never
+        reflects that shrinkage, since it's the pre-compression log. A
+        long session's full history can land well over `max_tokens` on
+        reload even though it never was in its own live run -- without
+        this call, the very first prompt sent to the model after a reopen
+        would be unbounded by the budget `ContextCompressor` exists to
+        enforce, for exactly one turn, no matter how long the history.
         """
-        compressor.entries = [r.to_context_step() for r in self.load_transcript(session_id)]
+        records = self.load_transcript(session_id)
+        compressor.entries = [r.to_context_step() for r in records]
+        compressor.maybe_compress()
+        return len(records)

@@ -5,6 +5,31 @@ project has one maintainer and no external consumers of the package as an
 API, so entries favor "what changed and why it matters to the operator"
 over strict semver-contract language.
 
+## [7.1.1] - 2026-08-25
+
+A full-codebase audit run immediately after 7.1.0 shipped found five real
+bugs in the multi-tab/session feature, all reproduced directly before being
+fixed -- see `HANDOFF.md` §2.26 for the full story on each.
+
+### Fixed
+- Two tabs' first non-plan turn (answer/ask/refuse) could land on the same
+  `turn-N.audit.json`, one silently overwriting the other's audit record.
+  Reopening a session had the same collision even for plan-type turns,
+  since a fresh `Agent`'s turn counter restarts at 0.
+- A long-lived tab's audit record for turn *N* silently accumulated every
+  earlier turn's decisions too (`DecisionLog` was never cleared between
+  turns on a reused `Harness`), growing without bound for the tab's life.
+- Reopening a long session sent one unbounded, over-budget prompt to the
+  model before compression ever ran on the reloaded history.
+- `SessionStore.rename()` could raise on an ordinary disk hiccup, unlike
+  every other write path in the class -- and it sits on the most common
+  call site there is, the first message of every new tab.
+- `execute_plan()`/`plan_request()`'s busy-flag guard still had a real
+  (if narrower) double-dispatch race window: the check was synchronous,
+  but the flip to `busy=True` happened inside the worker thread after a
+  round trip. Both now flip it synchronously, before the worker is even
+  dispatched.
+
 ## [7.1.0] - 2026-08-25
 
 ### Added
@@ -59,5 +84,6 @@ hardening pass most recently landed.
 - Repo made private; two abandoned worktrees' work recovered and merged,
   the orphans removed.
 
+[7.1.1]: https://github.com/antoinesavelli/harness/compare/v7.1.0...v7.1.1
 [7.1.0]: https://github.com/antoinesavelli/harness/compare/v7.0.0...v7.1.0
 [7.0.0]: https://github.com/antoinesavelli/harness/releases/tag/v7.0.0

@@ -60,3 +60,9 @@ class DecisionLog:
     def violations(self) -> list[Decision]:
         """Decisions logged without real reasoning."""
         return [r for r in self.records if "transparency violation" in r.reasoning]
+
+    def clear(self) -> None:
+        """Start a fresh trail -- for a `Harness` reused across many tasks
+        (a long-lived TUI tab), so one task's audit record doesn't
+        silently accumulate every earlier task's decisions too."""
+        self.records.clear()

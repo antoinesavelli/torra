@@ -604,6 +604,36 @@ def test_empty_task_id_prefix_is_the_default_and_matches_old_behavior() -> None:
     assert turn.spec.task_id == "agent-1"
 
 
+def test_fast_forward_turn_counter_moves_it_forward() -> None:
+    agent = build_agent(scripted({}))
+    agent.fast_forward_turn_counter(5)
+    assert agent._turn_counter == 5
+
+
+def test_fast_forward_turn_counter_never_moves_it_backward() -> None:
+    """A reopened session's Agent starts at turn 0 -- fast-forwarding it
+    past turns already taken must never accidentally rewind a counter
+    that's already ahead (e.g. a turn already in flight)."""
+    agent = build_agent(scripted({}))
+    agent._turn_counter = 10
+    agent.fast_forward_turn_counter(3)
+    assert agent._turn_counter == 10
+
+
+def test_fast_forward_turn_counter_reaches_the_next_default_task_id() -> None:
+    """The whole point: a reopened session's next non-model-chosen task_id
+    must not repeat a value its earlier life already used."""
+    agent = build_agent(scripted(_reply_with_no_task_id(
+        "create /srv/api/marker",
+        [{"id": "touch", "run": "touch /srv/api/marker"}])))
+    agent.fast_forward_turn_counter(7)
+
+    turn = agent.converse("create /srv/api/marker")
+
+    assert turn.spec is not None
+    assert turn.spec.task_id == "agent-8"
+
+
 def test_routing_falls_back_to_a_model_that_exists() -> None:
     """Routing to a model that is not pulled would fail every time."""
     agent = build_agent(scripted({"intent": "answer", "message": "ok"},

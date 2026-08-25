@@ -322,7 +322,16 @@ class HarnessApp(App):
 
         harness.agent._on_context_change = _persist
         harness.agent.task_id_prefix = f"{meta.session_id[:8]}-"
-        self.session_store.rehydrate_compressor(meta.session_id, harness.agent.context)
+        raw_record_count = self.session_store.rehydrate_compressor(
+            meta.session_id, harness.agent.context)
+        # A reopened session's Agent starts at turn 0 -- without this, its
+        # first few turns would reuse task_id/audit-filename values its
+        # earlier life already used, silently overwriting those audit
+        # records (HANDOFF.md §2.26). The *raw* record count, not
+        # len(context.entries): rehydrate_compressor may have just
+        # compressed that down to a handful of summaries, which would
+        # under-count and reopen the exact collision this closes.
+        harness.agent.fast_forward_turn_counter(raw_record_count)
         self.sessions[meta.session_id] = SessionTab(
             session_id=meta.session_id, meta=meta, harness=harness)
         self.active_session_id = meta.session_id
@@ -484,12 +493,19 @@ class HarnessApp(App):
 
     def plan_request(self, session_id: str, request: str) -> None:
         """Plan in a worker thread, one exclusivity group per session so
-        tab A's execute/plan never blocks or gets cancelled by tab B's."""
+        tab A's execute/plan never blocks or gets cancelled by tab B's.
+
+        `busy` flips synchronously here, before dispatch -- see
+        `execute_plan()`'s docstring for why: without it, a second
+        request landing before the worker thread got around to setting
+        `busy` itself (a `submitted()`/`action_rerun()` guard check racing
+        the first call's own thread round trip) could start a second
+        `Harness.plan()` concurrently against the same Agent."""
+        self._set_busy(session_id, True, "thinking...")
         self.run_worker(partial(self._plan_request_body, session_id, request),
                         thread=True, exclusive=True, group=f"session-{session_id}")
 
     def _plan_request_body(self, session_id: str, request: str) -> None:
-        self.call_from_thread(self._set_busy, session_id, True, "thinking...")
         tab = self.sessions[session_id]
         try:
             result = tab.harness.plan(request)
@@ -762,30 +778,34 @@ class HarnessApp(App):
         every tab's execute back in a single exclusive group (tab B's
         click cancelling tab A's in-flight run) or, with exclusive=False,
         dropped single-flight protection for a second click in the *same*
-        session. Per-session groups need a group computed per call."""
+        session. Per-session groups need a group computed per call.
+
+        Found live: `busy` used to flip to True only once the worker
+        thread itself got around to it (a `call_from_thread` round trip
+        after fetching approvals) -- a second dispatch landing inside that
+        window (a fast double-click, or Ctrl+D right after a click) still
+        read `busy=False` and started a second, genuinely concurrent
+        `Harness.execute()` against the same mutable `RunResult`. Checking
+        *and* flipping `busy` here, synchronously, before the worker is
+        even dispatched, closes the window instead of just shrinking it --
+        this method only ever runs on the main thread, so there is no
+        yield point between the check and the flip for a second call to
+        land in. `plan_request()` has the same fix for the same reason."""
+        tab = self.sessions[session_id]
+        if tab.busy:
+            return
+        self._set_busy(session_id, True, "dry run..." if dry_run else "running...")
         self.run_worker(partial(self._execute_plan_body, session_id, dry_run),
                         thread=True, exclusive=True, group=f"session-{session_id}")
 
     def _execute_plan_body(self, session_id: str, dry_run: bool) -> None:
-        # Found live: action_dry_run() (Ctrl+D) has no widget to disable the
-        # way the Run/Dry-run buttons do, so it could dispatch a second
-        # execute against the same session while a real run's step is still
-        # sleeping -- a Textual "exclusive" thread worker does not preempt
-        # an already-running thread, so both ran Harness.execute()
-        # concurrently against the same mutable RunResult. This guard (plus
-        # the per-session `group=` below) is the single choke point all
-        # three callers (both buttons and the keybinding) go through, now
-        # scoped so tab A's guard never blocks tab B.
         tab = self.sessions[session_id]
-        if tab.busy:
-            return
         result = tab.current
         if result is None or result.plan is None:
             self.call_from_thread(self._say, session_id, "harness", "No plan to run.", "dim")
+            self.call_from_thread(self._set_busy, session_id, False, "")
             return
         approvals = self.call_from_thread(self._approvals, session_id)
-        self.call_from_thread(self._set_busy, session_id, True,
-                              "dry run..." if dry_run else "running...")
         try:
             done = tab.harness.execute(result, approvals, dry_run=dry_run)
         except Exception as exc:

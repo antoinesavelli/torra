@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 527 passed
+python3 -m pytest tests/ -q          # must print 539 passed
 harness doctor
 ```
 
@@ -701,6 +701,84 @@ call sites: `_build_tab_pane`'s initial `TabPane(Content(title), ...)` and
 
 > Guarded by `tests/test_tui.py::test_the_first_request_names_the_session`
 
+### 2.26 A `Harness`/`Agent` reused across many turns needs per-turn scoping it never needed before
+
+Found by a full-codebase audit run immediately after §2.23-2.25 shipped,
+specifically because that feature is the first place in the codebase where
+a single `Harness`/`Agent` either lives across many turns in one process
+(a TUI tab, previously impossible -- every CLI invocation built a fresh
+one) or gets torn down and rebuilt against the *same* persisted session
+identity (a reopen). Both are genuinely new capabilities, and both exposed
+state that had always been implicitly scoped to "one `Harness` instance =
+one task" -- true by construction before this feature, false now. All
+three were reproduced directly against real objects before being fixed,
+not just reasoned about.
+
+1. **Audit files collided, not just on reopen -- immediately, between any
+   two tabs.** `_finish()`'s task_id for a non-plan turn (answer/ask/
+   refuse) was `f"turn-{len(self.agent.turns)}"` -- no `task_id_prefix` at
+   all, unlike the plan path (§2.23). Two tabs' first such turn both
+   landed on `turn-1.audit.json`, one silently overwriting the other's
+   audit record with an unrelated request. Fixed by keying it the same way
+   the plan path already is: `f"{self.agent.task_id_prefix}turn-
+   {self.agent._turn_counter}"` (`_turn_counter`, not `len(agent.turns)`
+   -- `Agent.repair()` appends to `turns` without incrementing the
+   counter, so the two aren't interchangeable). That alone still collided
+   *within* one session across a reopen, since a fresh `Agent` restarts
+   `_turn_counter` at 0 and can revisit values its earlier life already
+   used -- closed by `Agent.fast_forward_turn_counter(at_least)`, called
+   from `_register_session` with the *raw* transcript record count (not
+   `len(context.entries)`, which `rehydrate_compressor` may have already
+   compressed down to a handful of summaries -- using that would
+   under-count and reopen the exact collision this closes).
+2. **`DecisionLog` leaked every prior turn's decisions into each new
+   turn's audit record.** `self.decisions` is constructed once per
+   `Harness` and only ever grows (`DecisionLog.records`, nothing cleared
+   it); `_finish()` snapshots all of it into `result.decisions`. A
+   long-lived tab's audit file for turn *N* silently included turns
+   `1..N-1` too, growing without bound for the tab's life -- directly
+   against the audit contract's "one file, one task's decisions" model.
+   Fixed with `DecisionLog.clear()`, called at the top of `plan()` (a new
+   task's boundary) -- not in `execute()`, which must still see the same
+   task's plan-stage decisions when it finishes.
+3. **Reopening a long session bypassed the token budget for one turn.**
+   `rehydrate_compressor()` loaded the full raw transcript straight into
+   `compressor.entries`, correctly bypassing `.add()` (persisted `tokens`/
+   `compressed` are already authoritative) -- but nothing then checked
+   whether that raw load was itself over `max_tokens`. It usually is, for
+   any sufficiently long session: a live session compresses itself as it
+   goes and stays near budget, but the *persisted* transcript is
+   deliberately the full pre-compression history (so a reopened replay
+   shows what was actually said), and that history was never run back
+   through compression on load. The very next prompt sent to the model
+   after a reopen was unbounded by the budget `ContextCompressor` exists
+   to enforce. Fixed with one `compressor.maybe_compress()` call at the
+   end of `rehydrate_compressor()`.
+
+Separately, `SessionStore.rename()` was the one method on this class that
+could still raise on an ordinary disk hiccup, unlike every other write
+path (`append()`), despite sitting on the single most common call site
+there is -- the first message of every new tab. Hardened to match
+`append()`'s policy: log to `self.errors`, return `None`, never raise.
+
+Also touched, extending §5's existing "`execute_plan()`'s busy guard is
+not optional UI polish" note rather than duplicating it here: `busy` now
+flips synchronously on the main thread, in `execute_plan()`/
+`plan_request()` themselves, *before* the worker is even dispatched --
+closing the double-dispatch race window instead of merely shrinking it
+(the previous fix moved the check earlier inside the worker thread, but
+the flip itself still happened after a `call_from_thread` round trip,
+leaving a real gap for a fast second click or Ctrl+D to land in).
+
+> Guarded by `tests/test_pipeline.py::test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file`,
+> `test_a_new_plan_call_starts_a_fresh_decision_trail`,
+> `test_plan_then_execute_of_the_same_task_still_share_one_decision_trail`;
+> `tests/test_agent.py::test_fast_forward_turn_counter_reaches_the_next_default_task_id`;
+> `tests/test_session.py::test_rehydrate_compressor_brings_a_long_history_back_within_budget`,
+> `test_rename_never_raises_on_a_write_failure`;
+> `tests/test_tui.py::test_execute_plan_sets_busy_synchronously_before_the_worker_starts`,
+> `test_plan_request_sets_busy_synchronously_before_the_worker_starts`
+
 ---
 
 ## 3. Things already tried that failed
@@ -728,7 +806,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 527, must stay green
+python3 -m pytest tests/ -q                       # 539, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -929,9 +1007,11 @@ cycling frame and elapsed seconds; `_set_busy(False, ...)` stops and clears
 it. Requested live: a static "thinking..." label looks identical whether the
 model answered in one second or has been stuck for sixty, and devstral's own
 measured range (`scripts/dev/model_bench/REPORT.md`) spans exactly that. The
-timer must be created on the app's own thread -- `_set_busy` is only ever
-invoked via `call_from_thread` from the worker threads that plan/execute, so
-this holds today, but a new caller that calls it directly from a background
+timer must be created on the app's own thread -- `_set_busy` is invoked
+either directly from the main thread (`execute_plan()`/`plan_request()`
+flipping `busy` on, before dispatch, see below) or via `call_from_thread`
+from the worker threads that plan/execute (flipping it back off), so this
+holds today, but a new caller that calls it directly from a background
 thread would break silently (Textual timers are not thread-safe to create).
 
 **`execute_plan()`'s busy guard is not optional UI polish.** Textual's
@@ -939,21 +1019,26 @@ thread would break silently (Textual timers are not thread-safe to create).
 thread worker -- it only stops *tracking* the old one once a new one of the
 same group starts, so a second call while the first is still mid-run
 launches a genuinely concurrent second thread. The Run/Dry-run buttons get
-`disabled = busy` from `_set_busy`, but that state is set *inside* the
-worker via `call_from_thread`, not synchronously before the worker is
-dispatched, and `action_dry_run()` (Ctrl+D) has no widget to disable at
-all. Found live: pressing Ctrl+D ~50ms after clicking Run, while the first
-call's step was still sleeping, dispatched a second `Harness.execute()`
-call on the *same* mutable `RunResult` -- two calls 113ms apart, genuinely
-concurrent, confirmed by instrumenting `harness.execute`. It happened to
-land harmlessly that run (one call bailed on a state the other had already
-changed), but that was the luck of the interleaving, not a guarantee.
-`execute_plan()` now checks the session's own `busy` flag as its first line,
-before touching `tab.current` or anything else -- the single choke point
-all three callers (both buttons and the keybinding) go through, rather than
-relying on each caller to remember to guard itself the way `action_rerun()`
-already did for
-`plan_request()`.
+`disabled = busy` from `_set_busy`, and `action_dry_run()` (Ctrl+D) has no
+widget to disable at all, so the guard doing the real work is the `busy`
+check itself. Found live: pressing Ctrl+D ~50ms after clicking Run, while
+the first call's step was still sleeping, dispatched a second
+`Harness.execute()` call on the *same* mutable `RunResult` -- two calls
+113ms apart, genuinely concurrent, confirmed by instrumenting
+`harness.execute`. It happened to land harmlessly that run (one call
+bailed on a state the other had already changed), but that was the luck of
+the interleaving, not a guarantee. First fix: `execute_plan()` checked
+`busy` as its first line, before touching `tab.current` or anything else.
+That closed the original race but left a narrower one, found by a later
+full-codebase audit: the check ran synchronously, but the *flip to True*
+still happened inside the worker thread (`call_from_thread`, after an
+approvals-fetching round trip for `execute_plan()`, immediately for
+`plan_request()`), leaving a real window between "checked not busy" and
+"actually marked busy" for a second dispatch to land in. `execute_plan()`
+and `plan_request()` now check *and* flip `busy` synchronously, on the
+main thread, before the worker is even dispatched -- both only ever run on
+the main thread themselves, so there is no yield point in between for a
+second call to interleave. See §2.26.
 
 **`detect_accelerator()`'s `ollama ps` column parsing must not assume a
 fixed column count.** This function's own docstring says `ollama ps` wins
@@ -1257,7 +1342,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 527
+test command     python3 -m pytest tests/ -q     # 539
 ```
 
 ---

@@ -1066,3 +1066,65 @@ def test_two_harnesses_sharing_a_workdir_do_not_collide_on_shadow_files(
     assert list(harness_a.undo.shadow_dir.iterdir()) == shadow_files_before, (
         "session b's cleanup must never touch session a's shadow directory"
     )
+
+
+def test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file(
+        tmp_path: Path) -> None:
+    """`_finish()`'s audit filename for a non-plan turn (answer/ask/refuse)
+    used to be `turn-{len(self.agent.turns)}` -- no task_id_prefix at all.
+    Two tabs' first such turn both landed on "turn-1", one silently
+    overwriting the other's audit record. Found by a full-codebase audit
+    right after the multi-tab feature shipped, reproduced directly against
+    two live Harness instances before this test was written."""
+    harness_a = Harness(
+        workdir=tmp_path, ollama=OllamaClient(transport=scripted(
+            {"intent": "answer", "message": "reply for a"})))
+    harness_b = Harness(
+        workdir=tmp_path, ollama=OllamaClient(transport=scripted(
+            {"intent": "answer", "message": "reply for b"})))
+    harness_a.agent.task_id_prefix = "session-a-"
+    harness_b.agent.task_id_prefix = "session-b-"
+
+    result_a = harness_a.plan("what is the disk usage")
+    result_b = harness_b.plan("what is the memory usage")
+
+    assert result_a.audit_path != result_b.audit_path
+    on_disk = json.loads(Path(result_a.audit_path).read_text(encoding="utf-8"))
+    assert on_disk["request"] == "what is the disk usage"
+
+
+def test_a_new_plan_call_starts_a_fresh_decision_trail(tmp_path: Path) -> None:
+    """A `Harness` reused across many turns (a long-lived TUI tab) used to
+    accumulate every prior turn's decisions into each new turn's audit
+    record and result.decisions, growing without bound for the tab's whole
+    life. plan() now clears the trail as its first act; execute() of the
+    *same* task must still see that task's own plan-stage decisions."""
+    harness = Harness(
+        workdir=tmp_path, ollama=OllamaClient(transport=scripted(
+            {"intent": "answer", "message": "first"},
+            {"intent": "answer", "message": "second"})))
+
+    result1 = harness.plan("first request")
+    assert len(result1.decisions) == 1
+
+    result2 = harness.plan("second request")
+    assert len(result2.decisions) == 1, \
+        "turn 2's decisions must not include turn 1's"
+
+
+def test_plan_then_execute_of_the_same_task_still_share_one_decision_trail(
+        make_harness, tmp_path: Path) -> None:
+    """plan()'s fresh-trail clear() must not also wipe out plan-stage
+    decisions by the time the *same* task reaches execute() -- only a new
+    plan() call is a new task boundary, not execute() continuing one."""
+    marker = tmp_path / "made"
+    harness = make_harness(scripted(plan_reply(
+        "t", f"create {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    planned = harness.plan(f"create {marker}")
+    assert len(planned.decisions) >= 1, "plan-stage decisions must be recorded"
+    plan_stage_count = len(planned.decisions)
+
+    done = harness.execute(planned, {})
+    assert len(done.decisions) >= plan_stage_count, \
+        "execute() must build on plan()'s trail for the same task, not replace it"
