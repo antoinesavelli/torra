@@ -862,6 +862,60 @@ drops back to local-only routing, the conservative failure mode (defaults
 > `test_an_unconfigured_openrouter_override_fails_clearly_not_silently`
 > (the end-to-end regression test for the manual-testing finding above)
 
+### 2.28 A `tests/test_tui.py` test that dispatches a Textual worker must wait for it before its `async with app.run_test()` block ends
+
+CI failed on two separate pushes for two different tests, both green locally
+every time -- not a coincidence, one root cause. `run_worker(...)` (async or
+`thread=True`) schedules work that keeps running *after* the line that
+called it returns. If the test's own `async with app.run_test() as pilot:`
+block exits before that worker finishes, `run_test()`'s teardown starts
+unmounting the screen while the worker is still mid-flight; the worker's own
+`call_from_thread`/widget-query calls then raise `NoMatches` from inside the
+worker, which Textual surfaces as `WorkerFailed` -- **failing the test even
+if every assertion in it had already passed.** A fixed `await
+pilot.pause(N)` is not a fix, only a bet: on a fast, idle machine it usually
+covers the gap, and it did, every time, locally. On a slower or more loaded
+CI runner it sometimes doesn't, and which test loses the bet differs run to
+run (`test_close_tab_removes_the_active_tab_and_falls_back_to_another` one
+time, `test_execute_plan_sets_busy_synchronously_before_the_worker_starts`
+the next).
+
+Fix: `await app.workers.wait_for_complete()` instead of, or in addition to,
+a fixed-duration pause -- waits for the actual dispatched `Worker.wait()` to
+resolve rather than guessing how long that takes. Confirmed race-free by
+construction, not just less likely to lose: `App.run_worker()` calls
+`WorkerManager._new_worker()` synchronously before returning (registers the
+`Worker` in the manager immediately), so calling `wait_for_complete()`
+right after any worker-dispatching action already sees it. Safe to call
+even when nothing is pending -- `asyncio.gather()` over an empty set
+resolves immediately, so it costs nothing to add defensively to a test
+whose trigger *might* dispatch a worker depending on runtime state (e.g.
+`execute_plan()` called while already busy -- its own guard means no
+worker gets dispatched that specific time, but the call site looks
+identical to one that does).
+
+**Do not add this after an assertion that deliberately checks mid-flight
+state** (e.g. `test_ctrl_d_during_a_real_run_does_not_start_a_second_execution`'s
+`assert app.busy, "the run should still be in flight"`, checked right after
+a short, intentional pause) -- waiting for completion there would defeat the
+point of the check. Add it at the test's true last synchronization point,
+after whatever confirms the in-flight state, not in place of it.
+
+A full audit found ten more tests in this file with the same shape (a
+worker-dispatching trigger as the last real action, backed only by a
+pause of 0.2s or less) and hardened them the same way; two more with a
+*guarded* trigger (no worker actually dispatches at runtime, e.g. calling
+`execute_plan()` while `busy` is already `True`) were left alone since
+`wait_for_complete()` there would be a no-op — not wrong to add, just not
+where the actual risk lives. New tests that press `ctrl+t`, click
+Run/Dry-run/Reject, or reopen a session via the picker should default to
+this pattern rather than a bare `pilot.pause(N)` as the test's final
+synchronization point.
+
+> Guarded by: no single test guards this (it is a pattern across the file,
+> not a code invariant) -- `tests/test_tui.py`'s own CI-run history is the
+> evidence, not a local assertion.
+
 ---
 
 ## 3. Things already tried that failed

@@ -203,6 +203,7 @@ async def test_reject_records_the_decision(tmp_path: Path) -> None:
 
         await pilot.click("#reject")
         await pilot.pause(0.1)
+        await app.workers.wait_for_complete()
 
         assert app.current is None
         assert target.exists(), "reject must not run anything"
@@ -298,6 +299,7 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
         assert app.busy, "the run should still be in flight"
         app.action_dry_run()  # the race attempt: Ctrl+D while genuinely busy
         await pilot.pause(0.6)
+        await app.workers.wait_for_complete()
 
         assert len(calls) == 1, \
             f"execute() should run exactly once, ran {len(calls)} times"
@@ -331,6 +333,7 @@ async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> 
 
         await pilot.click("#reject")
         await pilot.pause(0.1)
+        await app.workers.wait_for_complete()
 
         assert marker.exists(), "a late Reject click undid nothing on disk, but must "\
             "also not misreport the run in the audit trail"
@@ -653,6 +656,13 @@ async def test_plan_request_sets_busy_synchronously_before_the_worker_starts(
         assert app.sessions[session_id].busy, \
             "busy must flip synchronously, before the worker is even dispatched"
 
+        # Same fix as execute_plan's sibling test above: let the dispatched
+        # worker actually finish before the `async with` block tears the
+        # app down, or its call_from_thread() calls can land after the
+        # screen starts unmounting and fail the test on an already-passed
+        # assertion.
+        await app.workers.wait_for_complete()
+
 
 @pytest.mark.asyncio
 async def test_execute_plan_reports_an_unexpected_exception(tmp_path: Path) -> None:
@@ -792,6 +802,7 @@ async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
 
         await pilot.press("ctrl+t")
         await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
         second_id = app.active_session_id
 
         assert second_id != first_id
@@ -827,6 +838,7 @@ async def test_a_new_tab_inherits_the_apps_registered_backends(tmp_path: Path) -
         await pilot.pause()
         await pilot.press("ctrl+t")
         await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
         second_id = app.active_session_id
 
         assert app.sessions[second_id].harness.agent.backends["openrouter"] is fake
@@ -1067,11 +1079,13 @@ async def test_reopening_an_already_open_session_switches_tabs_without_duplicati
         first_id = app.active_session_id
         await pilot.press("ctrl+t")
         await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
         assert app.active_session_id != first_id
         assert len(app.sessions) == 2
 
         app._open_or_switch_to(first_id)
         await pilot.pause(0.1)
+        await app.workers.wait_for_complete()
 
         assert app.active_session_id == first_id
         assert len(app.sessions) == 2, "must not open a duplicate tab"
@@ -1136,6 +1150,7 @@ async def test_ctrl_o_lists_saved_sessions_and_reopening_one_dismisses_the_picke
 
         await pilot.press("enter")
         await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
 
         assert not isinstance(app.screen, SessionPicker)
 
