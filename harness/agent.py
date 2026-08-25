@@ -1,7 +1,7 @@
 """The model loop: turns a conversation into a validated TaskSpec, never a shell.
 
-Depends on: harness.core (ContextCompressor, MachineState, OllamaClient, Step, StepResult,
-TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter, SafetyClassifier).
+Depends on: harness.core (ContextCompressor, ContextStep, MachineState, OllamaClient, Step,
+StepResult, TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter, SafetyClassifier).
 
 The design rule throughout: the model produces a TaskSpec and nothing else. It
 does not execute, it does not get a shell, it does not decide what is safe. It
@@ -23,6 +23,7 @@ from typing import Any
 
 from .core import (
     ContextCompressor,
+    ContextStep,
     MachineState,
     OllamaClient,
     Step,
@@ -185,6 +186,8 @@ class Agent:
         max_repairs: int | None = None,
         system_prompt: str = SYSTEM_PROMPT,
         knowledge_dir: str | None = None,
+        on_context_change: Callable[[ContextStep], None] | None = None,
+        task_id_prefix: str = "",
     ) -> None:
         """Wire the model client, router, clarifier, safety pre-screen, and context."""
         self.ollama = ollama
@@ -196,6 +199,8 @@ class Agent:
             lambda: observe_machine(ollama=ollama, knowledge_dir=knowledge_dir))
         self.max_repairs = self.MAX_REPAIRS if max_repairs is None else int(max_repairs)
         self.system_prompt = system_prompt
+        self._on_context_change = on_context_change
+        self.task_id_prefix = task_id_prefix
 
         self.state: MachineState | None = None
         self.turns: list[Turn] = []
@@ -437,7 +442,7 @@ class Agent:
             task = data.get("task")
             if not isinstance(task, dict):
                 raise AgentError("intent was 'plan' but no task object was returned")
-            task.setdefault("task_id", f"agent-{self._turn_counter}")
+            task.setdefault("task_id", f"{self.task_id_prefix}agent-{self._turn_counter}")
             task.setdefault("request", request)
             try:
                 turn.spec = TaskSpec.validate(task, source=f"{model} proposal")
@@ -454,15 +459,11 @@ class Agent:
         return ""
 
     def _answer_is_a_placeholder(self, turn: Turn) -> str:
-        """Complaint when intent was 'answer', no task was attached (see
-        `_answer_dropped_a_task`), but `message` only describes looking
-        something up rather than stating the result.
-
-        Found live: message was "Checking system library documentation ...
-        to answer your question." -- no task, so the sibling check never
-        fired. Structural tell, not a keyword: opens with a deferral verb
-        *and* closes naming "your question"/"the request" -- something
-        only a placeholder needs to say."""
+        """Complaint when `message` only describes looking something up
+        rather than stating the result (no task attached, see
+        `_answer_dropped_a_task`). Structural tell, not a keyword: opens
+        with a deferral verb *and* closes naming "your question"/"the
+        request" -- something only a placeholder needs to say."""
         message = turn.message.strip()
         if not message or not (self._DEFERRAL_OPENER.match(message)
                                and self._NAMES_THE_QUESTION.search(message)):
@@ -474,19 +475,11 @@ class Agent:
             "anything up yet, use intent 'plan' to propose the step that will.")
 
     def _answer_dropped_a_task(self, turn: Turn) -> str:
-        """Complaint when intent was 'answer' but a `task` was also
-        attached and silently discarded -- with steps or, just as often,
-        without.
-
-        Found live, two variants: one reply attached a real task (steps
-        that would have run `df`) alongside a vague `message` -- `_parse`
-        only reads `task` for intent 'plan', so the operator saw the
-        announcement and lost the real numbers. A second attempt attached
-        `"steps": []`, an empty scaffold, with `message` just as vague.
-        SYSTEM_PROMPT rule 6 says 'answer' should carry no task at all; a
-        model that emits one anyway reliably correlates with a `message`
-        that promised content it never delivered.
-        """
+        """Complaint when intent was 'answer' but a `task` (steps or an
+        empty scaffold) was also attached and silently discarded --
+        `_parse` only reads `task` for intent 'plan'. Found live: the
+        operator saw a vague `message` and lost the real numbers a
+        dropped `task` would have produced."""
         try:
             data = self._extract_json(turn.raw)
         except AgentError:
@@ -588,13 +581,17 @@ class Agent:
     def _remember(self, turn: Turn) -> None:
         """Add the exchange to the compressed context window."""
         try:
-            self.context.add(f"u{self._turn_counter}", "user", turn.request)
+            user_step = self.context.add(f"u{self._turn_counter}", "user", turn.request)
+            if self._on_context_change:
+                self._on_context_change(user_step)
             summary = turn.message or turn.intent.value
             if turn.spec:
                 summary += "\nProposed:\n" + "\n".join(
                     f"  {s['id'] if 'id' in s else '?'}: {s['run']}"
                     for s in turn.spec.steps)
-            self.context.add(f"a{self._turn_counter}", "assistant", summary)
+            assistant_step = self.context.add(f"a{self._turn_counter}", "assistant", summary)
+            if self._on_context_change:
+                self._on_context_change(assistant_step)
             self.context.maybe_compress()
         except Exception:
             pass  # context bookkeeping must never break a turn

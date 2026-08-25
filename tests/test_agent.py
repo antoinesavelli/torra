@@ -514,6 +514,96 @@ def test_reset_clears_the_conversation_but_keeps_the_machine() -> None:
     assert agent.state is not None, "machine state should survive a topic change"
 
 
+def test_on_context_change_fires_twice_per_turn() -> None:
+    """Once for the user's request, once for the assistant's reply --
+    the two self.context.add() calls _remember() already makes."""
+    seen: list[tuple[str, str]] = []
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}),
+                        on_context_change=lambda step: seen.append((step.role, step.content)))
+
+    agent.converse("what is the disk usage")
+
+    assert [role for role, _ in seen] == ["user", "assistant"]
+    assert seen[0][1] == "what is the disk usage"
+    assert seen[1][1] == "ok"
+
+
+def test_on_context_change_fires_again_on_a_second_turn() -> None:
+    calls = {"n": 0}
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}),
+                        on_context_change=lambda step: calls.__setitem__("n", calls["n"] + 1))
+
+    agent.converse("first question")
+    agent.converse("second question")
+
+    assert calls["n"] == 4
+
+
+def test_a_raising_on_context_change_does_not_break_the_turn() -> None:
+    """Context bookkeeping (and anything hooked into it) must never break
+    a turn -- the same invariant _remember()'s own try/except already
+    protects, just extended to cover an external observer too."""
+    def broken_callback(step) -> None:
+        raise RuntimeError("simulated persistence failure")
+
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}),
+                        on_context_change=broken_callback)
+
+    turn = agent.converse("what is the disk usage")
+
+    assert turn.intent is Intent.ANSWER, "the turn itself must still complete"
+
+
+def test_no_on_context_change_is_the_default_and_is_fine() -> None:
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}))
+    turn = agent.converse("what is the disk usage")
+    assert turn.intent is Intent.ANSWER
+
+
+def _reply_with_no_task_id(request: str, steps: list[dict]) -> dict:
+    """A well-formed plan reply whose task object has no `task_id` key at
+    all -- distinct from `plan_reply("", ...)`, which sets the key to an
+    empty string and so would never trigger the fallback's own
+    `setdefault` (a key that is present, even falsy, is not absent)."""
+    return {"intent": "plan", "message": "here is the plan",
+           "task": {"request": request, "steps": steps}}
+
+
+def test_task_id_prefix_reaches_the_default_task_id() -> None:
+    agent = build_agent(scripted(_reply_with_no_task_id(
+        "create /srv/api/marker",
+        [{"id": "touch", "run": "touch /srv/api/marker"}])),
+        task_id_prefix="abc12345-")
+
+    turn = agent.converse("create /srv/api/marker")
+
+    assert turn.spec is not None
+    assert turn.spec.task_id == "abc12345-agent-1"
+
+
+def test_task_id_prefix_does_not_touch_a_model_chosen_task_id() -> None:
+    agent = build_agent(scripted(plan_reply(
+        "model-chosen-id", "create /srv/api/marker",
+        [{"id": "touch", "run": "touch /srv/api/marker"}])),
+        task_id_prefix="abc12345-")
+
+    turn = agent.converse("create /srv/api/marker")
+
+    assert turn.spec is not None
+    assert turn.spec.task_id == "model-chosen-id"
+
+
+def test_empty_task_id_prefix_is_the_default_and_matches_old_behavior() -> None:
+    agent = build_agent(scripted(_reply_with_no_task_id(
+        "create /srv/api/marker",
+        [{"id": "touch", "run": "touch /srv/api/marker"}])))
+
+    turn = agent.converse("create /srv/api/marker")
+
+    assert turn.spec is not None
+    assert turn.spec.task_id == "agent-1"
+
+
 def test_routing_falls_back_to_a_model_that_exists() -> None:
     """Routing to a model that is not pulled would fail every time."""
     agent = build_agent(scripted({"intent": "answer", "message": "ok"},
