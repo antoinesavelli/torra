@@ -629,6 +629,14 @@ async def test_execute_plan_sets_busy_synchronously_before_the_worker_starts(
         assert app.sessions[session_id].busy, \
             "busy must flip synchronously, before the worker is even dispatched"
 
+        # Let the dispatched worker actually finish before the `async with`
+        # block tears the app down -- found flaky on CI (not locally):
+        # without this, the worker's call_from_thread() calls can land
+        # after the screen has already started unmounting, raising
+        # NoMatches from inside the thread and failing the test on an
+        # assertion that had already passed.
+        await app.workers.wait_for_complete()
+
 
 @pytest.mark.asyncio
 async def test_plan_request_sets_busy_synchronously_before_the_worker_starts(
@@ -943,11 +951,19 @@ async def test_close_tab_removes_the_active_tab_and_falls_back_to_another(
         await pilot.pause()
         first_id = app.active_session_id
         await pilot.press("ctrl+t")
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
         second_id = app.active_session_id
 
         app.action_close_tab()
-        await pilot.pause(0.2)
+        # wait_for_complete(), not a fixed pilot.pause() -- found flaky on
+        # CI: action_close_tab() dispatches an async worker to await
+        # remove_pane() before del self.sessions[session_id] runs
+        # (tui.py's action_close_tab, see its own comment on why that
+        # ordering has to be a real coroutine, not a bare run_worker value).
+        # A fixed duration is a guess at how long that takes; on a slower
+        # or more loaded CI runner the guess was sometimes wrong and the
+        # assertion below ran before the worker had actually finished.
+        await app.workers.wait_for_complete()
 
         assert second_id not in app.sessions
         assert first_id in app.sessions
