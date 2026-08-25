@@ -49,7 +49,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **514 passed**. Then:
+Expect **527 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -76,12 +76,23 @@ Dangerous steps arrive with an **unticked** box. Safe steps get no box at all,
 because asking for approval on `df -h` trains people to tick without reading,
 which is how the one that mattered gets ticked too.
 
+Every conversation is a tab. Each tab is a fully independent session -- its
+own model context, its own gate history -- so running a plan in one never
+blocks or interrupts another. Every message is persisted as it happens
+(`workdir/sessions/<id>/`), so a crash or restart never loses a
+conversation: reopen it with `ctrl+o` and both the visible chat and the
+model's own memory of it come back exactly as they were.
+
 | Key | Does |
 |-----|------|
 | `enter` | send |
 | `ctrl+d` | dry run: every gate, nothing executes |
 | `ctrl+r` | re-plan the last request |
-| `ctrl+l` | clear the conversation |
+| `ctrl+l` | clear the conversation (keeps the persisted history -- leaves a marker, not a gap) |
+| `ctrl+t` | new tab: an independent session |
+| `ctrl+w` | close the active tab (refuses on the last tab, or a busy one) |
+| `ctrl+tab` / `ctrl+shift+tab` | next / previous tab |
+| `ctrl+o` | reopen a past session in a new tab |
 | `ctrl+q` | quit |
 | `ctrl+c` | copy selected text (Textual's own built-in behavior; select with click-drag first) |
 
@@ -269,9 +280,10 @@ wearing a percentage sign.
 | `harness/pipeline.py` | the seven stages |
 | `harness/pipeline_types.py` | the data model `Harness` produces (`Stage`, `Outcome`, `Plan`, `RunResult`) |
 | `harness/telemetry/` | what it records about itself |
-| `harness/tui.py` | the interface |
+| `harness/tui.py` | the interface: tabs, one session per tab |
+| `harness/core/session.py` | `SessionStore` -- one persisted transcript per conversation |
 | `harness/cli.py` | entry points |
-| `tests/` | 514 cases, organised by subsystem |
+| `tests/` | 527 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next |
@@ -315,7 +327,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 514 cases
+python3 -m pytest tests/ -v              # 527 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

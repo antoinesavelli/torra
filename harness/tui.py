@@ -1,23 +1,31 @@
-"""Terminal interface: chat on the left, the gated plan on the right.
+"""Terminal interface: chat on the left, the gated plan on the right, one tab per session.
 
-Depends on: textual, harness.core (OllamaStatus), harness.gates (RiskLevel),
-harness.pipeline (Harness and friends).
+Depends on: textual, harness.core (OllamaClient, OllamaStatus, ContextStep, SessionMeta,
+SessionStore), harness.gates (UndoGenerator), harness.pipeline (Harness and friends).
 
 You never approve a command you have not seen classified: nothing executes
 until every step showing DANGEROUS or CRITICAL has been individually ticked.
+
+Each tab is an independent conversation -- its own Harness/Agent/context,
+its own SessionStore-backed transcript on disk (see HANDOFF.md §2.23 for
+why multiple Harness instances sharing a workdir need session-scoped
+undo=/task_id_prefix, the two collisions this design has to avoid).
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from rich.markup import escape
-from textual import on, work
+from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.reactive import reactive
+from textual.content import Content
+from textual.screen import ModalScreen
 from textual.timer import Timer
 from textual.widgets import (
     Button,
@@ -25,10 +33,16 @@ from textual.widgets import (
     Footer,
     Header,
     Input,
+    OptionList,
     Static,
+    TabbedContent,
+    TabPane,
+    Tabs,
 )
+from textual.widgets.option_list import Option
 
-from .core import OllamaStatus
+from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore
+from .gates import UndoGenerator
 from .pipeline import Harness, Outcome, Plan, RunResult, StepPlan
 
 __all__ = ["HarnessApp", "run_tui"]
@@ -180,11 +194,73 @@ class PlanPane(VerticalScroll):
         await self.mount(Static(f"[dim]{message}[/]", markup=True))
 
 
-class HarnessApp(App):
-    """The two-pane terminal interface."""
+@dataclass
+class SessionTab:
+    """One tab's state: its own Harness/Agent/context, its own busy flag.
+
+    Everything a handler used to read off `HarnessApp` directly (`.harness`,
+    `.current`, `.last_request`, busy/spinner state) now lives here instead,
+    keyed by session_id on `HarnessApp.sessions`.
+    """
+
+    session_id: str
+    meta: SessionMeta
+    harness: Harness
+    current: RunResult | None = None
+    last_request: str = ""
+    busy: bool = False
+    busy_message: str = ""
+    busy_started: float = 0.0
+    spinner_timer: Timer | None = None
+
+
+class SessionPicker(ModalScreen[str | None]):
+    """Pick a past session to reopen. Dismisses with a session_id, or None."""
+
+    BINDINGS = [("escape", "dismiss_picker", "Cancel")]
 
     CSS = """
-    Screen { layout: horizontal; }
+    SessionPicker { align: center middle; }
+    #picker-box {
+        width: 70%; height: auto; max-height: 80%;
+        border: round $primary; background: $surface; padding: 1 2;
+    }
+    """
+
+    def __init__(self, metas: list[SessionMeta]) -> None:
+        """Hold the sessions to list -- fetched by the caller, not here."""
+        super().__init__()
+        self._metas = metas
+
+    def compose(self) -> ComposeResult:
+        """A titled box: one option per session, newest first."""
+        with Vertical(id="picker-box"):
+            yield Static("Reopen a session  [dim](Escape to cancel)[/]", markup=True)
+            if not self._metas:
+                yield Static("[dim]No saved sessions yet.[/]", markup=True)
+                return
+            yield OptionList(*[
+                Option(f"{escape(meta.name) or '(unnamed)'}  "
+                      f"[dim]{time.strftime('%Y-%m-%d %H:%M', time.localtime(meta.updated_at))}[/]",
+                      id=meta.session_id)
+                for meta in self._metas])
+
+    @on(OptionList.OptionSelected)
+    def _chosen(self, event: OptionList.OptionSelected) -> None:
+        """Hand the chosen session_id back to whoever opened the picker."""
+        self.dismiss(event.option_id)
+
+    def action_dismiss_picker(self) -> None:
+        """Escape: reopen nothing."""
+        self.dismiss(None)
+
+
+class HarnessApp(App):
+    """The tabbed terminal interface -- one tab per independent session."""
+
+    CSS = """
+    Screen { layout: vertical; }
+    #sessions { height: 1fr; }
     #left  { width: 50%; border-right: solid $primary; }
     #right { width: 50%; }
     #chat  { height: 1fr; padding: 0 1; }
@@ -215,75 +291,166 @@ class HarnessApp(App):
         ("ctrl+r", "rerun", "Re-plan"),
         ("ctrl+d", "dry_run", "Dry run"),
         ("ctrl+l", "clear_chat", "Clear chat"),
+        ("ctrl+t", "new_tab", "New tab"),
+        ("ctrl+w", "close_tab", "Close tab"),
+        ("ctrl+tab", "next_tab", "Next tab"),
+        ("ctrl+shift+tab", "prev_tab", "Previous tab"),
+        ("ctrl+o", "open_picker", "Reopen session"),
     ]
-
-    busy: reactive[bool] = reactive(False)
 
     def __init__(self, harness: Harness | None = None,
                  workdir: Path | None = None) -> None:
-        """Use the injected harness for tests, or build a default one."""
+        """Use the injected harness for tests (as the first tab), or build a default one."""
         super().__init__()
-        self.harness = harness or Harness(workdir=workdir or Path.home() / ".harness")
-        self.current: RunResult | None = None
-        self.last_request: str = ""
-        self._spinner_timer: Timer | None = None
-        self._busy_message: str = ""
-        self._busy_started: float = 0.0
+        initial_harness = harness or Harness(workdir=workdir or Path.home() / ".harness")
+        self.ollama = initial_harness.ollama
+        self.session_store = SessionStore(initial_harness.workdir)
+        self.sessions: dict[str, SessionTab] = {}
+        self.active_session_id = ""
+        self._register_session(initial_harness, self.session_store.create())
+
+    # -- session lifecycle --------------------------------------------------- #
+
+    def _register_session(self, harness: Harness, meta: SessionMeta) -> str:
+        """Wire persistence into `harness.agent` and track it as a new tab.
+
+        Does not mount any widget -- `compose()` handles the very first
+        session, `action_new_tab()` mounts every one after that.
+        """
+        def _persist(step: ContextStep, session_id: str = meta.session_id) -> None:
+            self.session_store.append(session_id, step)
+
+        harness.agent._on_context_change = _persist
+        harness.agent.task_id_prefix = f"{meta.session_id[:8]}-"
+        self.session_store.rehydrate_compressor(meta.session_id, harness.agent.context)
+        self.sessions[meta.session_id] = SessionTab(
+            session_id=meta.session_id, meta=meta, harness=harness)
+        self.active_session_id = meta.session_id
+        return meta.session_id
+
+    def _session_id_of(self, widget: object) -> str:
+        """Walk up from any widget inside a tab to that tab's session_id."""
+        node = widget
+        while node is not None and not isinstance(node, TabPane):
+            node = getattr(node, "parent", None)
+        if node is None or not node.id:
+            return self.active_session_id
+        return node.id.removeprefix("tab-")
+
+    @staticmethod
+    def _build_tab_pane(session_id: str, title: str) -> TabPane:
+        # Content(title), not the raw string: a session's name is derived
+        # from arbitrary operator/model text (agent.py:build/first request),
+        # and TabPane/Tab both parse a plain str as Textual markup -- found
+        # live, a request as ordinary as "list files in [/mnt/x]" raised
+        # MarkupError out of the tab's own constructor before anything was
+        # ever mounted. A Content instance is returned unparsed.
+        return TabPane(
+            Content(title),
+            Horizontal(
+                Vertical(
+                    VerticalScroll(id="chat"),
+                    Input(placeholder="what do you want done?", id="prompt"),
+                    id="left"),
+                Vertical(PlanPane(id="plan"), id="right")),
+            id=f"tab-{session_id}")
 
     # -- layout ------------------------------------------------------------ #
 
     def compose(self) -> ComposeResult:
-        """Two panes, a prompt, and a status line."""
+        """One TabbedContent, one tab per session, a shared status line."""
         yield Header(show_clock=True)
-        with Horizontal():
-            with Vertical(id="left"):
-                yield VerticalScroll(id="chat")
-                yield Input(placeholder="what do you want done?", id="prompt")
-            with Vertical(id="right"):
-                yield PlanPane(id="plan")
+        initial_id = self.active_session_id
+        with TabbedContent(id="sessions"):
+            yield self._build_tab_pane(initial_id, self.sessions[initial_id].meta.name or "1")
         yield Static("", id="status")
         yield Footer()
 
     def on_mount(self) -> None:
-        """Greet, and say plainly whether the model backend is reachable."""
+        """Greet the initial session, and say plainly whether the model backend is reachable."""
         self.title = "harness"
-        status = self.harness.ollama.health()
-        models = self.harness.ollama.models()
-        self.sub_title = f"{self.harness.ollama.host}  {status.value}"
+        status = self.ollama.health()
+        self.sub_title = f"{self.ollama.host}  {status.value}"
+        self._greet(self.active_session_id, status)
+        self._prompt(self.active_session_id).focus()
 
-        self._say("harness", "Describe what you want done. I plan it, every gate "
+    def _greet(self, session_id: str, status: OllamaStatus) -> None:
+        """Print the standard opening lines into one session's chat pane."""
+        self._say(session_id, "harness", "Describe what you want done. I plan it, every gate "
                              "checks it, you approve it, then it runs.")
         if status is OllamaStatus.HEALTHY:
-            self._say("harness",
-                      f"models available: {escape(', '.join(models)) or 'none'}",
+            self._say(session_id, "harness",
+                      f"models available: {escape(', '.join(self.ollama.models())) or 'none'}",
                       "dim")
         else:
-            self._say("error",
-                      f"Ollama is {status.value} at {escape(self.harness.ollama.host)}. "
-                      f"{escape(self.harness.ollama.last_error)}")
-            for option in self.harness.ollama.recovery_options():
-                self._say("harness",
+            self._say(session_id, "error",
+                      f"Ollama is {status.value} at {escape(self.ollama.host)}. "
+                      f"{escape(self.ollama.last_error)}")
+            for option in self.ollama.recovery_options():
+                self._say(session_id, "harness",
                           f"{escape(option.title)}  ->  {escape(option.action)}", "dim")
-        self.query_one("#prompt", Input).focus()
+
+    # -- backward-compat: single-session attribute access ------------------- #
+
+    @property
+    def harness(self) -> Harness:
+        """The active tab's Harness -- kept for callers/tests written before tabs existed."""
+        return self.sessions[self.active_session_id].harness
+
+    @property
+    def current(self) -> RunResult | None:
+        """The active tab's current plan/result."""
+        return self.sessions[self.active_session_id].current
+
+    @current.setter
+    def current(self, value: RunResult | None) -> None:
+        self.sessions[self.active_session_id].current = value
+
+    @property
+    def last_request(self) -> str:
+        """The active tab's last request."""
+        return self.sessions[self.active_session_id].last_request
+
+    @property
+    def busy(self) -> bool:
+        """Whether the active tab is busy."""
+        return self.sessions[self.active_session_id].busy
+
+    @busy.setter
+    def busy(self, value: bool) -> None:
+        self.sessions[self.active_session_id].busy = value
 
     # -- helpers ----------------------------------------------------------- #
 
-    def _say(self, who: str, text: str, style: str = "") -> None:
-        """Append a line to the chat pane and scroll to it."""
-        chat = self.query_one("#chat", VerticalScroll)
+    def _tab_pane(self, session_id: str) -> TabPane:
+        return self.query_one(f"#tab-{session_id}", TabPane)
+
+    def _chat(self, session_id: str) -> VerticalScroll:
+        return self._tab_pane(session_id).query_one("#chat", VerticalScroll)
+
+    def _plan_pane(self, session_id: str) -> PlanPane:
+        return self._tab_pane(session_id).query_one("#plan", PlanPane)
+
+    def _prompt(self, session_id: str) -> Input:
+        return self._tab_pane(session_id).query_one("#prompt", Input)
+
+    def _say(self, session_id: str, who: str, text: str, style: str = "") -> None:
+        """Append a line to one session's chat pane and scroll to it."""
+        chat = self._chat(session_id)
         chat.mount(ChatLine(who, text, style))
         chat.scroll_end(animate=False)
 
-    def _status(self, text: str) -> None:
-        """Update the status line."""
-        self.query_one("#status", Static).update(text)
+    def _status(self, session_id: str, text: str) -> None:
+        """Update the shared status line -- only if `session_id` is the active tab."""
+        if session_id == self.active_session_id:
+            self.query_one("#status", Static).update(text)
 
-    def _approvals(self) -> dict[str, bool]:
-        """Read every approve checkbox in the plan pane, keyed by the
+    def _approvals(self, session_id: str) -> dict[str, bool]:
+        """Read every approve checkbox in one session's plan pane, keyed by the
         step's real id -- not the checkbox's own DOM id, which is built
         from the card's index and cannot hold an arbitrary step id."""
         out: dict[str, bool] = {}
-        for card in self.query(StepCard):
+        for card in self._tab_pane(session_id).query(StepCard):
             for box in card.query(Checkbox):
                 out[card.plan_step.step.step_id] = bool(box.value)
         return out
@@ -293,80 +460,100 @@ class HarnessApp(App):
     @on(Input.Submitted, "#prompt")
     def submitted(self, event: Input.Submitted) -> None:
         """Send the typed request to the model."""
+        session_id = self._session_id_of(event.input)
+        tab = self.sessions[session_id]
         request = event.value.strip()
-        if not request or self.busy:
+        if not request or tab.busy:
             return
         event.input.value = ""
-        self.last_request = request
-        self._say("you", escape(request))
-        self.plan_request(request)
+        tab.last_request = request
+        if not tab.meta.name:
+            self._name_session(session_id, request)
+        self._say(session_id, "you", escape(request))
+        self.plan_request(session_id, request)
 
-    @work(thread=True, exclusive=True)
-    def plan_request(self, request: str) -> None:
-        """Plan in a worker thread so the UI stays alive while the model thinks."""
-        self.call_from_thread(self._set_busy, True, "thinking...")
+    def _name_session(self, session_id: str, request: str) -> None:
+        """Give an unnamed session a name from its first real request."""
+        tab = self.sessions[session_id]
+        name = request[:40]
+        renamed = self.session_store.rename(session_id, name)
+        if renamed is not None:
+            tab.meta = renamed
+        tabbed = self.query_one(TabbedContent)
+        tabbed.get_tab(f"tab-{session_id}").label = Content(name)
+
+    def plan_request(self, session_id: str, request: str) -> None:
+        """Plan in a worker thread, one exclusivity group per session so
+        tab A's execute/plan never blocks or gets cancelled by tab B's."""
+        self.run_worker(partial(self._plan_request_body, session_id, request),
+                        thread=True, exclusive=True, group=f"session-{session_id}")
+
+    def _plan_request_body(self, session_id: str, request: str) -> None:
+        self.call_from_thread(self._set_busy, session_id, True, "thinking...")
+        tab = self.sessions[session_id]
         try:
-            result = self.harness.plan(request)
+            result = tab.harness.plan(request)
         except Exception as exc:
-            self.call_from_thread(self._say, "error",
+            self.call_from_thread(self._say, session_id, "error",
                                   f"{type(exc).__name__}: {escape(str(exc))}")
-            self.call_from_thread(self._set_busy, False, "")
+            self.call_from_thread(self._set_busy, session_id, False, "")
             return
-        self.call_from_thread(self._planned, result)
+        self.call_from_thread(self._planned, session_id, result)
 
-    def _outcome_answered(self, result: RunResult) -> None:
-        self._status("[cyan]answered, nothing to run[/]")
-        self.run_worker(self.query_one("#plan", PlanPane).clear(
+    def _outcome_answered(self, session_id: str, result: RunResult) -> None:
+        self._status(session_id, "[cyan]answered, nothing to run[/]")
+        self.run_worker(self._plan_pane(session_id).clear(
             "That was a question. Nothing to run."), exclusive=False)
 
-    def _outcome_needs_answer(self, result: RunResult) -> None:
+    def _outcome_needs_answer(self, session_id: str, result: RunResult) -> None:
         for question in (result.turn.questions if result.turn else []):
-            self._say("agent", f"? {escape(question)}", "yellow")
-        self._say("harness", "Answer in the box and I will re-plan.", "dim")
-        self._status("[yellow]waiting for your answer[/]")
+            self._say(session_id, "agent", f"? {escape(question)}", "yellow")
+        self._say(session_id, "harness", "Answer in the box and I will re-plan.", "dim")
+        self._status(session_id, "[yellow]waiting for your answer[/]")
 
-    def _outcome_refused(self, result: RunResult) -> None:
-        self._status("[magenta]the model declined this request[/]")
+    def _outcome_refused(self, session_id: str, result: RunResult) -> None:
+        self._status(session_id, "[magenta]the model declined this request[/]")
 
-    def _outcome_backend_down(self, result: RunResult) -> None:
-        self._say("error", escape(result.abort_reason))
-        for option in self.harness.ollama.recovery_options():
-            self._say("harness",
+    def _outcome_backend_down(self, session_id: str, result: RunResult) -> None:
+        self._say(session_id, "error", escape(result.abort_reason))
+        for option in self.ollama.recovery_options():
+            self._say(session_id, "harness",
                       f"{escape(option.title)}  ->  {escape(option.action)}", "dim")
-        self._status("[bold red]backend unreachable[/]")
+        self._status(session_id, "[bold red]backend unreachable[/]")
 
-    def _outcome_blocked(self, result: RunResult) -> None:
+    def _outcome_blocked(self, session_id: str, result: RunResult) -> None:
         style = OUTCOME_STYLE.get(result.outcome.value, "")
-        self._say("harness", escape(result.abort_reason), "bold red")
-        self._status(f"[{style}]blocked before execution[/]")
+        self._say(session_id, "harness", escape(result.abort_reason), "bold red")
+        self._status(session_id, f"[{style}]blocked before execution[/]")
         if result.plan:
-            self.run_worker(self.query_one("#plan", PlanPane).show(result.plan),
-                            exclusive=False)
+            self.run_worker(self._plan_pane(session_id).show(result.plan), exclusive=False)
 
-    def _outcome_failed(self, result: RunResult) -> None:
-        self._say("error", escape(result.abort_reason))
-        self._status("[bold red]no usable plan[/]")
+    def _outcome_failed(self, session_id: str, result: RunResult) -> None:
+        self._say(session_id, "error", escape(result.abort_reason))
+        self._status(session_id, "[bold red]no usable plan[/]")
 
-    def _outcome_plan_ready(self, result: RunResult) -> None:
+    def _outcome_plan_ready(self, session_id: str, result: RunResult) -> None:
         if result.plan is None:
             return
-        self.run_worker(self.query_one("#plan", PlanPane).show(result.plan),
-                        exclusive=False)
+        self.run_worker(self._plan_pane(session_id).show(result.plan), exclusive=False)
         pending = len(result.plan.needs_confirmation)
-        self._status(
+        self._status(session_id,
             f"[bold yellow]plan ready: {len(result.plan.steps)} step(s), "
             f"{pending} need a tick[/]" if pending else
             f"[green]plan ready: {len(result.plan.steps)} step(s), "
             "nothing needs confirmation[/]")
 
-    def _planned(self, result: RunResult) -> None:
+    def _planned(self, session_id: str, result: RunResult) -> None:
         """Render whatever the model decided, dispatched by outcome."""
-        self.current = result
-        self._set_busy(False, "")
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return  # the tab was closed while this was in flight
+        tab.current = result
+        self._set_busy(session_id, False, "")
         if result.turn and result.turn.message:
-            self._say("agent", escape(result.turn.message))
+            self._say(session_id, "agent", escape(result.turn.message))
 
-        handlers: dict[Outcome, Callable[[RunResult], None]] = {
+        handlers: dict[Outcome, Callable[[str, RunResult], None]] = {
             Outcome.ANSWERED: self._outcome_answered,
             Outcome.NEEDS_ANSWER: self._outcome_needs_answer,
             Outcome.REFUSED: self._outcome_refused,
@@ -374,29 +561,31 @@ class HarnessApp(App):
             Outcome.BLOCKED: self._outcome_blocked,
             Outcome.FAILED: self._outcome_failed,
         }
-        handlers.get(result.outcome, self._outcome_plan_ready)(result)
+        handlers.get(result.outcome, self._outcome_plan_ready)(session_id, result)
 
     # -- actions ----------------------------------------------------------- #
 
     @on(Button.Pressed, "#run")
-    def pressed_run(self) -> None:
+    def pressed_run(self, event: Button.Pressed) -> None:
         """Execute the approved plan."""
-        self.execute_plan(dry_run=False)
+        self.execute_plan(self._session_id_of(event.button), dry_run=False)
 
     @on(Button.Pressed, "#dryrun")
-    def pressed_dry(self) -> None:
+    def pressed_dry(self, event: Button.Pressed) -> None:
         """Run every gate and guard, execute nothing."""
-        self.execute_plan(dry_run=True)
+        self.execute_plan(self._session_id_of(event.button), dry_run=True)
 
     @on(Button.Pressed, "#reject")
-    def pressed_reject(self) -> None:
+    def pressed_reject(self, event: Button.Pressed) -> None:
         """Throw the plan away."""
         # For the audit record and telemetry (HANDOFF.md §6.1's "how often
         # a human rejected a plan outright") -- Reject used to skip the
         # pipeline entirely, so this specific, most-direct rejection could
         # never be measured.
-        if self.current is not None:
-            done = self.harness.reject(self.current)
+        session_id = self._session_id_of(event.button)
+        tab = self.sessions[session_id]
+        if tab.current is not None:
+            done = tab.harness.reject(tab.current)
             if done.outcome is not Outcome.REJECTED:
                 # Harness.reject() refuses rather than overwrite a plan
                 # that already ran for real -- see its own docstring.
@@ -405,140 +594,296 @@ class HarnessApp(App):
                 # Run/Dry-run), and this handler said "Plan rejected.
                 # Nothing ran." unconditionally, which would have been an
                 # outright lie about a real, possibly destructive run.
-                # Leave self.current and the plan pane alone -- they still
+                # Leave tab.current and the plan pane alone -- they still
                 # reflect what actually happened.
-                self._say("harness", "Nothing to reject -- this plan already ran.", "dim")
+                self._say(session_id, "harness",
+                          "Nothing to reject -- this plan already ran.", "dim")
                 return
-        self._say("harness", "Plan rejected. Nothing ran.", "dim")
-        self._status("[dim]rejected[/]")
-        self.current = None
-        self.run_worker(self.query_one("#plan", PlanPane).clear("Rejected."),
-                        exclusive=False)
+        self._say(session_id, "harness", "Plan rejected. Nothing ran.", "dim")
+        self._status(session_id, "[dim]rejected[/]")
+        tab.current = None
+        self.run_worker(self._plan_pane(session_id).clear("Rejected."), exclusive=False)
 
     def action_dry_run(self) -> None:
-        """Keyboard shortcut for a dry run."""
-        if not self.busy:
-            self.execute_plan(dry_run=True)
+        """Keyboard shortcut for a dry run, on the active tab."""
+        session_id = self.active_session_id
+        if not self.sessions[session_id].busy:
+            self.execute_plan(session_id, dry_run=True)
 
     def action_rerun(self) -> None:
-        """Re-plan the last request."""
-        if self.last_request and not self.busy:
-            self._say("you", f"{escape(self.last_request)} \\[re-plan]")
-            self.plan_request(self.last_request)
+        """Re-plan the active tab's last request."""
+        session_id = self.active_session_id
+        tab = self.sessions[session_id]
+        if tab.last_request and not tab.busy:
+            self._say(session_id, "you", f"{escape(tab.last_request)} \\[re-plan]")
+            self.plan_request(session_id, tab.last_request)
 
     def action_clear_chat(self) -> None:
-        """Clear the conversation and the model's context."""
-        self.harness.agent.reset()
-        chat = self.query_one("#chat", VerticalScroll)
-        self.run_worker(chat.remove_children(), exclusive=False)  # type: ignore[arg-type]  # textual stub is stricter than the accepted runtime API
-        self._say("harness", "Conversation cleared.", "dim")
+        """Clear the active tab's conversation and the model's context.
 
-    @work(thread=True, exclusive=True)
-    def execute_plan(self, dry_run: bool = False) -> None:
-        """Execute in a worker thread, reading approvals from the checkboxes."""
+        Does not delete persisted history -- writes a marker record to the
+        transcript instead, so a reopened session shows the boundary
+        rather than a gap. Consistent with this codebase's bias toward
+        loud/honest over silently destructive (ResumePoint.load raises
+        rather than guessing; TaskLogger never truncates)."""
+        session_id = self.active_session_id
+        tab = self.sessions[session_id]
+        tab.harness.agent.reset()
+        self.session_store.append(session_id, ContextStep(
+            f"clear-{time.time()}", "system", "[cleared by operator]"))
+        chat = self._chat(session_id)
+        self.run_worker(chat.remove_children(), exclusive=False)  # type: ignore[arg-type]  # textual stub is stricter than the accepted runtime API
+        self._say(session_id, "harness", "Conversation cleared.", "dim")
+
+    def action_new_tab(self) -> None:
+        """Open a new, independent, empty session as a new tab."""
+        base_workdir = self.sessions[self.active_session_id].harness.workdir
+        meta = self.session_store.create()
+        self._mount_session_tab(self._build_session_harness(base_workdir, meta.session_id),
+                                meta, greet=True)
+
+    def _build_session_harness(self, base_workdir: Path, session_id: str) -> Harness:
+        """A Harness for one tab -- session-scoped `undo=` so its shadow dir
+        never collides with another tab sharing the same `base_workdir`
+        (HANDOFF.md §2.23)."""
+        return Harness(
+            workdir=base_workdir, ollama=self.ollama,
+            undo=UndoGenerator(shadow_dir=base_workdir / f"harness-shadow-{session_id}"))
+
+    def _mount_session_tab(self, harness: Harness, meta: SessionMeta, *, greet: bool) -> None:
+        """Register, mount, and activate a tab -- greeted if new, replayed if reopened."""
+        self._register_session(harness, meta)
+        pane = self._build_tab_pane(meta.session_id, meta.name or str(len(self.sessions)))
+
+        async def _mount_and_activate() -> None:
+            tabbed = self.query_one(TabbedContent)
+            await tabbed.add_pane(pane)
+            tabbed.active = f"tab-{meta.session_id}"
+            if greet:
+                self._greet(meta.session_id, self.ollama.last_status)
+            else:
+                self._replay_transcript(meta.session_id)
+            self._prompt(meta.session_id).focus()
+
+        self.run_worker(_mount_and_activate(), exclusive=False)
+
+    def action_open_picker(self) -> None:
+        """Ctrl+O: browse and reopen a past session."""
+        metas = self.session_store.list_sessions()
+
+        def _handle(chosen: str | None) -> None:
+            if chosen:
+                self._open_or_switch_to(chosen)
+
+        self.push_screen(SessionPicker(metas), _handle)
+
+    def _open_or_switch_to(self, session_id: str) -> None:
+        """Switch to a session already open in a tab, or reopen it in a new one."""
+        if session_id in self.sessions:
+            self.query_one(TabbedContent).active = f"tab-{session_id}"
+            return
+        meta = self.session_store.load_meta(session_id)
+        if meta is None:
+            self._status(self.active_session_id,
+                        "[bold red]that session no longer exists[/]")
+            return
+        base_workdir = self.sessions[self.active_session_id].harness.workdir
+        self._mount_session_tab(self._build_session_harness(base_workdir, session_id),
+                                meta, greet=False)
+
+    def _replay_transcript(self, session_id: str) -> None:
+        """Show a reopened session's saved history in its chat pane.
+
+        The live model context is already rehydrated by `_register_session`
+        (`rehydrate_compressor`) -- this is purely the visible replay, plus
+        recovering `last_request` so Ctrl+R still works after a reopen.
+        """
+        speaker = {"user": "you", "assistant": "agent"}
+        tab = self.sessions[session_id]
+        for record in self.session_store.load_transcript(session_id):
+            who = speaker.get(record.role, "harness")
+            self._say(session_id, who, escape(record.content),
+                      "" if record.role in speaker else "dim")
+            if record.role == "user":
+                tab.last_request = record.content
+
+    def action_close_tab(self) -> None:
+        """Close the active tab. Refuses to close the last tab or a busy one."""
+        session_id = self.active_session_id
+        if len(self.sessions) <= 1:
+            self._status(session_id, "[dim]can't close the last tab[/]")
+            return
+        if self.sessions[session_id].busy:
+            self._status(session_id, "[dim]can't close a tab while it's busy[/]")
+            return
+
+        async def _remove() -> None:
+            # del self.sessions[session_id] must happen after the pane is
+            # actually gone, not just requested -- remove_pane() returns an
+            # AwaitComplete, so this has to run inside a real coroutine to
+            # await it, not be handed to run_worker() as a bare value (which
+            # only starts it, doesn't wait for it before the dict mutation).
+            await self.query_one(TabbedContent).remove_pane(f"tab-{session_id}")
+            del self.sessions[session_id]
+
+        self.run_worker(_remove(), exclusive=False)
+
+    def action_next_tab(self) -> None:
+        """Focus the next tab, wrapping around."""
+        # next/previous live on the Tabs bar TabbedContent composes
+        # internally (ContentTabs), not on TabbedContent itself.
+        self.query_one(Tabs).action_next_tab()
+
+    def action_prev_tab(self) -> None:
+        """Focus the previous tab, wrapping around."""
+        self.query_one(Tabs).action_previous_tab()
+
+    @on(TabbedContent.TabActivated)
+    def _tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Keep active_session_id in sync, and repaint the shared status line."""
+        pane_id = event.pane.id or ""
+        session_id = pane_id.removeprefix("tab-")
+        if session_id not in self.sessions:
+            return
+        self.active_session_id = session_id
+        tab = self.sessions[session_id]
+        if tab.busy:
+            self._tick_spinner(session_id)
+        else:
+            self._status(session_id, "")
+        self._prompt(session_id).focus()
+
+    def execute_plan(self, session_id: str, dry_run: bool = False) -> None:
+        """Execute in a worker thread, reading approvals from the checkboxes.
+
+        Imperative `run_worker(..., group=...)`, not `@work` -- `@work`'s
+        `group` is fixed at decoration time, one string shared by every
+        call regardless of which session it's for, which would have put
+        every tab's execute back in a single exclusive group (tab B's
+        click cancelling tab A's in-flight run) or, with exclusive=False,
+        dropped single-flight protection for a second click in the *same*
+        session. Per-session groups need a group computed per call."""
+        self.run_worker(partial(self._execute_plan_body, session_id, dry_run),
+                        thread=True, exclusive=True, group=f"session-{session_id}")
+
+    def _execute_plan_body(self, session_id: str, dry_run: bool) -> None:
         # Found live: action_dry_run() (Ctrl+D) has no widget to disable the
         # way the Run/Dry-run buttons do, so it could dispatch a second
-        # execute_plan() worker while a real run's step is still sleeping --
-        # a Textual "exclusive" thread worker does not preempt an already-
-        # running thread, so both ran Harness.execute() concurrently against
-        # the same mutable RunResult. This guard is the single choke point
-        # all three callers (both buttons and the keybinding) go through.
-        if self.busy:
+        # execute against the same session while a real run's step is still
+        # sleeping -- a Textual "exclusive" thread worker does not preempt
+        # an already-running thread, so both ran Harness.execute()
+        # concurrently against the same mutable RunResult. This guard (plus
+        # the per-session `group=` below) is the single choke point all
+        # three callers (both buttons and the keybinding) go through, now
+        # scoped so tab A's guard never blocks tab B.
+        tab = self.sessions[session_id]
+        if tab.busy:
             return
-        result = self.current
+        result = tab.current
         if result is None or result.plan is None:
-            self.call_from_thread(self._say, "harness", "No plan to run.", "dim")
+            self.call_from_thread(self._say, session_id, "harness", "No plan to run.", "dim")
             return
-        approvals = self.call_from_thread(self._approvals)
-        self.call_from_thread(self._set_busy, True,
+        approvals = self.call_from_thread(self._approvals, session_id)
+        self.call_from_thread(self._set_busy, session_id, True,
                               "dry run..." if dry_run else "running...")
         try:
-            done = self.harness.execute(result, approvals, dry_run=dry_run)
+            done = tab.harness.execute(result, approvals, dry_run=dry_run)
         except Exception as exc:
-            self.call_from_thread(self._say, "error",
+            self.call_from_thread(self._say, session_id, "error",
                                   f"{type(exc).__name__}: {escape(str(exc))}")
-            self.call_from_thread(self._set_busy, False, "")
+            self.call_from_thread(self._set_busy, session_id, False, "")
             return
-        self.call_from_thread(self._executed, done, dry_run)
+        self.call_from_thread(self._executed, session_id, done, dry_run)
 
-    def _executed(self, result: RunResult, dry_run: bool) -> None:
+    def _executed(self, session_id: str, result: RunResult, dry_run: bool) -> None:
         """Report what happened."""
-        self._set_busy(False, "")
-        self.current = result
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return  # the tab was closed while this was in flight
+        self._set_busy(session_id, False, "")
+        tab.current = result
         style = OUTCOME_STYLE.get(result.outcome.value, "")
         prefix = "[dry run] " if dry_run else ""
 
         for step_result in result.results:
             mark = "[green]ok[/]" if step_result.ok else "[bold red]fail[/]"
-            self._say("harness",
+            self._say(session_id, "harness",
                       f"{prefix}{mark} {escape(step_result.step_id)} "
                       f"[dim]{step_result.seconds:.2f}s[/]"
                       + (f"\n     {escape(step_result.error)}"
                          if step_result.error else ""))
 
         if result.outcome is Outcome.COMPLETED:
-            self._say("harness", f"{prefix}completed.", "bold green")
+            self._say(session_id, "harness", f"{prefix}completed.", "bold green")
         elif result.outcome is Outcome.REJECTED:
-            self._say("harness", escape(result.abort_reason), "dim")
+            self._say(session_id, "harness", escape(result.abort_reason), "dim")
         else:
-            self._say("error", escape(result.abort_reason))
+            self._say(session_id, "error", escape(result.abort_reason))
 
         if result.summary:
-            self._say("agent", escape(result.summary))
+            self._say(session_id, "agent", escape(result.summary))
 
         if result.rollback:
             report = result.rollback
-            self._say("harness",
+            self._say(session_id, "harness",
                       f"rollback: {len(report.undone)} undone, "
                       f"{len(report.unverified)} unverified, "
                       f"{len(report.failed)} failed",
                       "green" if report.ok else "bold red")
             for entry in report.unverified + report.failed:
-                self._say("error", f"  {escape(entry.description)}: {escape(entry.error)}")
+                self._say(session_id, "error",
+                          f"  {escape(entry.description)}: {escape(entry.error)}")
 
         if result.audit_path:
-            self._say("harness", f"audit: {escape(str(result.audit_path))}", "dim")
-        self._status(f"[{style}]{result.outcome.value}[/]")
+            self._say(session_id, "harness", f"audit: {escape(str(result.audit_path))}", "dim")
+        self._status(session_id, f"[{style}]{result.outcome.value}[/]")
 
-    def _set_busy(self, busy: bool, message: str) -> None:
-        """Toggle the busy state and the status line together."""
-        self.busy = busy
-        self.query_one("#prompt", Input).disabled = busy
+    def _set_busy(self, session_id: str, busy: bool, message: str) -> None:
+        """Toggle one session's busy state and, if it's the active tab, the status line."""
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return  # the tab was closed while this was in flight
+        tab.busy = busy
+        self._prompt(session_id).disabled = busy
         # Run/dry-run stayed clickable mid-execution, so a double-click (or
         # a click landing right as a run finished) could dispatch a second
-        # execute_plan() worker on the same already-executed result --
-        # Harness.execute() now refuses that outright, but disabling the
-        # buttons here stops the wasted second execution before it starts.
-        # #reject joined this list for the same reason, found in a later
-        # full-file audit: it was never disabled at all, and a click on it
-        # after a real run completed used to silently overwrite that run's
-        # outcome in the audit trail -- Harness.reject() and this handler's
-        # caller both refuse that now, but disabling the button here is
-        # still what stops the doomed click from being dispatched at all.
+        # execute on the same already-executed result -- Harness.execute()
+        # now refuses that outright, but disabling the buttons here stops
+        # the wasted second execution before it starts. #reject joined this
+        # list for the same reason, found in a later full-file audit: it
+        # was never disabled at all, and a click on it after a real run
+        # completed used to silently overwrite that run's outcome in the
+        # audit trail -- Harness.reject() and this handler's caller both
+        # refuse that now, but disabling the button here is still what
+        # stops the doomed click from being dispatched at all.
         # query(), not query_one(): the plan pane (and its buttons) only
         # exists once a plan has been rendered, so there is often nothing
         # to disable yet, and that must not be an error.
+        pane = self._tab_pane(session_id)
         for button_id in ("#run", "#dryrun", "#reject"):
-            for button in self.query(button_id):
+            for button in pane.query(button_id):
                 button.disabled = busy
 
-        if self._spinner_timer is not None:
-            self._spinner_timer.stop()
-            self._spinner_timer = None
+        if tab.spinner_timer is not None:
+            tab.spinner_timer.stop()
+            tab.spinner_timer = None
 
         if busy:
-            self._busy_message = message
-            self._busy_started = time.monotonic()
-            self._tick_spinner()
-            self._spinner_timer = self.set_interval(0.1, self._tick_spinner)
+            tab.busy_message = message
+            tab.busy_started = time.monotonic()
+            self._tick_spinner(session_id)
+            tab.spinner_timer = self.set_interval(0.1, partial(self._tick_spinner, session_id))
         elif message:
-            self._status(f"[dim]{message}[/]")
+            self._status(session_id, f"[dim]{message}[/]")
 
-    def _tick_spinner(self) -> None:
-        """Advance the status line's spinner frame and elapsed time."""
+    def _tick_spinner(self, session_id: str) -> None:
+        """Advance one session's spinner frame and elapsed time, if it's the active tab."""
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return  # the tab was closed while this was in flight
         frame = SPINNER_FRAMES[int(time.monotonic() * 10) % len(SPINNER_FRAMES)]
-        elapsed = time.monotonic() - self._busy_started
-        self._status(f"[dim]{frame} {self._busy_message} {elapsed:.1f}s[/]")
+        elapsed = time.monotonic() - tab.busy_started
+        self._status(session_id, f"[dim]{frame} {tab.busy_message} {elapsed:.1f}s[/]")
 
 
 def run_tui(workdir: Path | None = None,

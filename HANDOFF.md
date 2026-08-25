@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 514 passed
+python3 -m pytest tests/ -q          # must print 527 passed
 harness doctor
 ```
 
@@ -651,6 +651,56 @@ over-scope by giving every session its own subtree of `workdir`.
 > Guarded by `tests/test_pipeline.py::test_two_harnesses_sharing_a_workdir_do_not_collide_on_shadow_files`,
 > `tests/test_agent.py::test_task_id_prefix_reaches_the_default_task_id`
 
+### 2.24 A tab's plan/execute worker must capture its `session_id` at dispatch time, not read "active" at completion time
+
+The TUI's tabs each run their own `Harness.plan()`/`.execute()` in a
+background thread (`tui.py`'s `plan_request`/`execute_plan`, via
+`self.run_worker(..., group=f"session-{session_id}")`). The easy mistake --
+not made here, but worth naming so nobody reintroduces it -- is reading
+`self.active_session_id` *inside* the worker's completion callback
+(`_planned`/`_executed`) instead of taking `session_id` as an explicit
+parameter closed over at the moment the worker was dispatched. An operator
+who switches tabs while tab A's plan is still running would otherwise have
+tab A's result silently written into whichever tab happens to be active
+when the callback fires -- not the tab that actually asked for it. Every
+handler in the chain (`_plan_request_body`, `_planned`, the `_outcome_*`
+dispatch table, `_execute_plan_body`, `_executed`, `_set_busy`,
+`_tick_spinner`) takes `session_id` explicitly and never substitutes
+`self.active_session_id` for it. The one place `active_session_id` is
+correct to read is UI code that only ever affects *what's currently on
+screen* (`_status`'s "only write the status line if this is the active
+tab" guard) -- never for deciding which session's *state* to mutate.
+Closing a tab (`action_close_tab`) has the same race in miniature: it
+refuses to close a *busy* tab specifically so `del self.sessions[session_id]`
+can never run while that session's worker callback is still in flight and
+would otherwise `KeyError` on lookup.
+
+> Guarded by `tests/test_tui.py::test_plan_request_runs_in_a_per_session_worker_group`,
+> `tests/test_tui.py::test_close_tab_refuses_a_busy_tab`
+
+### 2.25 A session's name is arbitrary text -- it cannot be handed to Textual's `Tab`/`TabPane` as a raw string
+
+Found live while wiring tab auto-naming from the first request: a session's
+tab title (`SessionMeta.name`, defaulted from the first ~40 characters of
+whatever the operator typed) is ordinary free text -- "list files in
+`[/mnt/x]`" is exactly as plausible a request as any other. `TabPane(title,
+...)` and `Tab.label = ...` both parse a plain `str` argument as Textual's
+own markup language (`Content.from_markup`), which is a *different* syntax
+from the Rich console markup the rest of `tui.py` already escapes for
+(`rich.markup.escape`, used throughout `ChatLine`/`StepCard`). A name
+containing an unmatched `[...]` raised `MarkupError` out of the tab's own
+constructor, before anything was ever mounted -- crashing the whole app on
+the very first request in a session, not on some rare malformed input.
+Fix: wrap the text in a `textual.content.Content(...)` instance instead of
+passing a raw string -- `Content.from_markup`/`render_str` both return a
+`Content` instance unparsed if it's already one, so this bypasses markup
+parsing entirely rather than trying to escape Textual's markup syntax
+(which has its own, separate escaping rules from Rich's). Applies at both
+call sites: `_build_tab_pane`'s initial `TabPane(Content(title), ...)` and
+`_name_session`'s `tab.label = Content(name)`.
+
+> Guarded by `tests/test_tui.py::test_the_first_request_names_the_session`
+
 ---
 
 ## 3. Things already tried that failed
@@ -678,7 +728,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 514, must stay green
+python3 -m pytest tests/ -q                       # 527, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -898,10 +948,11 @@ call on the *same* mutable `RunResult` -- two calls 113ms apart, genuinely
 concurrent, confirmed by instrumenting `harness.execute`. It happened to
 land harmlessly that run (one call bailed on a state the other had already
 changed), but that was the luck of the interleaving, not a guarantee.
-`execute_plan()` now checks `self.busy` as its first line, before touching
-`self.current` or anything else -- the single choke point all three callers
-(both buttons and the keybinding) go through, rather than relying on each
-caller to remember to guard itself the way `action_rerun()` already did for
+`execute_plan()` now checks the session's own `busy` flag as its first line,
+before touching `tab.current` or anything else -- the single choke point
+all three callers (both buttons and the keybinding) go through, rather than
+relying on each caller to remember to guard itself the way `action_rerun()`
+already did for
 `plan_request()`.
 
 **`detect_accelerator()`'s `ollama ps` column parsing must not assume a
@@ -1202,9 +1253,11 @@ model contract   JSON only, schema in harness.agent.PLAN_SCHEMA
 audit            <workdir>/audit/<task_id>.audit.json, every decision with reasoning
 telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
-shadow copies    <workdir>/harness-shadow-<pid>/, reaped by age, prefix+pid strict
+shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
+                 <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
+sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 514
+test command     python3 -m pytest tests/ -q     # 527
 ```
 
 ---

@@ -17,12 +17,12 @@ from typing import Any
 
 import pytest
 from conftest import plan_reply, scripted
-from textual.widgets import Checkbox, Input, Static
+from textual.widgets import Checkbox, Input, OptionList, Static
 
 from harness.core import MachineState, OllamaClient
 from harness.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
 from harness.pipeline import Harness, Outcome, RunResult
-from harness.tui import SPINNER_FRAMES, HarnessApp, StepCard, run_tui
+from harness.tui import SPINNER_FRAMES, HarnessApp, SessionPicker, StepCard, run_tui
 
 
 def screen_text(app: HarnessApp) -> str:
@@ -104,19 +104,19 @@ async def test_the_status_line_shows_a_live_spinner_while_busy(tmp_path: Path) -
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        app._set_busy(True, "thinking...")
+        app._set_busy(app.active_session_id, True, "thinking...")
         await pilot.pause()
         first = status_text(app)
         assert "thinking..." in first
         assert any(frame in first for frame in SPINNER_FRAMES)
-        assert app._spinner_timer is not None
+        assert app.sessions[app.active_session_id].spinner_timer is not None
 
         await pilot.pause(0.3)
         second = status_text(app)
         assert second != first, "the spinner/elapsed time never advanced"
 
-        app._set_busy(False, "")
-        assert app._spinner_timer is None
+        app._set_busy(app.active_session_id, False, "")
+        assert app.sessions[app.active_session_id].spinner_timer is None
 
 
 @pytest.mark.asyncio
@@ -162,7 +162,7 @@ async def test_a_step_id_with_a_space_does_not_crash_the_plan_pane(tmp_path: Pat
         assert len(boxes) == 1, "a dangerous step needs an approve box"
 
         boxes[0].value = True
-        assert app._approvals() == {"delete old logs": True}, \
+        assert app._approvals(app.active_session_id) == {"delete old logs": True}, \
             "approvals must be keyed by the real step id, not the sanitized DOM id"
 
 
@@ -513,7 +513,7 @@ async def test_outcome_plan_ready_is_a_no_op_with_no_plan(tmp_path: Path) -> Non
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test():
         result = RunResult(request="x", outcome=Outcome.AWAITING_APPROVAL, plan=None)
-        app._outcome_plan_ready(result)  # must not raise
+        app._outcome_plan_ready(app.active_session_id, result)  # must not raise
         assert not app.query(StepCard)
 
 
@@ -595,7 +595,7 @@ async def test_execute_plan_ignores_a_second_call_while_busy(tmp_path: Path) -> 
     async with app.run_test() as pilot:
         await pilot.pause()
         app.busy = True
-        app.execute_plan(dry_run=True)
+        app.execute_plan(app.active_session_id, dry_run=True)
         await pilot.pause(0.2)
 
         assert calls == [], "execute() must not run while the app is already busy"
@@ -685,7 +685,7 @@ async def test_a_rollback_report_is_summarised_with_every_entry(tmp_path: Path) 
                        abort_reason="step 2 failed", rollback=report)
 
     async with app.run_test():
-        app._executed(result, dry_run=False)
+        app._executed(app.active_session_id, result, dry_run=False)
         text = screen_text(app)
         assert "1 unverified" in text and "1 failed" in text
         assert "remove /tmp/x" in text
@@ -730,6 +730,264 @@ async def test_ctrl_l_clears_the_chat(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
+    """A new tab gets its own Harness/Agent, not a shared one."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        first_id = app.active_session_id
+
+        await pilot.press("ctrl+t")
+        await pilot.pause(0.2)
+        second_id = app.active_session_id
+
+        assert second_id != first_id
+        assert len(app.sessions) == 2
+        assert app.sessions[first_id].harness is not app.sessions[second_id].harness
+        assert (app.sessions[first_id].harness.undo.shadow_dir
+                != app.sessions[second_id].harness.undo.shadow_dir)
+
+
+@pytest.mark.asyncio
+async def test_close_tab_refuses_to_close_the_last_tab(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert len(app.sessions) == 1
+        app.action_close_tab()
+        await pilot.pause()
+        assert len(app.sessions) == 1
+
+
+@pytest.mark.asyncio
+async def test_close_tab_refuses_a_busy_tab(tmp_path: Path) -> None:
+    """Closing a busy tab would race a still-in-flight worker's callback
+    against `del self.sessions[session_id]` -- refuse instead."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+t")
+        await pilot.pause(0.2)
+        second_id = app.active_session_id
+        app.sessions[second_id].busy = True
+
+        app.action_close_tab()
+        await pilot.pause()
+
+        assert second_id in app.sessions
+
+
+@pytest.mark.asyncio
+async def test_close_tab_removes_the_active_tab_and_falls_back_to_another(
+        tmp_path: Path) -> None:
+    """Driven via action_close_tab() directly, not pilot.press("ctrl+w"):
+    Input's own BINDINGS also claim ctrl+w (for delete_left_word), and the
+    prompt has focus once a tab's greeting finishes -- same reason the
+    existing Ctrl+D tests above call action_dry_run() directly."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        first_id = app.active_session_id
+        await pilot.press("ctrl+t")
+        await pilot.pause(0.2)
+        second_id = app.active_session_id
+
+        app.action_close_tab()
+        await pilot.pause(0.2)
+
+        assert second_id not in app.sessions
+        assert first_id in app.sessions
+        assert len(app.sessions) == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_request_runs_in_a_per_session_worker_group(tmp_path: Path) -> None:
+    """Each session's plan/execute must live in its own exclusive group --
+    a single shared group would mean tab B's click cancels tab A's
+    in-flight run instead of running alongside it."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+        groups: list[Any] = []
+        original_run_worker = app.run_worker
+
+        def spy(work: Any, **kwargs: Any) -> Any:
+            groups.append(kwargs.get("group"))
+            return original_run_worker(work, **kwargs)
+
+        app.run_worker = spy  # type: ignore[method-assign]
+        app.plan_request(session_id, "hello")
+        await pilot.pause(0.3)
+
+        # The plan's own dispatch is the first run_worker() call; later
+        # calls in the chain (e.g. the plan pane's async UI update) use
+        # their own ad hoc groups and aren't what this test is about.
+        assert groups[0] == f"session-{session_id}"
+
+
+@pytest.mark.asyncio
+async def test_a_turn_is_persisted_to_the_session_transcript(tmp_path: Path) -> None:
+    """`Agent.on_context_change` must actually be wired to this session's
+    `SessionStore`, not just constructed and left unused."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+
+        app.query_one("#prompt", Input).value = "hello"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        records = app.session_store.load_transcript(session_id)
+        assert any(r.role == "user" and r.content == "hello" for r in records)
+        assert any(r.role == "assistant" for r in records)
+
+
+@pytest.mark.asyncio
+async def test_the_first_request_names_the_session(tmp_path: Path) -> None:
+    """Found live: a name built straight from arbitrary request text and
+    handed to Tab.label/TabPane as a plain string crashes the whole app --
+    Textual parses a plain str as its own markup, and ordinary shell-ish
+    text like "list files in [/mnt/x]" is not valid markup."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+
+        app.query_one("#prompt", Input).value = "list files in [/mnt/x]"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        assert app.is_running, "the app crashed on a bracket-bearing session name"
+        assert app.sessions[session_id].meta.name == "list files in [/mnt/x]"
+        on_disk = app.session_store.load_meta(session_id)
+        assert on_disk is not None
+        assert on_disk.name == "list files in [/mnt/x]"
+
+
+@pytest.mark.asyncio
+async def test_clear_chat_persists_a_marker_not_a_gap(tmp_path: Path) -> None:
+    """Ctrl+L clears the live context but must not erase persisted
+    history -- a reopened transcript should show the boundary, not a gap."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+
+        app.query_one("#prompt", Input).value = "hello"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        await pilot.press("ctrl+l")
+        await pilot.pause(0.1)
+
+        records = app.session_store.load_transcript(session_id)
+        assert records, "clearing must not wipe the persisted transcript"
+        assert records[-1].role == "system"
+        assert records[-1].content == "[cleared by operator]"
+
+
+@pytest.mark.asyncio
+async def test_reopening_an_already_open_session_switches_tabs_without_duplicating(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        first_id = app.active_session_id
+        await pilot.press("ctrl+t")
+        await pilot.pause(0.2)
+        assert app.active_session_id != first_id
+        assert len(app.sessions) == 2
+
+        app._open_or_switch_to(first_id)
+        await pilot.pause(0.1)
+
+        assert app.active_session_id == first_id
+        assert len(app.sessions) == 2, "must not open a duplicate tab"
+
+
+@pytest.mark.asyncio
+async def test_reopening_a_session_that_no_longer_exists_shows_an_error(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._open_or_switch_to("does-not-exist")
+        await pilot.pause(0.1)
+
+        assert "no longer exists" in status_text(app)
+        assert len(app.sessions) == 1
+
+
+@pytest.mark.asyncio
+async def test_reopening_a_past_session_after_a_restart_replays_its_history(
+        tmp_path: Path) -> None:
+    """The point of persistence: kill the process, come back, and the
+    conversation is still there -- simulated here as a second HarnessApp
+    sharing the first one's workdir, the same way a real restart would."""
+    app1 = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app1.run_test() as pilot:
+        await pilot.pause()
+        session_id = app1.active_session_id
+        app1.query_one("#prompt", Input).value = "remember this"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+    app2 = build(tmp_path, scripted({"intent": "answer", "message": "second run"}))
+    async with app2.run_test() as pilot:
+        await pilot.pause()
+        assert session_id not in app2.sessions, "a fresh app must not already have it open"
+
+        app2._open_or_switch_to(session_id)
+        await pilot.pause(0.3)
+
+        assert session_id in app2.sessions
+        assert "remember this" in screen_text(app2)
+        assert app2.sessions[session_id].last_request == "remember this"
+
+
+@pytest.mark.asyncio
+async def test_ctrl_o_lists_saved_sessions_and_reopening_one_dismisses_the_picker(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt", Input).value = "hi"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        await pilot.press("ctrl+o")
+        await pilot.pause(0.2)
+
+        assert isinstance(app.screen, SessionPicker)
+        option_list = app.screen.query_one(OptionList)
+        assert option_list.option_count >= 1
+
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        assert not isinstance(app.screen, SessionPicker)
+
+
+@pytest.mark.asyncio
+async def test_escape_dismisses_the_picker_without_opening_anything(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+o")
+        await pilot.pause(0.1)
+        assert isinstance(app.screen, SessionPicker)
+
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+
+        assert not isinstance(app.screen, SessionPicker)
+        assert len(app.sessions) == 1
+
+
+@pytest.mark.asyncio
 async def test_set_busy_false_with_a_message_updates_the_status_line(
         tmp_path: Path) -> None:
     """No current caller passes a non-empty message alongside busy=False,
@@ -737,10 +995,10 @@ async def test_set_busy_false_with_a_message_updates_the_status_line(
     it -- called directly since there is no real caller to drive it."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test():
-        app._set_busy(True, "thinking...")
-        app._set_busy(False, "wrapped up")
+        app._set_busy(app.active_session_id, True, "thinking...")
+        app._set_busy(app.active_session_id, False, "wrapped up")
         assert "wrapped up" in status_text(app)
-        assert app._spinner_timer is None
+        assert app.sessions[app.active_session_id].spinner_timer is None
 
 
 def test_run_tui_builds_and_runs_the_app(tmp_path: Path, monkeypatch) -> None:

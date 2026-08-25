@@ -154,6 +154,16 @@ class SessionStore:
             self.errors.append(f"updated_at refresh failed: {type(exc).__name__}: {exc}")
         return True
 
+    def rename(self, session_id: str, name: str) -> SessionMeta | None:
+        """Give a session an operator-facing name. None if the session doesn't exist."""
+        meta = self.load_meta(session_id)
+        if meta is None:
+            return None
+        meta.name = name
+        meta.updated_at = time.time()
+        self._save_meta(meta)
+        return meta
+
     def load_meta(self, session_id: str) -> SessionMeta | None:
         """Read one session's metadata, or None when absent.
 
