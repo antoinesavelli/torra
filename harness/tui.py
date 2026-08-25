@@ -1,7 +1,8 @@
 """Terminal interface: chat on the left, the gated plan on the right, one tab per session.
 
 Depends on: textual, harness.core (OllamaClient, OllamaStatus, ContextStep, SessionMeta,
-SessionStore), harness.gates (UndoGenerator), harness.pipeline (Harness and friends).
+SessionStore), harness.gates (UndoGenerator), harness.pipeline (Harness and friends),
+harness.telemetry (CrashReporter).
 
 You never approve a command you have not seen classified: nothing executes
 until every step showing DANGEROUS or CRITICAL has been individually ticked.
@@ -44,6 +45,7 @@ from textual.widgets.option_list import Option
 from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore
 from .gates import UndoGenerator
 from .pipeline import Harness, Outcome, Plan, RunResult, StepPlan
+from .telemetry import CrashReporter
 
 __all__ = ["HarnessApp", "run_tui"]
 
@@ -311,9 +313,22 @@ class HarnessApp(App):
         self.ollama = initial_harness.ollama
         self.backends = initial_harness.agent.backends
         self.session_store = SessionStore(initial_harness.workdir)
+        self._crash_reporter = CrashReporter(
+            initial_harness.workdir / "telemetry" / "crashes.jsonl")
         self.sessions: dict[str, SessionTab] = {}
         self.active_session_id = ""
         self._register_session(initial_harness, self.session_store.create())
+
+    def _handle_exception(self, error: Exception) -> None:
+        """The one hook Textual ever calls for an unhandled TUI exception --
+        `App.run()` never re-raises past this, confirmed by reading its own
+        source (HANDOFF.md §2.29). A crash reporter that itself fails must
+        never block the app from actually exiting, hence the bare try."""
+        try:
+            self._crash_reporter.record(error, site="tui")
+        except Exception:
+            pass
+        super()._handle_exception(error)
 
     # -- session lifecycle --------------------------------------------------- #
 

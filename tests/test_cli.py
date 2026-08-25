@@ -18,7 +18,7 @@ from conftest import plan_reply, scripted
 import harness.cli as cli
 from harness.core import OllamaClient, TaskSpec
 from harness.pipeline import Harness
-from harness.telemetry import LabelStore, TaskLogger, TaskRecord
+from harness.telemetry import CrashReporter, LabelStore, TaskLogger, TaskRecord
 
 # --------------------------------------------------------------------------- #
 # Shared plumbing
@@ -216,6 +216,76 @@ def test_evidence_prints_the_loophole_audit_alongside_drift(
     assert exit_code == 0
     assert "anchored-but-goalless" in out
     assert "verdict" in out
+
+
+def test_evidence_health_summary_shows_every_outcome_not_just_completed(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Before this, only `status == "completed"` was ever counted anywhere
+    in cmd_evidence's output -- blocked/refused/backend_down/failed tasks
+    were invisible in a summary that read as a complete accounting."""
+    logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
+    for status in ["completed", "blocked", "blocked", "refused", "backend_down", "failed"]:
+        logger.record(TaskRecord(task_id="t", request="x", at=1.0, status=status))
+    LabelStore(tmp_path / "telemetry" / "labels.jsonl")
+
+    exit_code = cli.cmd_evidence(evidence_args(tmp_path))
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "blocked          : 2" in out
+    assert "refused          : 1" in out
+    assert "backend_down     : 1" in out
+    assert "failed           : 1" in out
+
+
+def test_evidence_health_summary_reports_backend_and_latency(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
+    logger.record(TaskRecord(task_id="a", request="x", at=1.0,
+                             status="completed", model="devstral:24b", seconds=4.0))
+    logger.record(TaskRecord(task_id="b", request="x", at=1.0, status="completed",
+                             model="openrouter/anthropic/claude-3.5-sonnet", seconds=2.0))
+    LabelStore(tmp_path / "telemetry" / "labels.jsonl")
+
+    exit_code = cli.cmd_evidence(evidence_args(tmp_path))
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "backend: 1 local, 1 openrouter" in out
+    assert "mean turn time: 3.00s over 2 timed task(s)" in out
+
+
+def test_evidence_with_no_tasks_says_so_instead_of_an_empty_section(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = cli.cmd_evidence(evidence_args(tmp_path))
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "no tasks recorded yet" in out
+
+
+def test_evidence_reports_crash_history(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    reporter = CrashReporter(tmp_path / "telemetry" / "crashes.jsonl")
+    try:
+        raise ValueError("simulated crash")
+    except ValueError as exc:
+        reporter.record(exc, site="tui")
+
+    exit_code = cli.cmd_evidence(evidence_args(tmp_path))
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "1 crash(es) recorded" in out
+    assert "ValueError (tui)" in out
+    assert "simulated crash" in out
+
+
+def test_evidence_with_no_crashes_says_so(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = cli.cmd_evidence(evidence_args(tmp_path))
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "no crashes recorded" in out
 
 
 def test_evidence_prints_loophole_examples_when_present(
@@ -894,17 +964,53 @@ def test_main_catches_a_task_spec_error_that_escapes_a_command(
 
 
 def test_main_converts_an_unhandled_exception_to_a_failed_exit(
-        monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+        monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Explicit --workdir, not the bare ["doctor"] this test used to pass --
+    once main()'s except block unconditionally constructs a CrashReporter
+    against args.workdir, omitting it here would write a real file under
+    this machine's actual ~/.harness/telemetry/crashes.jsonl on every run."""
     def boom(args):
         raise RuntimeError("something broke")
 
     monkeypatch.setattr(cli, "cmd_doctor", boom)
 
-    exit_code = cli.main(["doctor"])
+    exit_code = cli.main(["--workdir", str(tmp_path), "doctor"])
 
     err = capsys.readouterr().err
     assert exit_code == cli.EXIT_FAILED
     assert "RuntimeError" in err
+    assert (tmp_path / "telemetry" / "crashes.jsonl").exists(), \
+        "the crash should have been logged under the given workdir"
+    assert f"logged to {tmp_path / 'telemetry' / 'crashes.jsonl'}" in err
+
+
+def test_main_logs_the_full_crash_record_with_site_and_traceback(
+        monkeypatch, tmp_path: Path) -> None:
+    def boom(args):
+        raise RuntimeError("something broke")
+
+    monkeypatch.setattr(cli, "cmd_ask", boom)
+
+    cli.main(["--workdir", str(tmp_path), "ask", "do something"])
+
+    record = CrashReporter(tmp_path / "telemetry" / "crashes.jsonl").read()[0]
+    assert record.site == "cli:ask"
+    assert record.exception_type == "RuntimeError"
+    assert record.message == "something broke"
+    assert "Traceback" in record.traceback
+
+
+def test_main_with_no_subcommand_that_crashes_logs_site_tui(
+        monkeypatch, tmp_path: Path) -> None:
+    def boom(args):
+        raise RuntimeError("tui blew up")
+
+    monkeypatch.setattr(cli, "cmd_tui", boom)
+
+    cli.main(["--workdir", str(tmp_path)])
+
+    record = CrashReporter(tmp_path / "telemetry" / "crashes.jsonl").read()[0]
+    assert record.site == "cli:tui"
 
 
 def test_main_reports_interrupted_on_ctrl_c(monkeypatch,

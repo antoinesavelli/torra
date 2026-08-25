@@ -1186,6 +1186,52 @@ async def test_set_busy_false_with_a_message_updates_the_status_line(
         assert app.sessions[app.active_session_id].spinner_timer is None
 
 
+@pytest.mark.asyncio
+async def test_handle_exception_records_a_crash_and_still_calls_super(
+        tmp_path: Path) -> None:
+    """The only hook Textual ever calls for an unhandled TUI exception
+    (HANDOFF.md §2.29) -- must record it AND still leave the app in the
+    same panicked state Textual's own default produces. run_test()'s own
+    teardown re-raises app._exception for pytest's awareness (its own
+    documented behavior) -- pytest.raises around the whole block is what
+    consumes that, not a bug in the app itself."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    error = RuntimeError("simulated unhandled crash")
+
+    with pytest.raises(RuntimeError, match="simulated unhandled crash"):
+        async with app.run_test():
+            app._handle_exception(error)
+
+            assert app._exception is error, "super()._handle_exception must still run"
+            assert app.return_code == 1
+            crashes = app._crash_reporter.read()
+            assert len(crashes) == 1
+            assert crashes[0].site == "tui"
+            assert crashes[0].exception_type == "RuntimeError"
+            assert crashes[0].message == "simulated unhandled crash"
+
+
+@pytest.mark.asyncio
+async def test_handle_exception_still_calls_super_if_the_reporter_itself_raises(
+        tmp_path: Path) -> None:
+    """A crash reporter that itself fails must never block the one hook
+    responsible for the app actually exiting."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    error = RuntimeError("simulated unhandled crash")
+
+    with pytest.raises(RuntimeError, match="simulated unhandled crash"):
+        async with app.run_test():
+            def broken_record(error: BaseException, site: str) -> bool:
+                raise OSError("the reporter itself is broken")
+
+            app._crash_reporter.record = broken_record  # type: ignore[method-assign]
+
+            app._handle_exception(error)  # must not raise
+
+            assert app._exception is error, "super()._handle_exception must still run"
+            assert app.return_code == 1
+
+
 def test_run_tui_builds_and_runs_the_app(tmp_path: Path, monkeypatch) -> None:
     """run_tui()'s own body is a single call into Textual's real event loop
     (App.run(), which takes over the terminal) -- genuinely impractical to

@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 568 passed
+python3 -m pytest tests/ -q          # must print 585 passed
 harness doctor
 ```
 
@@ -916,6 +916,60 @@ synchronization point.
 > not a code invariant) -- `tests/test_tui.py`'s own CI-run history is the
 > evidence, not a local assertion.
 
+### 2.29 `HarnessApp._handle_exception` is the only hook that ever sees a TUI-side crash, and `App.run()` never re-raises past it
+
+Confirmed by reading Textual's own `app.py`, not inferred: `App._handle_exception()`
+(its own docstring: "Always results in the app exiting") is the sole place
+any unhandled exception anywhere inside a running TUI -- workers, event
+handlers, compose, the message pump -- surfaces. `App.run()`/`run_async()`
+never re-raise after it runs; both return normally with `self.return_code
+== 1`. The only place in Textual's `app.py` that re-raises after a panic is
+`run_test()`, and only for pytest's own awareness (its own comment: "Re-raise
+the exception which caused panic so test frameworks are aware"). This means
+`cli.py`'s top-level `except Exception` in `main()` structurally **cannot**
+see a TUI-side crash -- `cmd_tui()` calls `run_tui(...).run()` and control
+only returns after Textual has already handled and swallowed the exception.
+Wrapping the `run_tui()` call site or `cmd_tui()` itself would silently
+never fire; overriding `HarnessApp._handle_exception()` is the only correct
+integration point. Also confirmed single-threaded: a thread-worker's
+failure is caught back on the main event-loop thread (inside `Worker._run`)
+before `_handle_exception` ever runs, so there is no concurrency concern for
+`CrashReporter.record()` itself.
+
+Also confirmed by reading `tui.py`'s own worker bodies: `_plan_request_body`/
+`_execute_plan_body` each have their own internal `try/except Exception`
+around `Harness.plan()`/`.execute()` that displays the error inline and
+clears `busy` (`tests/test_tui.py::test_plan_request_reports_an_unexpected_exception`,
+`test_execute_plan_reports_an_unexpected_exception`) -- those exceptions
+never reach `_handle_exception` at all, so `CrashReporter`
+(`harness/telemetry/crash.py`) records only genuinely-unhandled TUI bugs
+(the same class of thing §2.13/§2.25 found by hand before any hook existed),
+never routine plan/execute failures, which `TaskLogger` already records
+with `status: failed`/`backend_down`. A crash count in `harness evidence`'s
+new health summary should not be read as including ordinary task failures.
+
+`CrashReporter.record()` redacts `message`/`traceback` through the same
+`redact_secrets()` `records.py` already uses for `TaskRecord.request`/
+`Label.why` -- a traceback's local-variable reprs can contain a secret
+exactly the way free-form request text can (Textual's own panic screen
+already renders locals via `rich.traceback.Traceback(show_locals=True,
+...)`, confirmed by reading `_fatal_error()`; persisting an unredacted copy
+of the same information indefinitely would be strictly worse than what's
+already shown transiently on screen).
+
+`HarnessApp._handle_exception`'s override calls `self._crash_reporter.record(...)`
+inside its own bare `try/except`, then unconditionally calls
+`super()._handle_exception(error)` -- a crash reporter that itself fails
+must never prevent the one hook responsible for the app actually exiting
+from running.
+
+> Guarded by `tests/test_tui.py::test_handle_exception_records_a_crash_and_still_calls_super`,
+> `test_handle_exception_still_calls_super_if_the_reporter_itself_raises`;
+> `tests/test_telemetry.py::TestCrashReporterFailureEdges` (construction/
+> record/read failure paths, mirroring `TestTaskLoggerFailureEdges`);
+> `tests/test_cli.py::test_main_logs_the_full_crash_record_with_site_and_traceback`,
+> `test_main_with_no_subcommand_that_crashes_logs_site_tui`
+
 ---
 
 ## 3. Things already tried that failed
@@ -943,7 +997,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 568, must stay green
+python3 -m pytest tests/ -q                       # 585, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1479,7 +1533,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 568
+test command     python3 -m pytest tests/ -q     # 585
 ```
 
 ---

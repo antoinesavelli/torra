@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **568 passed**. Then:
+Expect **585 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -66,6 +66,10 @@ echo "alias harness='~/harness/.venv/bin/harness'" >> ~/.bashrc && source ~/.bas
 
 `inotify_simple` is optional and makes tree watching about 5,000x cheaper.
 `textual` is required for the interface but not for `run` or `check`.
+
+To update an existing checkout later: `scripts/update.sh` -- pulls latest
+`main`, reinstalls, and reruns the test suite as the final gate. Refuses to
+run over uncommitted local changes.
 
 ---
 
@@ -287,6 +291,12 @@ smallest routed-to model does not consistently use it (measured in
 
 Every request is recorded to `~/.harness/telemetry/tasks.jsonl`: the request
 text with secrets redacted, what each gate decided, the model, the outcome.
+`harness evidence` also reports a health summary aggregated from that same
+file -- the full outcome breakdown (not just completions), local vs.
+OpenRouter split, mean turn time, rollback verification rate -- and a crash
+history from `~/.harness/telemetry/crashes.jsonl`: unhandled exceptions that
+escaped every other guard, redacted the same way request text is, distinct
+from ordinary gated-task failures (those are outcomes, not crashes).
 
 ```bash
 harness label       # two minutes a week
@@ -312,7 +322,9 @@ wearing a percentage sign.
 | `harness/tui.py` | the interface: tabs, one session per tab |
 | `harness/core/session.py` | `SessionStore` -- one persisted transcript per conversation |
 | `harness/cli.py` | entry points |
-| `tests/` | 568 cases, organised by subsystem |
+| `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
+| `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
+| `tests/` | 585 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -356,7 +368,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 568 cases
+python3 -m pytest tests/ -v              # 585 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

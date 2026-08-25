@@ -12,6 +12,7 @@ from pathlib import Path
 
 from harness.telemetry import (
     CorpusExporter,
+    CrashReporter,
     DriftReport,
     LabelStore,
     LoopholeAudit,
@@ -279,6 +280,116 @@ class TestTaskLoggerFailureEdges:
         logger.record(self._record())
 
         stats = logger.stats()
+
+        assert stats["written"] == 1
+        assert stats["on_disk"] == 1
+        assert stats["errors"] == []
+
+
+class TestCrashReporterFailureEdges:
+    """CrashReporter mirrors TaskLogger's construction/record/read failure
+    paths exactly (TestTaskLoggerFailureEdges above) -- same scoped-
+    monkeypatch discipline, same never-raises contract."""
+
+    def _error(self, message: str = "simulated crash") -> ValueError:
+        try:
+            raise ValueError(message)
+        except ValueError as exc:
+            return exc
+
+    def test_an_unusable_log_directory_degrades_gracefully(self, tmp_path: Path) -> None:
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory", encoding="utf-8")
+        reporter = CrashReporter(blocker / "crashes.jsonl")
+        assert any("directory unusable" in e for e in reporter.errors)
+
+    def test_record_returns_true_and_stamps_the_injected_clock(self, tmp_path: Path) -> None:
+        reporter = CrashReporter(tmp_path / "crashes.jsonl", clock=lambda: 12345.0)
+        assert reporter.record(self._error(), site="tui") is True
+        records = reporter.read()
+        assert len(records) == 1
+        assert records[0].at == 12345.0
+        assert records[0].site == "tui"
+        assert records[0].exception_type == "ValueError"
+
+    def test_record_captures_a_real_traceback(self, tmp_path: Path) -> None:
+        reporter = CrashReporter(tmp_path / "crashes.jsonl")
+        reporter.record(self._error("boom"), site="cli:ask")
+        record = reporter.read()[0]
+        assert "boom" in record.message
+        assert "ValueError" in record.traceback
+        assert "test_telemetry.py" in record.traceback
+
+    def test_record_redacts_secrets_in_message_and_traceback(self, tmp_path: Path) -> None:
+        reporter = CrashReporter(tmp_path / "crashes.jsonl")
+
+        def boom() -> None:
+            api_key = "sk-abcdefghijklmnopqrstuvwx"  # noqa: F841
+            raise ValueError(f"failed with key {api_key}")
+
+        try:
+            boom()
+        except ValueError as exc:
+            reporter.record(exc, site="tui")
+
+        record = reporter.read()[0]
+        assert "sk-abcdefghijklmnopqrstuvwx" not in record.message
+        assert "<API_KEY>" in record.message
+
+    def test_a_write_failure_is_recorded_not_raised(
+            self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "crashes.jsonl"
+        reporter = CrashReporter(path)
+        real_open = Path.open
+
+        def selective_broken_open(self, *args, **kwargs):
+            if self == path:
+                raise OSError("simulated write failure")
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", selective_broken_open)
+        ok = reporter.record(self._error(), site="tui")
+
+        assert ok is False
+        assert any("OSError" in e for e in reporter.errors)
+
+    def test_read_skips_blank_lines_and_a_corrupt_line(self, tmp_path: Path) -> None:
+        path = tmp_path / "crashes.jsonl"
+        reporter = CrashReporter(path)
+        reporter.record(self._error("first"), site="tui")
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("\n")
+            fh.write("not valid json at all\n")
+        reporter.record(self._error("second"), site="tui")
+
+        records = reporter.read()
+
+        assert [r.message for r in records] == ["first", "second"]
+        assert any("unreadable" in e for e in reporter.errors)
+
+    def test_read_records_a_failure_instead_of_raising(
+            self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "crashes.jsonl"
+        reporter = CrashReporter(path)
+        reporter.record(self._error(), site="tui")
+        real_read_text = Path.read_text
+
+        def selective_broken_read_text(self, *args, **kwargs):
+            if self == path:
+                raise OSError("simulated read failure")
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", selective_broken_read_text)
+        result = reporter.read()
+
+        assert result == []
+        assert any("read failed" in e for e in reporter.errors)
+
+    def test_stats_reports_written_on_disk_and_errors(self, tmp_path: Path) -> None:
+        reporter = CrashReporter(tmp_path / "crashes.jsonl")
+        reporter.record(self._error(), site="tui")
+
+        stats = reporter.stats()
 
         assert stats["written"] == 1
         assert stats["on_disk"] == 1
