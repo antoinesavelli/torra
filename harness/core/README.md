@@ -12,6 +12,7 @@ so `from harness.core import X` works exactly as it did when this was one file.
 | `context.py` | `ContextCompressor`, keeps the conversation under a token budget |
 | `ollama.py` | `OllamaClient`, talks to the local Ollama daemon and generates |
 | `machine.py` | `Accelerator`/`MachineState`, what the box looks like and what the model will run on (depends on `ollama.py` for the `OllamaClient` type it attaches) |
+| `session.py` | `SessionStore`, one directory per conversation under `workdir/sessions/` -- atomically-written metadata plus an append-only transcript, so a TUI tab's chat history survives a restart (depends on `context.py` for the `ContextStep`/`ContextCompressor` shape it persists and rehydrates) |
 
 See [`HANDOFF.md` §2.1](../../HANDOFF.md) for why `Step.command` and `Step.run`
 must always be built from the same string.
