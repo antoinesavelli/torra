@@ -13,7 +13,15 @@ import pytest
 from conftest import plan_reply, scripted
 
 from harness.agent import Agent, AgentError, Intent, Turn
-from harness.core import MachineState, OllamaClient, OllamaError, Step, StepResult, TaskSpec
+from harness.core import (
+    MachineState,
+    OllamaClient,
+    OllamaError,
+    OllamaStatus,
+    Step,
+    StepResult,
+    TaskSpec,
+)
 
 
 def build_agent(transport, **kwargs) -> Agent:
@@ -602,6 +610,97 @@ def test_empty_task_id_prefix_is_the_default_and_matches_old_behavior() -> None:
 
     assert turn.spec is not None
     assert turn.spec.task_id == "agent-1"
+
+
+# --------------------------------------------------------------------------- #
+# Backend dispatch (opt-in alternate model backends)
+# --------------------------------------------------------------------------- #
+
+
+class _FakeBackend:
+    """A minimal ModelBackend, for proving dispatch without a real OpenRouterClient."""
+
+    def __init__(self, reply: str = '{"intent": "answer", "message": "ok"}') -> None:
+        self.calls: list[str] = []
+        self.reply = reply
+
+    def chat(self, model: str, messages: object, json_mode: bool = False,
+              temperature: float = 0.2) -> str:
+        self.calls.append(model)
+        return self.reply
+
+    def recovery_options(self, current_model: str = "unknown") -> list[Any]:
+        return []
+
+    def stats(self) -> dict[str, Any]:
+        return {"calls": len(self.calls)}
+
+
+def test_resolve_backend_returns_the_registered_backend_for_a_matching_prefix() -> None:
+    fake = _FakeBackend()
+    agent = build_agent(scripted({}), backends={"openrouter": fake})
+    backend, real_model = agent.resolve_backend("openrouter/anthropic/claude-3.5-sonnet")
+    assert backend is fake
+    assert real_model == "anthropic/claude-3.5-sonnet"
+
+
+def test_resolve_backend_falls_through_to_ollama_with_no_matching_prefix() -> None:
+    agent = build_agent(scripted({}), backends={"openrouter": _FakeBackend()})
+    backend, real_model = agent.resolve_backend("devstral:24b")
+    assert backend is agent.ollama
+    assert real_model == "devstral:24b"
+
+
+def test_resolve_backend_with_no_backends_registered_always_uses_ollama() -> None:
+    agent = build_agent(scripted({}))
+    backend, real_model = agent.resolve_backend("openrouter/anthropic/claude-3.5-sonnet")
+    assert backend is agent.ollama
+    assert real_model == "openrouter/anthropic/claude-3.5-sonnet"
+
+
+def test_an_explicit_alt_backend_model_is_used_for_the_actual_chat_call() -> None:
+    """ollama's own transport must never be hit -- an explicit openrouter/...
+    model bypasses it entirely, all the way through to the real chat() call."""
+    fake = _FakeBackend()
+
+    def ollama_must_not_be_called(path: str, payload: dict, timeout: float) -> dict:
+        if path == "/api/chat":
+            raise AssertionError("ollama.chat() must not be called for an alt-backend model")
+        return {"models": []} if path == "/api/tags" else {}
+
+    agent = build_agent(ollama_must_not_be_called, backends={"openrouter": fake})
+
+    turn = agent.converse("what is the disk usage",
+                          model="openrouter/anthropic/claude-3.5-sonnet")
+
+    assert fake.calls == ["anthropic/claude-3.5-sonnet"]
+    assert turn.model == "openrouter/anthropic/claude-3.5-sonnet", \
+        "the full prefixed string stays visible for audit transparency"
+
+
+def test_the_degraded_fallback_does_not_fire_for_an_alt_backend_model() -> None:
+    """The local-catalog degraded fallback is irrelevant to an explicit alt
+    backend choice -- it must not swap it out even when ollama looks unhealthy."""
+    fake = _FakeBackend()
+    agent = build_agent(scripted({}, models=["devstral:24b"]),
+                        backends={"openrouter": fake})
+    agent.ollama.last_status = OllamaStatus.UNREACHABLE
+
+    turn = agent.converse("what is the disk usage",
+                          model="openrouter/anthropic/claude-3.5-sonnet")
+
+    assert turn.model == "openrouter/anthropic/claude-3.5-sonnet"
+    assert fake.calls == ["anthropic/claude-3.5-sonnet"]
+
+
+def test_stats_includes_every_registered_backend() -> None:
+    agent = build_agent(scripted({}), backends={"openrouter": _FakeBackend()})
+    assert "openrouter" in agent.stats()["backends"]
+
+
+def test_stats_backends_is_empty_with_none_registered() -> None:
+    agent = build_agent(scripted({}))
+    assert agent.stats()["backends"] == {}
 
 
 def test_fast_forward_turn_counter_moves_it_forward() -> None:

@@ -20,7 +20,14 @@ from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
-from .core import OllamaClient, OllamaStatus, TaskSpec, TaskSpecError
+from .core import (
+    ModelBackend,
+    OllamaClient,
+    OllamaStatus,
+    OpenRouterClient,
+    TaskSpec,
+    TaskSpecError,
+)
 from .gates import Clarifier, Precondition, SafetyClassifier, StateVerifier
 from .pipeline import Harness, Outcome, Plan, RunResult
 from .telemetry import CorpusExporter, LabelStore, LoopholeAudit, TaskLogger
@@ -57,14 +64,35 @@ def _package_version() -> str:
 
 
 def build_harness(workdir: Path, offline: bool = False) -> Harness:
-    """Assemble the stack with a sensible default precondition."""
+    """Assemble the stack with a sensible default precondition.
+
+    "openrouter" is registered unconditionally, key or no key -- found live
+    by manual testing, not by a test: registering it only when
+    `OPENROUTER_API_KEY` was set meant an unconfigured `--model
+    openrouter/...` request didn't match any prefix in `Agent.backends`, so
+    `Agent.resolve_backend` fell through to `self.ollama` with the literal
+    string "openrouter/..." as the model name -- which `converse()`'s
+    degraded-daemon fallback then silently swapped for a real local model,
+    with no error at all. The operator's explicit backend choice vanished
+    without a trace. `OpenRouterClient.chat()` already raises a specific
+    "OPENROUTER_API_KEY is not set" error when actually called without one
+    -- registering it always is what lets that error fire, instead of the
+    request being silently misrouted before it ever gets there (HANDOFF.md
+    §2.27). Constructing it is free either way: no network call happens
+    until `.chat()` is actually invoked, so this is harmless in `offline`
+    mode too (`harness run`, which never calls the model at all). This is
+    the only place that constructs it: `harness tui` must reach it through
+    here (`cmd_tui`), not build its own `Harness` independently, or it
+    would silently never see it either.
+    """
     verifier = StateVerifier()
     verifier.add(Precondition(
         "disk:/", lambda: StateVerifier.disk_free_gb("/") > 1.0,
         "at least 1 GB free on /", ttl_seconds=30))
     ollama = (OllamaClient(transport=lambda p, pay, t: {"models": []})
               if offline else OllamaClient())
-    return Harness(workdir=workdir, ollama=ollama, verifier=verifier)
+    backends: dict[str, ModelBackend] = {"openrouter": OpenRouterClient()}
+    return Harness(workdir=workdir, ollama=ollama, verifier=verifier, backends=backends)
 
 
 def print_plan(plan: Plan) -> None:
@@ -123,7 +151,14 @@ def cmd_tui(args: argparse.Namespace) -> int:
         print("error: textual is not installed. pip install textual",
               file=sys.stderr)
         return EXIT_USAGE
-    run_tui(workdir=Path(args.workdir))
+    workdir = Path(args.workdir)
+    # build_harness(), not a bare Harness(workdir=...) -- that used to be
+    # `run_tui`'s own default (`harness=None`), a second, independent
+    # construction path that skipped both this function's disk-free
+    # precondition and, since HANDOFF.md §2.27, OpenRouter registration
+    # entirely. `harness tui` is the actual default entry point; it must go
+    # through the one place that reads OPENROUTER_API_KEY, not a copy of it.
+    run_tui(workdir=workdir, harness=build_harness(workdir))
     return EXIT_OK
 
 

@@ -58,6 +58,53 @@ def write_task_file(path: Path, task_id: str, request: str,
 
 
 # --------------------------------------------------------------------------- #
+# build_harness (OpenRouter registration)
+# --------------------------------------------------------------------------- #
+
+
+def test_build_harness_registers_openrouter_when_the_env_var_is_set(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_ollama(monkeypatch, scripted({}))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+
+    harness = cli.build_harness(tmp_path)
+
+    assert "openrouter" in harness.agent.backends
+    assert harness.agent.backends["openrouter"].api_key == "k"
+
+
+def test_build_harness_registers_openrouter_even_without_the_env_var(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found live by manual testing: registering it only when the env var
+    was set meant an unconfigured `--model openrouter/...` request matched
+    no prefix in Agent.backends, so it silently fell through to
+    self.ollama -- which converse()'s degraded-daemon fallback then
+    silently swapped for a real local model, with no error at all
+    (HANDOFF.md §2.27). Registering it unconditionally is what lets
+    OpenRouterClient.chat()'s own "OPENROUTER_API_KEY is not set" error
+    actually fire, instead of the request being silently misrouted."""
+    patch_ollama(monkeypatch, scripted({}))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    harness = cli.build_harness(tmp_path)
+
+    assert "openrouter" in harness.agent.backends
+    assert harness.agent.backends["openrouter"].api_key == ""
+
+
+def test_build_harness_registers_openrouter_even_when_offline(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """offline is for `harness run` -- a hand-written task file that never
+    calls the model at all, so this is harmless either way: constructing
+    OpenRouterClient makes no network call, only chat() would."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+
+    harness = cli.build_harness(tmp_path, offline=True)
+
+    assert "openrouter" in harness.agent.backends
+
+
+# --------------------------------------------------------------------------- #
 # approve_at_prompt
 # --------------------------------------------------------------------------- #
 
@@ -749,6 +796,24 @@ def test_tui_launches_when_textual_is_importable(tmp_path, monkeypatch) -> None:
 
     assert exit_code == cli.EXIT_OK
     assert called["workdir"] == tmp_path
+
+
+def test_cmd_tui_builds_the_harness_through_build_harness(tmp_path, monkeypatch) -> None:
+    """`harness tui` used to build its own bare Harness(), a second,
+    independent construction path from build_harness() -- silently skipping
+    both the disk-free precondition and OpenRouter registration
+    (HANDOFF.md §2.27). Proven here by checking for the precondition only
+    build_harness() attaches, not by re-asserting build_harness()'s own
+    internals."""
+    captured: dict[str, object] = {}
+    monkeypatch.setattr("harness.tui.run_tui", lambda workdir=None, harness=None:
+                        captured.setdefault("harness", harness))
+
+    cli.cmd_tui(argparse.Namespace(workdir=str(tmp_path)))
+
+    harness = captured["harness"]
+    assert isinstance(harness, Harness)
+    assert any(p.name == "disk:/" for p in harness.verifier.preconditions)
 
 
 def test_tui_reports_usage_error_when_textual_is_missing(tmp_path, monkeypatch,

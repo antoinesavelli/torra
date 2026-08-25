@@ -1,8 +1,9 @@
 """Harness: the seven-stage orchestrator, the only thing that decides what runs.
 
-Depends on: harness.agent (Agent), harness.core (task/step primitives, OllamaClient,
-ConflictDetector, ResumePoint), harness.gates (all five guardrails), harness.pipeline_types
-(Stage, Outcome, StepPlan, Plan, RunResult -- the data model this module produces).
+Depends on: harness.agent (Agent), harness.core (task/step primitives, ModelBackend,
+OllamaClient, ConflictDetector, ResumePoint), harness.gates (all five guardrails),
+harness.pipeline_types (Stage, Outcome, StepPlan, Plan, RunResult -- the data model
+this module produces).
 
 converse/observe/propose/gate/present/execute/report. `observe`/`propose`
 live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
@@ -22,6 +23,7 @@ from .agent import Agent, AgentError, Intent, Turn
 from .core import (
     ConflictDetector,
     HarnessError,
+    ModelBackend,
     OllamaClient,
     OllamaError,
     ResumePoint,
@@ -65,6 +67,7 @@ class Harness:
         telemetry: TaskLogger | None = None,
         recheck_between_steps: bool = True,
         knowledge_dir: str | None = None,
+        backends: dict[str, ModelBackend] | None = None,
     ) -> None:
         """Wire the workdir, model backend, and gate implementations (all injectable)."""
         self.workdir = Path(workdir) if workdir is not None else Path.home() / ".harness"
@@ -94,7 +97,8 @@ class Harness:
 
         self.agent = agent or Agent(
             ollama=self.ollama, router=self.router,
-            clarifier=self.clarifier, safety=self.safety, knowledge_dir=self.knowledge_dir)
+            clarifier=self.clarifier, safety=self.safety, knowledge_dir=self.knowledge_dir,
+            backends=backends)
 
     @staticmethod
     def _resolve_knowledge_dir(explicit: str | None) -> str | None:
@@ -141,13 +145,7 @@ class Harness:
         try:
             turn = self.agent.converse(request, model=model)
         except OllamaError as exc:
-            result.outcome = Outcome.BACKEND_DOWN
-            result.abort_reason = str(exc)
-            self.decisions.log(
-                Stage.CONVERSE.value, "backend unreachable", str(exc),
-                {"recovery": [o.to_dict() for o in
-                              self.ollama.recovery_options(model or "unknown")]})
-            return self._finish(result, started)
+            return self._backend_down(result, started, model, exc)
         except AgentError as exc:
             result.outcome = Outcome.FAILED
             result.abort_reason = f"the model did not produce a usable plan: {exc}"
@@ -187,6 +185,25 @@ class Harness:
 
         result.stages.append(Stage.PRESENT.value)
         return self._finish(result, started, write_audit=False)
+
+    def _backend_down(self, result: RunResult, started: float,
+                      model: str | None, exc: OllamaError) -> RunResult:
+        """`plan()`'s OllamaError handler, split out to keep `plan()` itself
+        under the CCN ceiling. Two different fallbacks for two different
+        purposes: `model or ""` picks the backend that actually failed (an
+        empty string matches no registered prefix, so it resolves to
+        self.ollama -- correct, since a None model means routing was going
+        to decide locally anyway); `model or "unknown"` is only the display
+        string inside the logged RecoveryOption. "Restart Ollama" is exactly
+        the wrong advice for an OpenRouter auth failure."""
+        result.outcome = Outcome.BACKEND_DOWN
+        result.abort_reason = str(exc)
+        backend, _ = self.agent.resolve_backend(model or "")
+        self.decisions.log(
+            Stage.CONVERSE.value, "backend unreachable", str(exc),
+            {"recovery": [o.to_dict() for o in
+                          backend.recovery_options(model or "unknown")]})
+        return self._finish(result, started)
 
     # -- stage 4: gate ----------------------------------------------------- #
 

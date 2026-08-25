@@ -779,6 +779,89 @@ leaving a real gap for a fast second click or Ctrl+D to land in).
 > `tests/test_tui.py::test_execute_plan_sets_busy_synchronously_before_the_worker_starts`,
 > `test_plan_request_sets_busy_synchronously_before_the_worker_starts`
 
+### 2.27 An alternate model backend must be strictly opt-in, and `harness tui` had its own, separate `Harness` construction path
+
+`Agent.resolve_backend()` (`harness/agent.py`) is the only place a request's
+model string can route to something other than `self.ollama` --
+`harness/gates/router.py`'s `ModelRouter` has no reference to `self.backends`
+at all and cannot select one even by accident, so "OpenRouter is never
+auto-selected" is structural, not just discipline. Every alt backend only
+activates when the operator explicitly names it (`openrouter/<real-model-id>`,
+an `openrouter/` prefix reserved for that purpose since local Ollama tags can
+themselves contain a slash, e.g. `hf.co/user/model` -- there is no way to
+tell "this is a remote model" from "this is a local tag" by the string's
+shape alone, only by an operator-chosen namespace). `resolve_backend()` also
+strips that prefix before the wire call: OpenRouter's own model IDs are
+already provider-prefixed (`anthropic/claude-3.5-sonnet`), so the registered
+prefix only exists to pick the backend, not to travel to the API -- the full
+`openrouter/...` string stays as `turn.model`/`Plan.model` for audit
+transparency.
+
+Found during design review, before shipping: `cli.py`'s `build_harness()` is
+not the only place a `Harness` gets constructed. `cmd_tui` called
+`run_tui(workdir=...)` with no `harness=` argument, and `HarnessApp.__init__`
+built a bare `Harness(workdir=...)` directly -- bypassing `build_harness()`
+(and, incidentally, its disk-free precondition too) entirely. Fixed by having
+`cmd_tui` call `build_harness()` and pass its result into
+`run_tui(harness=...)`, and by threading `self.backends` (captured off the
+initial `Harness` the same way `self.ollama` already is) into every
+subsequent tab's `Harness(...)` call in `_build_session_harness()` -- a new
+tab that doesn't inherit `backends` would silently lose OpenRouter access
+after the first tab, the same shape of bug §2.23-§2.26 already catalog for
+other per-tab state.
+
+**Found live by manual testing after that fix shipped, not by a test:**
+`build_harness()`'s first version registered `"openrouter"` only when
+`OPENROUTER_API_KEY` was actually set -- reasoning that constructing a
+client doomed to fail every call wasn't worth it. That reasoning was wrong.
+`harness ask "..." --model openrouter/anthropic/claude-3.5-sonnet` with no
+key set produced no error at all: since `"openrouter"` was never registered,
+`Agent.resolve_backend` found no matching prefix in `self.backends` and fell
+through to `self.ollama` with the *literal string*
+`"openrouter/anthropic/claude-3.5-sonnet"` as the model -- which
+`converse()`'s degraded-daemon fallback (below) then silently swapped for a
+real, unrelated local model, since that string obviously wasn't a pulled
+model either. The operator's explicit backend choice vanished with zero
+indication it had happened; the audit record showed a normal-looking answer
+from `qwen3.5:latest`. Fixed by registering `"openrouter"`
+**unconditionally** -- `OpenRouterClient` makes no network call at
+construction, only `.chat()` does, and `.chat()` already raises a specific
+`"OPENROUTER_API_KEY is not set"` error the moment it's actually invoked
+without one. Registering it always is what lets that correct, specific
+error fire at all, instead of the request being silently misrouted before
+ever reaching it. The lesson generalizes: an unconfigured alt backend must
+still occupy its prefix in `self.backends`, so `resolve_backend` recognizes
+the request as "meant for a backend that isn't ready" rather than "not a
+backend request at all" -- the two look identical to a prefix scan unless
+the prefix is actually registered.
+
+`Agent.converse()`'s degraded-daemon fallback (`self.ollama.last_status.value
+!= "healthy"` -- true on essentially every session's first turn, per §2.20)
+is about the *local Ollama catalog's* availability and must not run at all
+when the chosen model resolves to a registered alt backend; `resolve_backend`
+is not called for this check directly (it would also compute the stripped
+model, which isn't needed yet) -- instead a cheap prefix scan gates the block
+before `chosen` can be swapped, and `resolve_backend` runs once afterward.
+
+`SessionTab.model_override` (`harness/tui.py`) is runtime-only, deliberately
+never persisted through `SessionStore`/`meta.json` -- reopening a session
+drops back to local-only routing, the conservative failure mode (defaults
+*away* from paid remote calls, not toward silently continuing them). Don't
+"fix" this into a `SessionMeta` schema change.
+
+> Guarded by `tests/test_core.py::TestOpenRouterClient` (transport/shape/
+> error/env-var tests, mirroring `TestChatResponseShape`),
+> `tests/test_agent.py::test_resolve_backend_...` (prefix match, no-prefix
+> fallthrough, prefix stripping, degraded-fallback guard not firing for an
+> alt-backend model), `tests/test_pipeline.py::` recovery-options-come-from-
+> the-backend-that-failed, `tests/test_cli.py::
+> test_build_harness_registers_openrouter_even_without_the_env_var` /
+> `test_cmd_tui_builds_the_harness_through_build_harness`,
+> `tests/test_tui.py::` `/model` sets/clears the override, a new tab
+> inherits `self.backends`,
+> `test_an_unconfigured_openrouter_override_fails_clearly_not_silently`
+> (the end-to-end regression test for the manual-testing finding above)
+
 ---
 
 ## 3. Things already tried that failed

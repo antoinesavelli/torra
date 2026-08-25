@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from conftest import plan_reply, scripted
 
-from harness.core import ConflictDetector, OllamaClient, Step, TaskSpec
+from harness.core import ConflictDetector, OllamaClient, OllamaError, RecoveryOption, Step, TaskSpec
 from harness.gates import Precondition, RiskLevel, StateVerifier, UndoGenerator, Verdict
 from harness.pipeline import Harness
 from harness.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
@@ -720,6 +720,40 @@ def test_a_dead_backend_is_reported_with_recovery(make_harness) -> None:
     assert result.outcome is Outcome.BACKEND_DOWN
     assert "generation failed" in result.abort_reason
     assert len(harness.ollama.recovery_options()) == 3
+
+
+class _DeadAltBackend:
+    """A ModelBackend that always fails, with backend-specific recovery advice."""
+
+    def chat(self, model: str, messages: object, json_mode: bool = False,
+              temperature: float = 0.2) -> str:
+        raise OllamaError("openrouter is down")
+
+    def recovery_options(self, current_model: str = "unknown") -> list[RecoveryOption]:
+        return [RecoveryOption("check-key", "Check OPENROUTER_API_KEY", "detail", "action")]
+
+    def stats(self) -> dict[str, object]:
+        return {}
+
+
+def test_recovery_options_come_from_the_backend_that_actually_failed(make_harness) -> None:
+    """"Restart Ollama" is exactly the wrong advice for a failed
+    openrouter/... request -- the logged recovery options must come from
+    the backend that was actually attempted, not always self.ollama."""
+    harness = make_harness(scripted({}), backends={"openrouter": _DeadAltBackend()})
+
+    result = harness.plan("do anything", model="openrouter/some-model")
+
+    assert result.outcome is Outcome.BACKEND_DOWN
+    logged = result.decisions[-1]["evidence"]["recovery"]
+    assert any("OPENROUTER_API_KEY" in o["title"] for o in logged)
+    assert not any("Ollama" in o["title"] for o in logged)
+
+
+def test_harness_backends_reach_the_agent(make_harness) -> None:
+    fake = _DeadAltBackend()
+    harness = make_harness(scripted({}), backends={"openrouter": fake})
+    assert harness.agent.backends["openrouter"] is fake
 
 
 def test_a_failed_precondition_blocks_before_anything_runs(make_harness,

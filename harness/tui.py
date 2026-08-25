@@ -212,6 +212,11 @@ class SessionTab:
     busy_message: str = ""
     busy_started: float = 0.0
     spinner_timer: Timer | None = None
+    # Runtime-only, deliberately never persisted through SessionStore/
+    # meta.json: reopening a session must drop back to local-only routing,
+    # not silently keep making paid remote calls -- the conservative
+    # failure mode. Don't "fix" this into a SessionMeta schema change.
+    model_override: str | None = None
 
 
 class SessionPicker(ModalScreen[str | None]):
@@ -304,6 +309,7 @@ class HarnessApp(App):
         super().__init__()
         initial_harness = harness or Harness(workdir=workdir or Path.home() / ".harness")
         self.ollama = initial_harness.ollama
+        self.backends = initial_harness.agent.backends
         self.session_store = SessionStore(initial_harness.workdir)
         self.sessions: dict[str, SessionTab] = {}
         self.active_session_id = ""
@@ -475,11 +481,32 @@ class HarnessApp(App):
         if not request or tab.busy:
             return
         event.input.value = ""
+        if request == "/model" or request.startswith("/model "):
+            self._set_model_override(session_id, request.removeprefix("/model").strip())
+            return
         tab.last_request = request
         if not tab.meta.name:
             self._name_session(session_id, request)
         self._say(session_id, "you", escape(request))
         self.plan_request(session_id, request)
+
+    def _set_model_override(self, session_id: str, override: str) -> None:
+        """`/model <name>` pins this tab's next requests to one model,
+        bypassing routing entirely; bare `/model` clears it back to
+        routing's own choice. An unconfigured `openrouter/...` override
+        isn't checked here -- `OpenRouterClient.chat()` itself raises a
+        specific "OPENROUTER_API_KEY is not set" error the moment it's
+        actually used, which reaches the operator through the normal
+        backend-down path (`_outcome_backend_down`) with the right
+        recovery options already attached. A second, shallower check here
+        would just be a second place for that fact to drift out of sync."""
+        tab = self.sessions[session_id]
+        tab.model_override = override or None
+        if not override:
+            self._say(session_id, "harness",
+                      "model override cleared -- routing decides again", "dim")
+            return
+        self._say(session_id, "harness", f"model override set to {escape(override)}", "dim")
 
     def _name_session(self, session_id: str, request: str) -> None:
         """Give an unnamed session a name from its first real request."""
@@ -508,7 +535,7 @@ class HarnessApp(App):
     def _plan_request_body(self, session_id: str, request: str) -> None:
         tab = self.sessions[session_id]
         try:
-            result = tab.harness.plan(request)
+            result = tab.harness.plan(request, model=tab.model_override)
         except Exception as exc:
             self.call_from_thread(self._say, session_id, "error",
                                   f"{type(exc).__name__}: {escape(str(exc))}")
@@ -532,7 +559,13 @@ class HarnessApp(App):
 
     def _outcome_backend_down(self, session_id: str, result: RunResult) -> None:
         self._say(session_id, "error", escape(result.abort_reason))
-        for option in self.ollama.recovery_options():
+        # The backend that actually failed, not always self.ollama: result.turn
+        # is None on this path, so tab.model_override is the only place the
+        # attempted model is still known -- "restart Ollama" is exactly the
+        # wrong advice for a failed openrouter/... request.
+        tab = self.sessions[session_id]
+        backend, _ = tab.harness.agent.resolve_backend(tab.model_override or "")
+        for option in backend.recovery_options(tab.model_override or "unknown"):
             self._say(session_id, "harness",
                       f"{escape(option.title)}  ->  {escape(option.action)}", "dim")
         self._status(session_id, "[bold red]backend unreachable[/]")
@@ -661,9 +694,11 @@ class HarnessApp(App):
     def _build_session_harness(self, base_workdir: Path, session_id: str) -> Harness:
         """A Harness for one tab -- session-scoped `undo=` so its shadow dir
         never collides with another tab sharing the same `base_workdir`
-        (HANDOFF.md §2.23)."""
+        (HANDOFF.md §2.23). `backends=self.backends`: without it, every tab
+        after the first would silently lose access to any alt backend
+        (e.g. OpenRouter) the app was started with (HANDOFF.md §2.27)."""
         return Harness(
-            workdir=base_workdir, ollama=self.ollama,
+            workdir=base_workdir, ollama=self.ollama, backends=self.backends,
             undo=UndoGenerator(shadow_dir=base_workdir / f"harness-shadow-{session_id}"))
 
     def _mount_session_tab(self, harness: Harness, meta: SessionMeta, *, greet: bool) -> None:

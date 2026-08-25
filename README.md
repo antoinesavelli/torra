@@ -98,6 +98,11 @@ model's own memory of it come back exactly as they were.
 | `ctrl+q` | quit |
 | `ctrl+c` | copy selected text (Textual's own built-in behavior; select with click-drag first) |
 
+Type `/model <name>` in the prompt to pin a tab's next requests to one
+model, bypassing routing entirely -- bare `/model` clears it back to
+routing's own choice. See **OpenRouter** below for the one built-in
+alternative to a local model.
+
 **`ctrl+c` copy not landing in your real clipboard?** Textual copies via an OSC 52
 terminal escape sequence, which some terminals don't honor -- confirmed live on
 GNOME Terminal (VTE), which drops it silently: the in-app selection highlights
@@ -232,6 +237,29 @@ journalctl --user -u ollama | grep -i vram   # why it fell back
 ```
 
 A 32b model at q4 wants roughly 20 GB. Under that, it offloads.
+
+---
+
+## OpenRouter
+
+Everything above is local by default -- nothing leaves the box unless you
+explicitly ask it to. [OpenRouter](https://openrouter.ai) is the one built-in
+exception: a paid, remote, OpenAI-compatible API proxying many hosted models.
+`ModelRouter` never selects one on its own; it only activates when you name
+one directly, because sending request text, clarifier gaps, and observed
+machine state to a third party is a real trust-boundary change from
+everything else here.
+
+```bash
+export OPENROUTER_API_KEY=...          # never a CLI arg, never persisted to disk
+harness ask "..." --model openrouter/anthropic/claude-3.5-sonnet
+```
+
+In the TUI, `/model openrouter/anthropic/claude-3.5-sonnet` pins a tab to it;
+bare `/model` clears the override back to local routing. Without
+`OPENROUTER_API_KEY` set, neither path fails silently -- both report clearly
+that OpenRouter isn't configured, not a confusing "model not found" the way
+handing an unrecognized name straight to Ollama would.
 
 ---
 

@@ -20,9 +20,11 @@ from harness.core import (
     ConflictKind,
     ContextCompressor,
     MachineState,
+    ModelBackend,
     OllamaClient,
     OllamaError,
     OllamaStatus,
+    OpenRouterClient,
     observe_machine,
 )
 from harness.core.conflict import Conflict
@@ -463,6 +465,144 @@ class TestHttpErrorDetail:
 
         assert seen["method"] == "GET"
         assert status is OllamaStatus.HEALTHY
+
+
+class TestOpenRouterClient:
+    """OpenRouterClient: mirrors OllamaClient's injectable-transport shape
+    (TestChatResponseShape above) but for OpenAI-compatible request/response
+    shapes and an env-var-sourced API key."""
+
+    def test_satisfies_the_model_backend_protocol(self) -> None:
+        assert isinstance(OpenRouterClient(api_key="k"), ModelBackend)
+
+    def test_chat_success(self) -> None:
+        client = OpenRouterClient(
+            api_key="k",
+            transport=lambda path, payload, timeout: {
+                "choices": [{"message": {"content": "hi there"}}]})
+        assert client.chat("anthropic/claude-3.5-sonnet",
+                           [{"role": "user", "content": "hi"}]) == "hi there"
+
+    def test_json_mode_sets_response_format_not_ollamas_format_field(self) -> None:
+        seen: dict[str, Any] = {}
+
+        def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+            seen.update(payload)
+            return {"choices": [{"message": {"content": "{}"}}]}
+
+        client = OpenRouterClient(api_key="k", transport=transport)
+        client.chat("x", [{"role": "user", "content": "hi"}], json_mode=True)
+
+        assert seen["response_format"] == {"type": "json_object"}
+        assert "format" not in seen
+
+    def test_missing_api_key_raises_a_specific_error_before_any_request(self) -> None:
+        called = False
+
+        def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+            nonlocal called
+            called = True
+            return {}
+
+        client = OpenRouterClient(api_key="", transport=transport)
+        with pytest.raises(OllamaError, match="OPENROUTER_API_KEY is not set"):
+            client.chat("x", [{"role": "user", "content": "hi"}])
+        assert not called, "no request should be sent with an empty key"
+
+    def test_api_key_defaults_from_the_environment(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+        client = OpenRouterClient()
+        assert client.api_key == "env-key"
+
+    def test_explicit_api_key_overrides_the_environment(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+        client = OpenRouterClient(api_key="explicit-key")
+        assert client.api_key == "explicit-key"
+
+    def test_no_choices_in_response_raises_ollama_error_not_a_crash(self) -> None:
+        client = OpenRouterClient(
+            api_key="k", transport=lambda path, payload, timeout: {"choices": []})
+        with pytest.raises(OllamaError, match="generation failed"):
+            client.chat("x", [{"role": "user", "content": "hi"}])
+
+    def test_a_list_response_raises_ollama_error_not_a_crash(self) -> None:
+        client = OpenRouterClient(
+            api_key="k",
+            transport=lambda path, payload, timeout: ["not", "a", "mapping"])  # type: ignore[arg-type,return-value]
+        with pytest.raises(OllamaError, match="generation failed"):
+            client.chat("x", [{"role": "user", "content": "hi"}])
+
+    def test_a_blank_content_raises_ollama_error(self) -> None:
+        client = OpenRouterClient(
+            api_key="k",
+            transport=lambda path, payload, timeout: {
+                "choices": [{"message": {"content": "   "}}]})
+        with pytest.raises(OllamaError, match="empty response"):
+            client.chat("x", [{"role": "user", "content": "hi"}])
+
+    def test_recovery_options_are_openrouter_shaped_not_ollamas(self) -> None:
+        titles = " ".join(o.title for o in OpenRouterClient(api_key="k").recovery_options())
+        assert "OPENROUTER_API_KEY" in titles
+        assert "Ollama" not in titles and "systemctl" not in titles
+
+    def test_stats_reports_calls_and_host(self) -> None:
+        client = OpenRouterClient(
+            api_key="k",
+            transport=lambda path, payload, timeout: {
+                "choices": [{"message": {"content": "ok"}}]})
+        client.chat("x", [{"role": "user", "content": "hi"}])
+        stats = client.stats()
+        assert stats["calls"] == 1
+        assert stats["host"] == OpenRouterClient.DEFAULT_HOST
+
+    def test_openrouters_nested_error_message_surfaces(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """OpenRouter nests error detail under {"error": {"message": ...}},
+        not Ollama's flat {"error": "..."} -- a different shape, same lesson
+        as TestHttpErrorDetail: the generic HTTP reason isn't the detail an
+        operator needs."""
+        import email.message
+        import json as json_module
+        import urllib.error
+        import urllib.request
+
+        error = urllib.error.HTTPError(
+            "https://openrouter.ai/api/v1/chat/completions", 401, "Unauthorized",
+            email.message.Message(), None)
+        monkeypatch.setattr(error, "read",
+                            lambda: json_module.dumps(
+                                {"error": {"code": 401, "message": "invalid API key"}}).encode())
+
+        def fake_urlopen(request: object, timeout: float) -> object:
+            raise error
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+        client = OpenRouterClient(api_key="bad-key")
+        with pytest.raises(OllamaError, match="invalid API key"):
+            client.chat("x", [{"role": "user", "content": "hi"}])
+
+    def test_a_non_json_error_body_falls_back_to_the_http_reason(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import email.message
+        import urllib.error
+        import urllib.request
+
+        error = urllib.error.HTTPError(
+            "https://openrouter.ai/api/v1/chat/completions", 502, "Bad Gateway",
+            email.message.Message(), None)
+        monkeypatch.setattr(error, "read", lambda: b"<html>not json</html>")
+
+        def fake_urlopen(request: object, timeout: float) -> object:
+            raise error
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+        client = OpenRouterClient(api_key="k")
+        with pytest.raises(OllamaError, match="Bad Gateway"):
+            client.chat("x", [{"role": "user", "content": "hi"}])
 
 
 class TestTaskSpecRollbackValidation:

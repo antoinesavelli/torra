@@ -5,6 +5,27 @@ project has one maintainer and no external consumers of the package as an
 API, so entries favor "what changed and why it matters to the operator"
 over strict semver-contract language.
 
+## [7.2.0] - 2026-08-25
+
+### Added
+- A real model-backend abstraction (`harness/core/backend.py`'s `ModelBackend`
+  Protocol) instead of the model client being one concrete class referenced
+  by type everywhere -- raises Extensibility/API design from B+.
+- **OpenRouter support**, the first alternate backend behind that
+  abstraction: opt-in only (`ModelRouter` has no reference to it and cannot
+  select one automatically), activated by naming an `openrouter/<model-id>`
+  model explicitly (`harness ask --model openrouter/...`, or `/model
+  openrouter/...` in the TUI). API key from `OPENROUTER_API_KEY` only --
+  never a CLI arg, never persisted to disk. Registered unconditionally
+  (key or no key) so an unconfigured request fails with a specific "key not
+  set" error instead of silently falling through to an unrelated local
+  model -- found by manual testing before release, see `HANDOFF.md` §2.27.
+- `harness tui` now goes through `cli.py`'s `build_harness()` instead of
+  building its own `Harness` independently -- fixes a real gap found during
+  design review: the TUI previously skipped both the disk-free precondition
+  and (now) OpenRouter registration that `harness ask`/`harness plan` always
+  had. See `HANDOFF.md` §2.27.
+
 ## [7.1.1] - 2026-08-25
 
 A full-codebase audit run immediately after 7.1.0 shipped found five real
@@ -84,6 +105,7 @@ hardening pass most recently landed.
 - Repo made private; two abandoned worktrees' work recovered and merged,
   the orphans removed.
 
+[7.2.0]: https://github.com/antoinesavelli/harness/compare/v7.1.1...v7.2.0
 [7.1.1]: https://github.com/antoinesavelli/harness/compare/v7.1.0...v7.1.1
 [7.1.0]: https://github.com/antoinesavelli/harness/compare/v7.0.0...v7.1.0
 [7.0.0]: https://github.com/antoinesavelli/harness/releases/tag/v7.0.0

@@ -1,7 +1,8 @@
 """The model loop: turns a conversation into a validated TaskSpec, never a shell.
 
-Depends on: harness.core (ContextCompressor, ContextStep, MachineState, OllamaClient, Step,
-StepResult, TaskSpec, observe_machine), harness.gates (Clarifier, ModelRouter, SafetyClassifier).
+Depends on: harness.core (ContextCompressor, ContextStep, MachineState, ModelBackend,
+OllamaClient, Step, StepResult, TaskSpec, observe_machine, resolve_backend),
+harness.gates (Clarifier, ModelRouter, SafetyClassifier).
 
 The design rule throughout: the model produces a TaskSpec and nothing else. It
 does not execute, it does not get a shell, it does not decide what is safe. It
@@ -25,12 +26,16 @@ from .core import (
     ContextCompressor,
     ContextStep,
     MachineState,
+    ModelBackend,
     OllamaClient,
     Step,
     StepResult,
     TaskSpec,
     TaskSpecError,
     observe_machine,
+)
+from .core import (
+    resolve_backend as _resolve_backend,
 )
 from .gates import Clarifier, ModelRouter, SafetyClassifier, model_available
 
@@ -152,12 +157,10 @@ Output schema:
 class Agent:
     """Turns a conversation into a validated TaskSpec.
 
-    The clarifier is used here as a *tool the model consults*, not as a wall
-    in front of it. Before generation the agent runs `Clarifier.detect()` on
-    the request and hands the model the resulting gaps, so instead of
-    guessing at a vague request it is told precisely what's missing and can
-    ask one good question -- inverting the clarifier's role without
-    changing a line of its logic."""
+    The clarifier is a *tool the model consults*, not a wall in front of
+    it: `Clarifier.detect()` runs before generation and its gaps are handed
+    to the model, so a vague request gets one good question instead of a
+    guess -- inverting the clarifier's role without changing its logic."""
 
     #: How many times to hand a rejection back to the model before giving up.
     MAX_REPAIRS: int = 2
@@ -188,6 +191,7 @@ class Agent:
         knowledge_dir: str | None = None,
         on_context_change: Callable[[ContextStep], None] | None = None,
         task_id_prefix: str = "",
+        backends: dict[str, ModelBackend] | None = None,
     ) -> None:
         """Wire the model client, router, clarifier, safety pre-screen, and context."""
         self.ollama = ollama
@@ -201,6 +205,7 @@ class Agent:
         self.system_prompt = system_prompt
         self._on_context_change = on_context_change
         self.task_id_prefix = task_id_prefix
+        self.backends = dict(backends or {})
 
         self.state: MachineState | None = None
         self.turns: list[Turn] = []
@@ -308,13 +313,9 @@ class Agent:
 
     @staticmethod
     def _find_json_object(text: str) -> str | None:
-        """The first brace-balanced substring that also parses as JSON.
-
-        Found live: preamble routinely mentions `{something}` (shell brace
-        expansion, `${VAR}`, an awk script) before the real JSON reply,
-        itself brace-balanced -- a naive find-first/find-last pair grabs
-        the wrong object. Trying each `{` in turn and keeping the first
-        that actually parses skips prose braces."""
+        """The first brace-balanced substring that also parses as JSON --
+        found live: preamble like `${VAR}` before the real reply otherwise
+        fools a naive find-first/find-last pair into the wrong object."""
         pos = 0
         while True:
             start = text.find("{", pos)
@@ -359,13 +360,8 @@ class Agent:
     # -- generation -------------------------------------------------------- #
 
     def _degraded_fallback(self, available: list[str]) -> str:
-        """Pick a replacement when the chosen model isn't pulled, preferring
-        one the router already knows can chat -- `model_available()` is a
-        pure name check with no capability awareness, so the last-resort
-        `available[0]` pick used to ignore an embedding-only model the
-        router had already marked not chat-capable via `observe()`,
-        reintroducing §2.9's fixed failure through a second code path.
-        Reuses `ModelRouter._chat_capable` rather than a driftable copy."""
+        """Prefers one the router knows can chat -- a bare `available[0]`
+        pick used to reintroduce §2.9's embedding-only-model failure."""
         capable = [m for m in available if self.router._chat_capable(m)]
         candidates = capable or available
         return (self.ollama.fallback_model
@@ -387,12 +383,19 @@ class Agent:
 
         choice = self.router.select(request, ambiguous=bool(gaps))
         chosen = model or choice.model
-        if self.ollama.last_status.value != "healthy":
+        # self.router never returns a prefixed model, so an alt-backend
+        # choice only ever comes from an explicit operator override -- the
+        # degraded-daemon fallback below is entirely about the *local
+        # Ollama catalog's* availability and must not run for one, or it
+        # would try to swap an explicit OpenRouter choice for a local model.
+        is_alt_backend = any(chosen.startswith(f"{p}/") for p in self.backends)
+        if not is_alt_backend and self.ollama.last_status.value != "healthy":
             available = self.ollama.models()
             if available and not model_available(chosen, available):
                 chosen = self._degraded_fallback(available)
 
-        raw = self.ollama.chat(chosen, self._messages(request, gaps), json_mode=True)
+        backend, real_model = self.resolve_backend(chosen)
+        raw = backend.chat(real_model, self._messages(request, gaps), json_mode=True)
         turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
                            bool(self.state))
 
@@ -402,8 +405,8 @@ class Agent:
             if not complaint:
                 break
             repairs += 1
-            raw = self.ollama.chat(
-                chosen,
+            raw = backend.chat(
+                real_model,
                 self._messages(request, gaps, extra=[
                     {"role": "assistant", "content": raw},
                     {"role": "user", "content":
@@ -459,9 +462,7 @@ class Agent:
         return ""
 
     def _answer_is_a_placeholder(self, turn: Turn) -> str:
-        """Complaint when `message` describes looking something up rather
-        than stating the result. Structural tell: opens with a deferral
-        verb *and* names "your question"/"the request", not a keyword."""
+        """Complaint when `message` describes looking something up, not the result."""
         message = turn.message.strip()
         if not message or not (self._DEFERRAL_OPENER.match(message)
                                and self._NAMES_THE_QUESTION.search(message)):
@@ -473,9 +474,8 @@ class Agent:
             "anything up yet, use intent 'plan' to propose the step that will.")
 
     def _answer_dropped_a_task(self, turn: Turn) -> str:
-        """Complaint when intent was 'answer' but a `task` was also
-        attached and silently discarded (`_parse` only reads `task` for
-        'plan'). Found live: a vague `message` lost the real numbers."""
+        """Complaint when intent was 'answer' but a `task` was also silently
+        discarded (`_parse` only reads `task` for 'plan') -- found live."""
         try:
             data = self._extract_json(turn.raw)
         except AgentError:
@@ -522,8 +522,9 @@ class Agent:
     def repair(self, turn: Turn, complaint: str,
                model: str | None = None) -> Turn:
         """Hand a gate rejection back to the model and return a revised Turn."""
-        raw = self.ollama.chat(
-            model or turn.model,
+        backend, real_model = self.resolve_backend(model or turn.model)
+        raw = backend.chat(
+            real_model,
             self._messages(turn.request, turn.clarifier_gaps, extra=[
                 {"role": "assistant", "content": turn.raw},
                 {"role": "user", "content":
@@ -569,8 +570,9 @@ class Agent:
             "\n\nWrite a short, direct answer to the operator's question using "
             "only what is shown above. This is a report, not a plan -- do not "
             "propose any further command.")
-        return self.ollama.chat(
-            model, [{"role": "user", "content": prompt}], json_mode=False).strip()
+        backend, real_model = self.resolve_backend(model)
+        return backend.chat(
+            real_model, [{"role": "user", "content": prompt}], json_mode=False).strip()
 
     # -- conversation ------------------------------------------------------ #
 
@@ -599,10 +601,12 @@ class Agent:
         self._turn_counter = 0
 
     def fast_forward_turn_counter(self, at_least: int) -> None:
-        """Never moves it backwards -- for a reopened session's fresh
-        Agent, so it doesn't reuse task_id/audit values from before
-        (HANDOFF.md §2.26); `at_least` only needs to be a safe upper bound."""
+        """Never backwards -- keeps a reopened session reusing old task_ids (§2.26)."""
         self._turn_counter = max(self._turn_counter, at_least)
+
+    def resolve_backend(self, model: str) -> tuple[ModelBackend, str]:
+        """See `harness.core.backend.resolve_backend` -- thin instance wrapper."""
+        return _resolve_backend(model, self.backends, self.ollama)
 
     def stats(self) -> dict[str, Any]:
         """Counters, for the audit trail."""
@@ -613,4 +617,5 @@ class Agent:
             "context_usage": round(self.context.usage_ratio, 3),
             "compressions": self.context.compressions,
             "ollama": self.ollama.stats(),
+            "backends": {prefix: backend.stats() for prefix, backend in self.backends.items()},
         }

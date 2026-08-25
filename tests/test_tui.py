@@ -793,6 +793,115 @@ async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
                 != app.sessions[second_id].harness.undo.shadow_dir)
 
 
+class _FakeBackend:
+    """A minimal ModelBackend, for TUI backend-wiring tests."""
+
+    def chat(self, model: str, messages: object, json_mode: bool = False,
+              temperature: float = 0.2) -> str:
+        return '{"intent": "answer", "message": "ok"}'
+
+    def recovery_options(self, current_model: str = "unknown") -> list[Any]:
+        return []
+
+    def stats(self) -> dict[str, Any]:
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_a_new_tab_inherits_the_apps_registered_backends(tmp_path: Path) -> None:
+    """Found by design review before shipping: a per-tab Harness that
+    doesn't inherit `backends` would silently lose OpenRouter access after
+    the first tab (HANDOFF.md §2.27)."""
+    fake = _FakeBackend()
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
+               backends={"openrouter": fake})
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+t")
+        await pilot.pause(0.2)
+        second_id = app.active_session_id
+
+        assert app.sessions[second_id].harness.agent.backends["openrouter"] is fake
+
+
+@pytest.mark.asyncio
+async def test_model_command_sets_the_override(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
+               backends={"openrouter": _FakeBackend()})
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        app.query_one("#prompt", Input).value = "/model openrouter/anthropic/claude-3.5-sonnet"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert app.sessions[session_id].model_override == "openrouter/anthropic/claude-3.5-sonnet"
+        assert "model override set to" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_bare_model_command_clears_the_override(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
+               backends={"openrouter": _FakeBackend()})
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        app.sessions[session_id].model_override = "openrouter/some-model"
+
+        app.query_one("#prompt", Input).value = "/model"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert app.sessions[session_id].model_override is None
+        assert "cleared" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_an_unconfigured_openrouter_override_fails_clearly_not_silently(
+        tmp_path: Path) -> None:
+    """Found live by manual testing: an unconfigured openrouter/... request
+    used to silently fall through to a real local model with no error at
+    all, if "openrouter" wasn't registered as a backend. A real
+    OpenRouterClient with no key IS registered (matching build_harness()'s
+    corrected behavior, HANDOFF.md §2.27), so submitting through it must
+    surface OpenRouterClient's own clear error, not a local model's answer."""
+    from harness.core import OpenRouterClient
+
+    app = build(tmp_path, scripted({"intent": "answer", "message": "should not be reached"}),
+               backends={"openrouter": OpenRouterClient(api_key="")})
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        app.sessions[session_id].model_override = "openrouter/anthropic/claude-3.5-sonnet"
+
+        app.query_one("#prompt", Input).value = "hello"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert "OPENROUTER_API_KEY is not set" in screen_text(app)
+        assert "should not be reached" not in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_model_override_reaches_the_plan_call(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
+               backends={"openrouter": _FakeBackend()})
+    seen: dict[str, object] = {}
+    real_plan = app.harness.plan
+
+    def spy_plan(request: str, model: str | None = None) -> RunResult:
+        seen["model"] = model
+        return real_plan(request, model=model)
+
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        app.sessions[session_id].model_override = "openrouter/anthropic/claude-3.5-sonnet"
+        app.sessions[session_id].harness.plan = spy_plan  # type: ignore[method-assign]
+
+        app.query_one("#prompt", Input).value = "hello"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert seen["model"] == "openrouter/anthropic/claude-3.5-sonnet"
+
+
 @pytest.mark.asyncio
 async def test_close_tab_refuses_to_close_the_last_tab(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
