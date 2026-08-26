@@ -12,7 +12,7 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 | `undo.py` | ROLLBACK_ON_FAIL, half one: `UndoGenerator` derives undo actions from what a step declares |
 | `rollback.py` | ROLLBACK_ON_FAIL, half two: `VerifiedRollback` proves each undo actually worked |
 | `clarifier.py` | ASK_CLARIFYING_QUESTIONS: `Clarifier` detects ambiguity by missing structure, not phrasing |
-| `router.py` | Model routing: `ModelRouter` scores every rule instead of taking the first match |
+| `router.py` | Model routing: `ModelRouter` scores every rule instead of taking the first match -- also tracks `model_chat_capable`/`model_thinking_capable` from the daemon's own `/api/show` data (`HANDOFF.md` §2.31) |
 | `decisions.py` | TRANSPARENCY: `DecisionLog`, every branch logged with its reasoning |
 
 `rollback.py`/`undo.py` split out of one file once it crossed the 500 functional

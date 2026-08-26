@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 594 passed
+python3 -m pytest tests/ -q          # must print 609 passed
 harness doctor
 ```
 
@@ -1047,6 +1047,60 @@ functions, `health_summary` reduced to a thin orchestrator).
 > `tests/test_telemetry.py::TestSummary` (the moved functions, called
 > directly, not just through `cmd_evidence`)
 
+### 2.31 Streaming reasoning tokens to the TUI must default to silence, not to asking
+
+The TUI shows a live "the model is thinking" block in the chat pane while a
+turn is planning, for models that actually expose reasoning tokens
+(`deepseek-r1`-style). The whole feature rests on one asymmetry that is easy
+to get backwards: **every capability check involved defaults to "no" when
+unknown, not "yes."**
+
+- `OllamaClient.model_info()`'s new `thinking_capable` key mirrors the
+  existing `chat_capable` key's shape but inverts its default: an older
+  Ollama daemon that reports no `capabilities` at all for a model defaults
+  `chat_capable` to `True` (missing capability data must not block every
+  model), but `thinking_capable` defaults to `False` -- not knowing whether
+  a model streams reasoning must mean "don't ask it to," never "assume it
+  can." Same asymmetry in `ModelRouter._thinking_capable` vs.
+  `_chat_capable`.
+- `Agent.converse`'s `on_thinking` parameter only ever reaches
+  `backend.chat` when **all three** hold: the caller actually passed one,
+  the resolved backend is the local Ollama daemon (never an
+  `openrouter/...` override -- `router.model_thinking_capable` is
+  populated exclusively from local `/api/show` data in `Agent.observe`, so
+  a remote model is structurally never marked capable), and the router
+  measured that specific model capable. Get any one of those backwards and
+  a model with no reasoning support gets `stream: true, think: true` sent
+  to a daemon that may not understand `think` at all, or a paid remote
+  call gets a callback parameter with no meaning for it.
+- `OllamaClient.chat`'s own default (`on_thinking=None`) is the single
+  switch between the original single-shot `stream: false` request every
+  existing caller still makes, and the new NDJSON-streaming `stream: true`
+  path (`_http_stream`) -- passing `None` must produce byte-for-byte the
+  same request as before this feature existed. This is what makes the
+  feature additive rather than a rewrite of the request path every caller
+  depends on.
+- The reasoning text itself is deliberately **not** persisted anywhere --
+  not `SessionStore`, not telemetry, not `Turn.to_dict`'s audit record.
+  `SessionTab.reasoning_line`/`reasoning_text` are runtime-only fields
+  (same category as `model_override`), cleared by `_clear_thinking` the
+  moment `_planned` renders the turn's outcome. A future change that wires
+  this into a persisted format is a deliberate scope expansion, not a bug
+  fix -- it needs its own review, the same way wiring `docs/` into
+  `SYSTEM_PROMPT` does.
+
+> Guarded by `tests/test_core.py::TestModelInfo` (`thinking_capable`
+> defaults), `TestChatThinking` (the `on_thinking=None` no-op path, the
+> streaming path, NDJSON reassembly against the real `_http_stream`, not
+> just an injected fake); `tests/test_gates.py::TestModelParamsAndChatCapable`
+> (`_thinking_capable`'s default-False asymmetry vs. `_chat_capable`'s
+> default-True); `tests/test_agent.py::test_converse_passes_a_real_callback_for_a_thinking_capable_model`
+> + `test_converse_passes_no_callback_for_a_non_thinking_model` +
+> `test_converse_never_passes_a_callback_to_an_alt_backend`;
+> `tests/test_tui.py::test_append_thinking_mounts_and_grows_a_live_reasoning_line`
+> + `test_clear_thinking_removes_the_live_reasoning_line` +
+> `test_a_completed_plan_request_leaves_no_reasoning_line_behind`
+
 ---
 
 ## 3. Things already tried that failed
@@ -1074,7 +1128,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 594, must stay green
+python3 -m pytest tests/ -q                       # 609, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1610,7 +1664,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 594
+test command     python3 -m pytest tests/ -q     # 609
 ```
 
 ---

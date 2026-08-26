@@ -6,7 +6,7 @@ touching every existing import of it for a rename that adds no value).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from .ollama import RecoveryOption
@@ -27,7 +27,8 @@ class ModelBackend(Protocol):
     """
 
     def chat(self, model: str, messages: Sequence[dict[str, str]],
-              json_mode: bool = False, temperature: float = 0.2) -> str:
+              json_mode: bool = False, temperature: float = 0.2,
+              on_thinking: Callable[[str], None] | None = None) -> str:
         """Send a conversation and return the assistant's reply text."""
         ...
 

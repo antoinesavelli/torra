@@ -98,12 +98,19 @@ class OpenRouterClient:
         messages: Sequence[dict[str, str]],
         json_mode: bool = False,
         temperature: float = 0.2,
+        on_thinking: Callable[[str], None] | None = None,
     ) -> str:
         """Send a conversation and return the assistant's reply text.
 
         Not every model OpenRouter proxies honors structured JSON output --
         a bad model choice can surface as a plan-parsing `AgentError`
         rather than an obviously-OpenRouter error. Not solved here.
+
+        `on_thinking` exists only for `ModelBackend` protocol parity with
+        `OllamaClient` -- accepted and ignored. `Agent.converse` only ever
+        passes a real callback for models its own `router.model_thinking_capable`
+        marks capable, which is populated exclusively from local Ollama
+        `/api/show` data, so a remote OpenRouter model is never asked.
         """
         if not self.api_key:
             raise OllamaError(

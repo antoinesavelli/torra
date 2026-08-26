@@ -61,6 +61,8 @@ class OllamaClient:
         probe_timeout: float = 1.0,
         fallback_model: str = "qwen3.5:latest",
         transport: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
+        stream_transport: Callable[
+            [str, dict[str, Any], float, Callable[[str], None]], dict[str, Any]] | None = None,
     ) -> None:
         """Configure the host, timeouts, fallback model, and an injectable transport.
 
@@ -81,6 +83,7 @@ class OllamaClient:
         self.probe_timeout = float(probe_timeout)
         self.fallback_model = fallback_model
         self._transport = transport or self._http
+        self._stream_transport = stream_transport or self._http_stream
         self.last_status: OllamaStatus = OllamaStatus.UNKNOWN
         self.last_error: str = ""
         self.consecutive_failures: int = 0
@@ -108,6 +111,49 @@ class OllamaClient:
             # ({"error": "model '...' not found"}) was read by nobody and
             # discarded, which is exactly the detail needed to fix the request.
             raise OllamaError(f"HTTP {exc.code}: {self._http_error_detail(exc)}") from exc
+
+    def _http_stream(
+        self, path: str, payload: dict[str, Any], timeout: float,
+        on_thinking: Callable[[str], None],
+    ) -> dict[str, Any]:
+        """POST with `stream: true` and call `on_thinking` per reasoning
+        delta as it arrives, off the same NDJSON response body `/api/chat`
+        returns in streaming mode -- one JSON object per line, the last
+        carrying `"done": true`. Returns the same `{"message": {"content":
+        ...}}` shape `_http` returns, content re-assembled from every
+        line's delta, so `chat()`'s existing shape validation and
+        `.get("message", {}).get("content")` read need no branch for
+        which transport produced the dict.
+        """
+        url = f"{self.host}{path}"
+        data = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            url, data=data, method="POST",
+            headers={"Content-Type": "application/json"})
+        content_parts: list[str] = []
+        final: dict[str, Any] = {}
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                for raw_line in response:
+                    line = raw_line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    message = chunk.get("message") or {}
+                    thinking = message.get("thinking") or ""
+                    if thinking:
+                        on_thinking(thinking)
+                    content = message.get("content") or ""
+                    if content:
+                        content_parts.append(content)
+                    if chunk.get("done"):
+                        final = chunk
+        except urllib.error.HTTPError as exc:
+            raise OllamaError(f"HTTP {exc.code}: {self._http_error_detail(exc)}") from exc
+        final_message = dict(final.get("message") or {})
+        final_message["content"] = "".join(content_parts)
+        final["message"] = final_message
+        return final
 
     @staticmethod
     def _http_error_detail(exc: urllib.error.HTTPError) -> str:
@@ -179,6 +225,12 @@ class OllamaClient:
                 "params_b": params_b,
                 "chat_capable": ("completion" in capabilities
                                  if capabilities is not None else True),
+                # Unlike chat_capable, this defaults to False when
+                # capabilities is unknown -- a model that might not expose
+                # reasoning tokens should silently not be asked to stream
+                # them, not be assumed to.
+                "thinking_capable": ("thinking" in capabilities
+                                     if capabilities is not None else False),
             }
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
@@ -217,23 +269,38 @@ class OllamaClient:
         messages: Sequence[dict[str, str]],
         json_mode: bool = False,
         temperature: float = 0.2,
+        on_thinking: Callable[[str], None] | None = None,
     ) -> str:
-        """Send a conversation and return the assistant's reply text."""
+        """Send a conversation and return the assistant's reply text.
+
+        `on_thinking`, when given, switches the request to `stream: true`
+        and `think: true` and is called with each reasoning delta as it
+        arrives -- opt-in, so every existing caller that doesn't pass it
+        keeps the original single-shot, non-streaming request unchanged.
+        A model with no reasoning capability just never calls it back
+        (Ollama returns no `thinking` field), which is the whole point:
+        the caller decides whether to ask by checking `model_info`'s
+        `thinking_capable` first, not by this method guessing.
+        """
         # temperature defaults low: a model proposing shell commands should
         # not be creative. Raises OllamaError on transport failure or an
         # unusable response; the caller is expected to present recovery_options.
         payload: dict[str, Any] = {
             "model": model,
             "messages": list(messages),
-            "stream": False,
+            "stream": on_thinking is not None,
             "options": {"temperature": float(temperature)},
         }
         if json_mode:
             payload["format"] = "json"
+        if on_thinking is not None:
+            payload["think"] = True
 
         started = time.perf_counter()
         try:
-            data = self._transport("/api/chat", payload, self.timeout)
+            data = (self._stream_transport("/api/chat", payload, self.timeout, on_thinking)
+                   if on_thinking is not None
+                   else self._transport("/api/chat", payload, self.timeout))
             # Shape validation lives inside this try too, not after it: a
             # daemon returning valid JSON in an unexpected shape (a list,
             # or "message" as something with no .get) used to raise an

@@ -11,7 +11,7 @@ one file.
 | `resume.py` | `ResumePoint`, one atomically-written file so a crash doesn't mean starting over |
 | `conflict.py` | `ConflictDetector`, two-layer detection: cheap fingerprints to shortlist, SHA256 to confirm |
 | `context.py` | `ContextCompressor`, keeps the conversation under a token budget |
-| `ollama.py` | `OllamaClient`, talks to the local Ollama daemon and generates |
+| `ollama.py` | `OllamaClient`, talks to the local Ollama daemon and generates -- `chat`'s optional `on_thinking` callback opts into a streaming request and surfaces reasoning tokens live, for models `model_info` measures capable (see `HANDOFF.md` §2.31) |
 | `backend.py` | `ModelBackend`, the structural Protocol (`chat`/`recovery_options`/`stats`) every model backend satisfies -- `OllamaClient` needs no changes to already satisfy it (depends on `ollama.py` for the `RecoveryOption` type) |
 | `openrouter.py` | `OpenRouterClient`, an opt-in, paid, remote alternative -- never auto-selected, only used when an operator explicitly names an `openrouter/`-prefixed model (`Agent.resolve_backend`, see `HANDOFF.md` §2.27) |
 | `machine.py` | `Accelerator`/`MachineState`, what the box looks like and what the model will run on (depends on `ollama.py` for the `OllamaClient` type it attaches) |

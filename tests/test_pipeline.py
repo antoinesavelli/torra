@@ -726,7 +726,7 @@ class _DeadAltBackend:
     """A ModelBackend that always fails, with backend-specific recovery advice."""
 
     def chat(self, model: str, messages: object, json_mode: bool = False,
-              temperature: float = 0.2) -> str:
+              temperature: float = 0.2, on_thinking: object | None = None) -> str:
         raise OllamaError("openrouter is down")
 
     def recovery_options(self, current_model: str = "unknown") -> list[RecoveryOption]:

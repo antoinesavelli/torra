@@ -8,6 +8,7 @@ harness.core.tasks (shell).
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import signal
 from pathlib import Path
@@ -300,7 +301,19 @@ class TestModelInfo:
     def test_billions_are_parsed(self) -> None:
         info = self._client({"details": {"parameter_size": "14.8B"},
                              "capabilities": ["completion"]}).model_info("x")
-        assert info == {"params_b": 14.8, "chat_capable": True}
+        assert info == {"params_b": 14.8, "chat_capable": True, "thinking_capable": False}
+
+    def test_thinking_capability_is_read_from_capabilities(self) -> None:
+        info = self._client({"details": {"parameter_size": "8.0B"},
+                             "capabilities": ["completion", "thinking"]}).model_info("x")
+        assert info["thinking_capable"] is True
+
+    def test_missing_capabilities_key_defaults_to_not_thinking_capable(self) -> None:
+        """The opposite default from chat_capable -- not knowing whether a
+        model exposes reasoning tokens must mean "don't ask it to stream
+        them," not "assume it can."."""
+        info = self._client({"details": {"parameter_size": "8.0B"}}).model_info("x")
+        assert info["thinking_capable"] is False
 
     def test_millions_are_converted_to_billions(self) -> None:
         info = self._client({"details": {"parameter_size": "137M"},
@@ -375,6 +388,92 @@ class TestChatResponseShape:
             transport=lambda path, payload, timeout: {"message": {"content": "   "}})
         with pytest.raises(OllamaError, match="empty response"):
             client.chat("model", [{"role": "user", "content": "hi"}])
+
+
+class TestChatThinking:
+    """OllamaClient.chat()'s `on_thinking` opt-in: switches to the streaming
+    transport and `think: true`, leaves every existing (non-streaming)
+    caller's request shape untouched."""
+
+    def test_without_on_thinking_the_plain_transport_is_used(self) -> None:
+        """The default path -- every caller that doesn't ask for reasoning
+        tokens must see byte-for-byte the same request as before this
+        feature existed."""
+        seen: dict[str, object] = {}
+
+        def transport(path: str, payload: dict, timeout: float) -> dict:
+            seen["payload"] = payload
+            return {"message": {"content": "hi there"}}
+
+        def stream_transport(path: str, payload: dict, timeout: float, on_thinking: object) -> dict:
+            raise AssertionError("stream_transport must not be used without on_thinking")
+
+        client = OllamaClient(transport=transport, stream_transport=stream_transport)
+        assert client.chat("model", [{"role": "user", "content": "hi"}]) == "hi there"
+        assert seen["payload"]["stream"] is False
+        assert "think" not in seen["payload"]
+
+    def test_on_thinking_switches_to_the_streaming_transport(self) -> None:
+        seen: dict[str, object] = {}
+
+        def transport(path: str, payload: dict, timeout: float) -> dict:
+            raise AssertionError("the plain transport must not be used with on_thinking")
+
+        def stream_transport(path: str, payload: dict, timeout: float, on_thinking: object) -> dict:
+            seen["payload"] = payload
+            return {"message": {"content": "the plan"}}
+
+        client = OllamaClient(transport=transport, stream_transport=stream_transport)
+        result = client.chat("model", [{"role": "user", "content": "hi"}],
+                             on_thinking=lambda chunk: None)
+        assert result == "the plan"
+        assert seen["payload"]["stream"] is True
+        assert seen["payload"]["think"] is True
+
+    def test_reasoning_deltas_reach_the_callback_in_order(self) -> None:
+        def stream_transport(path: str, payload: dict, timeout: float, on_thinking) -> dict:
+            for chunk in ("Let me ", "think about ", "this."):
+                on_thinking(chunk)
+            return {"message": {"content": "final answer"}}
+
+        received: list[str] = []
+        client = OllamaClient(stream_transport=stream_transport)
+        result = client.chat("model", [{"role": "user", "content": "hi"}],
+                             on_thinking=received.append)
+        assert received == ["Let me ", "think about ", "this."]
+        assert result == "final answer"
+
+    def test_http_stream_reassembles_ndjson_and_calls_on_thinking_per_line(self) -> None:
+        """The real transport, not an injected fake -- proves the NDJSON
+        parsing itself, one JSON object per line, content re-assembled
+        from every line's delta the same way `_http` returns a single dict."""
+
+        lines = [
+            json.dumps({"message": {"content": "", "thinking": "step one. "}, "done": False}),
+            json.dumps({"message": {"content": "", "thinking": "step two."}, "done": False}),
+            json.dumps({"message": {"content": "{\"a\": 1}", "thinking": ""}, "done": False}),
+            json.dumps({"message": {"content": "", "thinking": ""}, "done": True,
+                       "total_duration": 123}),
+        ]
+
+        class FakeResponse:
+            def __enter__(self) -> FakeResponse:
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+            def __iter__(self) -> Any:
+                return iter(line.encode("utf-8") + b"\n" for line in lines)
+
+        received: list[str] = []
+        client = OllamaClient()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("urllib.request.urlopen", lambda request, timeout: FakeResponse())
+            result = client.chat("model", [{"role": "user", "content": "hi"}],
+                                 on_thinking=received.append)
+        assert received == ["step one. ", "step two."]
+        assert result == '{"a": 1}'
 
 
 class TestHttpErrorDetail:

@@ -1,6 +1,6 @@
 # tests/
 
-594 cases, organised by subsystem. Nothing here needs a live Ollama, systemd,
+609 cases, organised by subsystem. Nothing here needs a live Ollama, systemd,
 or network -- every external dependency is an injected callable (see
 `conftest.py`), which is also how it's wired to the real thing in `harness/`.
 
@@ -18,5 +18,5 @@ or network -- every external dependency is an injected callable (see
 | `test_telemetry.py` | `CorpusExporter.drift()` and `LoopholeAudit.audit()` at the unit level, plus secret redaction (`TaskLogger.scrub()`/`Label.why`) |
 
 ```bash
-python3 -m pytest tests/ -q              # must stay 594 passed
+python3 -m pytest tests/ -q              # must stay 609 passed
 ```

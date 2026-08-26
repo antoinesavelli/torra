@@ -247,12 +247,15 @@ class Agent:
                     # back to.
                     sizes: dict[str, float] = {}
                     capable: dict[str, bool] = {}
+                    thinking: dict[str, bool] = {}
                     for name in models:
                         info = self.ollama.model_info(name)
                         if info.get("params_b"):
                             sizes[name] = info["params_b"]
                         if "chat_capable" in info:
                             capable[name] = info["chat_capable"]
+                        if "thinking_capable" in info:
+                            thinking[name] = info["thinking_capable"]
                     if sizes:
                         self.router.model_params_b = sizes
                         # Accelerator.fits() has its own independent
@@ -267,6 +270,8 @@ class Agent:
                         accelerator.model_params_b = sizes
                     if capable:
                         self.router.model_chat_capable = capable
+                    if thinking:
+                        self.router.model_thinking_capable = thinking
         return self.state
 
     # -- prompting --------------------------------------------------------- #
@@ -368,8 +373,16 @@ class Agent:
                 if model_available(self.ollama.fallback_model, candidates)
                 else candidates[0])
 
-    def converse(self, request: str, model: str | None = None) -> Turn:
-        """Take one operator message and decide what to do with it."""
+    def converse(self, request: str, model: str | None = None,
+                on_thinking: Callable[[str], None] | None = None) -> Turn:
+        """Take one operator message and decide what to do with it.
+
+        `on_thinking`, when given, is only ever handed down to `backend.chat`
+        for a model `router._thinking_capable` marks capable -- a remote
+        `openrouter/...` override, or a local model with no measured
+        thinking support, silently gets no callback at all, same contract
+        `OllamaClient.chat` itself has for `on_thinking=None`.
+        """
         # Returns a Turn whose intent is PLAN (validated TaskSpec attached),
         # ASK, ANSWER, or REFUSE. Raises OllamaError when the backend cannot
         # be reached; the caller should present ollama.recovery_options().
@@ -395,7 +408,11 @@ class Agent:
                 chosen = self._degraded_fallback(available)
 
         backend, real_model = self.resolve_backend(chosen)
-        raw = backend.chat(real_model, self._messages(request, gaps), json_mode=True)
+        stream_cb = (on_thinking if on_thinking is not None
+                    and not is_alt_backend and self.router._thinking_capable(real_model)
+                    else None)
+        raw = backend.chat(real_model, self._messages(request, gaps), json_mode=True,
+                           on_thinking=stream_cb)
         turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
                            bool(self.state))
 
@@ -413,7 +430,7 @@ class Agent:
                      "That response needs a revision before reaching the operator:\n"
                      + complaint + "\nRevise it. Same JSON schema."},
                 ]),
-                json_mode=True)
+                json_mode=True, on_thinking=stream_cb)
             turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
                                bool(self.state))
             turn.repairs = repairs

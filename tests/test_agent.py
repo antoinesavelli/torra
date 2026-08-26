@@ -625,7 +625,8 @@ class _FakeBackend:
         self.reply = reply
 
     def chat(self, model: str, messages: object, json_mode: bool = False,
-              temperature: float = 0.2) -> str:
+              temperature: float = 0.2,
+              on_thinking: Any | None = None) -> str:
         self.calls.append(model)
         return self.reply
 
@@ -691,6 +692,78 @@ def test_the_degraded_fallback_does_not_fire_for_an_alt_backend_model() -> None:
 
     assert turn.model == "openrouter/anthropic/claude-3.5-sonnet"
     assert fake.calls == ["anthropic/claude-3.5-sonnet"]
+
+
+def _transport_with_thinking_model(thinking_model: str, reply: dict[str, Any]):
+    """Like `scripted()`, but `/api/show` reports `thinking_model` as
+    thinking-capable -- `scripted()` itself always returns `{}` for
+    `/api/show`, which is exactly the "unknown" case `_thinking_capable`
+    defaults to False for, so a dedicated transport is needed to exercise
+    the True path at all."""
+    def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        if path == "/api/tags":
+            return {"models": [{"name": thinking_model}]}
+        if path == "/api/show":
+            capable = payload.get("name") == thinking_model
+            return {"capabilities": ["completion", "thinking"] if capable
+                    else ["completion"]}
+        return {"message": {"content": json.dumps(reply)}}
+    return transport
+
+
+def test_converse_passes_a_real_callback_for_a_thinking_capable_model() -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_chat(model: str, messages: object, json_mode: bool = False,
+                  temperature: float = 0.2, on_thinking: Any | None = None) -> str:
+        seen["on_thinking"] = on_thinking
+        return json.dumps({"intent": "answer", "message": "ok"})
+
+    agent = build_agent(_transport_with_thinking_model(
+        "deepseek-r1:latest", {"intent": "answer", "message": "ok"}))
+    agent.ollama.chat = fake_chat  # type: ignore[method-assign]
+
+    received: list[str] = []
+    agent.converse("what is the disk usage", model="deepseek-r1:latest",
+                   on_thinking=received.append)
+
+    assert seen["on_thinking"] == received.append
+
+def test_converse_passes_no_callback_for_a_non_thinking_model() -> None:
+    """The common case -- devstral/qwen3 etc. report no thinking capability,
+    so `on_thinking` must not reach `backend.chat` even though the caller
+    asked for it, matching the "silently no-op" contract."""
+    seen: dict[str, Any] = {}
+
+    def fake_chat(model: str, messages: object, json_mode: bool = False,
+                  temperature: float = 0.2, on_thinking: Any | None = None) -> str:
+        seen["on_thinking"] = on_thinking
+        return json.dumps({"intent": "answer", "message": "ok"})
+
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}))
+    agent.ollama.chat = fake_chat  # type: ignore[method-assign]
+
+    agent.converse("what is the disk usage", on_thinking=lambda chunk: None)
+
+    assert seen["on_thinking"] is None
+
+def test_converse_never_passes_a_callback_to_an_alt_backend() -> None:
+    """`router.model_thinking_capable` is only ever populated from local
+    Ollama /api/show data -- an explicit openrouter/... override must
+    never receive a reasoning callback, even if the caller asked for one."""
+    class _RecordingFake(_FakeBackend):
+        def chat(self, model: str, messages: object, json_mode: bool = False,
+                  temperature: float = 0.2, on_thinking: Any | None = None) -> str:
+            self.seen_on_thinking = on_thinking
+            return super().chat(model, messages, json_mode, temperature, on_thinking)
+
+    recording = _RecordingFake()
+    agent = build_agent(scripted({}), backends={"openrouter": recording})
+    agent.converse("what is the disk usage",
+                   model="openrouter/anthropic/claude-3.5-sonnet",
+                   on_thinking=lambda chunk: None)
+
+    assert recording.seen_on_thinking is None
 
 
 def test_stats_includes_every_registered_backend() -> None:

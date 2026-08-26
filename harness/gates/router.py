@@ -159,6 +159,7 @@ class ModelRouter:
         accelerator: Any | None = None,
         model_params_b: dict[str, float] | None = None,
         model_chat_capable: dict[str, bool] | None = None,
+        model_thinking_capable: dict[str, bool] | None = None,
     ) -> None:
         """Configure routing rules, weights, available models, and the accelerator.
 
@@ -183,12 +184,14 @@ class ModelRouter:
         was pruned -- the benchmark result is about the model, not the tag;
         see ROUTING_RULES' own note for the rest of that pruning.)
 
-        `model_params_b` and `model_chat_capable` are the daemon's own
-        `/api/show` metadata (`OllamaClient.model_info`, name normalized to
-        `tag:latest`), keyed the same way `available` is. When present they
-        are checked before the name-guessing fallback in `_params_b` and
-        `_chat_capable` -- see those methods for why the guess alone is not
-        safe to route on for an arbitrary, freshly-pulled model.
+        `model_params_b`, `model_chat_capable`, and `model_thinking_capable`
+        are the daemon's own `/api/show` metadata (`OllamaClient.model_info`,
+        name normalized to `tag:latest`), keyed the same way `available` is.
+        When present they are checked before the name-guessing fallback in
+        `_params_b` and `_chat_capable` -- see those methods for why the
+        guess alone is not safe to route on for an arbitrary, freshly-pulled
+        model. `model_thinking_capable` has no name-guessing fallback at
+        all -- see `_thinking_capable`.
         """
         self.rules = list(rules if rules is not None else ROUTING_RULES)
         self.default_model = default_model
@@ -197,6 +200,7 @@ class ModelRouter:
         self.accelerator = accelerator
         self.model_params_b = model_params_b
         self.model_chat_capable = model_chat_capable
+        self.model_thinking_capable = model_thinking_capable
         self.downgrades: list[tuple[str, str, str]] = []
 
     def _params_b(self, model: str) -> float:
@@ -236,6 +240,18 @@ class ModelRouter:
         if self.model_chat_capable is None:
             return True
         return self.model_chat_capable.get(_normalize_tag(model), True)
+
+    def _thinking_capable(self, model: str) -> bool:
+        """True only when the daemon reports this model exposes reasoning
+        tokens -- the opposite default from `_chat_capable`: not knowing
+        whether a model supports thinking should mean "don't ask it to
+        stream reasoning," not "assume it can." Used to decide whether
+        `Agent.converse` passes a real `on_thinking` callback down to
+        `backend.chat` at all.
+        """
+        if self.model_thinking_capable is None:
+            return False
+        return self.model_thinking_capable.get(_normalize_tag(model), False)
 
     def runnable(self, model: str) -> bool:
         """True when this model is worth loading on the current hardware."""

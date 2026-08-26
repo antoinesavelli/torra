@@ -79,15 +79,27 @@ OUTCOME_STYLE: dict[str, str] = {
 
 
 class ChatLine(Static):
-    """One line in the conversation pane."""
+    """One line in the conversation pane.
+
+    Mutable via `set_text` (not just constructed once) so a live-streaming
+    reasoning block can grow in place -- see `HarnessApp._append_thinking`
+    -- instead of remounting a new widget per token.
+    """
+
+    _PREFIXES = {"you": "[bold cyan]you[/]", "agent": "[bold green]agent[/]",
+                "harness": "[bold blue]harness[/]", "error": "[bold red]error[/]"}
 
     def __init__(self, who: str, text: str, style: str = "") -> None:
         """Render one speaker-prefixed, optionally styled line."""
-        prefix = {"you": "[bold cyan]you[/]", "agent": "[bold green]agent[/]",
-                  "harness": "[bold blue]harness[/]",
-                  "error": "[bold red]error[/]"}.get(who, who)
-        body = f"[{style}]{text}[/]" if style else text
-        super().__init__(f"{prefix}  {body}", markup=True)
+        super().__init__(markup=True)
+        self._prefix = self._PREFIXES.get(who, who)
+        self._style = style
+        self.set_text(text)
+
+    def set_text(self, text: str) -> None:
+        """Replace this line's body, re-rendering with the same prefix/style."""
+        body = f"[{self._style}]{text}[/]" if self._style else text
+        self.update(f"{self._prefix}  {body}")
 
 
 class StepCard(Vertical):
@@ -245,6 +257,11 @@ class SessionTab:
     # not silently keep making paid remote calls -- the conservative
     # failure mode. Don't "fix" this into a SessionMeta schema change.
     model_override: str | None = None
+    # Also runtime-only and just as deliberately not persisted: reasoning
+    # tokens are a live look at the model thinking, not a durable record --
+    # see HANDOFF.md's note on why this stays out of SessionStore/telemetry.
+    reasoning_line: ChatLine | None = None
+    reasoning_text: str = ""
 
 
 class SessionPicker(ModalScreen[str | None]):
@@ -535,6 +552,32 @@ class HarnessApp(App):
         chat.mount(ChatLine(who, text, style))
         chat.scroll_end(animate=False)
 
+    def _append_thinking(self, session_id: str, chunk: str) -> None:
+        """Grow this session's live reasoning line by one delta, mounting
+        it on the first chunk. Called via `call_from_thread` from the plan
+        worker thread -- `on_thinking` fires from inside `OllamaClient.chat`'s
+        streaming read loop, which runs on that same worker thread."""
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return  # the tab was closed while a stream was still in flight
+        if tab.reasoning_line is None:
+            tab.reasoning_line = ChatLine("agent", "", "dim italic")
+            self._chat(session_id).mount(tab.reasoning_line)
+        tab.reasoning_text += chunk
+        tab.reasoning_line.set_text(escape(tab.reasoning_text))
+        self._chat(session_id).scroll_end(animate=False)
+
+    def _clear_thinking(self, session_id: str) -> None:
+        """Drop the live reasoning line once a turn is done -- ephemeral by
+        design, never written to SessionStore or telemetry (see
+        `SessionTab.reasoning_line`'s docstring)."""
+        tab = self.sessions.get(session_id)
+        if tab is None or tab.reasoning_line is None:
+            return
+        self.run_worker(tab.reasoning_line.remove(), exclusive=False)  # type: ignore[arg-type]  # textual stub is stricter than the accepted runtime API
+        tab.reasoning_line = None
+        tab.reasoning_text = ""
+
     def _status(self, session_id: str, text: str) -> None:
         """Update the shared status line -- only if `session_id` is the active tab."""
         if session_id == self.active_session_id:
@@ -614,9 +657,18 @@ class HarnessApp(App):
 
     def _plan_request_body(self, session_id: str, request: str) -> None:
         tab = self.sessions[session_id]
+
+        def on_thinking(chunk: str) -> None:
+            # Runs on this same worker thread, inside OllamaClient.chat's
+            # streaming read loop -- call_from_thread is the only safe way
+            # from here to touch a widget the event loop owns.
+            self.call_from_thread(self._append_thinking, session_id, chunk)
+
         try:
-            result = tab.harness.plan(request, model=tab.model_override)
+            result = tab.harness.plan(request, model=tab.model_override,
+                                      on_thinking=on_thinking)
         except Exception as exc:
+            self.call_from_thread(self._clear_thinking, session_id)
             self.call_from_thread(self._say, session_id, "error",
                                   f"{type(exc).__name__}: {escape(str(exc))}")
             self.call_from_thread(self._set_busy, session_id, False, "")
@@ -678,6 +730,7 @@ class HarnessApp(App):
         if tab is None:
             return  # the tab was closed while this was in flight
         tab.current = result
+        self._clear_thinking(session_id)
         self._set_busy(session_id, False, "")
         if result.turn and result.turn.message:
             self._say(session_id, "agent", escape(result.turn.message))

@@ -124,7 +124,8 @@ class Harness:
 
     # -- stage 1 to 3: the model ------------------------------------------- #
 
-    def plan(self, request: str, model: str | None = None) -> RunResult:
+    def plan(self, request: str, model: str | None = None,
+            on_thinking: Callable[[str], None] | None = None) -> RunResult:
         """Stages converse, observe and propose. Runs nothing."""
         # Returns a RunResult whose outcome is AWAITING_APPROVAL when a gated
         # plan is attached, or ANSWERED / NEEDS_ANSWER / REFUSED / BACKEND_DOWN.
@@ -143,7 +144,7 @@ class Harness:
         result = RunResult(request=request, outcome=Outcome.AWAITING_APPROVAL)
 
         try:
-            turn = self.agent.converse(request, model=model)
+            turn = self.agent.converse(request, model=model, on_thinking=on_thinking)
         except OllamaError as exc:
             return self._backend_down(result, started, model, exc)
         except AgentError as exc:

@@ -19,6 +19,7 @@ import pytest
 from conftest import plan_reply, scripted
 from textual.widgets import Checkbox, Input, OptionList, Static, TabbedContent
 
+from harness.agent import Intent, Turn
 from harness.core import MachineState, OllamaClient
 from harness.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
 from harness.pipeline import Harness, Outcome, RunResult
@@ -410,8 +411,8 @@ async def test_plan_request_reports_an_unexpected_exception(tmp_path: Path) -> N
     else entirely goes wrong, which plan_request()'s own try/except guards
     against so the worker thread doesn't just die silently."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
-    app.harness.plan = lambda request, model=None: (_ for _ in ()).throw(  # type: ignore[method-assign]
-        ValueError("boom"))
+    app.harness.plan = lambda request, model=None, on_thinking=None: (  # type: ignore[method-assign]
+        _ for _ in ()).throw(ValueError("boom"))
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "do something"
@@ -421,6 +422,74 @@ async def test_plan_request_reports_an_unexpected_exception(tmp_path: Path) -> N
         text = screen_text(app)
         assert "ValueError" in text and "boom" in text
         assert not app.busy, "busy must clear even when plan() raises"
+
+
+@pytest.mark.asyncio
+async def test_append_thinking_mounts_and_grows_a_live_reasoning_line(
+        tmp_path: Path) -> None:
+    """`_append_thinking` is `on_thinking`'s destination once it crosses
+    back onto the event-loop thread via `call_from_thread` -- called
+    directly here since the streaming callback itself is exercised at the
+    OllamaClient/Agent layer (test_core.py/test_agent.py)."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test():
+        session_id = app.active_session_id
+        tab = app.sessions[session_id]
+        assert tab.reasoning_line is None
+
+        app._append_thinking(session_id, "Let me ")
+        app._append_thinking(session_id, "think about this.")
+
+        assert tab.reasoning_line is not None
+        assert tab.reasoning_text == "Let me think about this."
+        assert "Let me think about this." in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_clear_thinking_removes_the_live_reasoning_line(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        app._append_thinking(session_id, "reasoning in progress")
+        assert "reasoning in progress" in screen_text(app)
+
+        app._clear_thinking(session_id)
+        await pilot.pause(0.1)
+
+        tab = app.sessions[session_id]
+        assert tab.reasoning_line is None
+        assert tab.reasoning_text == ""
+        assert "reasoning in progress" not in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_a_completed_plan_request_leaves_no_reasoning_line_behind(
+        tmp_path: Path) -> None:
+    """End to end through the real worker-thread path: a model that streams
+    reasoning during `plan()` must not leave the live line mounted once the
+    turn is done -- ephemeral by design (SessionTab.reasoning_line's
+    docstring), not a permanent part of the transcript."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+
+    def fake_plan(request: str, model: str | None = None,
+                  on_thinking: Any | None = None) -> RunResult:
+        if on_thinking is not None:
+            on_thinking("Let me ")
+            on_thinking("check.")
+        return RunResult(request=request, outcome=Outcome.ANSWERED,
+                         turn=Turn(request=request, intent=Intent.ANSWER, message="done"))
+
+    app.harness.plan = fake_plan  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "what is the disk usage"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        tab = app.sessions[app.active_session_id]
+        assert tab.reasoning_line is None
+        assert tab.reasoning_text == ""
+        assert "done" in screen_text(app)
 
 
 @pytest.mark.asyncio
@@ -893,7 +962,7 @@ class _FakeBackend:
     """A minimal ModelBackend, for TUI backend-wiring tests."""
 
     def chat(self, model: str, messages: object, json_mode: bool = False,
-              temperature: float = 0.2) -> str:
+              temperature: float = 0.2, on_thinking: Any | None = None) -> str:
         return '{"intent": "answer", "message": "ok"}'
 
     def recovery_options(self, current_model: str = "unknown") -> list[Any]:
@@ -983,9 +1052,10 @@ async def test_model_override_reaches_the_plan_call(tmp_path: Path) -> None:
     seen: dict[str, object] = {}
     real_plan = app.harness.plan
 
-    def spy_plan(request: str, model: str | None = None) -> RunResult:
+    def spy_plan(request: str, model: str | None = None,
+                on_thinking: Any | None = None) -> RunResult:
         seen["model"] = model
-        return real_plan(request, model=model)
+        return real_plan(request, model=model, on_thinking=on_thinking)
 
     async with app.run_test() as pilot:
         session_id = app.active_session_id

@@ -1625,6 +1625,19 @@ class TestModelParamsAndChatCapable:
         router = ModelRouter(model_chat_capable={"nomic-embed-text:latest": False})
         assert router._chat_capable("nomic-embed-text") is False
 
+    def test_thinking_capable_defaults_false_with_no_data(self) -> None:
+        """Opposite default from chat_capable -- not knowing must mean
+        "don't ask this model to stream reasoning," not "assume it can"."""
+        assert ModelRouter()._thinking_capable("anything") is False
+
+    def test_thinking_capable_defaults_false_for_an_unlisted_model(self) -> None:
+        router = ModelRouter(model_thinking_capable={"deepseek-r1:latest": True})
+        assert router._thinking_capable("devstral") is False
+
+    def test_thinking_capable_is_true_when_reported_true(self) -> None:
+        router = ModelRouter(model_thinking_capable={"deepseek-r1:latest": True})
+        assert router._thinking_capable("deepseek-r1") is True
+
 
 class TestModelAvailable:
     """The tag-normalization helper `Agent.converse` and `ModelRouter.score`
