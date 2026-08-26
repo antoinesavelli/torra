@@ -19,6 +19,8 @@ from harness.telemetry import (
     LoopholeReport,
     TaskLogger,
     TaskRecord,
+    crash_summary,
+    health_summary,
 )
 
 
@@ -547,3 +549,62 @@ class TestLoopholeAuditEdges:
 
         assert report.passed_clarifier == 30
         assert report.anchored_but_goalless == 0
+
+
+class TestSummary:
+    """summary.health_summary()/crash_summary() -- moved here from cli.py
+    so tui.py's sidebar Evidence tab and cli.py's `harness evidence` share
+    one implementation instead of tui.py depending on a sibling entry
+    point (HANDOFF.md §2.30)."""
+
+    def _record(self, **overrides: object) -> TaskRecord:
+        fields: dict[str, object] = {"task_id": "t", "request": "r", "at": 1.0}
+        fields.update(overrides)
+        return TaskRecord(**fields)  # type: ignore[arg-type]
+
+    def test_health_summary_with_no_records_says_so(self) -> None:
+        assert health_summary([]) == "no tasks recorded yet"
+
+    def test_health_summary_shows_every_outcome_not_just_completed(self) -> None:
+        records = [self._record(status=s) for s in
+                  ["completed", "blocked", "blocked", "refused", "backend_down", "failed"]]
+        out = health_summary(records)
+        assert "blocked          : 2" in out
+        assert "refused          : 1" in out
+        assert "backend_down     : 1" in out
+        assert "failed           : 1" in out
+
+    def test_health_summary_reports_backend_split_and_latency(self) -> None:
+        records = [
+            self._record(status="completed", model="devstral:24b", seconds=4.0),
+            self._record(status="completed",
+                        model="openrouter/anthropic/claude-3.5-sonnet", seconds=2.0),
+        ]
+        out = health_summary(records)
+        assert "backend: 1 local, 1 openrouter" in out
+        assert "mean turn time: 3.00s over 2 timed task(s)" in out
+
+    def test_health_summary_reports_rollback_verification_rate(self) -> None:
+        records = [
+            self._record(status="completed", rollback_ran=True, rollback_verified=True),
+            self._record(status="completed", rollback_ran=True, rollback_verified=False),
+        ]
+        out = health_summary(records)
+        assert "rollback: 2 ran, 1 fully verified" in out
+
+    def test_crash_summary_with_no_crashes_says_so(self, tmp_path: Path) -> None:
+        reporter = CrashReporter(tmp_path / "crashes.jsonl")
+        assert crash_summary(reporter) == "no crashes recorded"
+
+    def test_crash_summary_reports_the_most_recent_crash(self, tmp_path: Path) -> None:
+        reporter = CrashReporter(tmp_path / "crashes.jsonl")
+        try:
+            raise ValueError("simulated crash")
+        except ValueError as exc:
+            reporter.record(exc, site="tui")
+
+        out = crash_summary(reporter)
+
+        assert "1 crash(es) recorded" in out
+        assert "ValueError (tui)" in out
+        assert "simulated crash" in out

@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 585 passed
+python3 -m pytest tests/ -q          # must print 594 passed
 harness doctor
 ```
 
@@ -970,6 +970,83 @@ from running.
 > `tests/test_cli.py::test_main_logs_the_full_crash_record_with_site_and_traceback`,
 > `test_main_with_no_subcommand_that_crashes_logs_site_tui`
 
+### 2.30 A nested `TabbedContent` inside a tab breaks every unscoped "the one TabbedContent/Tabs/TabPane" assumption `tui.py` had gotten away with
+
+Found during design review for the sidebar-tabs feature (the right-hand
+pane's `PlanPane` became a `TabbedContent` with Plan/Evidence tabs), before
+any of it shipped, by constructing the proposed DOM shape directly and
+exercising it (`app.run_test()`), not by inference.
+
+1. **`_session_id_of` stops at the first ancestor `TabPane`, not the
+   session-level one.** Walking up from a Run/Reject/Dry-run button inside
+   the sidebar's Plan tab now hits the *inner* `TabPane(id="sidebar-plan")`
+   before the outer `TabPane(id="tab-<session_id>")`. `str.removeprefix
+   ("tab-")` is a no-op on a non-matching string, so this silently produces
+   `session_id == "sidebar-plan"` -- which is never a real key in
+   `self.sessions`, so every click of Run/Reject/Dry-run raises `KeyError`
+   unconditionally. Per §2.29, `HarnessApp._handle_exception` is the only
+   hook that ever sees this, and `App.run()` never re-raises past it -- the
+   effect is not degraded click-handling, it's the whole app exiting on
+   the first click of any plan-action button. Fixed by matching
+   specifically the session-level `TabPane` by its known `"tab-"` id
+   prefix, not just "the nearest `TabPane`":
+   `isinstance(node, TabPane) and (node.id or "").startswith("tab-")`.
+2. **`TabbedContent(*children)` is not `Horizontal`/`Vertical`'s
+   `*children: Widget` -- it's `*titles: ContentType`.** Every other
+   container in this file accepts widgets positionally (inherited from
+   `Widget.__init__`); `TabbedContent.__init__` overrides that slot to
+   mean tab-label strings and never forwards it to `super().__init__()`.
+   Passing `TabPane(...)` instances positionally crashes immediately in
+   `render_str()` (`AttributeError: 'TabPane' object has no attribute
+   'translate'` -- confirmed live, not read off documentation). Content
+   must instead be attached via `compose_add_child()`, the same hook
+   Textual's own `with TabbedContent(): yield TabPane(...)` compose syntax
+   calls internally -- unlike that `with` form (which requires an active
+   `self.app` and so can't run inside a plain `@staticmethod` invoked
+   before mount), `compose_add_child()` has no such dependency and works
+   standalone (`HarnessApp._build_sidebar`).
+3. **Six call sites assumed exactly one `TabbedContent`/`Tabs` exists in
+   the whole app.** `_name_session`, `_mount_session_tab`,
+   `_open_or_switch_to`, `action_close_tab` (all
+   `self.query_one(TabbedContent)`) and `action_next_tab`/`action_prev_tab`
+   (both `self.query_one(Tabs)`) all relied on there being exactly one
+   match -- true before this feature, false the moment a session tab's own
+   sidebar becomes a second `TabbedContent`. `query_one()` in this Textual
+   version does not raise on ambiguity; it silently returns the first
+   breadth-first match. That still happens to be the outer `#sessions`
+   widget today (an ancestor is always shallower than any of its own
+   descendants in a breadth-first walk, and every inner `#sidebar` is
+   nested inside one of `#sessions`'s own tab panes) -- not currently
+   broken, but resting on an invariant nobody had stated, with zero test
+   coverage of `action_next_tab`/`action_prev_tab` to catch a future
+   regression. Hardened by scoping all six explicitly:
+   `self.query_one("#sessions", TabbedContent)` /
+   `self.query_one("#sessions > Tabs", Tabs)`.
+
+Separately: `_evidence_health_summary`/`_evidence_crash_summary` moved out
+of `cli.py` into `harness/telemetry/summary.py` (`health_summary`/
+`crash_summary`, no longer CLI-private) so the TUI's new Evidence tab could
+reuse them without `tui.py` importing from `cli.py` -- the codebase's two
+leaf/entry-point modules had never depended on each other before, and
+having one do so would have been the first such coupling. The move alone
+regressed the defensive-coding scorecard's Complexity dimension:
+`health_summary` had always had a CCN of 20, but `cli.py` is peripheral
+tier (not scorecard-enforced) while `harness/telemetry/` is core tier, so
+moving it into a graded package surfaced pre-existing complexity that had
+simply never been counted before. Fixed the same day, same change, via the
+`DEFENSIVE_CODING_STANDARDS.md` §2 extraction pattern (four independent
+sections -- outcomes/backend/latency/rollback -- split into their own
+`_outcome_lines`/`_backend_line`/`_latency_line`/`_rollback_line`
+functions, `health_summary` reduced to a thin orchestrator).
+
+> Guarded by `tests/test_tui.py::test_click_inside_the_sidebars_plan_tab_resolves_the_right_session`
+> (#1), `test_the_sidebar_evidence_tab_renders_real_content_on_activation`
+> (#2, a construction/rendering smoke test for the sidebar and
+> `EvidencePane`), `test_ctrl_tab_with_two_open_tabs_switches_the_session_tab`
+> (#3, had zero coverage before this entry);
+> `tests/test_telemetry.py::TestSummary` (the moved functions, called
+> directly, not just through `cmd_evidence`)
+
 ---
 
 ## 3. Things already tried that failed
@@ -997,7 +1074,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 585, must stay green
+python3 -m pytest tests/ -q                       # 594, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1533,7 +1610,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 585
+test command     python3 -m pytest tests/ -q     # 594
 ```
 
 ---

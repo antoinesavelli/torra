@@ -35,7 +35,8 @@ from .telemetry import (
     LabelStore,
     LoopholeAudit,
     TaskLogger,
-    TaskRecord,
+    crash_summary,
+    health_summary,
 )
 
 __all__ = ["build_parser", "main"]
@@ -369,49 +370,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _evidence_health_summary(records: list[TaskRecord]) -> str:
-    """Outcome/backend/latency/rollback trends already sitting in
-    tasks.jsonl -- pure aggregation, no new data collection. `completed`
-    used to be the only outcome cmd_evidence ever counted; blocked/
-    refused/backend_down/failed were invisible in a summary that read as
-    complete."""
-    if not records:
-        return "no tasks recorded yet"
-    lines = ["outcomes:"]
-    for status, count in Counter(r.status for r in records if r.status).most_common():
-        lines.append(f"  {status:<16} : {count}")
-
-    local = sum(1 for r in records if r.model and not r.model.startswith("openrouter/"))
-    remote = sum(1 for r in records if r.model.startswith("openrouter/"))
-    if local or remote:
-        lines.append(f"backend: {local} local, {remote} openrouter")
-
-    timed = [r.seconds for r in records if r.seconds > 0]
-    if timed:
-        lines.append(f"mean turn time: {sum(timed) / len(timed):.2f}s "
-                     f"over {len(timed)} timed task(s)")
-
-    rolled_back = [r for r in records if r.rollback_ran]
-    if rolled_back:
-        verified = sum(1 for r in rolled_back if r.rollback_verified)
-        lines.append(f"rollback: {len(rolled_back)} ran, {verified} fully verified")
-    return "\n".join(lines)
-
-
-def _evidence_crash_summary(reporter: CrashReporter) -> str:
-    """Unhandled-exception history -- distinct from the outcomes above,
-    which are ordinary gated-task failures TaskLogger already records.
-    A crash here means a bug escaped every other guard (HANDOFF.md §2.29)."""
-    crashes = reporter.read()
-    if not crashes:
-        return "no crashes recorded"
-    latest = crashes[-1]
-    when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest.at))
-    return (f"{len(crashes)} crash(es) recorded\n"
-           f"  most recent: {latest.exception_type} ({latest.site}) at {when}\n"
-           f"    {latest.message[:200]}")
-
-
 def cmd_evidence(args: argparse.Namespace) -> int:
     """Print what the harness has recorded about itself."""
     workdir = Path(args.workdir)
@@ -434,7 +392,7 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     print(f"  completed    : {sum(1 for r in records if r.status == 'completed')}")
     print(f"  repairs      : {sum(r.repairs for r in records)}")
     print()
-    print(_evidence_health_summary(records))
+    print(health_summary(records))
     print()
     clarifier = Clarifier()
     print(exporter.drift(clarifier, args.baseline_fn, args.baseline_fp).render())
@@ -454,7 +412,7 @@ def cmd_evidence(args: argparse.Namespace) -> int:
             print(f"  {request!r}")
     print()
     reporter = CrashReporter(workdir / "telemetry" / "crashes.jsonl")
-    print(_evidence_crash_summary(reporter))
+    print(crash_summary(reporter))
     return EXIT_OK
 
 

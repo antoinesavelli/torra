@@ -1,8 +1,9 @@
-"""Terminal interface: chat on the left, the gated plan on the right, one tab per session.
+"""Terminal interface: chat on the left, a Plan/Evidence sidebar on the right,
+one tab per session.
 
 Depends on: textual, harness.core (OllamaClient, OllamaStatus, ContextStep, SessionMeta,
 SessionStore), harness.gates (UndoGenerator), harness.pipeline (Harness and friends),
-harness.telemetry (CrashReporter).
+harness.telemetry (CrashReporter, health_summary, crash_summary).
 
 You never approve a command you have not seen classified: nothing executes
 until every step showing DANGEROUS or CRITICAL has been individually ticked.
@@ -45,7 +46,7 @@ from textual.widgets.option_list import Option
 from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore
 from .gates import UndoGenerator
 from .pipeline import Harness, Outcome, Plan, RunResult, StepPlan
-from .telemetry import CrashReporter
+from .telemetry import CrashReporter, crash_summary, health_summary
 
 __all__ = ["HarnessApp", "run_tui"]
 
@@ -196,6 +197,31 @@ class PlanPane(VerticalScroll):
         await self.mount(Static(f"[dim]{message}[/]", markup=True))
 
 
+class EvidencePane(VerticalScroll):
+    """The sidebar's other tab: a live health/crash summary, recomputed
+    each time the operator switches to it (see `_sidebar_evidence_activated`).
+    Same source data `harness evidence` prints, just in the TUI."""
+
+    def compose(self) -> ComposeResult:
+        """Start empty -- filled in on first activation, not at mount time."""
+        yield Static("[dim]Switch to this tab to see the current summary.[/]",
+                     markup=True, id="evidence-empty")
+
+    async def refresh_summary(self, harness: Harness, crash_reporter: CrashReporter) -> None:
+        """Replace the pane contents with a fresh summary.
+
+        `escape(...)` before `markup=True`, same as ChatLine/StepCard/
+        PlanPane.show -- an exception message inside crash_summary()'s
+        output is arbitrary text and can contain `[`/`]` (HANDOFF.md
+        §2.25's MarkupError lesson applies here too).
+        """
+        await self.remove_children()
+        await self.mount(Static(escape(health_summary(harness.telemetry.read())),
+                                markup=True, classes="evidence-block"))
+        await self.mount(Static(escape(crash_summary(crash_reporter)),
+                                markup=True, classes="evidence-block"))
+
+
 @dataclass
 class SessionTab:
     """One tab's state: its own Harness/Agent/context, its own busy flag.
@@ -272,6 +298,8 @@ class HarnessApp(App):
     #right { width: 50%; }
     #chat  { height: 1fr; padding: 0 1; }
     #plan  { height: 1fr; padding: 0 1; }
+    #evidence { height: 1fr; padding: 0 1; }
+    .evidence-block { padding: 0 0 1 0; }
     #prompt { dock: bottom; }
     .step-card {
         height: auto; border: round $panel; margin: 0 0 1 0; padding: 0 1;
@@ -359,16 +387,50 @@ class HarnessApp(App):
         return meta.session_id
 
     def _session_id_of(self, widget: object) -> str:
-        """Walk up from any widget inside a tab to that tab's session_id."""
+        """Walk up from any widget inside a tab to that tab's session_id.
+
+        Matches specifically the session-level TabPane (id prefix "tab-"),
+        not just "the nearest TabPane" -- the sidebar's own inner
+        TabbedContent (HANDOFF.md §2.30) has its own TabPanes ("sidebar-
+        plan"/"sidebar-evidence") nested *inside* every session tab. Found
+        live: stopping at the first ancestor TabPane meant a click on Run/
+        Reject/Dry-run inside the sidebar's Plan tab resolved
+        session_id == "sidebar-plan" (str.removeprefix is a no-op on a
+        non-matching prefix) -- never a real key in self.sessions, so
+        every such click raised an unconditional KeyError, which
+        _handle_exception (§2.29) turns into the whole app exiting."""
         node = widget
-        while node is not None and not isinstance(node, TabPane):
+        while node is not None and not (
+                isinstance(node, TabPane) and (node.id or "").startswith("tab-")):
             node = getattr(node, "parent", None)
         if node is None or not node.id:
             return self.active_session_id
         return node.id.removeprefix("tab-")
 
     @staticmethod
-    def _build_tab_pane(session_id: str, title: str) -> TabPane:
+    def _build_sidebar() -> TabbedContent:
+        """The right-hand pane: Plan (the gated proposal) + Evidence (a live
+        health/crash summary) as tabs, not two stacked panes.
+
+        `TabbedContent(*children)` is NOT `Horizontal`/`Vertical`'s generic
+        `*children: Widget` slot -- it overrides the positional-args slot
+        to mean tab-label strings (`*titles: ContentType`) and never
+        forwards them to `super().__init__()`. Passing `TabPane(...)`
+        instances positionally crashes immediately inside `render_str()`
+        ("AttributeError: 'TabPane' object has no attribute 'translate'"),
+        confirmed live, not read off documentation. `compose_add_child()`
+        is the actual hook -- the same one Textual's own `with
+        TabbedContent(): yield TabPane(...)` compose syntax calls
+        internally, but with no `self.app` dependency, so it works from a
+        plain `@staticmethod` invoked before the app is even running
+        (HANDOFF.md §2.30)."""
+        sidebar = TabbedContent(id="sidebar")
+        sidebar.compose_add_child(TabPane("Plan", PlanPane(id="plan"), id="sidebar-plan"))
+        sidebar.compose_add_child(
+            TabPane("Evidence", EvidencePane(id="evidence"), id="sidebar-evidence"))
+        return sidebar
+
+    def _build_tab_pane(self, session_id: str, title: str) -> TabPane:
         # Content(title), not the raw string: a session's name is derived
         # from arbitrary operator/model text (agent.py:build/first request),
         # and TabPane/Tab both parse a plain str as Textual markup -- found
@@ -382,7 +444,7 @@ class HarnessApp(App):
                     VerticalScroll(id="chat"),
                     Input(placeholder="what do you want done?", id="prompt"),
                     id="left"),
-                Vertical(PlanPane(id="plan"), id="right")),
+                Vertical(self._build_sidebar(), id="right")),
             id=f"tab-{session_id}")
 
     # -- layout ------------------------------------------------------------ #
@@ -461,6 +523,9 @@ class HarnessApp(App):
     def _plan_pane(self, session_id: str) -> PlanPane:
         return self._tab_pane(session_id).query_one("#plan", PlanPane)
 
+    def _evidence_pane(self, session_id: str) -> EvidencePane:
+        return self._tab_pane(session_id).query_one("#evidence", EvidencePane)
+
     def _prompt(self, session_id: str) -> Input:
         return self._tab_pane(session_id).query_one("#prompt", Input)
 
@@ -530,7 +595,7 @@ class HarnessApp(App):
         renamed = self.session_store.rename(session_id, name)
         if renamed is not None:
             tab.meta = renamed
-        tabbed = self.query_one(TabbedContent)
+        tabbed = self.query_one("#sessions", TabbedContent)
         tabbed.get_tab(f"tab-{session_id}").label = Content(name)
 
     def plan_request(self, session_id: str, request: str) -> None:
@@ -722,7 +787,7 @@ class HarnessApp(App):
         pane = self._build_tab_pane(meta.session_id, meta.name or str(len(self.sessions)))
 
         async def _mount_and_activate() -> None:
-            tabbed = self.query_one(TabbedContent)
+            tabbed = self.query_one("#sessions", TabbedContent)
             await tabbed.add_pane(pane)
             tabbed.active = f"tab-{meta.session_id}"
             if greet:
@@ -746,7 +811,7 @@ class HarnessApp(App):
     def _open_or_switch_to(self, session_id: str) -> None:
         """Switch to a session already open in a tab, or reopen it in a new one."""
         if session_id in self.sessions:
-            self.query_one(TabbedContent).active = f"tab-{session_id}"
+            self.query_one("#sessions", TabbedContent).active = f"tab-{session_id}"
             return
         meta = self.session_store.load_meta(session_id)
         if meta is None:
@@ -789,7 +854,7 @@ class HarnessApp(App):
             # AwaitComplete, so this has to run inside a real coroutine to
             # await it, not be handed to run_worker() as a bare value (which
             # only starts it, doesn't wait for it before the dict mutation).
-            await self.query_one(TabbedContent).remove_pane(f"tab-{session_id}")
+            await self.query_one("#sessions", TabbedContent).remove_pane(f"tab-{session_id}")
             del self.sessions[session_id]
 
         self.run_worker(_remove(), exclusive=False)
@@ -797,12 +862,16 @@ class HarnessApp(App):
     def action_next_tab(self) -> None:
         """Focus the next tab, wrapping around."""
         # next/previous live on the Tabs bar TabbedContent composes
-        # internally (ContentTabs), not on TabbedContent itself.
-        self.query_one(Tabs).action_next_tab()
+        # internally (ContentTabs), not on TabbedContent itself. Scoped to
+        # "#sessions > Tabs" (direct child), not a bare Tabs query -- the
+        # sidebar's own inner TabbedContent (HANDOFF.md §2.30) composes one
+        # too, and query_one doesn't raise on ambiguity in this Textual
+        # version, it silently returns the first breadth-first match.
+        self.query_one("#sessions > Tabs", Tabs).action_next_tab()
 
     def action_prev_tab(self) -> None:
         """Focus the previous tab, wrapping around."""
-        self.query_one(Tabs).action_previous_tab()
+        self.query_one("#sessions > Tabs", Tabs).action_previous_tab()
 
     @on(TabbedContent.TabActivated)
     def _tab_activated(self, event: TabbedContent.TabActivated) -> None:
@@ -818,6 +887,25 @@ class HarnessApp(App):
         else:
             self._status(session_id, "")
         self._prompt(session_id).focus()
+
+    @on(TabbedContent.TabActivated, "#sidebar", pane="#sidebar-evidence")
+    def _sidebar_evidence_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Recompute the Evidence tab's content each time the operator
+        switches to it -- not continuously, not after every task; a
+        proportionate first version. `pane="#sidebar-evidence"`, not a
+        bare "#sidebar" selector: confirmed live that a bare selector also
+        fires (uselessly) on every Plan-tab (re)activation and on initial
+        mount, which would need filtering out by hand; this fires exactly
+        once, only when the Evidence tab itself activates (HANDOFF.md
+        §2.30). Unscoped handlers like `_tab_activated` above still see
+        this same event too -- `@on` selectors don't shadow each other."""
+        session_id = self._session_id_of(event.tabbed_content)
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return  # the tab was closed while this was in flight
+        self.run_worker(
+            self._evidence_pane(session_id).refresh_summary(tab.harness, self._crash_reporter),
+            exclusive=False)
 
     def execute_plan(self, session_id: str, dry_run: bool = False) -> None:
         """Execute in a worker thread, reading approvals from the checkboxes.

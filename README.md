@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **585 passed**. Then:
+Expect **594 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -75,8 +75,11 @@ run over uncommitted local changes.
 
 ## The interface
 
-Chat on the left, plan on the right. Every proposed step shows its risk level,
-why the classifier said so, and whether an undo exists.
+Chat on the left, a sidebar on the right. The sidebar has two tabs: **Plan**
+(the current proposal -- every step's risk level, why the classifier said
+so, whether an undo exists) and **Evidence** (a live health/crash summary,
+the same content `harness evidence` prints, recomputed each time you switch
+to it).
 
 Dangerous steps arrive with an **unticked** box. Safe steps get no box at all,
 because asking for approval on `df -h` trains people to tick without reading,
@@ -324,7 +327,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 585 cases, organised by subsystem |
+| `tests/` | 594 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -368,7 +371,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 585 cases
+python3 -m pytest tests/ -v              # 594 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

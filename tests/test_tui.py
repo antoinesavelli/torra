@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 from conftest import plan_reply, scripted
-from textual.widgets import Checkbox, Input, OptionList, Static
+from textual.widgets import Checkbox, Input, OptionList, Static, TabbedContent
 
 from harness.core import MachineState, OllamaClient
 from harness.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
@@ -810,6 +810,83 @@ async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
         assert app.sessions[first_id].harness is not app.sessions[second_id].harness
         assert (app.sessions[first_id].harness.undo.shadow_dir
                 != app.sessions[second_id].harness.undo.shadow_dir)
+
+
+@pytest.mark.asyncio
+async def test_click_inside_the_sidebars_plan_tab_resolves_the_right_session(
+        tmp_path: Path) -> None:
+    """Regression test for HANDOFF.md §2.30: _session_id_of used to stop at
+    the sidebar's own inner TabPane (id="sidebar-plan") before reaching the
+    outer session TabPane, silently producing session_id == "sidebar-plan"
+    -- never a real key in self.sessions, so every click of Run/Reject/
+    Dry-run inside the sidebar raised an unconditional KeyError, which
+    _handle_exception (§2.29) turns the whole app exiting."""
+    marker = tmp_path / "v.txt"
+    marker.write_text("x", encoding="utf-8")
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"remove {marker}",
+        [{"id": "rm", "run": f"rm -f {marker}", "touches": [str(marker)]}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"delete {marker}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#reject")
+        await pilot.pause(0.1)
+        await app.workers.wait_for_complete()
+
+        assert app.is_running, "a KeyError inside the click handler would have crashed the app"
+        assert app.current is None
+        assert marker.exists(), "reject must not run anything"
+
+
+@pytest.mark.asyncio
+async def test_the_sidebar_evidence_tab_renders_real_content_on_activation(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt", Input).value = "hi"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        await app.workers.wait_for_complete()
+
+        sidebar = app.query_one("#sidebar", TabbedContent)
+        sidebar.active = "sidebar-evidence"
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+
+        text = screen_text(app)
+        assert "outcomes:" in text
+        assert "no crashes recorded" in text
+
+
+@pytest.mark.asyncio
+async def test_ctrl_tab_with_two_open_tabs_switches_the_session_tab(tmp_path: Path) -> None:
+    """No test exercised action_next_tab()/action_prev_tab() before this
+    (HANDOFF.md §2.30) -- both now query "#sessions > Tabs" explicitly
+    rather than a bare Tabs query, since the sidebar's own inner
+    TabbedContent composes a second Tabs widget per open session tab, and
+    query_one doesn't raise on ambiguity in this Textual version."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        first_id = app.active_session_id
+        await pilot.press("ctrl+t")
+        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        second_id = app.active_session_id
+        assert second_id != first_id
+
+        app.action_prev_tab()
+        await pilot.pause(0.2)
+        assert app.active_session_id == first_id
+
+        app.action_next_tab()
+        await pilot.pause(0.2)
+        assert app.active_session_id == second_id
 
 
 class _FakeBackend:
