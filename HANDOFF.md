@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 627 passed
+python3 -m pytest tests/ -q          # must print 635 passed
 harness doctor
 ```
 
@@ -1204,6 +1204,98 @@ run's already-finalized one.
 > landed yet -- a genuine liveness check, not just a final-state assertion) +
 > `test_a_rerun_starts_a_fresh_output_line_not_a_continuation`
 
+### 2.33 A resume point must be cleared on *any* terminal outcome, not just success, or a retry can skip steps a rollback just undid
+
+`ResumePoint.load()` had no caller anywhere in the codebase until this
+entry (§6.4's "fixed" pointer) -- `harness/core/resume.py`'s own
+`resolve_resume()` is what changed that: `Harness.execute()` calls it
+before the step loop, and a validated resume point's `completed` steps
+are skipped rather than re-run.
+
+The design constraint: `resolve_resume` has to run inside `pipeline.py`'s
+`execute()`, but the validation logic itself lives in `core/resume.py` --
+moved there specifically to keep `pipeline.py` under the Modularity
+scorecard's 500-LOC floor (it crossed 500 the first time this landed
+inline; `ENFORCE_FLOORS` caught it, dropping Modularity from B to C and
+overall GPA from 3.83 to 3.67). Not just LOC-shuffling to dodge the
+checker: resume-validation genuinely belongs next to the type it
+validates, and `pipeline.py` staying a thin caller (build the plan's step
+ids, call `resolve_resume`, log its `note` if any) is a real
+improvement, not a workaround. `ResumeResolution.note` exists so
+`core/resume.py` never has to import `pipeline_types`' `DecisionLog`/
+`Stage` to log anything itself -- the dependency direction throughout
+this package is `pipeline.py` -> `core`, never reversed.
+
+Two correctness hazards, not obvious from "just call `load()` before the
+loop":
+
+1. **A resume point's `completed` list must be validated as a positional
+   prefix of the *current* plan's step ids, plus a matching `total` --
+   not just "a file exists for this task_id".** A `task_id` is fully
+   model- or human-chosen text with no uniqueness guarantee; a
+   differently-shaped plan that happens to reuse one, or an edited task
+   file, must not have its early steps silently skipped because an
+   unrelated resume file's ids happen to overlap. `resolve_resume`
+   requires `existing.task_id == task_id and existing.total == total and
+   plan_step_ids[:len(existing.completed)] == existing.completed` before
+   trusting a single entry; anything else is logged and ignored, same as
+   a genuinely missing or corrupt (`ResumePoint.load()` raises
+   `HarnessError` on that) file.
+2. **The resume file must be deleted on a failed/rolled-back run too, not
+   only `_finish_success()`'s clean-success path.** Before this, only
+   success deleted it -- a step that failed after an earlier step
+   completed left the resume file sitting there with that earlier step
+   still marked "completed", even though `_sweep_rollback()` had just
+   undone it (or tried to). A later retry would have skipped a step whose
+   real-world effect had just been reversed -- worse than not resuming at
+   all, since the operator would have no reason to suspect it. Fixed by
+   moving the `resume_path.unlink(missing_ok=True)` `_finish_success()`
+   already did into `_sweep_rollback()` too, unconditionally (whether or
+   not the rollback itself fully succeeded -- an incomplete rollback is
+   exactly the case where a stale "completed" claim is least trustworthy).
+
+A third, narrower one found while building it: **a dry run must never
+write a resume point at all.** `_run_steps` wrote `resume.completed`/
+`resume.save()` unconditionally after every successful step before this,
+dry run or not -- harmless in practice only because a dry run always
+reaches `_finish_success()`'s cleanup at the end (dry-run steps can't
+fail), so nothing ever persisted past one call. But a crash *during* a
+dry run (the process dying mid-preview, before that cleanup ran) would
+have left a resume file claiming steps were "completed" that were only
+ever previewed, never actually run -- exactly the "garbage" `resolve_resume`
+exists to distrust, except this one would have validated cleanly (real
+task_id, real step sequence) and been silently wrong. Fixed by gating
+`resume.completed.append`/`resume.save()` behind `not dry_run`.
+
+Resumed (skipped) steps still count toward `RunResult.executed = True`
+and still get a synthesized `StepResult` (`ok=True`, output prefixed
+`"[resumed] "`) appended to `result.results`, so the operator's final
+report shows what actually happened this call without hiding that some
+of it happened earlier. What resumed steps deliberately don't do:
+run through the `recheck_between_steps`/`ConflictDetector` guards ahead
+of them in the loop, or call `self.conflicts.refresh()` -- those exist to
+catch state changing since a step was *about to* run, which doesn't apply
+to a step that isn't going to run at all this call. Skipped steps'
+declared undos still reach the rollback stack regardless, for free:
+`_stage_rollback()` pushes every step's undos unconditionally, before
+`_run_steps()` (and its skip logic) ever runs.
+
+`ResumePoint.file_hashes` stays unpopulated -- out of scope here, same as
+it was before. Inventing semantics for a field the original design left
+vague isn't part of "make `load()` have a caller"; a future change that
+wants extra verification (confirming a resumed step's touched files
+still look the way they did when it completed) should own that decision
+explicitly rather than inherit it from this one.
+
+> Guarded by `tests/test_pipeline.py::TestResume` (8 cases: skips
+> already-completed steps and runs the rest for real, a mismatched step
+> sequence is not trusted, a mismatched `total` is not trusted, a corrupt
+> file is ignored not fatal, a dry run never writes one, a dry run ignores
+> an existing one, a failed run with rollback deletes it, a clean success
+> leaves none behind) and `tests/test_pipeline.py::test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir`
+> (updated to spy on `ResumePoint.save`'s path rather than checking
+> post-hoc file existence, since a failed run now cleans up too)
+
 ---
 
 ## 3. Things already tried that failed
@@ -1231,7 +1323,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 627, must stay green
+python3 -m pytest tests/ -q                       # 635, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1675,24 +1767,15 @@ Migrations, `dd`, `mkfs` require a declared `rollback:` entry. Automatic
 generation for database migrations would need to understand the migration tool,
 which is a real project rather than a patch.
 
-### 6.4 `ResumePoint` doesn't actually resume anything
+### 6.4 `ResumePoint` doesn't actually resume anything -- **fixed**, see §2.33
 
-Found in a full-file audit. `Harness.execute` writes a `ResumePoint` to
-`<workdir>/resume/<task_id>.json` after each completed step and deletes
-it on success -- but `ResumePoint.load()`, which exists and works, has no
-caller anywhere in the codebase. Nothing checks for an existing resume
-file at the start of `execute()`, so a crash mid-task and a subsequent
-retry (even `harness run` on the identical task file) re-runs every step
-from scratch, including ones that already had real side effects.
-
-Not fixed here: doing this safely needs real design work, not a
-localized patch -- at minimum, verifying the retried plan's step IDs
-still match the saved sequence before trusting `completed` at all, and
-deciding whether a skipped step's declared undos still get pushed onto
-the rollback stack (they should: a later step failing must still be able
-to roll back work a resumed run itself didn't just perform). Until
-someone builds that, treat the resume file as a crash-forensics artifact
-you can read by hand, not a working feature.
+`ResumePoint.load()` now has a caller: `execute()` resolves a crash-left
+resume point (via `resolve_resume`) before its step loop and skips
+already-completed steps a validated one vouches for. Full story, the
+correctness hazards found and closed while building it, and the guarding
+tests are in §2.33, not here -- this entry stays only as the historical
+"here's what was wrong" pointer, per this file's own rule that a fixed
+finding shrinks rather than accumulates.
 
 ### 6.5 Smaller, known
 
@@ -1767,7 +1850,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 627
+test command     python3 -m pytest tests/ -q     # 635
 ```
 
 ---

@@ -15,6 +15,7 @@ import pytest
 from conftest import plan_reply, scripted
 
 from harness.core import ConflictDetector, OllamaClient, OllamaError, RecoveryOption, Step, TaskSpec
+from harness.core.resume import ResumePoint
 from harness.gates import Precondition, RiskLevel, StateVerifier, UndoGenerator, Verdict
 from harness.pipeline import Harness
 from harness.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
@@ -380,6 +381,156 @@ def test_a_declared_safe_rollback_is_still_classified(make_harness,
     assert target.exists(), "a CRITICAL command ran despite being declared safe"
     overrides = [d for d in done.decisions if d["decision"] == "rollback safety override"]
     assert len(overrides) == 1
+
+
+class TestResume:
+    """HANDOFF.md §6.4: ResumePoint.load() finally has a caller. A crash
+    mid-task used to mean a retry re-ran every step from scratch, including
+    ones that already had real side effects -- these prove a retry now
+    skips genuinely-completed steps, and prove the several ways a resume
+    point must be distrusted rather than a bare "file exists" check."""
+
+    @staticmethod
+    def _resume_path(tmp_path: Path, task_id: str) -> Path:
+        return tmp_path / "wd" / "resume" / f"{task_id}.json"
+
+    def test_a_resumed_run_skips_already_completed_steps(
+            self, make_harness, tmp_path: Path) -> None:
+        counter = tmp_path / "counter"
+        counter.write_text("x", encoding="utf-8")  # the crashed attempt's real effect
+        done = tmp_path / "done"
+        harness = make_harness(scripted(plan_reply(
+            "t", "two steps",
+            [{"id": "first", "run": f"printf x >> {counter}"},
+             {"id": "second", "run": f"touch {done}"}])))
+        planned = harness.plan("two steps")
+
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(task_id="t", completed=["first"], total=2).save(resume_path)
+
+        result = harness.execute(planned, {})
+
+        assert result.outcome is Outcome.COMPLETED
+        assert counter.read_text(encoding="utf-8") == "x", \
+            "the resumed step must not have run its command again"
+        assert done.exists(), "the never-attempted step must still run for real"
+        assert result.executed is True
+        first, second = result.results
+        assert first.ok is True and first.output == "[resumed] printf x >> " + str(counter)
+        assert second.output.strip() == ""  # touch prints nothing -- ran for real
+
+    def test_a_mismatched_step_sequence_is_not_trusted(
+            self, make_harness, tmp_path: Path) -> None:
+        """The saved resume point claims a step id this plan doesn't even
+        have at that position -- evidence of an edited task file or an
+        unrelated plan reusing the id, not a genuine retry."""
+        marker = tmp_path / "marker"
+        harness = make_harness(scripted(plan_reply(
+            "t", "one step", [{"id": "real-step", "run": f"touch {marker}"}])))
+        planned = harness.plan("one step")
+
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(task_id="t", completed=["a-different-step-id"], total=1).save(resume_path)
+
+        result = harness.execute(planned, {})
+
+        assert result.outcome is Outcome.COMPLETED
+        assert marker.exists(), "the mismatched resume point must be ignored, not trusted"
+        assert result.results[0].output != "[resumed] " + result.results[0].output
+
+    def test_a_mismatched_total_is_not_trusted(
+            self, make_harness, tmp_path: Path) -> None:
+        marker = tmp_path / "marker"
+        harness = make_harness(scripted(plan_reply(
+            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        planned = harness.plan("one step")
+
+        resume_path = self._resume_path(tmp_path, "t")
+        # Same first step id, but claims a 3-step plan -- a differently
+        # shaped attempt, not this one, even though "s" happens to match.
+        ResumePoint(task_id="t", completed=["s"], total=3).save(resume_path)
+
+        result = harness.execute(planned, {})
+
+        assert result.outcome is Outcome.COMPLETED
+        assert not result.results[0].output.startswith("[resumed]")
+
+    def test_a_corrupt_resume_point_is_ignored_not_fatal(
+            self, make_harness, tmp_path: Path) -> None:
+        marker = tmp_path / "marker"
+        harness = make_harness(scripted(plan_reply(
+            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        planned = harness.plan("one step")
+
+        resume_path = self._resume_path(tmp_path, "t")
+        resume_path.parent.mkdir(parents=True, exist_ok=True)
+        resume_path.write_text("not json at all", encoding="utf-8")
+
+        result = harness.execute(planned, {})
+
+        assert result.outcome is Outcome.COMPLETED
+        assert marker.exists()
+
+    def test_a_dry_run_never_writes_a_resume_point(
+            self, make_harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = []
+        monkeypatch.setattr(ResumePoint, "save",
+                            lambda self, path: calls.append(path))
+        harness = make_harness(scripted(plan_reply(
+            "t", "two steps",
+            [{"id": "a", "run": "true"}, {"id": "b", "run": "true"}])))
+        planned = harness.plan("two steps")
+
+        harness.execute(planned, {}, dry_run=True)
+
+        assert calls == [], \
+            "a dry run must never persist a resume point -- a crash mid-preview " \
+            "must not later look like steps that genuinely ran"
+
+    def test_a_dry_run_ignores_an_existing_resume_point(
+            self, make_harness, tmp_path: Path) -> None:
+        """A dry run previews every step regardless of what a resume point
+        claims -- silently skipping some would defeat the point of asking
+        "what would this plan do"."""
+        harness = make_harness(scripted(plan_reply(
+            "t", "one step", [{"id": "s", "run": "echo hi"}])))
+        planned = harness.plan("one step")
+
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(task_id="t", completed=["s"], total=1).save(resume_path)
+
+        result = harness.execute(planned, {}, dry_run=True)
+
+        assert result.results[0].output == "[dry-run] echo hi"
+
+    def test_a_failed_run_with_rollback_deletes_the_resume_point(
+            self, make_harness, tmp_path: Path) -> None:
+        """A resume point surviving a rollback would let a later retry skip
+        steps whose effects were just undone -- worse than not resuming at
+        all. `_sweep_rollback` clears it the same as a clean success does."""
+        target = tmp_path / "f.txt"
+        harness = make_harness(scripted(plan_reply(
+            "t", "one step",
+            [{"id": "write", "kind": "write", "run": f"printf x > {target}",
+              "touches": [str(target)]},
+             {"id": "fail", "run": "false"}])))
+        planned = harness.plan("one step")
+
+        result = harness.execute(planned, {})
+
+        assert result.outcome is Outcome.FAILED
+        assert not self._resume_path(tmp_path, "t").exists()
+
+    def test_a_completed_run_leaves_no_resume_point_for_a_future_retry_to_find(
+            self, make_harness, tmp_path: Path) -> None:
+        marker = tmp_path / "marker"
+        harness = make_harness(scripted(plan_reply(
+            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        planned = harness.plan("one step")
+
+        harness.execute(planned, {})
+
+        assert not self._resume_path(tmp_path, "t").exists()
 
 
 def test_execute_twice_on_the_same_result_does_not_replay_it(make_harness,
@@ -895,7 +1046,7 @@ def test_a_hand_written_file_still_works_without_a_model(make_harness,
 
 
 def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
-        make_harness, tmp_path: Path) -> None:
+        make_harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Found live: the resume-file path was built straight from
     `plan.spec.task_id` with no sanitizing at all -- unlike the audit path
     built in the very same function, which already sanitized. A task_id of
@@ -903,7 +1054,25 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
     where a later step failed before _finish_success()'s cleanup ran (which
     only fires on a fully successful run). task_id is fully model- or
     human-controlled -- TaskSpec.validate() does `task_id=str(data[...])`
-    with no character restriction at all."""
+    with no character restriction at all.
+
+    Spies on ResumePoint.save to capture the path it was actually given,
+    rather than checking the file still exists after execute() returns:
+    HANDOFF.md §6.4's resume fix now deletes the resume file on *any*
+    terminal outcome including this test's own induced failure (a rollback
+    means the file's "these steps are done" claim is no longer true), so
+    post-hoc existence is no longer the right thing to assert on."""
+    from harness.core.resume import ResumePoint
+
+    seen_paths: list[Path] = []
+    real_save = ResumePoint.save
+
+    def spy_save(self: ResumePoint, path: Path) -> Path:
+        seen_paths.append(Path(path))
+        return real_save(self, path)
+
+    monkeypatch.setattr(ResumePoint, "save", spy_save)
+
     evil_id = "../../evil-poc"
     harness = make_harness(scripted(plan_reply(
         evil_id, "do something",
@@ -916,7 +1085,9 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
     escaped = tmp_path / "evil-poc.json"
     assert not escaped.exists(), "resume file escaped the harness's own workdir"
     resume_dir = tmp_path / "wd" / "resume"
-    assert list(resume_dir.glob("*.json")), "the sanitized file should land here instead"
+    assert seen_paths, "the ok step should have written a resume point before bad failed"
+    assert all(p.parent == resume_dir for p in seen_paths), \
+        "every resume write should target the sanitized path inside workdir/resume/"
 
 
 def test_knowledge_dir_defaults_from_the_environment(

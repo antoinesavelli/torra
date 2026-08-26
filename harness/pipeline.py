@@ -17,6 +17,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Sequence
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ from .core import (
     ResumePoint,
     StepResult,
     TaskSpec,
+    resolve_resume,
 )
 from .core.tasks import shell_output_sink
 from .gates import (
@@ -295,13 +297,21 @@ class Harness:
         # place) left behind, or a second dry run would append duplicate
         # stub entries alongside the first.
         result.results = []
-        resume = ResumePoint(task_id=plan.spec.task_id, total=len(plan.steps))
         resume_path = self.workdir / "resume" / f"{self._safe_filename(plan.spec.task_id)}.json"
+        resolution = resolve_resume(
+            plan.spec.task_id, [sp.step.step_id for sp in plan.steps],
+            len(plan.steps), resume_path, dry_run)
+        if resolution.note:
+            self.decisions.log(
+                Stage.EXECUTE.value,
+                "resuming from a prior attempt" if resolution.resumed_steps
+                else "resume point ignored", resolution.note)
 
-        failed = self._run_steps(plan, result, dry_run, resume, resume_path, on_output)
+        failed = self._run_steps(plan, result, dry_run, resolution.resume, resume_path,
+                                 on_output, resolution.resumed_steps)
 
         if failed:
-            self._sweep_rollback(result)
+            self._sweep_rollback(result, resume_path)
         else:
             self._finish_success(result, dry_run, resume_path)
 
@@ -353,10 +363,24 @@ class Harness:
 
     def _run_steps(self, plan: Plan, result: RunResult, dry_run: bool,
                     resume: ResumePoint, resume_path: Path,
-                    on_output: Callable[[str, str], None] | None = None) -> bool:
+                    on_output: Callable[[str, str], None] | None = None,
+                    resumed_steps: AbstractSet[str] = frozenset()) -> bool:
         """Run each step in order, True if it failed/blocked. Guards run
         inside this loop, not once before it: state can change mid-run."""
         for sp in plan.steps:
+            if not dry_run and sp.step.step_id in resumed_steps:
+                # Nothing to guard or run: this step's effects already
+                # happened, for real, in an earlier attempt this exact
+                # resume point vouches for (`_resolve_resume`) -- the
+                # recheck/conflict guards below exist to catch state
+                # changing since a step was *about to* run, which doesn't
+                # apply to a step that isn't going to run at all this time.
+                sp.result = StepResult(sp.step.step_id, True,
+                                       f"[resumed] {sp.step.command}", seconds=0.0)
+                result.results.append(sp.result)
+                result.executed = True
+                continue
+
             if self.recheck_between_steps:
                 veto = self.verifier.guard()
                 if veto:
@@ -385,12 +409,16 @@ class Harness:
                                    result.abort_reason)
                 return True
 
-            resume.completed.append(sp.step.step_id)
             self.conflicts.refresh(sp.step.touches)
-            try:
-                resume.save(resume_path)
-            except Exception:
-                pass  # a resume point is a nicety, not a reason to stop
+            if not dry_run:
+                # Never written during a dry run -- see this method's and
+                # _resolve_resume's docstrings for why a resume point must
+                # only ever describe steps that genuinely ran.
+                resume.completed.append(sp.step.step_id)
+                try:
+                    resume.save(resume_path)
+                except Exception:
+                    pass  # a resume point is a nicety, not a reason to stop
         return False
 
     @staticmethod
@@ -434,8 +462,15 @@ class Harness:
         result.results.append(step_result)
         return step_result
 
-    def _sweep_rollback(self, result: RunResult) -> None:
-        """Undo everything pushed so far, if there's anything to undo."""
+    def _sweep_rollback(self, result: RunResult, resume_path: Path) -> None:
+        """Undo everything pushed so far, if there's anything to undo.
+
+        Drops the resume file the same as a clean success does -- a
+        rollback (attempted or not, complete or not) means the steps a
+        resume point would otherwise vouch for as "genuinely done" got
+        reversed, or an attempt was made to. Leaving the file behind would
+        let a later retry skip steps whose effects it can no longer trust
+        are actually still applied to the machine (HANDOFF.md §6.4)."""
         if self.rollback.depth:
             result.rollback = self.rollback.rollback()
             self.decisions.log(
@@ -446,6 +481,10 @@ class Harness:
                 f"{len(result.rollback.cancelled)} cancelled, "
                 f"{len(result.rollback.failed)} failed",
                 {"results": [r.to_dict() for r in result.rollback.results]})
+        try:
+            resume_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def _finish_success(self, result: RunResult, dry_run: bool, resume_path: Path) -> None:
         """Mark completed, drop rollback state, clean shadows, drop the resume file."""

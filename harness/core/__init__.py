@@ -17,7 +17,7 @@ from .context import CompressionResult, ContextCompressor, ContextStep
 from .machine import Accelerator, MachineState, detect_accelerator, observe_machine
 from .ollama import OllamaClient, OllamaStatus, RecoveryOption
 from .openrouter import OpenRouterClient
-from .resume import ResumePoint
+from .resume import ResumePoint, ResumeResolution, resolve_resume
 from .session import SessionMeta, SessionRecord, SessionStore
 from .tasks import (
     ContextBudgetError,
@@ -32,7 +32,8 @@ from .tasks import (
 __all__ = [
     "HarnessError", "OllamaError", "ContextBudgetError",
     "Step", "StepResult", "TaskSpec", "TaskSpecError",
-    "ResumePoint", "ConflictKind", "Conflict", "ConflictDetector",
+    "ResumePoint", "ResumeResolution", "resolve_resume", "ConflictKind", "Conflict",
+    "ConflictDetector",
     "ContextStep", "CompressionResult", "ContextCompressor",
     "OllamaStatus", "RecoveryOption", "OllamaClient",
     "ModelBackend", "resolve_backend", "OpenRouterClient",
