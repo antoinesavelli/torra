@@ -649,7 +649,12 @@ class TestUndoGeneration:
         assert actions == []
 
     def test_it_invents_nothing_it_cannot_invert(self, tmp_path: Path) -> None:
-        """dd, mkfs and migrations are named as uncovered rather than faked."""
+        """dd/mkfs against a raw device, and a migration tool's own upgrade,
+        are named as uncovered rather than faked -- none of these declare
+        `touches`, and a raw block device has no prior on-disk state a
+        userspace file snapshot could restore from regardless. See
+        test_dd_against_a_regular_declared_file_is_already_covered below
+        for the case this does NOT describe."""
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
         steps = [
             Step("dd", command="dd if=/dev/zero of=/dev/sda"),
@@ -660,6 +665,31 @@ class TestUndoGeneration:
         coverage = generator.coverage(steps)
         assert coverage["coverage_ratio"] == 0.0
         assert coverage["uncovered"] == ["dd", "mkfs", "migrate"]
+
+    def test_dd_against_a_regular_declared_file_is_already_covered(
+            self, tmp_path: Path) -> None:
+        """HANDOFF.md §6.3: dd/mkfs writing to a regular file, not a raw
+        device, need nothing special -- `touches` is the only thing that
+        was ever required, the exact same mechanism `cp`/`sed -i`/any other
+        file-modifying command already gets. Runs the real command and the
+        real undo, not just checks an action object got built."""
+        target = tmp_path / "disk.img"
+        target.write_bytes(b"ORIGINAL" * 100)
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow")
+        step = Step("wipe", command=f"dd if=/dev/zero of={target} bs=800 count=1",
+                   touches=[str(target)])
+
+        actions = generator.for_step(step)
+        assert len(actions) == 1
+        coverage = generator.coverage([step])
+        assert coverage["coverage_ratio"] == 1.0
+        assert coverage["uncovered"] == []
+
+        subprocess.run(["bash", "-c", step.command], check=True)
+        assert target.read_bytes() != b"ORIGINAL" * 100
+
+        actions[0].undo()
+        assert target.read_bytes() == b"ORIGINAL" * 100
 
     def test_an_oversized_file_is_refused_loudly(self, tmp_path: Path) -> None:
         """An undo that cannot restore the file would be a lie."""

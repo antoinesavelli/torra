@@ -139,9 +139,15 @@ Rules that matter:
    path, a hostname, or a version.
 6. If the request is a question about the machine rather than a change to it,
    use intent "answer" and reply from the observed state. Do not plan a task.
-7. For anything you cannot express as a reversible step (database migrations,
-   dd, mkfs), add an explicit `rollback` entry. The harness derives undos for
-   files, services, packages and mkdir automatically, nothing else.
+7. `dd`/`mkfs` writing to a regular file need nothing special -- declare it in
+   `touches` like any other file-modifying command (rule 3) and it is
+   automatically snapshotted and restorable, the same as `cp` or `sed -i`.
+   Only `dd`/`mkfs` targeting a raw device (`/dev/sdX` and similar) or a
+   database migration are genuinely irreversible by the harness -- no prior
+   state exists to restore a whole device from, and a migration's own "down"
+   semantics are tool-specific and sometimes lossy even when one exists. For
+   those, add an explicit `rollback` entry, or say so plainly in `message`
+   if you cannot construct one you are confident actually reverses it.
 8. Use intent "refuse" if the request would damage the system with no
    legitimate purpose you can identify.
 9. Check the request against the observed machine state above before

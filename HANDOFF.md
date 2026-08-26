@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 635 passed
+python3 -m pytest tests/ -q          # must print 636 passed
 harness doctor
 ```
 
@@ -1323,7 +1323,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 635, must stay green
+python3 -m pytest tests/ -q                       # 636, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1761,11 +1761,52 @@ starts empty from the moment this was fixed, not backfilled from
 whatever use came before it. Nobody has fed them a real week yet either
 way.
 
-### 6.3 Undo coverage ceiling
+### 6.3 Undo coverage ceiling -- narrower than it looked, and the one real
+piece is a deliberate boundary, not a TODO
 
-Migrations, `dd`, `mkfs` require a declared `rollback:` entry. Automatic
-generation for database migrations would need to understand the migration tool,
-which is a real project rather than a patch.
+This used to read "migrations, `dd`, `mkfs` require a declared `rollback:`
+entry" as one bucket. Investigated 2026-08-26 and it's actually two
+different things:
+
+- **`dd`/`mkfs` writing to a regular file was already covered, and still
+  is.** Nothing in `UndoGenerator` special-cases these commands --
+  `for_step()` snapshots whatever a step's `touches` names, regardless of
+  which command wrote it, the same as `cp` or `sed -i`. Verified live
+  (not just read): a `dd if=/dev/zero of=<file> ...` step with the file
+  declared in `touches` gets a real `UndoAction`, and running it actually
+  restores the original bytes. `agent.py`'s `SYSTEM_PROMPT` rule 7 used
+  to say the opposite -- "the harness derives undos for files, services,
+  packages and mkdir automatically, nothing else" -- which told the model
+  `dd`/`mkfs` never get automatic coverage even when writing to a
+  perfectly ordinary file, and could have pushed it toward an
+  unnecessary (or in one live sample, actively wrong -- a "rollback" that
+  just re-ran the same zeroing command) manual `rollback:` entry instead
+  of the `touches:` declaration rule 3 already asks for. Fixed: rule 7
+  now says so directly. The only genuinely uncoverable case is `dd`/
+  `mkfs` against a **raw device** (`/dev/sdX` and similar) -- there is no
+  prior on-disk state a userspace file snapshot could restore a whole
+  device from, full stop, and that part of the original "ceiling" was
+  always correct.
+- **Database migrations are the one real piece, and auto-generating undo
+  for them is not a direction worth building, not just an unbuilt one.**
+  Doing it would mean detecting which migration tool a command belongs to
+  (alembic, Django, Rails, Flyway, Prisma, ...) and knowing each one's
+  own "down" semantics -- an open-ended list of things to detect, exactly
+  the shape §3's table already measured failing twice here (clarifier
+  phrasings, clarifier verbs: a closed vocabulary replaced with a
+  slightly larger one, worse than expected both times). Worse than "worse
+  than expected" here, though: guessing wrong about a specific tool's
+  rollback incantation runs it against a **live database**, and some
+  migrations (a lossy `DROP COLUMN`, for one) have no real "down" at all
+  regardless of tooling -- there is no prior snapshot to fall back to the
+  way a file has one. Requiring an explicit, human-reviewed `rollback:`
+  entry here isn't a stopgap waiting for someone to automate it away; for
+  this specific category it's the correct design.
+
+> Guarded by `tests/test_gates.py::TestUndoGeneration::test_dd_against_a_regular_declared_file_is_already_covered`
+> (the regular-file case, runs the real `dd` and the real undo) and
+> `test_it_invents_nothing_it_cannot_invert` (the raw-device and
+> migration cases stay correctly uncovered)
 
 ### 6.4 `ResumePoint` doesn't actually resume anything -- **fixed**, see §2.33
 
@@ -1876,7 +1917,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 635
+test command     python3 -m pytest tests/ -q     # 636
 ```
 
 ---
