@@ -274,9 +274,16 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
     triggered it."""
     marker = tmp_path / "counter.txt"
     marker.write_text("0", encoding="utf-8")
+    # 1.0s, not 0.3s: a fixed pause-then-check right after the click flaked
+    # twice in CI (busy still False -- the click's own Pressed message
+    # hadn't been pumped yet on a loaded shared runner, not execute_plan()
+    # finishing early: it sets busy synchronously, before the worker even
+    # dispatches). A poll loop below replaces the guessed pause, but it
+    # still needs a step slow enough that busy's True window stays wide
+    # open through whatever the runner's scheduling jitter costs it.
     app = build(tmp_path, scripted(plan_reply(
         "t", f"append to {marker}",
-        [{"id": "slow", "run": f"sleep 0.3 && echo x >> {marker}",
+        [{"id": "slow", "run": f"sleep 1.0 && echo x >> {marker}",
           "touches": [str(marker)]}])))
 
     calls: list[str] = []
@@ -296,10 +303,12 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
         assert app.query(StepCard), "plan did not render"
 
         await pilot.click("#run")
-        await pilot.pause(0.05)
+        for _ in range(50):  # up to ~2.5s, polling instead of guessing a pause
+            if app.busy:
+                break
+            await pilot.pause(0.05)
         assert app.busy, "the run should still be in flight"
         app.action_dry_run()  # the race attempt: Ctrl+D while genuinely busy
-        await pilot.pause(0.6)
         await app.workers.wait_for_complete()
 
         assert len(calls) == 1, \

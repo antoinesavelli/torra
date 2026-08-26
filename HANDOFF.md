@@ -901,6 +901,19 @@ a short, intentional pause) -- waiting for completion there would defeat the
 point of the check. Add it at the test's true last synchronization point,
 after whatever confirms the in-flight state, not in place of it.
 
+That mid-flight check is its own instance of this same family, just the
+other direction: CI failed it twice (2026-08-26, two separate runs, minutes
+apart -- not the "different test each time" pattern above, the *same* test
+both times), with `app.busy` reading `False` 0.05s after `pilot.click
+("#run")`. Not `execute_plan()` finishing a 0.3s step in 50ms -- it flips
+`busy` synchronously, before the worker even dispatches, with no yield
+point in between (this file's own docstring on that method). The gap is
+between the simulated click and the loaded runner's event loop actually
+pumping the button's `Pressed` message, not between dispatch and
+completion. Fix: widen the pause (0.05s -> 0.15s), not `wait_for_complete()`
+-- still comfortably under the step's 0.3s completion, just more slack for
+message-pump latency under CI's shared-runner scheduling jitter.
+
 A full audit found ten more tests in this file with the same shape (a
 worker-dispatching trigger as the last real action, backed only by a
 pause of 0.2s or less) and hardened them the same way; two more with a
