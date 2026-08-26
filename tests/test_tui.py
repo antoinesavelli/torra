@@ -290,9 +290,9 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
     orig_execute = app.harness.execute
 
     def spy(result: RunResult, approvals: dict[str, bool] | None = None,
-            dry_run: bool = False) -> RunResult:
+            dry_run: bool = False, on_output: Any | None = None) -> RunResult:
         calls.append("enter")
-        return orig_execute(result, approvals, dry_run)
+        return orig_execute(result, approvals, dry_run, on_output=on_output)
 
     app.harness.execute = spy  # type: ignore[method-assign]
 
@@ -315,6 +315,77 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
             f"execute() should run exactly once, ran {len(calls)} times"
         assert marker.read_text(encoding="utf-8") == "0x\n", \
             "the step must not have run twice"
+
+
+@pytest.mark.asyncio
+async def test_step_output_streams_live_and_survives_after_completion(
+        tmp_path: Path) -> None:
+    """The TUI counterpart to test_core.py's TestShellOutputSink and
+    test_pipeline.py's on_output tests -- this one drives the real worker
+    thread end to end (real Harness, real shell()) and checks the actual
+    widget content, not just that a callback fired. Unlike the reasoning
+    line, this one must NOT be cleared once the run finishes -- StepResult's
+    captured output is never shown anywhere else in the TUI."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "say hello slowly",
+        [{"id": "greet", "run": "echo first; sleep 0.6; echo second"}])))
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "say hello slowly"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        session_id = app.active_session_id
+        for _ in range(50):  # up to ~2.5s, polling for the first chunk to land
+            tab = app.sessions[session_id]
+            if "greet" in tab.output_text and "first" in tab.output_text["greet"]:
+                break
+            await pilot.pause(0.05)
+        else:
+            pytest.fail("live output never arrived while the step was still running")
+
+        assert app.busy, "the second echo hasn't run yet -- this must still be mid-flight"
+        assert "second" not in tab.output_text["greet"], \
+            "the second chunk landed too early for this to be a real liveness check"
+
+        await app.workers.wait_for_complete()
+
+        tab = app.sessions[session_id]
+        assert tab.output_text["greet"] == "first\nsecond\n"
+        assert "[greet]" in screen_text(app)
+        assert "first" in screen_text(app) and "second" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_a_rerun_starts_a_fresh_output_line_not_a_continuation(
+        tmp_path: Path) -> None:
+    """execute_plan() resets output_lines/output_text before dispatching --
+    otherwise a ctrl+r re-run reusing the same step id would keep growing
+    the previous run's already-finalized line."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "say hi", [{"id": "greet", "run": "echo hi"}])))
+
+    async with app.run_test() as pilot:
+        app.query_one("#prompt", Input).value = "say hi"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await app.workers.wait_for_complete()
+        session_id = app.active_session_id
+        assert app.sessions[session_id].output_text["greet"] == "hi\n"
+
+        await pilot.press("ctrl+r")
+        await pilot.pause(0.3)
+        assert app.query(StepCard), "re-plan did not render"
+        await pilot.click("#run")
+        await app.workers.wait_for_complete()
+
+        assert app.sessions[session_id].output_text["greet"] == "hi\n", \
+            "a fresh run must not concatenate onto the previous run's output"
 
 
 @pytest.mark.asyncio

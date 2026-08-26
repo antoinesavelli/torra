@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 609 passed
+python3 -m pytest tests/ -q          # must print 627 passed
 harness doctor
 ```
 
@@ -1114,6 +1114,96 @@ unknown, not "yes."**
 > + `test_clear_thinking_removes_the_live_reasoning_line` +
 > `test_a_completed_plan_request_leaves_no_reasoning_line_behind`
 
+### 2.32 Live step output has to reach `shell()` through a thread-local sink, not a `Step.run` parameter, because `Step` objects are built once at plan time and reused verbatim through execute
+
+The TUI's other blind spot besides §2.31's reasoning tokens: while a real
+step runs, the operator saw a `running...` spinner and nothing else --
+`shell()` used `subprocess.run()`, fully blocking, so no output exists
+anywhere until the whole command finishes. Worse than the reasoning-token
+gap: a successful step's captured stdout was never shown *at all*, live or
+after the fact -- `_executed()` only ever prints `ok`/`fail` + seconds +
+`error`, never `StepResult.output`. This was the only way to close that,
+not an optional nicety.
+
+The design constraint that shaped the fix: `TaskSpec.to_steps()` builds
+every step's `run` closure exactly once, in `Harness._gate()`, at **plan**
+time -- before the operator has even seen the plan, let alone approved it,
+let alone before any live UI consumer exists to hand it a callback. `Plan.
+steps` keeps those exact `Step` objects (`StepPlan.step`) all the way
+through `execute()`, not freshly-rebuilt ones -- identity matters there for
+approval-matching by `step_id` and for undo generation. Two ways to get a
+callback into `shell()` at execution time were rejected before landing on
+the one that shipped:
+
+- **Add a parameter to `Step.run`'s call signature.** Works in principle
+  (`def action(on_output=None): ...` still defaults safely for a zero-arg
+  call), but ripples into every test/example that hand-constructs a `Step
+  (run=lambda: ...)` today, and into every `to_steps(runner=...)`
+  injection point (`observe_machine`'s diagnostic commands, any test
+  double) which would all need to grow the same parameter whether they
+  cared about it or not.
+- **`contextvars.ContextVar`.** The idiomatic "pass extra context down a
+  call chain without threading a parameter through every intermediate
+  function" tool -- except real step execution runs on a plain
+  `threading.Thread` (`tui.py`'s per-session `run_worker(..., thread=True)`),
+  not an asyncio task, and a `ContextVar` set on one OS thread is invisible
+  to a different OS thread unless the context is explicitly copied at
+  spawn time. It would have silently never worked.
+
+What shipped: `harness/core/tasks.py`'s `shell_output_sink(on_output)`, a
+context manager wrapping a plain `threading.local()`. `shell()` checks it
+on every call; `Harness._run_one_step()` enters it only around the real
+(non-dry-run) `sp.step.run()` call, bound to that one step's id via a
+closure built at *execute* time, not baked into the `Step` itself. Zero
+change to `Step.run`'s call convention -- every existing `Step(run=...)`
+in tests/examples, and every `to_steps(runner=...)` injection, is
+unaffected, because nothing about how `Step.run()` is *called* changed at
+all. `threading.local()` genuinely works here because real execution
+(`_run_steps` through every `_run_one_step` in the loop) always runs
+start-to-finish on one single OS thread per session -- concurrent sessions
+each get their own worker thread and their own independent
+`threading.local()` storage, so two tabs executing at once never see each
+other's sink.
+
+`shell()`'s streaming path (`_shell_streaming`) had to match the default
+path's exact contract, not just "look similar": pipefail semantics (the
+same `set -o pipefail` prefix), the same timeout behavior (raises
+`subprocess.TimeoutExpired`, but enforced by the read loop itself, not
+`Popen.wait`'s own timeout, since a hung process that never closes its
+output pipes needs to be killed on schedule regardless), and -- easy to
+get wrong -- **stdout and stderr stay captured separately**, exactly like
+`capture_output=True` does. Merging them into one pipe (`stderr=
+subprocess.STDOUT`) would have been the simpler implementation, but would
+have changed what a *successful* step's `StepResult.output` actually
+contains (stderr noise mixed into what every other caller reads as pure
+stdout) purely as a side effect of whether a live consumer happened to be
+watching -- reading two separate pipes without deadlocking needs one
+reader thread per pipe, feeding one queue so `on_output` still sees lines
+in close to real arrival order.
+
+The live view is deliberately **not** cleared once a step finishes,
+unlike §2.31's reasoning line -- there is nowhere else in the TUI a
+successful step's output is ever shown, so the live line doubles as the
+only persistent (if not `SessionStore`-persisted) record of it for that
+run. `execute_plan()` resets `SessionTab.output_lines`/`output_text`
+before dispatching a fresh run, so a re-run reusing the same step id
+starts a new line instead of silently concatenating onto the previous
+run's already-finalized one.
+
+> Guarded by `tests/test_core.py::TestShellOutputSink` (pipefail under
+> streaming, stdout/stderr separation, timeout kills a hung process,
+> `test_output_genuinely_streams_instead_of_arriving_all_at_once` proves
+> real liveness with wall-clock timing, not just "the callback eventually
+> fired"); `tests/test_pipeline.py::test_on_output_receives_live_chunks_tagged_with_the_step_id`
+> + `test_on_output_tags_each_step_with_its_own_id` +
+> `test_on_output_is_never_called_for_a_dry_run` +
+> `test_a_failing_step_still_streams_its_output_before_raising`;
+> `tests/test_tui.py::test_step_output_streams_live_and_survives_after_completion`
+> (drives the real worker thread end to end, polls for the live line to
+> appear *before* the step finishes, asserts the second chunk hasn't
+> landed yet -- a genuine liveness check, not just a final-state assertion) +
+> `test_a_rerun_starts_a_fresh_output_line_not_a_continuation`
+
 ---
 
 ## 3. Things already tried that failed
@@ -1141,7 +1231,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 609, must stay green
+python3 -m pytest tests/ -q                       # 627, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1677,7 +1767,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 609
+test command     python3 -m pytest tests/ -q     # 627
 ```
 
 ---

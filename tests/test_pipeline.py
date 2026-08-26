@@ -197,6 +197,66 @@ def test_an_approved_step_runs(make_harness, tmp_path: Path) -> None:
     assert not victim.exists()
 
 
+def test_on_output_receives_live_chunks_tagged_with_the_step_id(
+        make_harness, tmp_path: Path) -> None:
+    """The mechanism behind the TUI's live step-output view -- see
+    HANDOFF.md's entry on shell_output_sink for why this has to be an
+    execute()-time callback rather than something baked into the step at
+    plan time."""
+    harness = make_harness(scripted(plan_reply(
+        "t", "say hello",
+        [{"id": "greet", "run": "echo hello; echo world"}])))
+
+    planned = harness.plan("say hello")
+    seen: list[tuple[str, str]] = []
+    done = harness.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+
+    assert done.outcome is Outcome.COMPLETED
+    assert all(step_id == "greet" for step_id, _ in seen)
+    assert "".join(chunk for _, chunk in seen) == "hello\nworld\n"
+
+
+def test_on_output_tags_each_step_with_its_own_id(make_harness, tmp_path: Path) -> None:
+    harness = make_harness(scripted(plan_reply(
+        "t", "two steps",
+        [{"id": "first", "run": "echo one"},
+         {"id": "second", "run": "echo two"}])))
+
+    planned = harness.plan("two steps")
+    seen: list[tuple[str, str]] = []
+    done = harness.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+
+    assert done.outcome is Outcome.COMPLETED
+    assert seen == [("first", "one\n"), ("second", "two\n")]
+
+
+def test_on_output_is_never_called_for_a_dry_run(make_harness, tmp_path: Path) -> None:
+    """Dry-run steps never call shell() at all -- they return a
+    "[dry-run] ..." placeholder directly, so there is nothing for
+    shell_output_sink to intercept."""
+    harness = make_harness(scripted(plan_reply(
+        "t", "say hello", [{"id": "greet", "run": "echo hello"}])))
+
+    planned = harness.plan("say hello")
+    seen: list[tuple[str, str]] = []
+    harness.execute(planned, {}, dry_run=True, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+
+    assert seen == []
+
+
+def test_a_failing_step_still_streams_its_output_before_raising(
+        make_harness, tmp_path: Path) -> None:
+    harness = make_harness(scripted(plan_reply(
+        "t", "fail loudly", [{"id": "boom", "run": "echo trying; exit 1"}])))
+
+    planned = harness.plan("fail loudly")
+    seen: list[tuple[str, str]] = []
+    done = harness.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+
+    assert done.outcome is Outcome.FAILED
+    assert seen == [("boom", "trying\n")]
+
+
 def test_a_safe_step_needs_no_tick(make_harness, tmp_path: Path) -> None:
     """Asking for approval on `df -h` trains people to tick without reading."""
     harness = make_harness(scripted(plan_reply(

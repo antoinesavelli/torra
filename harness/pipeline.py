@@ -1,9 +1,10 @@
 """Harness: the seven-stage orchestrator, the only thing that decides what runs.
 
 Depends on: harness.agent (Agent), harness.core (task/step primitives, ModelBackend,
-OllamaClient, ConflictDetector, ResumePoint), harness.gates (all five guardrails),
-harness.pipeline_types (Stage, Outcome, StepPlan, Plan, RunResult -- the data model
-this module produces).
+OllamaClient, ConflictDetector, ResumePoint), harness.core.tasks (shell_output_sink,
+directly -- not re-exported from harness.core, same as shell itself), harness.gates
+(all five guardrails), harness.pipeline_types (Stage, Outcome, StepPlan, Plan,
+RunResult -- the data model this module produces).
 
 converse/observe/propose/gate/present/execute/report. `observe`/`propose`
 live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
@@ -30,6 +31,7 @@ from .core import (
     StepResult,
     TaskSpec,
 )
+from .core.tasks import shell_output_sink
 from .gates import (
     Clarifier,
     DecisionLog,
@@ -253,9 +255,15 @@ class Harness:
     # -- stage 6: execute -------------------------------------------------- #
 
     def execute(self, result: RunResult, approvals: dict[str, bool] | None = None,
-                dry_run: bool = False) -> RunResult:
+                dry_run: bool = False,
+                on_output: Callable[[str, str], None] | None = None) -> RunResult:
         """Run an approved plan, updating and returning the same RunResult.
-        Broken into the phase helpers below, called from here in order."""
+        Broken into the phase helpers below, called from here in order.
+
+        `on_output(step_id, chunk)`, when given, is called with each real
+        step's live stdout/stderr as it arrives (see `shell_output_sink`).
+        Never fires for a dry run -- dry-run steps never call `shell()` at
+        all, they return a `[dry-run] ...` placeholder directly."""
         started = time.perf_counter() - result.seconds
         plan = result.plan
         if plan is None:
@@ -290,7 +298,7 @@ class Harness:
         resume = ResumePoint(task_id=plan.spec.task_id, total=len(plan.steps))
         resume_path = self.workdir / "resume" / f"{self._safe_filename(plan.spec.task_id)}.json"
 
-        failed = self._run_steps(plan, result, dry_run, resume, resume_path)
+        failed = self._run_steps(plan, result, dry_run, resume, resume_path, on_output)
 
         if failed:
             self._sweep_rollback(result)
@@ -344,7 +352,8 @@ class Harness:
             f"{self.rollback.depth}")
 
     def _run_steps(self, plan: Plan, result: RunResult, dry_run: bool,
-                    resume: ResumePoint, resume_path: Path) -> bool:
+                    resume: ResumePoint, resume_path: Path,
+                    on_output: Callable[[str, str], None] | None = None) -> bool:
         """Run each step in order, True if it failed/blocked. Guards run
         inside this loop, not once before it: state can change mid-run."""
         for sp in plan.steps:
@@ -367,7 +376,7 @@ class Harness:
                                    result.abort_reason)
                 return True
 
-            sp.result = self._run_one_step(sp, result, dry_run)
+            sp.result = self._run_one_step(sp, result, dry_run, on_output)
 
             if not sp.result.ok:
                 result.outcome = Outcome.FAILED
@@ -385,7 +394,8 @@ class Harness:
         return False
 
     @staticmethod
-    def _run_one_step(sp: StepPlan, result: RunResult, dry_run: bool) -> StepResult:
+    def _run_one_step(sp: StepPlan, result: RunResult, dry_run: bool,
+                      on_output: Callable[[str, str], None] | None = None) -> StepResult:
         """Run one step, converting any raise into a failed StepResult.
         Returns rather than assigns `sp.result` (mypy can't narrow a
         mutated attribute to non-None across a call boundary)."""
@@ -406,7 +416,11 @@ class Harness:
                 if sp.step.run is None:
                     raise HarnessError(
                         f"step {sp.step.step_id!r} has no run action attached")
-                output = sp.step.run()
+                step_id = sp.step.step_id
+                sink = ((lambda chunk: on_output(step_id, chunk))
+                       if on_output is not None else None)
+                with shell_output_sink(sink):
+                    output = sp.step.run()
             step_result = StepResult(sp.step.step_id, True, str(output or ""),
                                      seconds=time.perf_counter() - step_started)
         except Exception as exc:

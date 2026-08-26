@@ -1,14 +1,17 @@
 """Task/step primitives: what an operator writes and what the agent proposes.
 
-Depends on: PyYAML (lazily imported in `TaskSpec.load`/`to_yaml`), stdlib `subprocess`
-(lazily imported in `shell`).
+Depends on: PyYAML (lazily imported in `TaskSpec.load`/`to_yaml`), stdlib `subprocess`/
+`queue` (lazily imported in `shell`/`_shell_streaming`), stdlib `threading` (module-level,
+for the `shell_output_sink` thread-local).
 """
 
 from __future__ import annotations
 
 import functools
 import os
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +19,7 @@ from typing import Any
 __all__ = [
     "HarnessError", "OllamaError", "ContextBudgetError",
     "Step", "StepResult", "TaskSpec", "TaskSpecError",
+    "shell", "shell_output_sink",
 ]
 
 
@@ -339,6 +343,46 @@ class TaskSpec:
         return out
 
 
+#: Set only inside `shell_output_sink`'s `with` block, read only by `shell()`
+#: -- see that context manager's docstring for why this exists instead of a
+#: parameter on `shell()` or `Step.run`.
+_execution_context = threading.local()
+
+
+@contextmanager
+def shell_output_sink(on_output: Callable[[str], None] | None) -> Iterator[None]:
+    """Scope `shell()`'s live-output callback to the calling thread, for
+    the duration of the block.
+
+    `shell()` has no `on_output` parameter of its own, and `Step.run`
+    can't be given one either: `TaskSpec.to_steps()` builds every step's
+    `run` closure once, at plan/gate time (`Harness._gate`), long before
+    the plan is approved and long before any live consumer exists to hand
+    it a callback -- and `Plan.steps` keeps those exact `Step` objects
+    (identity matters for approval-matching and undo) all the way through
+    to `execute()`, rather than rebuilding them. A thread-local sink lets
+    `Harness.execute()` opt one real run into streaming without changing
+    `Step.run`'s call convention (still zero-arg, unchanged for every
+    existing `Step(run=...)` in tests/examples) or touching the
+    plan-time-built `Step` objects at all.
+
+    Safe across concurrent sessions: each session's real execution runs
+    entirely on its own worker thread (`tui.py`'s per-session
+    `run_worker(..., thread=True)`), and `threading.local()` storage is
+    genuinely per-OS-thread -- setting it here is invisible to any other
+    thread, including another session's concurrent run.
+    """
+    if on_output is None:
+        yield
+        return
+    previous = getattr(_execution_context, "on_output", None)
+    _execution_context.on_output = on_output
+    try:
+        yield
+    finally:
+        _execution_context.on_output = previous
+
+
 def shell(command: str, cwd: str | None = None,
           timeout: float | None = None) -> str:
     """Run one shell command, raising on a non-zero exit.
@@ -347,6 +391,10 @@ def shell(command: str, cwd: str | None = None,
     is what arms rollback. A step that swallowed a non-zero exit would report
     success and leave the system half changed.
     """
+    on_output = getattr(_execution_context, "on_output", None)
+    if on_output is not None:
+        return _shell_streaming(command, cwd, timeout, on_output)
+
     import subprocess
 
     # Explicit bash with pipefail, not shell=True's default /bin/sh (dash on
@@ -363,3 +411,79 @@ def shell(command: str, cwd: str | None = None,
             f"exit {result.returncode}: "
             f"{(result.stderr or result.stdout).strip()[:400]}")
     return (result.stdout or "").strip()
+
+
+def _shell_streaming(command: str, cwd: str | None, timeout: float | None,
+                     on_output: Callable[[str], None]) -> str:
+    """`shell()`'s live-output path: same pipefail/timeout/exit-code contract
+    as the default path above, calling `on_output` with each line of output
+    as it arrives instead of only returning the whole thing at the end.
+
+    stdout and stderr are captured into two separate pipes, exactly like
+    the default path's `capture_output=True` -- not merged into one stream
+    -- so the return value on success and the exception message on failure
+    mean the same thing regardless of whether a caller was watching live.
+    Reading two live pipes without deadlocking (a full stderr pipe while
+    blocked reading stdout, or vice versa) needs one reader thread per
+    pipe; both feed one queue so `on_output` still sees lines in something
+    close to real arrival order rather than "all of stdout, then all of
+    stderr". The timeout is enforced by the queue-read loop itself
+    (`subprocess.run`'s own `timeout=` has no equivalent when reading
+    incrementally), not by `Popen.wait`, so a process that never closes its
+    output pipes still gets killed on schedule.
+    """
+    import queue
+    import subprocess
+    import time as _time
+
+    proc = subprocess.Popen(
+        ["/bin/bash", "-c", f"set -o pipefail; {command}"],
+        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    assert proc.stdout is not None and proc.stderr is not None
+
+    lines: queue.Queue[tuple[str, str] | None] = queue.Queue()
+
+    def pump(stream: Any, tag: str) -> None:
+        for line in iter(stream.readline, ""):
+            lines.put((tag, line))
+        stream.close()
+        lines.put(None)
+
+    readers = [
+        threading.Thread(target=pump, args=(proc.stdout, "out"), daemon=True),
+        threading.Thread(target=pump, args=(proc.stderr, "err"), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    deadline = _time.monotonic() + (timeout or 3600)
+    open_streams = len(readers)
+    while open_streams > 0:
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            proc.kill()
+            for reader in readers:
+                reader.join(timeout=1)
+            raise subprocess.TimeoutExpired(command, timeout or 3600)
+        try:
+            item = lines.get(timeout=min(remaining, 0.5))
+        except queue.Empty:
+            continue
+        if item is None:
+            open_streams -= 1
+            continue
+        tag, line = item
+        (stdout_parts if tag == "out" else stderr_parts).append(line)
+        on_output(line)
+
+    for reader in readers:
+        reader.join()
+    returncode = proc.wait(timeout=5)  # both pipes closed -- already exited, just reaping
+
+    stdout = "".join(stdout_parts)
+    stderr = "".join(stderr_parts)
+    if returncode != 0:
+        raise RuntimeError(f"exit {returncode}: {(stderr or stdout).strip()[:400]}")
+    return stdout.strip()

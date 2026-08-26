@@ -11,6 +11,7 @@ import contextlib
 import json
 import os
 import signal
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,13 @@ from harness.core.machine import (
     _scan_knowledge_dir,
     detect_accelerator,
 )
-from harness.core.tasks import ContextBudgetError, TaskSpec, TaskSpecError, shell
+from harness.core.tasks import (
+    ContextBudgetError,
+    TaskSpec,
+    TaskSpecError,
+    shell,
+    shell_output_sink,
+)
 
 
 @contextlib.contextmanager
@@ -1557,6 +1564,111 @@ class TestShellPipefail:
     def test_the_final_command_alone_failing_still_raises(self) -> None:
         with pytest.raises(RuntimeError, match="exit 1"):
             shell("echo hi | false")
+
+
+class TestShellOutputSink:
+    """`shell_output_sink`/`shell()`'s live-streaming path: real subprocess
+    tests throughout, same discipline as TestShellPipefail above -- this is
+    the actual mechanism `Harness.execute()` uses to give the TUI live step
+    output, so its pipefail/timeout/exit-code contract has to match the
+    default path exactly, not just "look similar"."""
+
+    def test_without_a_sink_shell_is_unaffected(self) -> None:
+        """The overwhelming default case: no sink active anywhere, `shell()`
+        behaves exactly as it always has (this is also implicitly covered
+        by TestShellPipefail running with no sink, but stated directly)."""
+        assert shell("echo hello") == "hello"
+
+    def test_a_sink_receives_output_as_it_runs_not_only_at_the_end(self) -> None:
+        received: list[str] = []
+        with shell_output_sink(received.append):
+            result = shell("echo one; echo two; echo three")
+        assert result == "one\ntwo\nthree"
+        assert "".join(received) == "one\ntwo\nthree\n"
+
+    def test_the_sink_is_scoped_to_the_with_block(self) -> None:
+        received: list[str] = []
+        with shell_output_sink(received.append):
+            shell("echo inside")
+        shell("echo outside")  # no sink active -- must not append here
+        assert received == ["inside\n"]
+
+    def test_a_none_sink_is_a_harmless_no_op(self) -> None:
+        with shell_output_sink(None):
+            assert shell("echo hello") == "hello"
+
+    def test_success_return_value_matches_the_non_streaming_path(self) -> None:
+        assert shell("printf 'a\\nb\\n'") == shell("printf 'a\\nb\\n'")
+        received: list[str] = []
+        with shell_output_sink(received.append):
+            streamed = shell("printf 'a\\nb\\n'")
+        assert streamed == "a\nb"
+
+    def test_a_failure_raises_with_the_same_shape_as_the_default_path(self) -> None:
+        with pytest.raises(RuntimeError, match="exit 1"):
+            with shell_output_sink(lambda chunk: None):
+                shell("echo boom >&2; exit 1")
+
+    def test_stderr_is_preferred_in_the_failure_message_same_as_default(self) -> None:
+        received: list[str] = []
+        with pytest.raises(RuntimeError, match="from stderr"):
+            with shell_output_sink(received.append):
+                shell("echo from stdout; echo from stderr >&2; exit 3")
+        # Both streams still reached the live callback -- only the raised
+        # message prefers stderr, matching (stderr or stdout) in the
+        # default path.
+        assert any("from stdout" in c for c in received)
+        assert any("from stderr" in c for c in received)
+
+    def test_stdout_and_stderr_stay_separate_on_success(self) -> None:
+        """The streaming path merges both into one queue for live display,
+        but must not merge them into the *returned* value -- StepResult.output
+        must mean the same thing whether or not a live consumer was watching."""
+        received: list[str] = []
+        with shell_output_sink(received.append):
+            result = shell("echo out-only; echo err-only >&2")
+        assert result == "out-only"  # stderr never in the success return value
+        assert any("err-only" in c for c in received)  # but still streamed live
+
+    def test_pipefail_is_still_enforced_while_streaming(self) -> None:
+        received: list[str] = []
+        with pytest.raises(RuntimeError, match="exit 1"):
+            with shell_output_sink(received.append):
+                shell("false | cat")
+
+    def test_a_hung_process_is_killed_on_timeout(self) -> None:
+        received: list[str] = []
+        with pytest.raises(subprocess.TimeoutExpired):
+            with shell_output_sink(received.append):
+                shell("sleep 5", timeout=0.3)
+
+    def test_output_genuinely_streams_instead_of_arriving_all_at_once(self) -> None:
+        """The whole point of this feature: the first chunk must land well
+        before the command finishes, not just before shell() returns (which
+        would be true even of a fully-buffered implementation)."""
+        import time
+
+        arrivals: list[float] = []
+        start = time.monotonic()
+        with shell_output_sink(lambda chunk: arrivals.append(time.monotonic() - start)):
+            shell("echo first; sleep 0.5; echo second")
+        assert len(arrivals) == 2
+        assert arrivals[0] < 0.25, \
+            f"first chunk arrived at {arrivals[0]:.2f}s, not live if that's near the 0.5s total"
+        assert arrivals[1] >= 0.4
+
+    def test_nested_calls_restore_the_previous_sink(self) -> None:
+        """Defensive, not a realistic call pattern today (nothing nests
+        shell_output_sink calls) -- proves the save/restore is correct
+        rather than a blind overwrite, in case that ever changes."""
+        outer: list[str] = []
+        inner: list[str] = []
+        with shell_output_sink(outer.append):
+            with shell_output_sink(inner.append):
+                shell("echo nested")
+            shell("echo outer-again")
+        assert inner == ["nested\n"]
+        assert outer == ["outer-again\n"]
 
 
 class TestContextCompressor:

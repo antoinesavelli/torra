@@ -7,7 +7,7 @@ one file.
 
 | File | Holds |
 |---|---|
-| `tasks.py` | `Step`, `TaskSpec`, `shell()` -- the task/step primitives; `Step.command` is what the safety gate classifies |
+| `tasks.py` | `Step`, `TaskSpec`, `shell()` -- the task/step primitives; `Step.command` is what the safety gate classifies. `shell_output_sink()` scopes `shell()`'s live-output callback to the calling thread, for `Harness.execute()`'s `on_output` (`HANDOFF.md` §2.32) |
 | `resume.py` | `ResumePoint`, one atomically-written file so a crash doesn't mean starting over |
 | `conflict.py` | `ConflictDetector`, two-layer detection: cheap fingerprints to shortlist, SHA256 to confirm |
 | `context.py` | `ContextCompressor`, keeps the conversation under a token budget |

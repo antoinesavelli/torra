@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 
@@ -55,6 +55,16 @@ __all__ = ["HarnessApp", "run_tui"]
 #: looks identical whether it's been one second or frozen for sixty, so the
 #: status line animates and counts up instead of just sitting there.
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+#: Live step output is capped for display, not for what actually gets
+#: captured -- StepResult.output stays the full text regardless. A step
+#: with pathological output volume (a runaway loop, a verbose install)
+#: would otherwise grow this widget, and the render cost of re-drawing it,
+#: without bound. Generous on purpose: this is the only place an operator
+#: ever sees a successful step's output at all (see SessionTab.output_lines'
+#: docstring), so losing the head of long output under a tight cap would
+#: hide real information, not just noise.
+STEP_OUTPUT_DISPLAY_CAP = 8000
 
 
 #: Risk level to a colour the eye can sort at a glance without reading.
@@ -262,6 +272,14 @@ class SessionTab:
     # see HANDOFF.md's note on why this stays out of SessionStore/telemetry.
     reasoning_line: ChatLine | None = None
     reasoning_text: str = ""
+    # Live per-step execution output. Unlike reasoning_line, these are not
+    # cleared when the run finishes -- StepResult's captured stdout is
+    # never shown anywhere else in the TUI, so the live line is the only
+    # place an operator ever sees a successful step's output, and stays as
+    # part of that run's visible transcript. Keyed by step_id so a
+    # multi-step plan gets one growing line per step, not one shared line.
+    output_lines: dict[str, ChatLine] = field(default_factory=dict)
+    output_text: dict[str, str] = field(default_factory=dict)
 
 
 class SessionPicker(ModalScreen[str | None]):
@@ -577,6 +595,36 @@ class HarnessApp(App):
         self.run_worker(tab.reasoning_line.remove(), exclusive=False)  # type: ignore[arg-type]  # textual stub is stricter than the accepted runtime API
         tab.reasoning_line = None
         tab.reasoning_text = ""
+
+    def _reset_step_output(self, session_id: str) -> None:
+        """Forget the previous run's step-output widgets before a new one
+        starts -- otherwise a step id reused by a fresh run (the common
+        case: ctrl+r re-runs the same plan) would keep growing an old,
+        already-finalized line instead of starting a new one."""
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return
+        tab.output_lines = {}
+        tab.output_text = {}
+
+    def _append_step_output(self, session_id: str, step_id: str, chunk: str) -> None:
+        """Grow this step's live output line by one chunk, mounting it on
+        the first chunk for this step_id. Called via `call_from_thread`
+        from the execute worker thread -- `on_output` fires from inside
+        `shell()`'s streaming read loop, which runs on that same thread."""
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return  # the tab was closed while a step was still running
+        if step_id not in tab.output_lines:
+            line = ChatLine("harness", "", "dim")
+            tab.output_lines[step_id] = line
+            tab.output_text[step_id] = ""
+            self._chat(session_id).mount(line)
+        tab.output_text[step_id] += chunk
+        text = tab.output_text[step_id]
+        shown = text[-STEP_OUTPUT_DISPLAY_CAP:] if len(text) > STEP_OUTPUT_DISPLAY_CAP else text
+        tab.output_lines[step_id].set_text(f"[{escape(step_id)}] {escape(shown)}")
+        self._chat(session_id).scroll_end(animate=False)
 
     def _status(self, session_id: str, text: str) -> None:
         """Update the shared status line -- only if `session_id` is the active tab."""
@@ -985,6 +1033,7 @@ class HarnessApp(App):
         tab = self.sessions[session_id]
         if tab.busy:
             return
+        self._reset_step_output(session_id)
         self._set_busy(session_id, True, "dry run..." if dry_run else "running...")
         self.run_worker(partial(self._execute_plan_body, session_id, dry_run),
                         thread=True, exclusive=True, group=f"session-{session_id}")
@@ -997,8 +1046,13 @@ class HarnessApp(App):
             self.call_from_thread(self._set_busy, session_id, False, "")
             return
         approvals = self.call_from_thread(self._approvals, session_id)
+
+        def on_output(step_id: str, chunk: str) -> None:
+            self.call_from_thread(self._append_step_output, session_id, step_id, chunk)
+
         try:
-            done = tab.harness.execute(result, approvals, dry_run=dry_run)
+            done = tab.harness.execute(result, approvals, dry_run=dry_run,
+                                       on_output=on_output)
         except Exception as exc:
             self.call_from_thread(self._say, session_id, "error",
                                   f"{type(exc).__name__}: {escape(str(exc))}")
