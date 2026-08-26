@@ -1780,7 +1780,33 @@ finding shrinks rather than accumulates.
 ### 6.5 Smaller, known
 
 - Tree watching misses a same-size same-mtime edit; the SHA256 layer catches it
-- Reflink shadow copies only help on btrfs and xfs, not the ext4 default
+- **Reflink shadow copies on ext4 -- investigated 2026-08-26, closed as
+  "already correct, nothing to fix."** ext4 (confirmed live: this
+  project's own reference machine's root filesystem, `/dev/nvme0n1p3`)
+  has no CoW clone primitive at all -- `cp --reflink=always` fails there
+  with `Operation not supported`, exactly the case `_probe_reflink()`
+  already detects (once per `UndoGenerator` session, cached) and falls
+  back from to a real `shutil.copy2` byte copy, itself bounded by
+  `MAX_SHADOW_BYTES` (64MB; anything larger is skipped with an
+  "uncovered" note rather than copied). The one genuinely zero-copy
+  alternative, hard-linking instead of copying, was considered and
+  rejected: a hard link only protects a file from being deleted or
+  replaced wholesale -- a step that truncates-and-rewrites the *same*
+  inode in place (`> file`, some in-place editors) would silently
+  corrupt the "snapshot" too, since both paths point at the same data
+  blocks, and steps here are arbitrary shell commands with no guarantee
+  they replace-via-rename rather than truncate-in-place. That would make
+  undo look fast right up until it silently restored garbage -- exactly
+  the failure mode this whole subsystem exists to prevent. Redirecting
+  shadow copies to `/tmp` doesn't help either: on this machine `/tmp` is
+  the same ext4 root, not tmpfs, and even where `/tmp` is tmpfs
+  elsewhere, spending RAM on undo snapshots would compete with the RAM
+  headroom this project already cares about for model routing (see the
+  `CPU_PARAM_CEILING_B` guardrail) -- an unmeasured, environment-specific
+  tradeoff, not a clear win. No measured performance problem motivated
+  looking at this in the first place (`docs/README.md`'s own
+  benchmark-before-build rule applies here too) -- reopen only if one
+  shows up.
 - One blind-corpus clarifier false positive (`run nvidia-smi and report the free
   VRAM in MB`), left unfixed deliberately so one unoptimised measurement survives
 - `detect_accelerator()`'s ROCm branch (`harness/core/machine.py`) detects
