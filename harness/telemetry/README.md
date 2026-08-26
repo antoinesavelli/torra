@@ -8,7 +8,7 @@ was one file.
 |---|---|
 | `records.py` | `TaskRecord`/`TaskLogger`, append-only JSONL of every task with what each gate decided |
 | `labels.py` | `Label`/`LabelStore`, human verdicts attached to logged requests (depends on `records.py` for `TaskRecord`) |
-| `audit.py` | `CorpusExporter` (drift against the synthetic clarifier corpus) and `LoopholeAudit` (the anchored-but-goalless gap), both depend on `records.py`/`labels.py` |
+| `audit.py` | `CorpusExporter` (drift against the synthetic clarifier corpus, scored from real logged outcomes via `TaskRecord.clarifier_blocked`, not a fresh clarifier call -- `HANDOFF.md` §2.34) and `LoopholeAudit` (the anchored-but-goalless gap), both depend on `records.py`/`labels.py` |
 | `crash.py` | `CrashRecord`/`CrashReporter`, append-only JSONL of unhandled exceptions that escaped every other guard -- not ordinary gated-task failures, which `records.py` already covers (depends on `records.py` for `redact_secrets`) |
 | `summary.py` | `health_summary`/`crash_summary`, human-readable aggregation over `records.py`/`crash.py` data -- shared by `cli.py`'s `harness evidence` and `tui.py`'s sidebar Evidence tab, so neither entry point depends on the other |
 

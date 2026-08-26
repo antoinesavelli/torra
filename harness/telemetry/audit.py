@@ -1,9 +1,10 @@
 """Turns labeled traffic into corpus format, measures clarifier drift, and
 quantifies the anchored-but-goalless gap.
 
-Depends on: harness.telemetry.records (TaskLogger, TaskRecord), harness.telemetry.labels
-(LabelStore). `clarifier` parameters are duck-typed (`detect`/`anchors_in`), so
-this module has no import-time dependency on harness.gates.
+Depends on: harness.telemetry.records (TaskRecord), harness.telemetry.labels
+(LabelStore). `LoopholeAudit`'s `clarifier` parameter is duck-typed
+(`detect`/`anchors_in`), so this module has no import-time dependency on
+harness.gates.
 """
 
 from __future__ import annotations
@@ -16,20 +17,32 @@ from pathlib import Path
 from typing import Any
 
 from .labels import LabelStore
-from .records import TaskLogger, TaskRecord
+from .records import TaskRecord
 
 __all__ = ["DriftReport", "CorpusExporter", "LoopholeReport", "LoopholeAudit"]
 
 
 @dataclass
 class DriftReport:
-    """How the clarifier scores on real traffic versus the synthetic corpus."""
+    """How the clarifier scores on real traffic versus the synthetic corpus.
+
+    `ambiguous_total`/`specific_total` count unique labeled request *texts*
+    -- how much labeling work has been done. `ambiguous_occurrences`/
+    `specific_occurrences` count real logged *attempts* of those texts --
+    the actual sample size `fn_rate`/`fp_rate` are computed over. The two
+    differ whenever a phrasing was submitted more than once: a request
+    asked four times that interrupted the operator three of those times is
+    three real occurrences of a false positive, not a single yes/no verdict
+    about the phrasing (see `CorpusExporter.drift`'s docstring).
+    """
 
     labeled_total: int = 0
     ambiguous_total: int = 0
     specific_total: int = 0
+    ambiguous_occurrences: int = 0
+    specific_occurrences: int = 0
     false_negatives: list[tuple[str, str]] = field(default_factory=list)
-    false_positives: list[tuple[str, list[str]]] = field(default_factory=list)
+    false_positives: list[tuple[str, str]] = field(default_factory=list)
     fn_rate: float = 0.0
     fp_rate: float = 0.0
     baseline_fn_rate: float | None = None
@@ -45,6 +58,8 @@ class DriftReport:
         lines = [
             f"labeled traffic: {self.labeled_total} "
             f"({self.ambiguous_total} ambiguous, {self.specific_total} specific)",
+            f"  real occurrences checked: {self.ambiguous_occurrences} ambiguous, "
+            f"{self.specific_occurrences} specific",
             f"  live false negative rate : {self.fn_rate:.0%}"
             + (f"  (synthetic baseline {self.baseline_fn_rate:.0%})"
                if self.baseline_fn_rate is not None else ""),
@@ -57,8 +72,9 @@ class DriftReport:
             lines.append("  MISSED (ambiguous, waved through):")
             lines.extend(f"    {r!r}  ({why})" for r, why in self.false_negatives)
         if self.false_positives:
-            lines.append("  BLOCKED (specific, should have passed):")
-            lines.extend(f"    {r!r}  {codes}" for r, codes in self.false_positives)
+            lines.append("  INTERRUPTED (specific, actually stopped and asked):")
+            lines.extend(f"    {r!r}  clarifier said: {codes}"
+                        for r, codes in self.false_positives)
         return "\n".join(lines)
 
 
@@ -73,14 +89,26 @@ class CorpusExporter:
     `MIN_SAMPLE` exists because a false negative rate computed on four requests
     is noise wearing a percentage sign, and reporting it as though it were a
     result is exactly the failure this whole phase is meant to correct.
+
+    `drift()` scores real logged *outcomes* (`TaskRecord.clarifier_blocked`
+    -- did this specific attempt actually end in intent "ask"), not a fresh
+    `Clarifier.detect()` call on the request text in isolation. Those are
+    not the same measurement: `Agent._messages()`'s own prompt tells the
+    model "if any of [the clarifier's flagged gaps] genuinely blocks you,
+    use intent ask; if you can proceed anyway, say why" -- the clarifier is
+    a tool the model consults, not a wall, so a flagged gap and an actual
+    interruption are different events. Checking `detect()` alone measures
+    only the first one and reports it as if it were the second, which
+    measured 72% "false positives" on one real 100-task sample where the
+    model's own override actually kept the real interruption rate near 21%
+    -- the clarifier wasn't nearly as disruptive as that number said.
     """
 
     #: Below this many labeled entries the drift verdict is "insufficient data".
     MIN_SAMPLE: int = 30
 
-    def __init__(self, logger: TaskLogger, labels: LabelStore) -> None:
-        """Store the task logger and label store this exporter reads from."""
-        self.logger = logger
+    def __init__(self, labels: LabelStore) -> None:
+        """Store the label store this exporter reads from."""
         self.labels = labels
 
     def export(self) -> tuple[list[tuple[str, str]], list[str]]:
@@ -116,35 +144,35 @@ class CorpusExporter:
         return target
 
     @staticmethod
-    def _false_negatives(ambiguous: list[tuple[str, str]],
-                         clarifier: Any) -> list[tuple[str, str]]:
-        out = []
-        for request, why in ambiguous:
-            try:
-                if not clarifier.detect(request):
-                    out.append((request, why))
-            except Exception as exc:
-                out.append((request, f"detect raised {exc!r}"))
-        return out
+    def _false_negatives(records: Sequence[TaskRecord],
+                         ambiguous: dict[str, str]) -> list[tuple[str, str]]:
+        """Real attempts of an ambiguous-labeled request that did NOT
+        actually stop and ask -- the dangerous direction: the model
+        proceeded on something a human called genuinely unclear instead of
+        asking, silently guessing rather than being wrong out loud."""
+        return [(r.request, ambiguous[r.request]) for r in records
+                if r.request in ambiguous and not r.clarifier_blocked]
 
     @staticmethod
-    def _false_positives(specific: list[str], clarifier: Any) -> list[tuple[str, list[str]]]:
-        out = []
-        for request in specific:
-            try:
-                found = clarifier.detect(request)
-                if found:
-                    out.append((request, [a.code for a in found]))
-            except Exception as exc:
-                out.append((request, [f"detect raised {exc!r}"]))
-        return out
+    def _false_positives(records: Sequence[TaskRecord],
+                         specific: set[str]) -> list[tuple[str, str]]:
+        """Real attempts of a specific-labeled request that DID actually
+        stop and ask -- a real interruption, not just a structural flag
+        the model went on to override, which is the common case (see this
+        class's own docstring)."""
+        return [(r.request, ", ".join(r.clarifier_codes) or "no codes recorded")
+                for r in records if r.request in specific and r.clarifier_blocked]
 
     @staticmethod
     def _drift_verdict(report: DriftReport, min_sample: int,
                        baseline_fn: float | None, baseline_fp: float | None) -> str:
-        """Deliberately conservative: below `min_sample` labels, no conclusion."""
-        if report.labeled_total < min_sample:
-            return (f"insufficient data: {report.labeled_total} labeled of "
+        """Deliberately conservative: below `min_sample` real occurrences,
+        no conclusion -- gated on occurrences, not unique labeled texts,
+        since occurrences are what the rates below are actually computed
+        over."""
+        sample = report.ambiguous_occurrences + report.specific_occurrences
+        if sample < min_sample:
+            return (f"insufficient data: {sample} real occurrence(s) of "
                     f"{min_sample} needed. No conclusion drawn.")
         if baseline_fn is not None and report.fn_rate > baseline_fn + 0.10:
             return (f"DRIFT: live false negatives {report.fn_rate:.0%} against a "
@@ -157,25 +185,35 @@ class CorpusExporter:
 
     def drift(
         self,
-        clarifier: Any,
+        records: Sequence[TaskRecord],
         baseline_fn: float | None = None,
         baseline_fp: float | None = None,
     ) -> DriftReport:
-        """Score a clarifier against labeled traffic and compare to the baseline."""
-        ambiguous, specific = self.export()
+        """Score real logged outcomes for labeled traffic against the
+        synthetic baseline. `records` should be every record a caller has
+        (typically `TaskLogger.read()`) -- only the ones whose `request`
+        matches a label are actually used."""
+        ambiguous_pairs, specific_list = self.export()
+        ambiguous_map = dict(ambiguous_pairs)
+        specific_set = set(specific_list)
+        ambiguous_occurrences = [r for r in records if r.request in ambiguous_map]
+        specific_occurrences = [r for r in records if r.request in specific_set]
+
         report = DriftReport(
-            labeled_total=len(ambiguous) + len(specific),
-            ambiguous_total=len(ambiguous),
-            specific_total=len(specific),
+            labeled_total=len(ambiguous_map) + len(specific_set),
+            ambiguous_total=len(ambiguous_map),
+            specific_total=len(specific_set),
+            ambiguous_occurrences=len(ambiguous_occurrences),
+            specific_occurrences=len(specific_occurrences),
             baseline_fn_rate=baseline_fn,
             baseline_fp_rate=baseline_fp,
         )
-        report.false_negatives = self._false_negatives(ambiguous, clarifier)
-        report.false_positives = self._false_positives(specific, clarifier)
-        report.fn_rate = round(
-            len(report.false_negatives) / len(ambiguous), 4) if ambiguous else 0.0
-        report.fp_rate = round(
-            len(report.false_positives) / len(specific), 4) if specific else 0.0
+        report.false_negatives = self._false_negatives(ambiguous_occurrences, ambiguous_map)
+        report.false_positives = self._false_positives(specific_occurrences, specific_set)
+        report.fn_rate = round(len(report.false_negatives) / len(ambiguous_occurrences), 4
+                               ) if ambiguous_occurrences else 0.0
+        report.fp_rate = round(len(report.false_positives) / len(specific_occurrences), 4
+                               ) if specific_occurrences else 0.0
         report.verdict = self._drift_verdict(report, self.MIN_SAMPLE, baseline_fn, baseline_fp)
         return report
 

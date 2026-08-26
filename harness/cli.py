@@ -376,7 +376,7 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     logger = TaskLogger(workdir / "telemetry" / "tasks.jsonl")
     labels = LabelStore(workdir / "telemetry" / "labels.jsonl")
     records = logger.read()
-    exporter = CorpusExporter(logger, labels)
+    exporter = CorpusExporter(labels)
 
     # Found live: this only ever counted intent == "plan"/"ask", silently
     # leaving "answer" and "refuse" out of a summary that reads as complete
@@ -395,7 +395,7 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     print(health_summary(records))
     print()
     clarifier = Clarifier()
-    print(exporter.drift(clarifier, args.baseline_fn, args.baseline_fp).render())
+    print(exporter.drift(records, args.baseline_fn, args.baseline_fp).render())
     print()
     loophole = LoopholeAudit(clarifier).audit(records)
     print(f"anchored-but-goalless: {loophole.anchored_but_goalless} of "

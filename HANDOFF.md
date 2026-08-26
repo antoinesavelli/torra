@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 636 passed
+python3 -m pytest tests/ -q          # must print 637 passed
 harness doctor
 ```
 
@@ -1296,6 +1296,75 @@ explicitly rather than inherit it from this one.
 > (updated to spy on `ResumePoint.save`'s path rather than checking
 > post-hoc file existence, since a failed run now cleans up too)
 
+### 2.34 `CorpusExporter.drift()` was scoring the clarifier's isolated verdict, not what actually happened to the operator -- 72% "false positives" were really ~17%, and that same fix exposed an 84% false-negative rate the old measurement had no way to see
+
+First real-traffic labeling pass this project has ever done (2026-08-26,
+57 of 100 logged requests, `harness label`): `drift()` reported a 72%
+live false-positive rate against a 10% synthetic baseline -- "DRIFT: the
+clarifier is interrupting real work." Investigated before touching
+anything, per this file's own §7 discipline (measure before you build):
+`drift()`'s `_false_positives`/`_false_negatives` called
+`clarifier.detect(request)` fresh on the labeled text and compared that
+in isolation to the human's label. But `Agent._messages()`'s own prompt
+(`harness/agent.py`) tells the model exactly the opposite of "a flagged
+gap means ask": *"if any of them genuinely blocks you, use intent ask.
+If you can proceed anyway, say why in `message`."* The clarifier is
+`Agent`'s own docstring's words, "*a tool the model consults, not a wall
+in front of it*" -- `detect()` finding a gap and the operator actually
+being interrupted are two different events, and the old `drift()` only
+ever measured the first one while reporting it as the second.
+
+Cross-referencing the 26 "false positive" requests against their real
+recorded outcomes in `tasks.jsonl` (not just re-running `detect()`)
+found 71% of those attempts actually resulted in `answered`/`completed`
+-- the model saw the flagged gap and correctly proceeded anyway, exactly
+as designed. Only ~21% became a genuine `needs_answer` interruption.
+Fixed by changing what `drift()` scores: instead of a fresh
+`clarifier.detect()` call, it now reads each labeled request's real
+logged attempts and checks `TaskRecord.clarifier_blocked` (already
+persisted per-record as `intent == "ask"`, `records.py`'s
+`_apply_turn_fields`) against the human's label. Confirmed live against
+the same real data: false positive rate dropped to 17%, right next to
+the 10% baseline.
+
+That same fix, run against the same real data, immediately surfaced a
+second, more concerning number the old measurement structurally could
+not have found: **84% false negatives** (baseline 0%). For a request a
+human calls genuinely ambiguous, the model almost never actually stops
+and asks -- `'storage issues on paramostorage'` alone was submitted 9
+times in this traffic and never once produced a real clarifying
+question. The old, isolated-`detect()` measurement couldn't see this at
+all: it only ever asked "did the clarifier flag it," never "then what
+happened" -- an ambiguous-but-not-blocked request was invisible to it in
+either direction. This is not fixed here (no code changed in response to
+it) -- it is exactly the kind of finding HANDOFF.md §7's four questions
+exist to force before building anything: measured, real, and pointing at
+the model's own judgment (how eagerly it treats "you *can* proceed" as
+"you *should*"), not at the clarifier's anchor patterns, which is a
+different fix than the one this entry made.
+
+Per-occurrence, not per-unique-text: a phrasing submitted four times that
+interrupted three of those times is three real interruptions the
+operator experienced, not one yes/no fact about the phrasing --
+`DriftReport` gained `ambiguous_occurrences`/`specific_occurrences`
+fields (distinct from `ambiguous_total`/`specific_total`, which still
+count unique labeled texts) so the rate denominators reflect real sample
+size, and `MIN_SAMPLE`'s gate now checks occurrences, not unique labels,
+since that's what the rates are actually computed over.
+`CorpusExporter.__init__` dropped its `logger: TaskLogger` parameter --
+stored but never read by anything in the class even before this change;
+`drift()` now takes `records: Sequence[TaskRecord]` explicitly instead
+(the caller already has them, matching `LoopholeAudit.audit(records)`'s
+existing sibling shape).
+
+> Guarded by `tests/test_telemetry.py::TestDrift` (rewritten: real
+> `TaskRecord`s with `clarifier_blocked` set instead of a `FakeClarifier`
+> stub calling `detect()`; a dedicated
+> `test_occurrences_are_counted_per_real_attempt_not_per_unique_text`
+> case proves repeated real submissions of the same phrasing are each
+> scored independently, and `test_an_unmatched_record_is_simply_ignored`
+> proves an unlabeled record contributes to neither rate)
+
 ---
 
 ## 3. Things already tried that failed
@@ -1323,7 +1392,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 636, must stay green
+python3 -m pytest tests/ -q                       # 637, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1917,7 +1986,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 636
+test command     python3 -m pytest tests/ -q     # 637
 ```
 
 ---

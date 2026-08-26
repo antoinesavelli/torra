@@ -40,45 +40,64 @@ class FakeClarifier:
 
 class TestDrift:
     """CorpusExporter.drift(): live false-negative/positive rate against a
-    synthetic baseline, refusing to conclude anything under MIN_SAMPLE."""
+    synthetic baseline, computed from real logged outcomes
+    (TaskRecord.clarifier_blocked -- did this specific attempt actually end
+    in intent "ask") rather than a fresh Clarifier.detect() call on the
+    request text in isolation. Those differ: Agent._messages()'s own
+    prompt tells the model it can proceed despite a flagged gap, so a
+    structural flag and a real interruption are different events -- see
+    CorpusExporter's own docstring for the live measurement (72% vs 21%)
+    that made this the point of the redesign, not just a refactor.
+    Refuses to conclude anything under MIN_SAMPLE real occurrences."""
+
+    @staticmethod
+    def _record(request: str, blocked: bool, codes: list[str] | None = None) -> TaskRecord:
+        return TaskRecord(task_id="t", request=request, at=1.0,
+                          clarifier_blocked=blocked,
+                          clarifier_codes=codes if codes is not None
+                          else (["gap"] if blocked else []))
 
     def _exporter(self, tmp_path: Path, ambiguous: list[str], specific: list[str]
                   ) -> CorpusExporter:
-        logger = TaskLogger(tmp_path / "tasks.jsonl")
         labels = LabelStore(tmp_path / "labels.jsonl")
         for text in ambiguous:
             labels.label(text, ambiguous=True, why="vague")
         for text in specific:
             labels.label(text, ambiguous=False)
-        return CorpusExporter(logger, labels)
+        return CorpusExporter(labels)
 
     def test_below_min_sample_draws_no_conclusion(self, tmp_path: Path) -> None:
         exporter = self._exporter(tmp_path, ["a"], ["b"])
-        report = exporter.drift(FakeClarifier(blocks=set()))
+        records = [self._record("a", blocked=True), self._record("b", blocked=False)]
+        report = exporter.drift(records)
         assert "insufficient data" in report.verdict
 
     def test_a_missed_ambiguous_request_counts_as_a_false_negative(
             self, tmp_path: Path) -> None:
         ambiguous = [f"vague request {i}" for i in range(30)]
         exporter = self._exporter(tmp_path, ambiguous, [])
-        # FakeClarifier blocks nothing -> every ambiguous label is missed
-        report = exporter.drift(FakeClarifier(blocks=set()))
+        # every ambiguous request's real attempt did NOT actually stop and
+        # ask -> every label was missed
+        records = [self._record(text, blocked=False) for text in ambiguous]
+        report = exporter.drift(records)
         assert report.fn_rate == 1.0
         assert len(report.false_negatives) == 30
 
     def test_high_false_negative_rate_reports_drift(self, tmp_path: Path) -> None:
         ambiguous = [f"vague request {i}" for i in range(30)]
         exporter = self._exporter(tmp_path, ambiguous, [])
-        report = exporter.drift(FakeClarifier(blocks=set()), baseline_fn=0.0)
+        records = [self._record(text, blocked=False) for text in ambiguous]
+        report = exporter.drift(records, baseline_fn=0.0)
         assert report.verdict.startswith("DRIFT")
         assert "false negatives" in report.verdict
 
     def test_high_false_positive_rate_reports_drift(self, tmp_path: Path) -> None:
         specific = [f"specific request {i}" for i in range(30)]
         exporter = self._exporter(tmp_path, [], specific)
-        # FakeClarifier blocks everything -> every specific label is a false positive
-        report = exporter.drift(FakeClarifier(blocks=set(specific)),
-                                baseline_fn=0.0, baseline_fp=0.0)
+        # every specific request's real attempt WAS actually stopped and
+        # asked -> every label is a genuine interruption
+        records = [self._record(text, blocked=True) for text in specific]
+        report = exporter.drift(records, baseline_fn=0.0, baseline_fp=0.0)
         assert report.verdict.startswith("DRIFT")
         assert "false positives" in report.verdict
 
@@ -86,22 +105,43 @@ class TestDrift:
         ambiguous = [f"vague {i}" for i in range(15)]
         specific = [f"specific {i}" for i in range(15)]
         exporter = self._exporter(tmp_path, ambiguous, specific)
-        # blocks every ambiguous one (0% FN), blocks nothing specific (0% FP)
-        report = exporter.drift(FakeClarifier(blocks=set(ambiguous)),
-                                baseline_fn=0.0, baseline_fp=0.10)
+        # every ambiguous request correctly stopped and asked (0% FN),
+        # every specific request correctly proceeded without asking (0% FP)
+        records = ([self._record(text, blocked=True) for text in ambiguous]
+                  + [self._record(text, blocked=False) for text in specific])
+        report = exporter.drift(records, baseline_fn=0.0, baseline_fp=0.10)
         assert report.verdict == "live performance is consistent with the baseline"
 
-    def test_a_raising_clarifier_counts_as_a_false_negative_not_a_crash(
+    def test_occurrences_are_counted_per_real_attempt_not_per_unique_text(
             self, tmp_path: Path) -> None:
-        class Explodes:
-            def detect(self, request: str):
-                raise RuntimeError("boom")
+        """The same phrasing submitted multiple times with different real
+        outcomes must count each attempt independently -- collapsing to
+        one verdict per unique text would hide exactly the signal that
+        made the outcome-based redesign necessary (a request asked 4 times
+        that interrupted 3 of those times is 3 real interruptions, not a
+        single yes/no fact about the phrasing)."""
+        specific = [f"specific {i}" for i in range(29)] + ["repeated"]
+        exporter = self._exporter(tmp_path, [], specific)
+        records = ([self._record(f"specific {i}", blocked=False) for i in range(29)]
+                  + [self._record("repeated", blocked=True),
+                     self._record("repeated", blocked=True),
+                     self._record("repeated", blocked=False)])
 
-        ambiguous = [f"vague {i}" for i in range(30)]
-        exporter = self._exporter(tmp_path, ambiguous, [])
-        report = exporter.drift(Explodes())
-        assert report.fn_rate == 1.0
-        assert all("detect raised" in why for _r, why in report.false_negatives)
+        report = exporter.drift(records)
+
+        assert report.specific_total == 30       # unique labeled texts
+        assert report.specific_occurrences == 32  # 29 + 3 real attempts of "repeated"
+        assert len(report.false_positives) == 2   # both blocked attempts of "repeated"
+
+    def test_an_unmatched_record_is_simply_ignored(self, tmp_path: Path) -> None:
+        """A record whose request text was never labeled contributes to
+        neither rate -- drift() only scores what a human actually judged."""
+        exporter = self._exporter(tmp_path, ["labeled ambiguous"], [])
+        records = [self._record("labeled ambiguous", blocked=False),
+                  self._record("never labeled", blocked=True)]
+        report = exporter.drift(records)
+        assert report.ambiguous_occurrences == 1
+        assert report.specific_occurrences == 0
 
 
 class TestLoopholeAudit:
@@ -481,7 +521,7 @@ class TestCorpusExporterExtras:
         labels = LabelStore(tmp_path / "labels.jsonl")
         labels.label("fix the thing", True, why="vague")
         labels.label("restart nginx", False)
-        exporter = CorpusExporter(TaskLogger(tmp_path / "tasks.jsonl"), labels)
+        exporter = CorpusExporter(labels)
 
         target = exporter.write_corpus(tmp_path / "generated" / "live_corpus.py")
 
@@ -494,8 +534,9 @@ class TestCorpusExporterExtras:
     def test_drift_report_render_includes_examples_when_present(self) -> None:
         report = DriftReport(
             labeled_total=2, ambiguous_total=1, specific_total=1,
+            ambiguous_occurrences=1, specific_occurrences=1,
             false_negatives=[("missed request", "vague")],
-            false_positives=[("blocked request", ["anchor_missing"])],
+            false_positives=[("blocked request", "anchor_missing")],
             fn_rate=1.0, fp_rate=1.0, verdict="DRIFT: something")
 
         rendered = report.render()
@@ -503,7 +544,7 @@ class TestCorpusExporterExtras:
         assert "missed request" in rendered
         assert "blocked request" in rendered
         assert "MISSED" in rendered
-        assert "BLOCKED" in rendered
+        assert "INTERRUPTED" in rendered
 
     def test_loophole_report_to_dict_is_serializable(self) -> None:
         report = LoopholeReport(total=5, passed_clarifier=3, anchored_but_goalless=1,
