@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 653 passed
+python3 -m pytest tests/ -q          # must print 656 passed
 harness doctor
 ```
 
@@ -1538,6 +1538,43 @@ keys with empty placeholder values, never a real one.
 > gets loaded, an already-set one is never overridden, a missing file is
 > a silent no-op, and `main()` is proven to actually call it (not just
 > that the function works in isolation)
+
+### 2.38 The launch greeting stopped listing models inline; `ctrl+m` opens a picker instead, filtered through the same `router._chat_capable()` the routing path itself trusts
+
+`_greet()`'s healthy branch used to dump `self.ollama.models()` as a raw,
+unfiltered comma list -- including embedding-only models like
+`nomic-embed-text` (the exact model §"OS-Engineering Guardrails" already
+names as a real routing bug once it was mistaken for a chat target,
+`harness/gates/router.py`'s `ROUTING_RULES` fix). The new `ModelPicker`
+(mirrors `SessionPicker`'s `ModalScreen[str | None]` shape) filters through
+`tab.harness.agent.router._chat_capable()` before listing anything, so the
+picker can never surface a model routing itself wouldn't choose.
+
+Two return values that look similar but must stay distinct:
+
+- **`None`** (Escape, or the modal dismissed with nothing chosen) -- the
+  handler must no-op. `action_choose_model`'s `_handle` checks `chosen is
+  not None`, not `if chosen:`, specifically so this stays distinguishable
+  from the next case.
+- **`""`** (the "(automatic routing)" option) -- a real, explicit choice
+  to clear the override, routed through the *same* `_set_model_override`
+  every `/model` (bare, no argument) call already uses, not a separate
+  code path. `Option(..., id="")` was verified live (a standalone Textual
+  reproduction) to round-trip through `OptionList`/`OptionSelected`
+  cleanly -- `Option.id` is stored as-is with no DOM-id-style validation,
+  unlike a mounted Widget's `id`, which does reject some strings (an
+  earlier, unrelated `StepCard` bug already found that distinction).
+
+`openrouter/...` models are still typed via `/model <name>`, never listed
+in the picker -- they can't be enumerated (no local daemon to ask), and
+guessing at a catalog would be exactly the kind of un-measured "domain
+knowledge" this file elsewhere says to avoid (see the OS-Engineering
+Guardrails' `docs/` bullet in `CLAUDE.md`).
+
+> Guarded by `tests/test_tui.py::
+> test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_override`,
+> `test_choosing_automatic_routing_clears_an_existing_override`,
+> `test_escape_dismisses_the_model_picker_without_changing_the_override`
 
 ---
 

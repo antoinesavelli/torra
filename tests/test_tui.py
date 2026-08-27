@@ -23,7 +23,7 @@ from harness.agent import Intent, Turn
 from harness.core import MachineState, OllamaClient
 from harness.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
 from harness.pipeline import Harness, Outcome, RunResult
-from harness.tui import SPINNER_FRAMES, HarnessApp, SessionPicker, StepCard, run_tui
+from harness.tui import SPINNER_FRAMES, HarnessApp, ModelPicker, SessionPicker, StepCard, run_tui
 
 
 def screen_text(app: HarnessApp) -> str:
@@ -63,12 +63,14 @@ def build(tmp_path: Path, transport, **harness_kwargs: Any) -> HarnessApp:
 
 @pytest.mark.asyncio
 async def test_the_app_starts_and_reports_the_backend(tmp_path: Path) -> None:
-    """First thing an operator sees is whether the model is reachable."""
+    """First thing an operator sees is whether the model is reachable --
+    healthy no longer dumps the model list inline (that moved to the
+    ctrl+m picker), just a pointer to how to pick one."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
         text = screen_text(app)
-        assert "qwen3:32b" in text or "models available" in text
+        assert "ctrl+m" in text
         assert app.query_one("#prompt", Input) is not None
 
 
@@ -1397,6 +1399,69 @@ async def test_escape_dismisses_the_picker_without_opening_anything(
 
         assert not isinstance(app.screen, SessionPicker)
         assert len(app.sessions) == 1
+
+
+@pytest.mark.asyncio
+async def test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_override(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await pilot.press("ctrl+m")
+        await pilot.pause(0.2)
+
+        assert isinstance(app.screen, ModelPicker)
+        option_list = app.screen.query_one(OptionList)
+        assert option_list.option_count == 4, "automatic routing + 3 scripted models"
+        assert option_list.get_option_at_index(0).id == ""
+
+        await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert not isinstance(app.screen, ModelPicker)
+        session_id = app.active_session_id
+        assert app.sessions[session_id].model_override == "devstral"
+        assert "model override set to devstral" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_choosing_automatic_routing_clears_an_existing_override(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+        app.sessions[session_id].model_override = "devstral"
+
+        await pilot.press("ctrl+m")
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert app.sessions[session_id].model_override is None
+        assert "model override cleared" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_escape_dismisses_the_model_picker_without_changing_the_override(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+        app.sessions[session_id].model_override = "devstral"
+
+        await pilot.press("ctrl+m")
+        await pilot.pause(0.1)
+        assert isinstance(app.screen, ModelPicker)
+
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+
+        assert not isinstance(app.screen, ModelPicker)
+        assert app.sessions[session_id].model_override == "devstral"
 
 
 @pytest.mark.asyncio

@@ -323,6 +323,54 @@ class SessionPicker(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ModelPicker(ModalScreen[str | None]):
+    """Pick a model for this tab's `/model` override. Dismisses with the
+    chosen model name, `""` for automatic routing, or None to cancel."""
+
+    BINDINGS = [("escape", "dismiss_picker", "Cancel")]
+
+    CSS = """
+    ModelPicker { align: center middle; }
+    #picker-box {
+        width: 70%; height: auto; max-height: 80%;
+        border: round $primary; background: $surface; padding: 1 2;
+    }
+    """
+
+    def __init__(self, models: list[str], current_override: str | None) -> None:
+        """`models` is the router's own chat-capable local set -- fetched
+        by the caller, not here, so this stays free of harness/router
+        wiring. `current_override` is highlighted with a marker, not
+        pre-selected -- OptionList has no notion of a default highlight
+        that survives `Option` construction cleanly."""
+        super().__init__()
+        self._models = models
+        self._current = current_override
+
+    def compose(self) -> ComposeResult:
+        """A titled box: automatic routing first, then each local model."""
+        with Vertical(id="picker-box"):
+            yield Static("Choose a model  [dim](Escape to cancel)[/]", markup=True)
+            auto_marker = " [dim](current)[/]" if not self._current else ""
+            options = [Option(f"(automatic routing){auto_marker}", id="")]
+            for model in self._models:
+                marker = " [dim](current)[/]" if model == self._current else ""
+                options.append(Option(f"{escape(model)}{marker}", id=model))
+            yield OptionList(*options)
+            yield Static("[dim]For an openrouter/... model, cancel and use "
+                         "/model <name> instead -- remote models can't be "
+                         "listed here.[/]", markup=True)
+
+    @on(OptionList.OptionSelected)
+    def _chosen(self, event: OptionList.OptionSelected) -> None:
+        """Hand the chosen model name back to whoever opened the picker."""
+        self.dismiss(event.option_id)
+
+    def action_dismiss_picker(self) -> None:
+        """Escape: leave the override untouched."""
+        self.dismiss(None)
+
+
 class HarnessApp(App):
     """The tabbed terminal interface -- one tab per independent session."""
 
@@ -366,6 +414,7 @@ class HarnessApp(App):
         ("ctrl+tab", "next_tab", "Next tab"),
         ("ctrl+shift+tab", "prev_tab", "Previous tab"),
         ("ctrl+o", "open_picker", "Reopen session"),
+        ("ctrl+m", "choose_model", "Choose model"),
     ]
 
     def __init__(self, harness: Harness | None = None,
@@ -506,9 +555,7 @@ class HarnessApp(App):
         self._say(session_id, "harness", "Describe what you want done. I plan it, every gate "
                              "checks it, you approve it, then it runs.")
         if status is OllamaStatus.HEALTHY:
-            self._say(session_id, "harness",
-                      f"models available: {escape(', '.join(self.ollama.models())) or 'none'}",
-                      "dim")
+            self._say(session_id, "harness", "ctrl+m to choose a model", "dim")
         else:
             self._say(session_id, "error",
                       f"Ollama is {status.value} at {escape(self.ollama.host)}. "
@@ -908,6 +955,21 @@ class HarnessApp(App):
                 self._open_or_switch_to(chosen)
 
         self.push_screen(SessionPicker(metas), _handle)
+
+    def action_choose_model(self) -> None:
+        """Ctrl+M: pick this tab's model override from the locally
+        available, chat-capable set -- openrouter/... models aren't
+        enumerable here, so they still go through `/model <name>`."""
+        session_id = self.active_session_id
+        tab = self.sessions[session_id]
+        router = tab.harness.agent.router
+        models = sorted(m for m in self.ollama.models() if router._chat_capable(m))
+
+        def _handle(chosen: str | None) -> None:
+            if chosen is not None:
+                self._set_model_override(session_id, chosen)
+
+        self.push_screen(ModelPicker(models, tab.model_override), _handle)
 
     def _open_or_switch_to(self, session_id: str) -> None:
         """Switch to a session already open in a tab, or reopen it in a new one."""

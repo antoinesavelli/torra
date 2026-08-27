@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **653 passed**. Then:
+Expect **656 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -108,13 +108,17 @@ model's own memory of it come back exactly as they were.
 | `ctrl+w` | close the active tab (refuses on the last tab, or a busy one) |
 | `ctrl+tab` / `ctrl+shift+tab` | next / previous tab |
 | `ctrl+o` | reopen a past session in a new tab |
+| `ctrl+m` | choose this tab's model from a picker |
 | `ctrl+q` | quit |
 | `ctrl+c` | copy selected text (Textual's own built-in behavior; select with click-drag first) |
 
-Type `/model <name>` in the prompt to pin a tab's next requests to one
-model, bypassing routing entirely -- bare `/model` clears it back to
-routing's own choice. See **OpenRouter** below for the one built-in
-alternative to a local model.
+`ctrl+m` opens a picker listing "(automatic routing)" plus every locally
+available, chat-capable model -- pick one to pin the tab's next requests to
+it. Typing `/model <name>` in the prompt does the same thing and is still
+the only way to set an `openrouter/...` override, since remote models can't
+be enumerated for the picker. Bare `/model` (or picking "(automatic
+routing)") clears the override back to routing's own choice. See
+**OpenRouter** below for the one built-in alternative to a local model.
 
 **`ctrl+c` copy not landing in your real clipboard?** Textual copies via an OSC 52
 terminal escape sequence, which some terminals don't honor -- confirmed live on
