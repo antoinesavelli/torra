@@ -1485,6 +1485,19 @@ the benign case this exists to recognize. `_pipefail_wrapped()` is
 shared by both `shell()` and `_shell_streaming()` (§2.32) -- one wrapper
 builder, not two copies to keep in sync.
 
+Proved the fix works, not just the concept: CI failed on the first push
+of this exact fix, on this exact test. Not a bug in `_pipefail_wrapped`
+-- the test used the real `/home` directory, and the GitHub-hosted
+runner's `/home` has a permission-restricted path under it that `du`
+itself can't fully read, so `du` returns a genuine, real exit 1 (found
+live via `chmod 000` reproducing the identical shape locally) alongside
+the SIGPIPE the test meant to exercise. The fix correctly refused to
+forgive that -- exit 1 is neither 0 nor 141 -- exactly as designed; the
+test was the thing that was wrong, conflating "a real machine's `/home`,
+permissions and all" with "a directory this test actually controls".
+Fixed by building the test's own directory in `tmp_path` instead, same
+command shape, no permission surprises to depend on.
+
 > Guarded by `tests/test_core.py::TestShellSigpipeForgiveness`: a fast,
 > deterministic `yes | head` case for CI, the actual real-world
 > `du | sort | head` shape kept as its own test, and -- the part that

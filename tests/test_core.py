@@ -1657,8 +1657,16 @@ class TestShellSigpipeForgiveness:
         assert shell("yes x | head -3") == "x\nx\nx"
 
     def test_the_real_world_shape_that_motivated_this_no_longer_raises(
-            self) -> None:
-        result = shell("du -ah /home 2>/dev/null | sort -rh | head -5")
+            self, tmp_path: Path) -> None:
+        # A directory this test fully owns, not the real /home -- found
+        # live in CI: /home on a GitHub-hosted runner has a permission-
+        # restricted path under it, so `du` itself returns a real exit 1
+        # (correctly *not* forgiven -- it isn't a SIGPIPE) alongside the
+        # benign SIGPIPE this test means to exercise, conflating the two.
+        # Same real command shape, a target with no permission surprises.
+        for i in range(20):
+            (tmp_path / f"file{i}").write_bytes(b"x" * (i + 1) * 1024)
+        result = shell(f"du -ah {tmp_path} | sort -rh | head -5")
         assert result, "some real output, no exception raised"
 
     def test_a_genuine_upstream_failure_through_sort_and_head_still_raises(
