@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **643 passed**. Then:
+Expect **649 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -340,7 +340,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 643 cases, organised by subsystem |
+| `tests/` | 649 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -384,7 +384,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 643 cases
+python3 -m pytest tests/ -v              # 649 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

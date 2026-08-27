@@ -1638,6 +1638,55 @@ class TestShellPipefail:
             shell("echo hi | false")
 
 
+class TestShellSigpipeForgiveness:
+    """`shell()`'s pipefail wrapper has to tell "head closed the pipe
+    early on a benign, working pipeline" apart from "something upstream
+    genuinely failed" -- see `_pipefail_wrapped`'s own docstring for the
+    real bug this closes: an operator hit `du -ah /home | sort -rh | head
+    -N`-shaped failures four times in a row, including asking the harness
+    to diagnose its own bug, and got the identical exit-141 failure every
+    time on an entirely ordinary command. `yes | head` is the
+    deterministic, fast way to trigger a SIGPIPE reliably in a test; the
+    du/sort/head shape below is the actual real-world case, kept as its
+    own test since "the exact thing that broke" is worth its own line."""
+
+    def test_a_benign_sigpipe_from_head_truncation_is_forgiven(self) -> None:
+        # yes produces output forever; head -3 closes the pipe after 3
+        # lines, killing `yes` with SIGPIPE (exit 141) -- a completely
+        # ordinary, working pipeline that must not be reported as failed.
+        assert shell("yes x | head -3") == "x\nx\nx"
+
+    def test_the_real_world_shape_that_motivated_this_no_longer_raises(
+            self) -> None:
+        result = shell("du -ah /home 2>/dev/null | sort -rh | head -5")
+        assert result, "some real output, no exception raised"
+
+    def test_a_genuine_upstream_failure_through_sort_and_head_still_raises(
+            self) -> None:
+        # The exact scenario pipefail exists for in the first place (a
+        # stand-in for an auth failure): an early failure must not be
+        # forgiven just because sort | head happens to follow it.
+        with pytest.raises(RuntimeError, match="exit 1"):
+            shell("false | sort | head -5")
+
+    def test_a_nonexistent_command_through_sort_and_head_still_raises(
+            self) -> None:
+        with pytest.raises(RuntimeError):
+            shell("definitely-not-a-real-command-xyz | sort | head -n 5")
+
+    def test_a_non_sigpipe_failure_on_a_middle_stage_still_raises(self) -> None:
+        # A middle stage failing with something other than SIGPIPE (141)
+        # must never be forgiven, even when the final stage succeeds.
+        with pytest.raises(RuntimeError, match="exit 2"):
+            shell("(exit 2) | cat")
+
+    def test_the_streaming_path_gets_the_same_forgiveness(self) -> None:
+        received: list[str] = []
+        with shell_output_sink(received.append):
+            result = shell("yes x | head -3")
+        assert result == "x\nx\nx"
+
+
 class TestShellOutputSink:
     """`shell_output_sink`/`shell()`'s live-streaming path: real subprocess
     tests throughout, same discipline as TestShellPipefail above -- this is

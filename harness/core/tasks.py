@@ -383,6 +383,60 @@ def shell_output_sink(on_output: Callable[[str], None] | None) -> Iterator[None]
         _execution_context.on_output = previous
 
 
+def _pipefail_wrapped(command: str) -> str:
+    """`command`, prefixed with `set -o pipefail` and suffixed with a check
+    that forgives a `SIGPIPE` (exit 128+13=141) on any non-final pipeline
+    stage when the final stage genuinely exited 0.
+
+    `pipefail` alone is exactly right for its original purpose (`sudo
+    something | sort | head` reporting success with empty output when
+    `sudo` alone fails, undetectable without it) -- but it is *also* right
+    for a case nobody wanted caught: `du -ah /home | sort -rh | head -20`,
+    an entirely ordinary, benign command, fails under plain `pipefail`
+    because `head` closes its input after 20 lines, `sort`/`du` upstream
+    get killed by `SIGPIPE` for writing to a closed pipe, and `pipefail`
+    reports that as the pipeline's own failure even though `head` already
+    produced exactly the right output. Found live: a real operator hit
+    this exact command shape four times in a row, including retrying with
+    a different phrasing and asking the harness to diagnose its own bug,
+    getting the identical failure every time.
+
+    Distinguishing the two needs per-stage exit codes (`$PIPESTATUS`), not
+    just the pipeline's own overall `$?` -- and capturing `$PIPESTATUS`
+    has its own trap: bash resets it after *any* subsequent simple
+    command, including a bare variable assignment, so `ec=$?` immediately
+    destroys it before it can be read. The array capture below has to be
+    the first statement after `command` runs, with nothing (not even
+    reading `$?`) in between; `_ec` is then computed by hand from that
+    array using the identical rule `pipefail` itself uses (the rightmost
+    non-zero stage, or 0 if all stages succeeded), so this doesn't depend
+    on bash's own already-reset `$?` at all. `_ec` is only overridden back
+    to 0 when the final stage is 0 *and* every earlier non-zero stage is
+    specifically 141 -- a real failure anywhere in the pipe (auth failure,
+    missing command, wrong flag) is never forgiven, verified against the
+    exact `sudo | sort | head` scenario `pipefail` exists for in the first
+    place, not just the new benign case.
+    """
+    return (
+        "set -o pipefail\n"
+        + command + "\n"
+        "_ps=(\"${PIPESTATUS[@]}\")\n"
+        "_last=$((${#_ps[@]}-1))\n"
+        "_ec=0\n"
+        "for _i in \"${_ps[@]}\"; do\n"
+        "  if [ \"$_i\" -ne 0 ]; then _ec=$_i; fi\n"
+        "done\n"
+        "if [ \"$_ec\" -ne 0 ] && [ \"${_ps[$_last]}\" -eq 0 ]; then\n"
+        "  _ok=1\n"
+        "  for _i in \"${_ps[@]:0:$_last}\"; do\n"
+        "    if [ \"$_i\" -ne 0 ] && [ \"$_i\" -ne 141 ]; then _ok=0; fi\n"
+        "  done\n"
+        "  if [ \"$_ok\" -eq 1 ]; then _ec=0; fi\n"
+        "fi\n"
+        "exit \"$_ec\"\n"
+    )
+
+
 def shell(command: str, cwd: str | None = None,
           timeout: float | None = None) -> str:
     """Run one shell command, raising on a non-zero exit.
@@ -402,8 +456,10 @@ def shell(command: str, cwd: str | None = None,
     # only the *last* command's, so `sudo something | sort | head` reports
     # success with empty output when sudo alone fails (e.g. no password and
     # no TTY) -- exactly the failure mode that let a `du` step "complete"
-    # having actually run nothing. Found live, not in a test.
-    result = subprocess.run(["/bin/bash", "-c", f"set -o pipefail; {command}"],
+    # having actually run nothing. Found live, not in a test. See
+    # _pipefail_wrapped's own docstring for the SIGPIPE-forgiveness this
+    # wrapping also does, and why plain `pipefail` alone isn't enough.
+    result = subprocess.run(["/bin/bash", "-c", _pipefail_wrapped(command)],
                             capture_output=True, text=True,
                             cwd=cwd, timeout=timeout or 3600)
     if result.returncode != 0:
@@ -437,7 +493,7 @@ def _shell_streaming(command: str, cwd: str | None, timeout: float | None,
     import time as _time
 
     proc = subprocess.Popen(
-        ["/bin/bash", "-c", f"set -o pipefail; {command}"],
+        ["/bin/bash", "-c", _pipefail_wrapped(command)],
         cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert proc.stdout is not None and proc.stderr is not None
 

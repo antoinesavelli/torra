@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 643 passed
+python3 -m pytest tests/ -q          # must print 649 passed
 harness doctor
 ```
 
@@ -1434,6 +1434,65 @@ route to all along.
 > resident, withheld when `max_loaded_models` is unknown, and not
 > double-counted when the resident model is the one being checked
 
+### 2.36 `pipefail` catches a real upstream failure and an entirely benign `head`-truncated pipeline the same way -- found by reading real traffic, not by auditing code
+
+Found mining the same real traffic §2.34/§2.35 came from, not a code
+audit: a real operator hit the identical failure four times in a row
+across escalating attempts -- *"what ar ethe files that are taking up
+the most room"* → failed, *"reprint in gb"* → failed, *"failed"*
+(literally typed that alone), *"figure out the isse with du home
+step"* → failed again, same error every time. Reproduced directly:
+`du -ah /home | sort -rh | head -20` -- an entirely ordinary, correct
+command -- fails under this harness's `pipefail` wrapper with exit 141.
+
+The mechanism: `head` closes its input after 20 lines; `sort`/`du`
+upstream, still trying to write more, get killed by `SIGPIPE` (exit
+128+13=141); `pipefail` reports that as the pipeline's own failure even
+though `head` already produced exactly the right output on stdout. This
+is the identical mechanism, working exactly as designed, that `pipefail`
+was added for in the first place (§2.1/`TestShellPipefail`'s own
+docstring: `sudo something | sort | head` silently reporting success
+with empty output when `sudo` alone fails) -- except here the thing it
+"catches" is correct behavior, not a masked failure. Two entirely
+different real-world situations produce the exact same exit code, and
+plain `pipefail` cannot tell them apart.
+
+Distinguishing them needs per-stage exit codes (`$PIPESTATUS`), not just
+the pipeline's own overall `$?` -- and capturing `$PIPESTATUS` correctly
+has its own trap, found live while building the fix, not from
+documentation: bash resets `PIPESTATUS` after *any* subsequent simple
+command, **including a bare variable assignment**. The first draft did
+`command; ec=$?; ...` and always saw the assignment's own exit status
+(0) instead of the pipeline's, silently forgiving every failure,
+including the exact `sudo | sort | head` case `pipefail` exists for --
+caught only because the fix was verified against that scenario
+explicitly before shipping, not assumed safe from reading the code.
+Fixed by capturing `${PIPESTATUS[@]}` into an array as the *first*
+statement after the command runs, with nothing -- not even reading `$?`
+-- in between, then computing the overall exit code by hand from that
+array using the identical rule `pipefail` itself uses (rightmost
+non-zero stage, else 0), so the fix never depends on bash's own
+already-reset `$?` at all.
+
+The forgiveness rule itself: the recomputed exit code is overridden back
+to 0 only when the *final* pipeline stage exited 0 **and** every earlier
+non-zero stage was specifically 141 (SIGPIPE). A real failure anywhere
+in the pipe -- wrong flag, missing command, an auth failure standing in
+for the original `sudo` case -- is never forgiven, because its exit code
+is essentially never exactly 141; the only realistic way to see 141 on a
+non-final stage is a downstream reader closing the pipe early, exactly
+the benign case this exists to recognize. `_pipefail_wrapped()` is
+shared by both `shell()` and `_shell_streaming()` (§2.32) -- one wrapper
+builder, not two copies to keep in sync.
+
+> Guarded by `tests/test_core.py::TestShellSigpipeForgiveness`: a fast,
+> deterministic `yes | head` case for CI, the actual real-world
+> `du | sort | head` shape kept as its own test, and -- the part that
+> actually matters -- `test_a_genuine_upstream_failure_through_sort_and_head_still_raises`
+> and `test_a_non_sigpipe_failure_on_a_middle_stage_still_raises` proving
+> the original `pipefail` protection still holds; all of
+> `TestShellPipefail`'s pre-existing cases pass unchanged
+
 ---
 
 ## 3. Things already tried that failed
@@ -1461,7 +1520,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 643, must stay green
+python3 -m pytest tests/ -q                       # 649, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2055,7 +2114,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 643
+test command     python3 -m pytest tests/ -q     # 649
 ```
 
 ---
