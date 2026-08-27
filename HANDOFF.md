@@ -1666,7 +1666,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 653, must stay green
+python3 -m pytest tests/ -q                       # 658, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2108,43 +2108,77 @@ patterns instead of drifting a second copy.
 
 Ranked by what a week of real use would resolve.
 
-### 6.1 Model quality is completely unmeasured (the only P0)
+### 6.1 Model quality was completely unmeasured -- **the measurement gap is closed; what it found is a live, still-open question, not a bigger version of the same gap**
 
-Every test uses a scripted backend. That proves the plumbing and proves **nothing
-about whether a local model writes good plans**. The scripted replies were
-written by the same process that wrote the code, which means the validation is
-once again against imagination.
-
-What to measure, from `~/.harness/telemetry/tasks.jsonl`:
-
-- how often `repairs == 0` on the first proposal
-- how often the repair loop rescued a plan that would have been rejected
-- how often a human rejected a plan outright
-- whether `intent == "ask"` correlates with requests a human agrees were vague
-
-If local models turn out to write mediocre plans, the fix is prompt work and
-model choice. **It is not more gates.** The gates are done.
-
-Until a full-file audit found it, none of this was actually collectible:
-`TaskLogger.record()` had no caller anywhere in `pipeline.py`, `agent.py`,
-or `tui.py`. `harness label`/`harness evidence` (`cli.py`) only ever
-*read* `tasks.jsonl` -- nothing wrote to it, so both commands could only
-ever report zero tasks, no matter how much real use the harness saw.
-`Harness._finish()` now calls `self.telemetry.record(...)` for every
-turn, using the same `<workdir>/telemetry/tasks.jsonl` path those
-commands already read from. This P0 was measurement-blocked in a way
-this document didn't previously say out loud: the tool to close it did
+Every test still uses a scripted backend, and that still proves the
+plumbing and nothing about whether a local model writes good plans on
+its own -- that part of this entry hasn't changed. What has changed:
+until a full-file audit found it, none of the "what to measure" list
+below was actually collectible. `TaskLogger.record()` had no caller
+anywhere in `pipeline.py`, `agent.py`, or `tui.py`; `harness label`/
+`harness evidence` only ever *read* `tasks.jsonl`, so both could only
+ever report zero tasks no matter how much real use the harness saw. This
+was measurement-blocked, not just data-poor: the tool to close it did
 not just lack data, it structurally could not have collected any.
+`Harness._finish()` now calls `self.telemetry.record(...)` for every
+turn, and real traffic has been running against it since (§6.2). Each
+"what to measure" question below now has a real, if still small-sample,
+answer as of this snapshot (`harness evidence`, 143 recorded tasks, 29
+of them `plan`-intent):
 
-> Guarded by `tests/test_pipeline.py::test_every_finished_turn_is_recorded_to_telemetry`
+- **`repairs == 0` on the first proposal:** 12 of 29 plan turns (41%).
+- **repair loop rescued a plan that would have been rejected** (`repairs
+  > 0` and it still reached approval or completed): 11 of 29.
+- **a human rejected a plan outright:** 2, across all 143 turns.
+- **does `intent == "ask"` correlate with requests a human agrees were
+  vague:** yes, in the sense the clarifier's own anchors correlate with
+  human "ambiguous" labels (`test_low_false_positives`/
+  `test_zero_false_negatives` in `tests/test_gates.py` measure that on
+  a synthetic corpus) -- but on **real, labeled traffic**, `drift()`
+  (§2.34) found the model actually *stops and asks* for only 18% of
+  requests a human labeled genuinely ambiguous (82% live false-negative
+  rate against a 0% synthetic baseline, 39 real ambiguous occurrences
+  checked as of this snapshot). That gap, not "is anything measured at
+  all," is the actual open P0 now.
 
-### 6.2 No real traffic
+**Whether §2.35's VRAM-eviction-credit routing fix already closes that
+82% gap is not yet answerable from real data.** 38 of the 39 ambiguous
+occurrences behind that number were logged *before* the fix landed
+(2026-08-27 10:30); exactly one ambiguous-labeled request has been
+recorded since, and it was correctly blocked -- not a contradiction of
+the fix helping, but n=1 proves nothing either way. The honest next step
+is **more real post-fix traffic, then re-run `harness evidence` against
+it specifically** (`harness label` first, same as always) -- not a
+guess at a further clarifier change, which this file's own §3/§7
+discipline already rules out without a fresh measurement behind it.
 
-Every number in `README.md` came from synthetic data. `harness label` and
-`harness evidence` can now actually see something (6.1) -- but the log
-starts empty from the moment this was fixed, not backfilled from
-whatever use came before it. Nobody has fed them a real week yet either
-way.
+If that re-measurement shows the gap persists post-fix, the fix is
+prompt work and model-judgment tuning (does the model treat "you *can*
+proceed" as "you *should*"), and **it is not more gates** -- the gates
+are done; §2.34 already showed this once, isolating the fix from the
+finding rather than reaching for the clarifier's anchor patterns on no
+new evidence.
+
+> Guarded by `tests/test_pipeline.py::test_every_finished_turn_is_recorded_to_telemetry`,
+> `tests/test_telemetry.py::TestDrift` (§2.34)
+
+### 6.2 Real traffic now exists, and it has already paid for itself twice
+
+This used to say every number in `README.md` came from synthetic data
+and nobody had fed the harness a real week. Since then: 143 real tasks
+recorded (`~/.harness/telemetry/tasks.jsonl`, spanning about a month of
+actual use across CLI/TUI/OpenRouter), 91 of them hand-labeled
+(`harness label`) for the ambiguous/specific measurement §6.1 and §2.34
+depend on. This is no longer a gap to close -- it's a loop that's
+running and has already found two real, unrelated bugs neither could
+have been found by reading code alone: the pipefail/SIGPIPE-forgiveness
+gap (§2.36, found by reading real traffic for improvement opportunities)
+and the VRAM-eviction-credit routing bug (§2.35, the root cause behind
+§2.34's false-negative finding). What's left isn't "start collecting" --
+it's "keep collecting," specifically more traffic from *after* each fix
+lands, so the next `drift()` run can tell fixed-going-forward apart from
+still-broken instead of averaging both into one number the way §6.1's
+current 82% necessarily does.
 
 ### 6.3 Undo coverage ceiling -- narrower than it looked, and the one real
 piece is a deliberate boundary, not a TODO
@@ -2302,7 +2336,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 653
+test command     python3 -m pytest tests/ -q     # 658
 ```
 
 ---

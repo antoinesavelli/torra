@@ -358,7 +358,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 653 cases, organised by subsystem |
+| `tests/` | 658 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -388,12 +388,25 @@ isn't one, so those numbers are no longer claimed here at all.
 
 ## Known gaps
 
-1. **No model quality measurement.** The gates are measured exhaustively. Whether
-   a local model writes *good plans* is completely unmeasured. Tests use a
-   scripted backend, which proves the plumbing and nothing about judgement.
-2. **No real traffic.** Every number above comes from synthetic data.
-3. **Undo coverage ceiling.** Migrations, `dd` and `mkfs` need a declared
-   `rollback:` entry. The plan pane names which steps those are.
+1. **Model judgement is measured now, and the first real finding is still
+   open.** The gates are measured exhaustively; tests still use a scripted
+   backend and prove nothing about judgement on their own. But real traffic
+   now flows through telemetry and gets hand-labeled (`harness label`), and
+   that measurement found the model stops and asks for only ~18% of requests
+   a human calls genuinely ambiguous (82% live false-negative rate against a
+   0% synthetic baseline). Whether a routing fix already found along the way
+   closes that gap isn't confirmed yet -- too little traffic has run since.
+   See `HANDOFF.md` §6.1.
+2. **Real traffic exists, and it already found two real bugs.** No longer a
+   gap to close -- 143 recorded tasks and counting, 91 hand-labeled, and that
+   loop has already surfaced a pipefail/SIGPIPE bug and a VRAM-routing bug
+   that reading the code alone hadn't caught. See `HANDOFF.md` §6.2.
+3. **Undo coverage ceiling is narrower than it looks.** `dd`/`mkfs` writing
+   to a regular file is already covered automatically, the same as any other
+   command, as long as the file is declared in `touches:`. Only `dd`/`mkfs`
+   against a **raw device** and database migrations need a hand-written
+   `rollback:` entry -- there's no prior on-disk state to snapshot for
+   either. The plan pane names which steps those are. See `HANDOFF.md` §6.3.
 4. **Tree watching misses a same-size same-mtime edit.** The declared-path
    SHA256 layer catches it, so `touches:` still matters.
 
@@ -402,7 +415,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 653 cases
+python3 -m pytest tests/ -v              # 658 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is
