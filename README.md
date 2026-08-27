@@ -1,6 +1,6 @@
 # harness
 
-[![CI](https://github.com/antoinesavelli/harness/actions/workflows/ci.yml/badge.svg)](https://github.com/antoinesavelli/harness/actions/workflows/ci.yml)
+[![CI](https://github.com/paramotrading/harness/actions/workflows/ci.yml/badge.svg)](https://github.com/paramotrading/harness/actions/workflows/ci.yml)
 
 A local model proposes. Five gates decide. You approve. Then it runs.
 
@@ -41,7 +41,7 @@ report     back into the conversation, and into telemetry
 Needs Python 3.10+, Ollama running locally with at least one model pulled.
 
 ```bash
-git clone https://github.com/antoinesavelli/harness.git ~/harness
+git clone https://github.com/paramotrading/harness.git ~/harness
 cd ~/harness
 python3 -m venv .venv
 source .venv/bin/activate
