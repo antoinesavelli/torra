@@ -73,12 +73,12 @@ def build(tmp_path: Path, transport, **harness_kwargs: Any) -> HarnessApp:
 async def test_the_app_starts_and_reports_the_backend(tmp_path: Path) -> None:
     """First thing an operator sees is whether the model is reachable --
     healthy no longer dumps the model list inline (that moved to the
-    ctrl+m picker), just a pointer to how to pick one."""
+    F2 picker), just a pointer to how to pick one."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
         text = screen_text(app)
-        assert "ctrl+m" in text
+        assert "f2" in text
         assert app.query_one("#prompt", Input) is not None
 
 
@@ -1410,13 +1410,13 @@ async def test_escape_dismisses_the_picker_without_opening_anything(
 
 
 @pytest.mark.asyncio
-async def test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_override(
+async def test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override(
         tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        await pilot.press("ctrl+m")
+        await pilot.press("f2")
         await pilot.pause(0.2)
 
         assert isinstance(app.screen, ModelPicker)
@@ -1436,13 +1436,13 @@ async def test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_overr
 
 
 @pytest.mark.asyncio
-async def test_ctrl_m_lists_the_verified_openrouter_models_and_they_are_selectable(
+async def test_f2_lists_the_verified_openrouter_models_and_they_are_selectable(
         tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        await pilot.press("ctrl+m")
+        await pilot.press("f2")
         await pilot.pause(0.2)
 
         option_list = app.screen.query_one(OptionList)
@@ -1469,7 +1469,7 @@ async def test_choosing_automatic_routing_clears_an_existing_override(
         session_id = app.active_session_id
         app.sessions[session_id].model_override = "devstral"
 
-        await pilot.press("ctrl+m")
+        await pilot.press("f2")
         await pilot.pause(0.2)
         await pilot.press("enter")
         await pilot.pause(0.2)
@@ -1487,7 +1487,7 @@ async def test_escape_dismisses_the_model_picker_without_changing_the_override(
         session_id = app.active_session_id
         app.sessions[session_id].model_override = "devstral"
 
-        await pilot.press("ctrl+m")
+        await pilot.press("f2")
         await pilot.pause(0.1)
         assert isinstance(app.screen, ModelPicker)
 
@@ -1496,6 +1496,25 @@ async def test_escape_dismisses_the_model_picker_without_changing_the_override(
 
         assert not isinstance(app.screen, ModelPicker)
         assert app.sessions[session_id].model_override == "devstral"
+
+
+def test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias() -> None:
+    """Found live: `ctrl+m` was bound to the model picker, but a real
+    terminal can never deliver it as a distinct keypress -- it's the same
+    byte a physical Enter sends, and Textual's own keys.py documents it as
+    a hard alias (`KEY_ALIASES = {"enter": ["ctrl+m"], ...}`).
+    `pilot.press("ctrl+m")` passed anyway, because Pilot.press() injects
+    the named key directly and skips the byte-level ANSI decoder that
+    swallows it in real use -- so this checks the binding table itself,
+    not simulated keypresses, to catch the next one before it ships."""
+    from textual.binding import Binding
+    from textual.keys import KEY_ALIASES
+
+    aliased_away = {alias for aliases in KEY_ALIASES.values() for alias in aliases}
+    bound_keys = {binding.key for binding in Binding.make_bindings(HarnessApp.BINDINGS)}
+    collisions = bound_keys & aliased_away
+    assert not collisions, \
+        f"{collisions} can never reach the app as typed -- a real terminal collapses it"
 
 
 @pytest.mark.asyncio

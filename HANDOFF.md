@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 657 passed
+python3 -m pytest tests/ -q          # must print 658 passed
 harness doctor
 ```
 
@@ -1539,7 +1539,7 @@ keys with empty placeholder values, never a real one.
 > a silent no-op, and `main()` is proven to actually call it (not just
 > that the function works in isolation)
 
-### 2.38 The launch greeting stopped listing models inline; `ctrl+m` opens a picker instead, filtered through the same `router._chat_capable()` the routing path itself trusts
+### 2.38 The launch greeting stopped listing models inline; `f2` opens a picker instead, filtered through the same `router._chat_capable()` the routing path itself trusts
 
 `_greet()`'s healthy branch used to dump `self.ollama.models()` as a raw,
 unfiltered comma list -- including embedding-only models like
@@ -1582,10 +1582,62 @@ by accident. Anything beyond that verified list still goes through
 the picker's list in the first place.
 
 > Guarded by `tests/test_tui.py::
-> test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_override`,
+> test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override`,
 > `test_choosing_automatic_routing_clears_an_existing_override`,
 > `test_escape_dismisses_the_model_picker_without_changing_the_override`,
-> `test_ctrl_m_lists_the_verified_openrouter_models_and_they_are_selectable`
+> `test_f2_lists_the_verified_openrouter_models_and_they_are_selectable`
+
+### 2.39 `ctrl+m` was bound to the picker in §2.38 and shipped -- it never worked, because it's the terminal's own alias for Enter, and `pilot.press()` can't catch that class of bug
+
+Found live, from a user report ("ctrl+m shortcut not working"), after the
+binding had already merged and its own tests were green. `ctrl+m` is the
+ANSI C0 control code for carriage return -- the literal byte a physical
+Enter key sends in a normal terminal -- and Textual's own
+`textual/keys.py` documents it as a hard alias:
+`KEY_ALIASES = {"enter": ["ctrl+m"], "tab": ["ctrl+i"],
+"escape": ["ctrl+left_square_brace"], "ctrl+at": ["ctrl+space"],
+"ctrl+j": ["newline"]}`. A real terminal cannot produce a `ctrl+m`
+keypress distinct from `enter` at all -- there is no byte sequence left to
+send. In practice, pressing it while the prompt `Input` has focus (the
+common case) just submitted whatever was typed.
+
+The tests added alongside the binding (`test_ctrl_m_lists_...`,
+`test_escape_dismisses_the_model_picker_...`) all passed, and did not
+catch this, because `Pilot.press("ctrl+m")` calls `App._press_keys()`,
+which injects a `Key` event named `"ctrl+m"` directly -- it never goes
+through the byte-level ANSI decoder a real terminal session runs input
+through, so it can't reproduce the collapse that a live terminal forces.
+The tests genuinely proved the binding was wired to the right action; they
+could not and did not prove a human could ever trigger it. This is the
+same shape of gap `HANDOFF.md` elsewhere calls out for other guards
+(`CLAUDE.md`'s "the guard goes green while the problem persists,
+invisible") -- except here the guard (`pilot.press`) was never wrong to
+use, it just answers a narrower question than "does this work for a real
+operator" and nothing before this flagged that gap.
+
+Fixed by rebinding to `f2` (`harness/tui.py`'s `HarnessApp.BINDINGS`) --
+function keys use their own multi-byte escape sequences, entirely outside
+the C0-control-code aliasing class `KEY_ALIASES` documents, and `f2` isn't
+claimed by `Input`'s own `BINDINGS` either (unlike `ctrl+d`/`ctrl+w`,
+which the existing `App` bindings of those names are *already* shadowed
+by whenever the prompt has focus -- found live in the same pass,
+documented in `tests/test_tui.py::test_ctrl_d_runs_a_dry_run_when_idle`'s
+own docstring, but out of scope to fix here since neither one was what
+the user reported broken).
+
+`tests/test_tui.py::
+test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias` now
+checks `HarnessApp.BINDINGS` itself against `textual.keys.KEY_ALIASES`,
+via `Binding.make_bindings()` (the same normalizer Textual's own
+`BindingsMap` uses, so it handles the full `str | tuple | Binding` union
+`BINDINGS` entries are allowed to be) -- so the next binding added to this
+class of dead key never needs a live user report to be caught. It does
+*not* check the separate `Input`-shadowing class (`ctrl+d`/`ctrl+w`
+above) -- that would fail on bindings that already exist today and is a
+different, wider fix than this section covers.
+
+> Guarded by `tests/test_tui.py::
+> test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias`
 
 ---
 

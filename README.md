@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **657 passed**. Then:
+Expect **658 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -108,11 +108,11 @@ model's own memory of it come back exactly as they were.
 | `ctrl+w` | close the active tab (refuses on the last tab, or a busy one) |
 | `ctrl+tab` / `ctrl+shift+tab` | next / previous tab |
 | `ctrl+o` | reopen a past session in a new tab |
-| `ctrl+m` | choose this tab's model from a picker |
+| `f2` | choose this tab's model from a picker |
 | `ctrl+q` | quit |
 | `ctrl+c` | copy selected text (Textual's own built-in behavior; select with click-drag first) |
 
-`ctrl+m` opens a picker listing "(automatic routing)", every locally
+`f2` opens a picker listing "(automatic routing)", every locally
 available chat-capable model, and a small hand-verified set of `openrouter/...`
 models (tagged `remote, paid` so a tap doesn't trigger a paid call by
 accident) -- pick one to pin the tab's next requests to it. Typing

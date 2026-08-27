@@ -430,7 +430,21 @@ class HarnessApp(App):
         ("ctrl+tab", "next_tab", "Next tab"),
         ("ctrl+shift+tab", "prev_tab", "Previous tab"),
         ("ctrl+o", "open_picker", "Reopen session"),
-        ("ctrl+m", "choose_model", "Choose model"),
+        # Not ctrl+m: it's the terminal's ANSI carriage-return code, the
+        # same byte a physical Enter key sends -- Textual's own keys.py
+        # documents it as a hard alias of "enter"
+        # (KEY_ALIASES = {"enter": ["ctrl+m"], ...}), so a real terminal
+        # can never deliver it as a distinct key event; it just submits
+        # the focused Input instead. Found live: `pilot.press("ctrl+m")`
+        # in tests passed anyway, because Pilot.press() injects the named
+        # key directly and never round-trips through the byte-level ANSI
+        # decoder that swallows it for real -- the tests validated the
+        # binding's wiring, not that a real terminal could ever produce
+        # the keypress. F2 sidesteps the whole class of C0-control-code
+        # collisions (also see tab/ctrl+i, escape/ctrl+[, newline/ctrl+j
+        # in the same KEY_ALIASES table) and isn't claimed by Input's own
+        # BINDINGS the way ctrl+d/ctrl+w already are (HANDOFF.md §2.38).
+        ("f2", "choose_model", "Choose model"),
     ]
 
     def __init__(self, harness: Harness | None = None,
@@ -571,7 +585,7 @@ class HarnessApp(App):
         self._say(session_id, "harness", "Describe what you want done. I plan it, every gate "
                              "checks it, you approve it, then it runs.")
         if status is OllamaStatus.HEALTHY:
-            self._say(session_id, "harness", "ctrl+m to choose a model", "dim")
+            self._say(session_id, "harness", "f2 to choose a model", "dim")
         else:
             self._say(session_id, "error",
                       f"Ollama is {status.value} at {escape(self.ollama.host)}. "
@@ -973,7 +987,7 @@ class HarnessApp(App):
         self.push_screen(SessionPicker(metas), _handle)
 
     def action_choose_model(self) -> None:
-        """Ctrl+M: pick this tab's model override from the locally
+        """F2: pick this tab's model override from the locally
         available, chat-capable set plus `VERIFIED_OPENROUTER_MODELS` --
         OpenRouter's full catalog isn't enumerable here (no `models()`
         call exists, and it would be hundreds of entries anyway), so
