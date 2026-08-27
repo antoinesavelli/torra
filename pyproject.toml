@@ -18,7 +18,7 @@ name = "terminal-agent-harness"
 version = "0.0.0"
 description = "A local model proposes, five gates decide, you approve. Pop-OS terminal agent."
 requires-python = ">=3.10"
-dependencies = ["PyYAML>=6.0", "textual>=0.60"]
+dependencies = ["PyYAML>=6.0", "textual>=0.60", "python-dotenv>=1.0"]
 
 [project.optional-dependencies]
 fast = ["inotify_simple>=1.3"]

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Entry points: harness / ask / plan / run / check / doctor / evidence / label.
 
-Depends on: harness.core, harness.gates, harness.pipeline, harness.telemetry.
+Depends on: harness.core, harness.gates, harness.pipeline, harness.telemetry,
+python-dotenv (optional `.env` loading for OPENROUTER_API_KEY and similar).
 
 `run` and `check` take a hand-written YAML file and never touch the model, so
 the gates stay available when the model is down, wrong, or simply not needed.
@@ -18,6 +19,8 @@ import time
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from .core import (
     ModelBackend,
@@ -513,8 +516,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_env_file(path: os.PathLike[str] | str | None = None) -> None:
+    """Load `OPENROUTER_API_KEY` (and anything else) from a `.env` file at
+    the repo root, if one exists. `path` is only ever overridden by tests.
+
+    An explicit path, not `load_dotenv()`'s own default upward-search from
+    the current directory: `harness` is meant to be run from wherever the
+    operator happens to be (README's own `alias harness=...` example), not
+    from inside this repo, so the default search could just as easily pick
+    up an unrelated `.env` from whatever *other* project's directory the
+    operator happens to be sitting in. Never overrides a variable already
+    set in the real environment (`load_dotenv`'s own default, not passed
+    `override=True` here) -- an explicit `export` always wins over the
+    file. Silent no-op when the file is absent, the same way `OllamaClient`
+    degrades when the daemon isn't there: this must never become a
+    required file for every other command that has nothing to do with
+    OpenRouter.
+    """
+    load_dotenv(path or Path(__file__).resolve().parent.parent / ".env")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point. Bare `harness` launches the interface."""
+    _load_env_file()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):

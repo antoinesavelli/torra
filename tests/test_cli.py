@@ -9,6 +9,7 @@ this file's own docstring used to flag as separate, pending work.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import pytest
@@ -1025,3 +1026,40 @@ def test_main_reports_interrupted_on_ctrl_c(monkeypatch,
     err = capsys.readouterr().err
     assert exit_code == cli.EXIT_USAGE
     assert "interrupted" in err
+
+
+class TestLoadEnvFile:
+    """cli._load_env_file(): OPENROUTER_API_KEY (and anything else) from a
+    .env file at the repo root -- never required, never overrides a
+    variable already set in the real environment."""
+
+    def test_a_variable_not_already_set_gets_loaded(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        (tmp_path / ".env").write_text("OPENROUTER_API_KEY=from-dotenv\n")
+
+        cli._load_env_file(tmp_path / ".env")
+
+        assert os.environ["OPENROUTER_API_KEY"] == "from-dotenv"
+
+    def test_an_explicit_export_is_never_overridden(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "from-the-real-shell")
+        (tmp_path / ".env").write_text("OPENROUTER_API_KEY=from-dotenv\n")
+
+        cli._load_env_file(tmp_path / ".env")
+
+        assert os.environ["OPENROUTER_API_KEY"] == "from-the-real-shell"
+
+    def test_a_missing_file_is_a_silent_no_op(self, tmp_path: Path) -> None:
+        cli._load_env_file(tmp_path / "does-not-exist.env")  # must not raise
+
+    def test_main_loads_it_before_doing_anything_else(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[bool] = []
+        monkeypatch.setattr(cli, "_load_env_file", lambda *a, **k: calls.append(True))
+        monkeypatch.setattr(cli, "cmd_doctor", lambda args: 0)
+
+        cli.main(["doctor"])
+
+        assert calls == [True]

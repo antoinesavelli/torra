@@ -8,6 +8,9 @@
 #
 # Regenerate after deliberately upgrading a dependency (not as a reflex):
 #   .venv/bin/pip list --format=freeze | grep -v '^terminal-agent-harness==' | sort > requirements-lock.txt
+# Check the diff before committing -- a fresh venv can pick up stray
+# system-leaked packages (found live: dbus-python, present in the venv
+# with no project dependency requiring it) that don't belong here.
 
 ast_serialize==0.6.0
 colorama==0.4.6
@@ -30,6 +33,7 @@ pluggy==1.6.0
 Pygments==2.20.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
+python-dotenv==1.2.3
 PyYAML==6.0.3
 radon==6.0.1
 rich==15.0.0

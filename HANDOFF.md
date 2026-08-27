@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 649 passed
+python3 -m pytest tests/ -q          # must print 653 passed
 harness doctor
 ```
 
@@ -1506,6 +1506,39 @@ command shape, no permission surprises to depend on.
 > the original `pipefail` protection still holds; all of
 > `TestShellPipefail`'s pre-existing cases pass unchanged
 
+### 2.37 `.env` loading is explicit-path, not `load_dotenv()`'s own default search, and never overrides a real `export`
+
+Added so `OPENROUTER_API_KEY` (and anything else) can live in a `.env`
+file at the repo root instead of shell config -- `cli.py`'s
+`_load_env_file()`, called first thing in `main()`, before argument
+parsing even, so it runs ahead of every command that could construct an
+`OpenRouterClient()` (`build_harness()`, HANDOFF.md §2.27).
+
+Two choices worth stating so a future edit doesn't quietly undo them:
+
+- **Explicit path (`Path(__file__).resolve().parent.parent / ".env"`),
+  not `load_dotenv()`'s bare default call.** The default searches
+  upward from the current working directory -- fine for a project you
+  always run from inside, wrong for this one: `harness` is meant to be
+  run from wherever the operator happens to be (README's own `alias
+  harness=...` example), so the default search could just as easily
+  load an unrelated `.env` belonging to whatever *other* project's
+  directory the operator's shell happens to be sitting in at the time.
+- **Never overrides a variable already set in the real environment**
+  (`load_dotenv()`'s own default -- deliberately not passed
+  `override=True`). An explicit `export OPENROUTER_API_KEY=...` in the
+  shell always wins over the file, so the file is safe to leave around
+  with a stale or placeholder value without it silently shadowing a
+  real one set elsewhere.
+
+`.env` is gitignored; `.env.example` (tracked) documents the expected
+keys with empty placeholder values, never a real one.
+
+> Guarded by `tests/test_cli.py::TestLoadEnvFile`: a not-yet-set variable
+> gets loaded, an already-set one is never overridden, a missing file is
+> a silent no-op, and `main()` is proven to actually call it (not just
+> that the function works in isolation)
+
 ---
 
 ## 3. Things already tried that failed
@@ -1533,7 +1566,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 649, must stay green
+python3 -m pytest tests/ -q                       # 653, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2127,7 +2160,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 649
+test command     python3 -m pytest tests/ -q     # 653
 ```
 
 ---
