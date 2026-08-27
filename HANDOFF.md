@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 658 passed
+python3 -m pytest tests/ -q          # must print 659 passed
 harness doctor
 ```
 
@@ -1639,6 +1639,84 @@ different, wider fix than this section covers.
 > Guarded by `tests/test_tui.py::
 > test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias`
 
+### 2.40 Attempting to close §6.1's 82% live-ask gap: one approach measured worse and was reverted, one measured real and shipped -- rule 6's "Do not plan a task" was quietly forbidding the harness from doing its own job
+
+Two different-shaped attempts at the §6.1 finding (the model asks for only
+~18% of requests a human calls genuinely ambiguous), in order:
+
+**Attempt 1, reverted: a repair-loop check forcing the model to justify
+overriding any flagged clarifier gap.** Added `_gap_overridden_silently`,
+firing whenever `turn.clarifier_gaps` was non-empty, intent wasn't "ask",
+and no repair had run yet. Broke 6 existing tests immediately
+(`test_a_clean_answer_with_no_task_never_wastes_a_repair_round`,
+`test_a_short_answer_that_happens_to_open_with_checking_is_not_flagged`,
+`test_stats_reports_turns_repairs_and_context_usage`, three routing
+tests) -- the root cause, confirmed live: `no_target` (the dominant gap
+code) fires on nearly any short conversational question lacking a path,
+quantity, hostname, or version -- `"what is the disk usage?"`, `"hello"`,
+`"were there any errors overnight?"` all trigger it. `clarifier_gaps
+non-empty` is not a proxy for "genuinely ambiguous"; it is close to the
+default state for ordinary English. Firing on it unconditionally would
+have taxed the majority of ordinary turns with an extra local-model
+round-trip, not just the override cases it targeted. Reverted
+(`git checkout -- harness/agent.py`) before it reached a commit. The
+obvious next move -- fire only for some subset of gap *codes* that
+"really" mean it -- was rejected without trying: picking which codes
+deserve enforcement is the same closed-vocabulary bet §3's table already
+measured failing twice elsewhere in this file.
+
+**Attempt 2, shipped: rule 6 was telling the model not to do the one
+thing this harness exists for.** Investigating why real traffic showed
+`"is there anything wrong with my disks"` producing *"Please check the
+output of 'lsblk' and 'df -h' for more details"* instead of an answer
+found the mechanism directly: rule 6 said *"If the request is a question
+about the machine... use intent 'answer'... Do not plan a task"* --
+flatly, for every question, even ones the observed state doesn't already
+answer and a safe read-only command trivially would. Nothing in the code
+ever enforced this (a `plan`-intent reply to a question was never
+rejected), so this was a pure prompt-wording gap, not a capability one --
+exactly the shape of the dd/mkfs rule 7 fix (§6.3), not a new detection
+mechanism.
+
+Live A/B tested against the real local model before shipping (a
+scripted-transport unit test cannot show whether prompt wording changes
+real model behavior) -- 8 requests, current vs. revised wording, same
+machine state:
+
+| Request | Current rule 6 | Revised rule 6 |
+|---|---|---|
+| "is there anything wrong with my disks" | asked / deflected (varied by run) | **plan**: `lsblk`/`df` |
+| "are there any failed systemd services..." | asked the operator to run it | **plan**: `systemctl --failed --no-pager` |
+| "what shell do I use..." | asked the operator | **plan**: real shell/config check |
+| "what is the current ufw firewall status..." | plan (already correct) | plan (unchanged) |
+| "check disk space" | ask (genuinely ambiguous) | ask (unchanged) |
+| "17 times 23" | answer, 0 repairs | answer, **+1 repair** (stray empty `task`, self-corrected) |
+| "hello" | answer, 0 repairs | answer, **+1 repair** (same, traced and confirmed) |
+| "thank you" | ask, 0 repairs | ask, 0 repairs |
+
+3 of 4 real diagnostic-deflection phrases moved to a real plan; no
+regression on arithmetic, greetings, or the one genuinely-ambiguous case
+("check disk space" stayed "ask" under both). The real, accepted cost:
+roughly half of pure-social/arithmetic turns in this sample picked up one
+extra repair round -- traced directly (`hello` attached a stray
+`"task": {"task_id": "greeting-ack", "steps": []}` under the revised
+wording that it didn't under the current one) -- but that shape is
+already caught cleanly by the existing `_answer_dropped_a_task` check
+(§5 "The repair loop is not just for intent 'plan.'", no new failure
+mode here), so it costs latency, not correctness.
+
+This doesn't close §6.1's 82% number by itself -- it fixes a different,
+related failure shape (deflecting a diagnostic back to the operator
+instead of running it) discovered while investigating that number, not
+the ask-vs-guess decision itself. §6.1's real next step is unchanged:
+more real post-fix traffic, then re-measure.
+
+> Guarded by `tests/test_agent.py::
+> test_rule_6_no_longer_flatly_forbids_planning_for_a_question` (pins the
+> wording so it can't quietly regress to "Do not plan a task"; the
+> behavioral claim itself is the live A/B table above, not something a
+> scripted-transport test can re-verify)
+
 ---
 
 ## 3. Things already tried that failed
@@ -1655,18 +1733,20 @@ Do not re-derive these. They cost measurement to discover.
 | 24-character head bonus for routing | second word also caught the bonus | exclusive lead multiplier |
 | Monkeypatching `shutil.copy2` for reflink copies | infinite recursion, and it is process-global | `UndoGenerator._copy` |
 | Three-tier adaptive checkpoint policy | ~300 lines to protect a 40-second interactive turn | one `ResumePoint` file |
+| Repair-loop check firing on any non-empty `clarifier_gaps` | broke 6 existing tests -- `no_target` fires on nearly any ordinary question | reverted before commit, §2.40 |
 
-The pattern in the clarifier rows is the important one. Twice, a closed
-vocabulary was replaced with a slightly larger closed vocabulary and measured
-worse than expected. **If you find yourself adding items to a list of things to
-detect, ask whether the list is the bug.**
+The pattern in the clarifier rows is the important one. Three times now, a
+closed vocabulary (or a signal that turned out to behave like one) was relied
+on to separate "genuinely ambiguous" from "ordinary," and measured worse than
+expected. **If you find yourself adding items to a list of things to detect,
+ask whether the list is the bug.**
 
 ---
 
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 658, must stay green
+python3 -m pytest tests/ -q                       # 659, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2159,6 +2239,13 @@ are done; §2.34 already showed this once, isolating the fix from the
 finding rather than reaching for the clarifier's anchor patterns on no
 new evidence.
 
+Two attempts at closing this gap directly are already recorded in §2.40:
+a repair-loop enforcement mechanism that measured worse than expected
+and was reverted, and a real, shipped rule-6 wording fix that closes a
+related but different failure shape (deflecting a diagnostic back to the
+operator instead of running it) without moving this specific number by
+itself. Read §2.40 before attempting a third approach here.
+
 > Guarded by `tests/test_pipeline.py::test_every_finished_turn_is_recorded_to_telemetry`,
 > `tests/test_telemetry.py::TestDrift` (§2.34)
 
@@ -2336,7 +2423,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 658
+test command     python3 -m pytest tests/ -q     # 659
 ```
 
 ---

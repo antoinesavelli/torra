@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **658 passed**. Then:
+Expect **659 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -358,7 +358,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 658 cases, organised by subsystem |
+| `tests/` | 659 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -396,7 +396,11 @@ isn't one, so those numbers are no longer claimed here at all.
    a human calls genuinely ambiguous (82% live false-negative rate against a
    0% synthetic baseline). Whether a routing fix already found along the way
    closes that gap isn't confirmed yet -- too little traffic has run since.
-   See `HANDOFF.md` §6.1.
+   One related failure shape is fixed: a question the harness could answer
+   itself with a safe read-only command (`lsblk`, `systemctl --failed`, ...)
+   used to get deflected back to "please run that yourself" instead of the
+   harness just running it -- live A/B tested against the real model before
+   shipping. See `HANDOFF.md` §6.1 and §2.40.
 2. **Real traffic exists, and it already found two real bugs.** No longer a
    gap to close -- 143 recorded tasks and counting, 91 hand-labeled, and that
    loop has already surfaced a pipefail/SIGPIPE bug and a VRAM-routing bug
@@ -415,7 +419,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 658 cases
+python3 -m pytest tests/ -v              # 659 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

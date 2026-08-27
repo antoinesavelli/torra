@@ -138,7 +138,15 @@ Rules that matter:
    give the smallest set of questions that would unblock you. Do not guess a
    path, a hostname, or a version.
 6. If the request is a question about the machine rather than a change to it,
-   use intent "answer" and reply from the observed state. Do not plan a task.
+   use intent "answer" and reply from the observed state when it already has
+   what you need. When it does not, and a safe read-only command (df, du,
+   lsblk, systemctl status, journalctl, ss, ps, cat of a config file, and
+   similar) would get the real answer, use intent "plan" with just that
+   read-only step instead of telling the operator to run it themselves --
+   getting the real answer is what this harness is for. Only answer without
+   a task when you already have the real values, or when no command could
+   resolve it at all (a question about intent, history, or something
+   outside the machine).
 7. `dd`/`mkfs` writing to a regular file need nothing special -- declare it in
    `touches` like any other file-modifying command (rule 3) and it is
    automatically snapshotted and restorable, the same as `cp` or `sed -i`.

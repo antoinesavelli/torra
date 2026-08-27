@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from conftest import plan_reply, scripted
 
-from harness.agent import Agent, AgentError, Intent, Turn
+from harness.agent import SYSTEM_PROMPT, Agent, AgentError, Intent, Turn
 from harness.core import (
     MachineState,
     OllamaClient,
@@ -347,6 +347,25 @@ def test_a_short_answer_that_happens_to_open_with_checking_is_not_flagged() -> N
     turn = agent.converse("were there any errors overnight?")
 
     assert turn.repairs == 0
+
+
+def test_rule_6_no_longer_flatly_forbids_planning_for_a_question() -> None:
+    """Found live, real traffic: rule 6 used to say "Do not plan a task"
+    for any question about the machine -- which pushed the model toward
+    telling the operator to run a safe read-only command themselves
+    ('please run lsblk/df -h yourself') instead of the harness just
+    running it, even though nothing in the *code* ever forbade intent
+    "plan" for a question -- this was a pure prompt-wording gap, not a
+    capability one. Live A/B tested against the real model before
+    shipping (harness/agent.py's own history, not a scripted fake, since
+    a scripted transport can't show whether prompt wording changes real
+    model behavior): 3 of 4 real diagnostic-deflection phrases moved from
+    "ask"/deflect to a real read-only plan, arithmetic and greetings
+    stayed correctly answer-only. This test only pins the actual wording
+    so a future edit can't quietly reintroduce the old, stricter rule."""
+    assert "Do not plan a task" not in SYSTEM_PROMPT
+    assert 'use intent "plan" with just that' in SYSTEM_PROMPT
+    assert "telling the operator to run it themselves" in SYSTEM_PROMPT
 
 
 # --------------------------------------------------------------------------- #
