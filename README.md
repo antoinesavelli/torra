@@ -313,6 +313,12 @@ It also only reliably works with a capable-enough model behind it; the
 smallest routed-to model does not consistently use it (measured in
 `scripts/dev/model_bench/REPORT.md`).
 
+The topic index is the directory's own top-level `.md` files, plus --
+specifically -- `machines/<this machine's hostname>/*.md` if that folder
+exists, since a library organized one machine per folder keeps its most
+relevant content there rather than at the root. No other subdirectory is
+indexed.
+
 ---
 
 ## Telemetry

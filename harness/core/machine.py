@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 import stat
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -272,6 +273,15 @@ class MachineState:
         if self.ollama_models_dir:
             lines += [f"local models directory: {self.ollama_models_dir}"]
         if self.knowledge_library:
+            # A topic key with a "/" (only "machines/<hostname>/<file>.md"
+            # today) names its own subdirectory -- fold those into the grep
+            # target list too, or the suggested command would silently miss
+            # exactly the per-machine files that prompted indexing them at
+            # all (see _scan_knowledge_dir's docstring).
+            dirs = {self.knowledge_library_path}
+            dirs.update(f"{self.knowledge_library_path}/{name.rsplit('/', 1)[0]}"
+                       for name in self.knowledge_library if "/" in name)
+            targets = " ".join(f"{d}/*.md" for d in sorted(dirs))
             lines += [
                 "", f"site knowledge library at {self.knowledge_library_path} "
                 "documents this exact machine: hardware, services, storage layout, "
@@ -282,7 +292,7 @@ class MachineState:
                 "something is set up at all), do not guess and do not ask the "
                 "operator first. Propose a read-only step that greps every file "
                 "for the relevant keyword before anything else, for example:\n"
-                f"    grep -ril 'KEYWORD' {self.knowledge_library_path}/*.md\n"
+                f"    grep -ril 'KEYWORD' {targets}\n"
                 "then read whichever file(s) that finds. Topics, for a narrower "
                 "first guess when one obviously fits:",
             ]
@@ -353,21 +363,15 @@ KNOWLEDGE_META_FILENAMES: frozenset[str] = frozenset({
 })
 
 
-def _scan_knowledge_dir(path: os.PathLike[str] | str) -> tuple[str, dict[str, str]]:
-    """First heading of every top-level `.md` file in a configured
-    site-knowledge directory.
+def _scan_knowledge_topics(root: Path) -> dict[str, str]:
+    """First heading of every regular `.md` file directly inside `root`,
+    keyed by filename, meta-filenames excluded.
 
     Only the heading, not the content: some of these files run past
     100KB, and the point is an index cheap enough to include on every
     turn, not the library itself -- the model reads a specific file via
-    an ordinary step once it decides it needs one. Not recursive: `fixes/`,
-    `raw/`, `lists/`-style subdirectories are implementation detail for
-    whatever maintains the library, not something to advertise as a
-    top-level topic.
+    an ordinary step once it decides it needs one.
     """
-    root = Path(path)
-    if not root.is_dir():
-        return "", {}
     headings: dict[str, str] = {}
     for md in sorted(root.glob("*.md")):
         lower = md.name.lower()
@@ -386,6 +390,37 @@ def _scan_knowledge_dir(path: os.PathLike[str] | str) -> tuple[str, dict[str, st
         except OSError:
             continue
         headings[md.name] = heading.lstrip("#").strip()[:80]
+    return headings
+
+
+def _scan_knowledge_dir(
+        path: os.PathLike[str] | str, hostname: str = "") -> tuple[str, dict[str, str]]:
+    """Top-level `.md` topics in a configured site-knowledge directory, plus
+    (when present) this machine's own subfolder: `machines/<hostname>/*.md`.
+
+    Not recursive beyond that one specific, well-known layout: `fixes/`,
+    `raw/`, `lists/`-style subdirectories are implementation detail for
+    whatever maintains the library, not something to advertise as a topic.
+    `machines/<hostname>/` is different -- found live against a real
+    library (`system-library`'s own README: "Each machine gets a folder"):
+    the per-machine survey (`quirks.md`, `hardware.md`, `services.md`, ...)
+    is the library's actual primary content, one level below the root docs
+    this function used to stop at, so a hostname match without one silently
+    left the single most relevant file invisible to the model. Machine
+    entries are keyed `machines/<hostname>/<file>.md` so a same-named root
+    file (e.g. both `system-library/network.md` and
+    `system-library/machines/workstation/network.md` exist) can't collide.
+    """
+    root = Path(path)
+    if not root.is_dir():
+        return "", {}
+    headings = _scan_knowledge_topics(root)
+    if hostname:
+        machine_dir = root / "machines" / hostname
+        if machine_dir.is_dir():
+            headings.update({
+                f"machines/{hostname}/{name}": heading
+                for name, heading in _scan_knowledge_topics(machine_dir).items()})
     return str(root), headings
 
 
@@ -404,8 +439,14 @@ def observe_machine(
 
     if knowledge_dir is not None:
         try:
+            # socket.gethostname(), not state.hostname -- the `hostname`
+            # OBSERVE_COMMANDS probe below hasn't run yet at this point,
+            # and this value is only ever used as a `machines/<hostname>/`
+            # lookup key, never reported to the operator as an observed
+            # fact, so it doesn't need to come from the same real-command
+            # path everything in `state` otherwise does.
             state.knowledge_library_path, state.knowledge_library = \
-                _scan_knowledge_dir(knowledge_dir)
+                _scan_knowledge_dir(knowledge_dir, hostname=socket.gethostname())
         except Exception as exc:
             state.errors.append(f"knowledge_library: {type(exc).__name__}: {exc}")
 

@@ -231,6 +231,59 @@ class TestKnowledgeLibrary:
         _path, headings = _scan_knowledge_dir(tmp_path)
         assert headings == {"hardware.md": "Hardware"}
 
+    def test_a_machines_hostname_subfolder_is_indexed_alongside_the_root(
+            self, tmp_path) -> None:
+        """Found live against the real system-library: its own README says
+        "Each machine gets a folder" -- machines/<hostname>/quirks.md is
+        the library's actual primary content, one level below where the
+        scan used to stop, so a real machine's most relevant file (its own
+        known-quirks doc) was invisible to the model. Only the matching
+        hostname's folder is indexed, not a sibling machine's."""
+        (tmp_path / "LESSONS.md").write_text(
+            "# Lessons, cross-machine\n", encoding="utf-8")
+        workstation = tmp_path / "machines" / "workstation"
+        workstation.mkdir(parents=True)
+        (workstation / "quirks.md").write_text(
+            "# Known quirks and gotchas\n", encoding="utf-8")
+        executor = tmp_path / "machines" / "executor"
+        executor.mkdir(parents=True)
+        (executor / "quirks.md").write_text(
+            "# A different machine's quirks\n", encoding="utf-8")
+
+        path, headings = _scan_knowledge_dir(tmp_path, hostname="workstation")
+
+        assert path == str(tmp_path)
+        assert headings == {
+            "LESSONS.md": "Lessons, cross-machine",
+            "machines/workstation/quirks.md": "Known quirks and gotchas",
+        }
+
+    def test_a_same_named_file_at_root_and_in_the_machine_folder_does_not_collide(
+            self, tmp_path) -> None:
+        (tmp_path / "network.md").write_text(
+            "# Cross-machine network\n", encoding="utf-8")
+        workstation = tmp_path / "machines" / "workstation"
+        workstation.mkdir(parents=True)
+        (workstation / "network.md").write_text(
+            "# Network, this machine only\n", encoding="utf-8")
+
+        _path, headings = _scan_knowledge_dir(tmp_path, hostname="workstation")
+
+        assert headings["network.md"] == "Cross-machine network"
+        assert headings["machines/workstation/network.md"] == "Network, this machine only"
+
+    def test_no_hostname_or_no_matching_folder_stays_root_only(self, tmp_path) -> None:
+        (tmp_path / "LESSONS.md").write_text("# Lessons\n", encoding="utf-8")
+        (tmp_path / "machines" / "workstation").mkdir(parents=True)
+        (tmp_path / "machines" / "workstation" / "quirks.md").write_text(
+            "# Quirks\n", encoding="utf-8")
+
+        _path, no_hostname = _scan_knowledge_dir(tmp_path)
+        _path, wrong_hostname = _scan_knowledge_dir(tmp_path, hostname="some-other-box")
+
+        assert no_hostname == {"LESSONS.md": "Lessons"}
+        assert wrong_hostname == {"LESSONS.md": "Lessons"}
+
     def test_a_missing_directory_degrades_to_empty_not_a_crash(self) -> None:
         path, headings = _scan_knowledge_dir("/no/such/directory/at/all")
         assert path == ""
@@ -273,12 +326,48 @@ class TestKnowledgeLibrary:
         assert "knowledge library" not in without_library.render()
         assert "storage.md" not in without_library.render()
 
+    def test_observe_machine_uses_the_real_hostname_to_find_its_machine_folder(
+            self, tmp_path, monkeypatch) -> None:
+        """The end-to-end wiring test: observe_machine doesn't know its own
+        hostname yet at this point in the function (the `hostname`
+        OBSERVE_COMMANDS probe hasn't run), so it must ask socket directly
+        rather than silently indexing no machine folder at all."""
+        import harness.core.machine as machine_module
+
+        monkeypatch.setattr(machine_module.socket, "gethostname", lambda: "workstation")
+        machine_dir = tmp_path / "machines" / "workstation"
+        machine_dir.mkdir(parents=True)
+        (machine_dir / "quirks.md").write_text("# Known quirks\n", encoding="utf-8")
+
+        def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            return ""
+
+        state = observe_machine(runner=runner, knowledge_dir=tmp_path)
+
+        assert state.knowledge_library["machines/workstation/quirks.md"] == "Known quirks"
+
+    def test_render_greps_the_machine_subfolder_too_not_just_the_root(
+            self, tmp_path) -> None:
+        (tmp_path / "LESSONS.md").write_text("# Lessons\n", encoding="utf-8")
+        machine_dir = tmp_path / "machines" / "workstation"
+        machine_dir.mkdir(parents=True)
+        (machine_dir / "quirks.md").write_text("# Known quirks\n", encoding="utf-8")
+
+        state = MachineState(knowledge_library_path=str(tmp_path), knowledge_library={
+            "LESSONS.md": "Lessons",
+            "machines/workstation/quirks.md": "Known quirks",
+        })
+        rendered = state.render()
+
+        assert f"{tmp_path}/*.md" in rendered
+        assert f"{tmp_path}/machines/workstation/*.md" in rendered
+
     def test_a_bad_knowledge_dir_probe_does_not_abort_observation(self, monkeypatch) -> None:
         """Matches every other probe in observe_machine: a failure here is
         recorded, not raised."""
         import harness.core.machine as machine_module
 
-        def broken_scan(path):
+        def broken_scan(path, hostname=""):
             raise RuntimeError("scan failed")
 
         monkeypatch.setattr(machine_module, "_scan_knowledge_dir", broken_scan)

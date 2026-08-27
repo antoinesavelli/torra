@@ -2009,6 +2009,48 @@ guaranteed behavior.
 > `tests/test_pipeline.py::test_knowledge_dir_defaults_from_the_environment`
 > + 3 more.
 
+**The topic-index scan is non-recursive, but `machines/<hostname>/` is a
+named exception, added after finding it missing against the real
+library.** `_scan_knowledge_dir` originally only globbed the configured
+directory's own top level, on the reasoning that subdirectories are
+implementation detail (`fixes/`, `raw/`, `lists/`-style capture data) --
+true for the library that motivated the mechanism above, but not for the
+one actually in use: `system-library` (this project's own
+`$HARNESS_KNOWLEDGE_DIR`, set by the operator's `harness` shell alias)
+puts its *primary* content one level down, in
+`machines/<hostname>/{quirks,hardware,services,storage,...}.md`, per its
+own README ("Each machine gets a folder"). Verified live against the real
+directory: before this fix, the model's topic index and its suggested
+`grep -ril 'KEYWORD' {path}/*.md` step both silently missed
+`machines/workstation/quirks.md` entirely -- the single file most likely
+to keep it from repeating a known mistake on this exact box.
+
+Fixed narrowly rather than going fully recursive: `_scan_knowledge_dir`
+now also indexes `<dir>/machines/<hostname>/*.md` when that folder
+exists, using `socket.gethostname()` (not `state.hostname`, since the
+`hostname` `OBSERVE_COMMANDS` probe hasn't run yet at this point in
+`observe_machine`) -- so it surfaces only *this* machine's folder, not
+every machine the library happens to document. Entries from that folder
+are keyed `machines/<hostname>/<file>.md`, not bare `<file>.md`, because a
+same-named file can legitimately exist at both levels (`system-library`
+has both `network.md` and `machines/workstation/network.md`, with
+different content) and a plain-filename key would let one silently
+overwrite the other in the index dict. `MachineState.render()`'s grep hint
+derives its target list from the actual topic keys (splitting on `/`)
+rather than hardcoding a second glob, so a topic from any future
+subdirectory convention added the same way is covered automatically.
+Going fully recursive instead was considered and rejected: it would also
+surface a *different* machine's docs (`machines/executor/quirks.md` on
+`workstation`) as equally-weighted topics, which is wrong content, not
+just extra content.
+
+> Guarded by `tests/test_core.py::TestKnowledgeLibrary::
+> test_a_machines_hostname_subfolder_is_indexed_alongside_the_root`,
+> `test_a_same_named_file_at_root_and_in_the_machine_folder_does_not_collide`,
+> `test_no_hostname_or_no_matching_folder_stays_root_only`,
+> `test_observe_machine_uses_the_real_hostname_to_find_its_machine_folder`,
+> `test_render_greps_the_machine_subfolder_too_not_just_the_root`
+
 **`_finish()` must snapshot `result.decisions` *after* `_summarize()`, not
 before.** Found live, testing the knowledge library above: a question that
 triggered a real (transient) summarize failure completed with an empty
