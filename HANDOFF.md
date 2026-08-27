@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 656 passed
+python3 -m pytest tests/ -q          # must print 657 passed
 harness doctor
 ```
 
@@ -1565,16 +1565,27 @@ Two return values that look similar but must stay distinct:
   unlike a mounted Widget's `id`, which does reject some strings (an
   earlier, unrelated `StepCard` bug already found that distinction).
 
-`openrouter/...` models are still typed via `/model <name>`, never listed
-in the picker -- they can't be enumerated (no local daemon to ask), and
-guessing at a catalog would be exactly the kind of un-measured "domain
-knowledge" this file elsewhere says to avoid (see the OS-Engineering
-Guardrails' `docs/` bullet in `CLAUDE.md`).
+Beyond that, `harness/tui.py`'s `VERIFIED_OPENROUTER_MODELS` adds a small,
+hand-maintained list of `openrouter/...` slugs to the picker -- not a live
+catalog fetch. `OpenRouterClient` has no `models()` call at all (unlike
+`OllamaClient.models()`, which the local half of the picker actually
+calls), and OpenRouter's real catalog is hundreds of entries deep -- not
+something a picker meant for a handful of taps should try to enumerate or
+filter live even if it could. Each entry in the list is only added after
+a real live slug lookup plus an actual `harness plan`/`ask` call through
+it succeeded (`x-ai/grok-4.6` and `deepseek/deepseek-v4-pro`, both
+confirmed this way) -- the same "measure, don't guess" discipline this file
+applies to `docs/*.md` and routing rules elsewhere. Remote entries are
+tagged `(remote, paid)` in the picker so a tap doesn't trigger a paid call
+by accident. Anything beyond that verified list still goes through
+`/model <name>`, which is unaffected by any of this -- it never consulted
+the picker's list in the first place.
 
 > Guarded by `tests/test_tui.py::
 > test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_override`,
 > `test_choosing_automatic_routing_clears_an_existing_override`,
-> `test_escape_dismisses_the_model_picker_without_changing_the_override`
+> `test_escape_dismisses_the_model_picker_without_changing_the_override`,
+> `test_ctrl_m_lists_the_verified_openrouter_models_and_they_are_selectable`
 
 ---
 

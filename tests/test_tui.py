@@ -23,7 +23,15 @@ from harness.agent import Intent, Turn
 from harness.core import MachineState, OllamaClient
 from harness.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
 from harness.pipeline import Harness, Outcome, RunResult
-from harness.tui import SPINNER_FRAMES, HarnessApp, ModelPicker, SessionPicker, StepCard, run_tui
+from harness.tui import (
+    SPINNER_FRAMES,
+    VERIFIED_OPENROUTER_MODELS,
+    HarnessApp,
+    ModelPicker,
+    SessionPicker,
+    StepCard,
+    run_tui,
+)
 
 
 def screen_text(app: HarnessApp) -> str:
@@ -1413,7 +1421,8 @@ async def test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_overr
 
         assert isinstance(app.screen, ModelPicker)
         option_list = app.screen.query_one(OptionList)
-        assert option_list.option_count == 4, "automatic routing + 3 scripted models"
+        assert option_list.option_count == 6, \
+            "automatic routing + 3 scripted local models + 2 verified openrouter models"
         assert option_list.get_option_at_index(0).id == ""
 
         await pilot.press("down")
@@ -1424,6 +1433,31 @@ async def test_ctrl_m_lists_chat_capable_models_and_selecting_one_sets_the_overr
         session_id = app.active_session_id
         assert app.sessions[session_id].model_override == "devstral"
         assert "model override set to devstral" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_ctrl_m_lists_the_verified_openrouter_models_and_they_are_selectable(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await pilot.press("ctrl+m")
+        await pilot.pause(0.2)
+
+        option_list = app.screen.query_one(OptionList)
+        ids = [option_list.get_option_at_index(i).id
+              for i in range(option_list.option_count)]
+        assert set(VERIFIED_OPENROUTER_MODELS) <= set(ids)
+
+        target = ids.index("openrouter/x-ai/grok-4.6")
+        for _ in range(target):
+            await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        session_id = app.active_session_id
+        assert app.sessions[session_id].model_override == "openrouter/x-ai/grok-4.6"
 
 
 @pytest.mark.asyncio

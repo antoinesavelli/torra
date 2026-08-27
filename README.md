@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **656 passed**. Then:
+Expect **657 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -112,13 +112,15 @@ model's own memory of it come back exactly as they were.
 | `ctrl+q` | quit |
 | `ctrl+c` | copy selected text (Textual's own built-in behavior; select with click-drag first) |
 
-`ctrl+m` opens a picker listing "(automatic routing)" plus every locally
-available, chat-capable model -- pick one to pin the tab's next requests to
-it. Typing `/model <name>` in the prompt does the same thing and is still
-the only way to set an `openrouter/...` override, since remote models can't
-be enumerated for the picker. Bare `/model` (or picking "(automatic
-routing)") clears the override back to routing's own choice. See
-**OpenRouter** below for the one built-in alternative to a local model.
+`ctrl+m` opens a picker listing "(automatic routing)", every locally
+available chat-capable model, and a small hand-verified set of `openrouter/...`
+models (tagged `remote, paid` so a tap doesn't trigger a paid call by
+accident) -- pick one to pin the tab's next requests to it. Typing
+`/model <name>` in the prompt does the same thing and is still the only
+way to reach an `openrouter/...` model beyond that verified set, since
+OpenRouter's full catalog isn't enumerated. Bare `/model` (or picking
+"(automatic routing)") clears the override back to routing's own choice.
+See **OpenRouter** below for the one built-in alternative to a local model.
 
 **`ctrl+c` copy not landing in your real clipboard?** Textual copies via an OSC 52
 terminal escape sequence, which some terminals don't honor -- confirmed live on

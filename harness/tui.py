@@ -66,6 +66,18 @@ SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 #: hide real information, not just noise.
 STEP_OUTPUT_DISPLAY_CAP = 8000
 
+#: OpenRouter's catalog is hundreds of models deep, and OpenRouterClient
+#: has no `models()` call to enumerate it anyway -- not something a
+#: picker meant for a handful of taps should try to fetch live even if
+#: it did. This is only the models actually confirmed end-to-end with a
+#: real request (a live slug lookup plus a real `harness plan`/`ask`
+#: call, see HANDOFF.md §2.38). Add one here only after doing that, not
+#: on a slug guess.
+VERIFIED_OPENROUTER_MODELS: list[str] = [
+    "openrouter/x-ai/grok-4.6",
+    "openrouter/deepseek/deepseek-v4-pro",
+]
+
 
 #: Risk level to a colour the eye can sort at a glance without reading.
 LEVEL_STYLE: dict[str, str] = {
@@ -338,28 +350,32 @@ class ModelPicker(ModalScreen[str | None]):
     """
 
     def __init__(self, models: list[str], current_override: str | None) -> None:
-        """`models` is the router's own chat-capable local set -- fetched
-        by the caller, not here, so this stays free of harness/router
-        wiring. `current_override` is highlighted with a marker, not
-        pre-selected -- OptionList has no notion of a default highlight
-        that survives `Option` construction cleanly."""
+        """`models` is the router's own chat-capable local set plus
+        `VERIFIED_OPENROUTER_MODELS` -- fetched/assembled by the caller,
+        not here, so this stays free of harness/router wiring.
+        `current_override` is highlighted with a marker, not pre-selected
+        -- OptionList has no notion of a default highlight that survives
+        `Option` construction cleanly."""
         super().__init__()
         self._models = models
         self._current = current_override
 
     def compose(self) -> ComposeResult:
-        """A titled box: automatic routing first, then each local model."""
+        """A titled box: automatic routing first, then each model --
+        local ones plain, remote ones tagged so a tap doesn't accidentally
+        trigger a paid call."""
         with Vertical(id="picker-box"):
             yield Static("Choose a model  [dim](Escape to cancel)[/]", markup=True)
             auto_marker = " [dim](current)[/]" if not self._current else ""
             options = [Option(f"(automatic routing){auto_marker}", id="")]
             for model in self._models:
                 marker = " [dim](current)[/]" if model == self._current else ""
-                options.append(Option(f"{escape(model)}{marker}", id=model))
+                tag = " [dim](remote, paid)[/]" if model.startswith("openrouter/") else ""
+                options.append(Option(f"{escape(model)}{tag}{marker}", id=model))
             yield OptionList(*options)
-            yield Static("[dim]For an openrouter/... model, cancel and use "
-                         "/model <name> instead -- remote models can't be "
-                         "listed here.[/]", markup=True)
+            yield Static("[dim]Only hand-verified openrouter/... models are listed "
+                         "-- use /model <name> for any other remote model.[/]",
+                         markup=True)
 
     @on(OptionList.OptionSelected)
     def _chosen(self, event: OptionList.OptionSelected) -> None:
@@ -958,12 +974,16 @@ class HarnessApp(App):
 
     def action_choose_model(self) -> None:
         """Ctrl+M: pick this tab's model override from the locally
-        available, chat-capable set -- openrouter/... models aren't
-        enumerable here, so they still go through `/model <name>`."""
+        available, chat-capable set plus `VERIFIED_OPENROUTER_MODELS` --
+        OpenRouter's full catalog isn't enumerable here (no `models()`
+        call exists, and it would be hundreds of entries anyway), so
+        anything beyond that hand-verified list still goes through
+        `/model <name>`."""
         session_id = self.active_session_id
         tab = self.sessions[session_id]
         router = tab.harness.agent.router
-        models = sorted(m for m in self.ollama.models() if router._chat_capable(m))
+        local = sorted(m for m in self.ollama.models() if router._chat_capable(m))
+        models = local + VERIFIED_OPENROUTER_MODELS
 
         def _handle(chosen: str | None) -> None:
             if chosen is not None:
