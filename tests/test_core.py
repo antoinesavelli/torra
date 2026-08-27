@@ -31,8 +31,10 @@ from harness.core import (
 )
 from harness.core.conflict import Conflict
 from harness.core.machine import (
+    OLLAMA_MAX_LOADED_MODELS_PROBE,
     OLLAMA_MODELS_DIR_PROBE,
     Accelerator,
+    _parse_size_mb,
     _scan_knowledge_dir,
     detect_accelerator,
 )
@@ -920,12 +922,16 @@ class TestDetectAccelerator:
 
     NVIDIA_SMI = "NVIDIA GeForce RTX 4090, 24564, 23800"
 
-    def _runner(self, ps_output: str):
+    def _runner(self, ps_output: str, max_loaded: str | None = None):
         def runner(cmd: str, cwd: str | None, timeout: float | None) -> str:
             if cmd == "ollama ps":
                 return ps_output
             if cmd.startswith("nvidia-smi"):
                 return self.NVIDIA_SMI
+            if cmd == OLLAMA_MAX_LOADED_MODELS_PROBE:
+                if max_loaded is None:
+                    raise RuntimeError("not available")
+                return max_loaded
             raise RuntimeError("not available")
         return runner
 
@@ -948,6 +954,32 @@ class TestDetectAccelerator:
         acc = detect_accelerator(self._runner(ps))
         assert acc.kind == "cuda"
         assert acc.free_vram_mb == 23800
+
+    def test_a_gpu_loaded_model_is_captured_for_fits_eviction_credit(self) -> None:
+        """Name and size come off the same ollama ps line already parsed
+        for the CPU/GPU split -- fits() (HANDOFF.md §2.35) needs both to
+        credit VRAM a confirmed single-model daemon would free up."""
+        ps = ("NAME              ID              SIZE      PROCESSOR    "
+             "CONTEXT    UNTIL              \n"
+             "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
+             "32768      3 minutes from now    \n")
+        acc = detect_accelerator(self._runner(ps, max_loaded="1"))
+        assert acc.loaded_model == "qwen3.5:latest"
+        assert acc.loaded_model_mb == int(9.5 * 1024)
+        assert acc.max_loaded_models == 1
+
+    def test_max_loaded_models_defaults_to_0_when_the_probe_is_unavailable(
+            self) -> None:
+        """0 means unknown, not a guessed default -- Ollama's own
+        unset-OLLAMA_MAX_LOADED_MODELS behavior is a dynamic, undocumented
+        computation this project has no live daemon to verify a guess
+        against (HANDOFF.md §2.35)."""
+        ps = ("NAME              ID              SIZE      PROCESSOR    "
+             "CONTEXT    UNTIL              \n"
+             "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
+             "32768      3 minutes from now    \n")
+        acc = detect_accelerator(self._runner(ps))  # max_loaded=None -> probe unavailable
+        assert acc.max_loaded_models == 0
 
     def test_partial_cpu_gpu_offload_is_not_misread_as_pure_cpu(self) -> None:
         ps = ("NAME              ID              SIZE      PROCESSOR      "
@@ -983,6 +1015,46 @@ class TestDetectAccelerator:
         assert acc.fits("qwen3:32b") is False, "32b needs far more than 100 MB free"
         roomy = Accelerator(kind="cuda", free_vram_mb=100_000)
         assert roomy.fits("qwen3:8b") is True
+
+    def test_fits_credits_the_resident_models_vram_when_single_model_confirmed(
+            self) -> None:
+        """HANDOFF.md §2.35: a confirmed-single-model daemon evicts
+        whatever's loaded to make room for a different one, so that VRAM
+        counts toward a candidate model even though nvidia-smi's raw free
+        figure doesn't include it yet."""
+        acc = Accelerator(kind="cuda", free_vram_mb=14_393,
+                          model_params_b={"devstral:24b": 23.6},
+                          loaded_model="qwen3.5:latest", loaded_model_mb=9_508,
+                          max_loaded_models=1)
+        assert acc.fits("devstral:24b") is True, \
+            "14393 + 9508 credited MB should cover devstral's ~16916 MB need"
+
+    def test_fits_gives_no_credit_without_a_confirmed_single_model_daemon(
+            self) -> None:
+        """The same scenario as above, but max_loaded_models is 0
+        (unknown) -- never assume an eviction that wasn't verified live."""
+        acc = Accelerator(kind="cuda", free_vram_mb=14_393,
+                          model_params_b={"devstral:24b": 23.6},
+                          loaded_model="qwen3.5:latest", loaded_model_mb=9_508,
+                          max_loaded_models=0)
+        assert acc.fits("devstral:24b") is False
+
+    def test_fits_gives_no_double_credit_when_the_loaded_model_is_the_candidate(
+            self) -> None:
+        """The resident model IS the one being checked -- nothing to
+        evict, free_vram_mb is already accurate as reported."""
+        acc = Accelerator(kind="cuda", free_vram_mb=5_000,
+                          model_params_b={"qwen3.5:latest": 9.7},
+                          loaded_model="qwen3.5:latest", loaded_model_mb=9_508,
+                          max_loaded_models=1)
+        assert acc.fits("qwen3.5:latest") is False, \
+            "5000 MB free alone is not enough for a 9.7B model; crediting " \
+            "its own already-counted footprint back would be double-counting"
+
+    def test_parse_size_mb_converts_gb_and_mb(self) -> None:
+        assert _parse_size_mb("qwen3.5:latest  abc  9.5 GB  100% GPU") == int(9.5 * 1024)
+        assert _parse_size_mb("model  abc  512 MB  100% GPU") == 512
+        assert _parse_size_mb("no size here at all") == 0
 
     def test_to_dict_excludes_model_params_b_but_includes_gpu(self) -> None:
         acc = Accelerator(kind="cuda", name="RTX 4090", vram_mb=24564, free_vram_mb=23800,

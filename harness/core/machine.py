@@ -47,6 +47,16 @@ class Accelerator:
     #: keyed like `available` -- `tag:latest` normalized), consulted before
     #: the name guess below. Not part of the audit-facing dict; see to_dict.
     model_params_b: dict[str, float] = field(default_factory=dict)
+    #: What `ollama ps` reports currently GPU-resident, and its size --
+    #: `fits()` uses these only when `max_loaded_models == 1` confirms
+    #: loading anything else evicts it first (HANDOFF.md §2.35).
+    loaded_model: str = ""
+    loaded_model_mb: int = 0
+    #: The daemon's own `OLLAMA_MAX_LOADED_MODELS`, read from its real
+    #: environment (`OLLAMA_MAX_LOADED_MODELS_PROBE`) -- 0 means unset/
+    #: unknown, never guessed, so `fits()` only assumes an eviction when
+    #: this is confirmed exactly 1.
+    max_loaded_models: int = 0
 
     @property
     def gpu(self) -> bool:
@@ -54,7 +64,20 @@ class Accelerator:
         return self.kind != "cpu" and self.free_vram_mb > 0
 
     def fits(self, model: str) -> bool:
-        """Whether a model will fit in free VRAM."""
+        """Whether a model will fit in free VRAM.
+
+        Free VRAM alone underestimates what a candidate model could use
+        when something else is already loaded and the daemon is confirmed
+        single-model (`max_loaded_models == 1`): Ollama evicts the
+        resident model to make room rather than refusing, so that VRAM is
+        available to the candidate too, not permanently spoken for. Found
+        live: a small model that happened to load first (because it fit)
+        stayed resident and starved every later request of the headroom a
+        larger, more capable model needed -- self-reinforcing, and the
+        exact mechanism behind HANDOFF.md §2.34's 84% false-negative rate
+        on ambiguous requests (the model measured better at asking never
+        got picked because the router thought it didn't fit).
+        """
         if not self.gpu:
             return False
         params = self.model_params_b.get(model if ":" in model else f"{model}:latest", 0.0)
@@ -74,7 +97,12 @@ class Accelerator:
                 model.split(":")[0].lower(), 0.0)
         if not params:
             return True
-        return self.free_vram_mb >= params * 1024 * 0.7
+        effective_free = self.free_vram_mb
+        loaded_tag = self.loaded_model if ":" in self.loaded_model else f"{self.loaded_model}:latest"
+        candidate_tag = model if ":" in model else f"{model}:latest"
+        if self.max_loaded_models == 1 and self.loaded_model and loaded_tag != candidate_tag:
+            effective_free += self.loaded_model_mb
+        return effective_free >= params * 1024 * 0.7
 
     def to_dict(self) -> dict[str, Any]:
         """Serializable dict form, for the audit trail and the model prompt.
@@ -97,6 +125,31 @@ class Accelerator:
                    if self.running_on else ""))
 
 
+def _parse_size_mb(text: str) -> int:
+    """Parse `ollama ps`'s human-readable SIZE column ("9.5 GB", "512 MB")
+    into MB. Returns 0 on anything unparseable rather than raising -- a
+    size this function can't read just means `fits()`'s eviction credit
+    stays 0, the same conservative behavior as before this existed."""
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(GB|MB)", text, re.IGNORECASE)
+    if not match:
+        return 0
+    value = float(match.group(1))
+    return int(value * 1024) if match.group(2).upper() == "GB" else int(value)
+
+
+def _max_loaded_models(execute: Callable[[str, str | None, float | None], str]) -> int:
+    """The daemon's real `OLLAMA_MAX_LOADED_MODELS`, read from its own
+    process environment the same way `OLLAMA_MODELS_DIR_PROBE` reads
+    `OLLAMA_MODELS` -- 0 (never guessed) when unset or unreadable, since
+    Ollama's own unset-default is a dynamic, undocumented computation this
+    project has no live daemon to verify a guess against."""
+    try:
+        raw = execute(OLLAMA_MAX_LOADED_MODELS_PROBE, None, 5.0).strip()
+        return int(raw) if raw.isdigit() else 0
+    except Exception:
+        return 0
+
+
 def detect_accelerator(
     runner: Callable[[str, str | None, float | None], str] | None = None,
 ) -> Accelerator:
@@ -108,6 +161,8 @@ def detect_accelerator(
     rather than what the hardware could in principle do.
     """
     execute = runner or shell
+    loaded_model = ""
+    loaded_model_mb = 0
 
     try:
         listing = execute("ollama ps", None, 10.0)
@@ -131,7 +186,12 @@ def detect_accelerator(
                         detail="ollama ps reports a loaded model on CPU")
                 # Confirmed GPU (or partial CPU/GPU offload), but ollama ps
                 # carries no VRAM figures -- fall through to nvidia-smi/rocm
-                # below for those.
+                # below for those. Name/size are this line's first two
+                # columns -- for fits()'s eviction credit (HANDOFF.md §2.35).
+                fields = line.split()
+                if fields:
+                    loaded_model = fields[0]
+                    loaded_model_mb = _parse_size_mb(line)
                 break
     except Exception:
         pass
@@ -141,7 +201,9 @@ def detect_accelerator(
             "nvidia-smi --query-gpu=name,memory.total,memory.free "
             "--format=csv,noheader,nounits", None, 10.0)
         name, total, free = [p.strip() for p in out.splitlines()[0].split(",")]
-        return Accelerator("cuda", name, int(float(total)), int(float(free)))
+        return Accelerator("cuda", name, int(float(total)), int(float(free)),
+                           loaded_model=loaded_model, loaded_model_mb=loaded_model_mb,
+                           max_loaded_models=_max_loaded_models(execute))
     except Exception as exc:
         nvidia_error = f"{type(exc).__name__}"
 
@@ -264,6 +326,19 @@ OLLAMA_MODELS_DIR_PROBE = (
     "val=$(tr '\\0' '\\n' < /proc/$pid/environ | grep '^OLLAMA_MODELS=' | cut -d= -f2-); "
     "fi; "
     "echo \"${val:-${OLLAMA_MODELS:-$HOME/.ollama/models}}\""
+)
+
+#: Same real-daemon-environment technique as OLLAMA_MODELS_DIR_PROBE, but
+#: no fallback baked into the echo -- an empty result must mean "unknown",
+#: not a guessed default, since Ollama's own unset behavior is a dynamic,
+#: undocumented computation (`Accelerator.fits`'s eviction credit only
+#: ever applies when this comes back exactly "1", confirmed live, never
+#: assumed). See HANDOFF.md §2.35.
+OLLAMA_MAX_LOADED_MODELS_PROBE = (
+    "pid=$(pgrep -x ollama | head -1); "
+    "if [ -n \"$pid\" ] && [ -r \"/proc/$pid/environ\" ]; then "
+    "tr '\\0' '\\n' < /proc/$pid/environ | grep '^OLLAMA_MAX_LOADED_MODELS=' | cut -d= -f2-; "
+    "fi"
 )
 
 

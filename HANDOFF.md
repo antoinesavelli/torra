@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 637 passed
+python3 -m pytest tests/ -q          # must print 643 passed
 harness doctor
 ```
 
@@ -1365,6 +1365,75 @@ existing sibling shape).
 > scored independently, and `test_an_unmatched_record_is_simply_ignored`
 > proves an unlabeled record contributes to neither rate)
 
+### 2.35 `Accelerator.fits()` didn't know Ollama evicts its one resident model to make room -- the actual mechanism behind §2.34's 84% false-negative rate
+
+§2.34 found the number; this entry is the root cause, chased down live
+rather than guessed. `ModelRouter` already had the right idea:
+unmatched, ambiguous requests route to `qwen3:32b` specifically because
+it's the model measured (this file's own earlier notes) to ask the
+right clarifying question instead of assuming. Re-running one of the
+real false-negative requests (`'storage issues on paramostorage'`) live
+showed it never actually got there:
+
+```
+downgraded from qwen3:32b because only 14431 MB VRAM free, then devstral:24b;
+downgraded from devstral:24b because only 14431 MB VRAM free
+```
+
+`qwen3.5:latest` was sitting loaded in VRAM (9.5GB) from an earlier,
+unrelated request. `Accelerator.fits()` checked *current* free VRAM
+against each candidate and rejected both larger models -- but this
+machine's `ollama.service` is confirmed live (`/proc/$pid/environ`) to
+run `OLLAMA_MAX_LOADED_MODELS=1`, meaning Ollama would have evicted
+`qwen3.5:latest` automatically the moment anything else was requested.
+`fits()` had no way to know that, so it treated VRAM the resident model
+was sitting on as permanently unavailable rather than reclaimable. Doing
+the math against this real 24564 MB card: `devstral:24b` needs ~16916
+MB -- comfortably fits once nothing else is resident, but not against
+the 14393 MB actually free with `qwen3.5:latest` still loaded. Worse,
+this is self-reinforcing: whichever small model wins because it fits
+stays loaded, which makes the *next* request look just as VRAM-starved,
+biasing every subsequent ambiguous request toward the same model that
+was never validated for asking behavior.
+
+`qwen3:32b` itself needs ~23511 MB -- only ~1053 MB of margin even on a
+fully idle card, so it may often stay out of reach regardless of what
+else is loaded; that part of the ceiling is structural, not a bug, and
+wasn't the fix. `devstral:24b` reliably fitting once nothing else holds
+the GPU was the fixable part.
+
+Fixed conservatively, not by assuming eviction always happens:
+`Accelerator` gained `loaded_model`/`loaded_model_mb` (parsed from the
+same `ollama ps` line `detect_accelerator()` already reads for the
+CPU/GPU split) and `max_loaded_models` (read from the daemon's real
+`OLLAMA_MAX_LOADED_MODELS` via `/proc/$pid/environ`, the same technique
+`OLLAMA_MODELS_DIR_PROBE` already used for `OLLAMA_MODELS` --
+`OLLAMA_MAX_LOADED_MODELS_PROBE` bakes in no fallback default, unlike
+that one, because Ollama's own unset behavior is a dynamic,
+undocumented computation with no live daemon here to verify a guess
+against; unset or unreadable reports `0`, meaning "unknown"). `fits()`
+credits `loaded_model_mb` back to free VRAM **only** when
+`max_loaded_models == 1` is confirmed and the resident model isn't the
+one being checked -- never for `0` (unknown), never for more than 1
+(a multi-model-resident daemon isn't guaranteed to evict at all, and
+this fix deliberately doesn't attempt to model that case).
+
+Verified live, not just by the unit tests: reloaded `qwen3.5:latest`
+into VRAM to recreate the exact real condition that produced the
+original false negative, then re-ran the identical real request.
+Before this fix: `intent=answer`, silently proceeded. After: `intent=ask`,
+routed to `qwen3:32b`, no downgrade at all -- the credited VRAM was
+enough for the daemon to actually reach the model this was supposed to
+route to all along.
+
+> Guarded by `tests/test_core.py::TestDetectAccelerator` (`loaded_model`/
+> `loaded_model_mb` captured off a real-shaped `ollama ps` line,
+> `max_loaded_models` defaults to 0 when the probe is unavailable, never
+> a guessed fallback) and three new `fits()` cases: eviction credit
+> applied when `max_loaded_models == 1` and a *different* model is
+> resident, withheld when `max_loaded_models` is unknown, and not
+> double-counted when the resident model is the one being checked
+
 ---
 
 ## 3. Things already tried that failed
@@ -1392,7 +1461,7 @@ detect, ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 637, must stay green
+python3 -m pytest tests/ -q                       # 643, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -1986,7 +2055,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 637
+test command     python3 -m pytest tests/ -q     # 643
 ```
 
 ---
