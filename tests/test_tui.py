@@ -1361,7 +1361,7 @@ async def test_the_sidebar_metrics_tab_shows_session_stats_and_files_read(
 
         text = screen_text(app)
         assert "model in use" in text
-        assert "accelerator:" in text
+        assert "hardware" in text
         assert "this session" in text and "1 turn(s)" in text
         assert "local model calls" in text
         assert str(target) in text, "the read file must be listed"

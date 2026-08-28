@@ -404,43 +404,59 @@ class MetricsPane(VerticalScroll):
         await self.remove_children()
         agent = harness.agent
         stats = agent.stats()
-        lines = [f"[bold]model in use[/] {escape(model) if model else '(automatic routing)'}"]
 
+        # One bold heading per grouping, one fact per line underneath it --
+        # blank line between groups. A comma-joined paragraph packed several
+        # unrelated facts onto one wrapped line; found live, that read as
+        # cluttered rather than scannable.
+        lines = ["[bold]model in use[/]", f"  {escape(model) if model else '(automatic routing)'}"]
         if model and not any(model.startswith(f"{p}/") for p in agent.backends):
             info = agent.ollama.model_info(model)
             if info:
-                lines.append(
-                    f"  {info.get('params_b', 0):.1f}B params, "
-                    f"context ceiling {info.get('context_length', 0):,} tokens, "
-                    + ("thinking-capable" if info.get("thinking_capable") else "not thinking-capable"))
+                lines.append(f"  {info.get('params_b', 0):.1f}B params")
+                lines.append(f"  context ceiling {info.get('context_length', 0):,} tokens")
+                lines.append("  thinking-capable" if info.get("thinking_capable")
+                             else "  not thinking-capable")
             else:
                 lines.append("  [dim]model info unavailable -- is Ollama reachable?[/]")
         elif model:
             lines.append("  [dim]remote model -- no local size/context data available[/]")
 
         accelerator = detect_accelerator()
-        lines.append(f"[bold]hardware[/] {escape(accelerator.render())}")
+        lines.append("")
+        lines.append("[bold]hardware[/]")
+        if accelerator.gpu:
+            lines.append(f"  {escape(accelerator.kind)} {escape(accelerator.name)}")
+            lines.append(f"  {accelerator.free_vram_mb:,} MB free of {accelerator.vram_mb:,} MB")
+            if accelerator.running_on:
+                lines.append(f"  currently running on {escape(accelerator.running_on)}")
+        else:
+            lines.append(f"  CPU only ({escape(accelerator.detail or 'no usable GPU')})")
 
-        lines.append(
-            f"[bold]this session[/] {stats['turns']} turn(s), {stats['repairs']} repair(s), "
-            f"context {stats['context_tokens']:,} tokens "
-            f"({stats['context_usage']:.0%} full, {stats['compressions']} compression(s))")
+        lines.append("")
+        lines.append("[bold]this session[/]")
+        lines.append(f"  {stats['turns']} turn(s)")
+        lines.append(f"  {stats['repairs']} repair(s)")
+        lines.append(f"  context {stats['context_tokens']:,} tokens ({stats['context_usage']:.0%} full)")
+        lines.append(f"  {stats['compressions']} compression(s)")
 
         ollama_stats = stats["ollama"]
-        lines.append(
-            f"[bold]local model calls (since app start)[/] {ollama_stats['calls']} call(s), "
-            f"{ollama_stats['prompt_tokens']:,} prompt + {ollama_stats['completion_tokens']:,} "
-            f"completion tokens, mean {ollama_stats['mean_seconds']:.1f}s/call")
+        lines.append("")
+        lines.append("[bold]local model calls (since app start)[/]")
+        lines.append(f"  {ollama_stats['calls']} call(s)")
+        lines.append(f"  {ollama_stats['prompt_tokens']:,} prompt tokens")
+        lines.append(f"  {ollama_stats['completion_tokens']:,} completion tokens")
+        lines.append(f"  mean {ollama_stats['mean_seconds']:.1f}s/call")
 
         for prefix, backend_stats in stats["backends"].items():
+            lines.append("")
+            lines.append(f"[bold]{escape(prefix)} calls (since app start)[/]")
+            lines.append(f"  {backend_stats['calls']} call(s)")
+            lines.append(f"  {backend_stats.get('prompt_tokens', 0):,} prompt tokens")
+            lines.append(f"  {backend_stats.get('completion_tokens', 0):,} completion tokens")
             cost = backend_stats.get("cost_usd")
-            cost_text = f", ${cost:.4f} spent" if cost is not None else ""
-            lines.append(
-                f"[bold]{escape(prefix)} calls (since app start)[/] "
-                f"{backend_stats['calls']} call(s), "
-                f"{backend_stats.get('prompt_tokens', 0):,} prompt + "
-                f"{backend_stats.get('completion_tokens', 0):,} completion tokens"
-                f"{cost_text}")
+            if cost is not None:
+                lines.append(f"  ${cost:.4f} spent")
 
         await self.mount(Static("\n".join(lines), markup=True, classes="metrics-block"))
 

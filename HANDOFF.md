@@ -2128,13 +2128,24 @@ might get opened many times in a session.
 exactly the set §2.46's `ReadMemory` is already tracking, surfaced here
 rather than duplicating that bookkeeping.
 
+Reformatted after the first version shipped: each grouping (model in
+use, hardware, this session, local model calls, `openrouter` calls) was
+one comma-joined sentence that wrapped across the sidebar's width --
+readable in principle, cluttered in practice. Now one bold heading per
+grouping, one fact per line underneath it, a blank line between groups.
+The hardware section no longer reuses `Accelerator.render()` wholesale
+(that method returns one prose line by design, prefixed `"accelerator:
+"`, for the model's own context and the old single-line status bar) --
+it reads `accelerator.kind`/`.name`/`.free_vram_mb`/`.vram_mb`/
+`.running_on` directly instead, so it can lay them out the same
+one-fact-per-line way as everything else in this tab.
+
 > Guarded by `tests/test_tui.py::
 > test_the_sidebar_metrics_tab_shows_session_stats_and_files_read`
 > (drives a real `reads` step through Run, then asserts the model-in-use
-> line, a real `accelerator:` line, the per-session turn count, the
-> shared client's cumulative-calls line, and the read file path all
-> appear) and the updated
-> `test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`.
+> line, the hardware heading, the per-session turn count, the shared
+> client's cumulative-calls line, and the read file path all appear) and
+> the updated `test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`.
 
 ### 2.50 A live indicator sat where nobody was looking -- moved next to the prompt, plus a real way to abandon an in-flight plan request
 
