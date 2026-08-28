@@ -43,7 +43,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
-from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore
+from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore, detect_accelerator
 from .gates import UndoGenerator
 from .pipeline import Harness, Outcome, Plan, RunResult, StepPlan
 from .telemetry import CrashReporter, crash_summary, health_summary
@@ -364,6 +364,97 @@ class ModelPane(VerticalScroll):
                                "model.[/]", markup=True))
 
 
+class MetricsPane(VerticalScroll):
+    """Sidebar tab: spend, token use, model/hardware stats, and which
+    files this session's read-only steps have fed into the model's own
+    context. Refreshed on activation, same trigger as Evidence/Session/
+    Model -- not continuously, not after every turn.
+
+    Two different scopes sit side by side here, and the pane says which
+    is which rather than blurring them: `agent.stats()`'s context/turn
+    figures are real per-session numbers (one `Agent`, one `ContextCompressor`
+    per tab), but `HarnessApp.ollama`/`.backends` are single instances
+    *shared across every tab* (`HarnessApp.__init__` takes them from the
+    first tab's Harness and hands the same objects to every later one) --
+    so their token/call/cost counters are cumulative since the app
+    started, not this session's own spend. Presenting that as a
+    per-session number would be a real, avoidable lie about what was
+    actually measured.
+    """
+
+    def compose(self) -> ComposeResult:
+        """Start empty -- filled in on first activation, same as Evidence/
+        Session/Model (all four read live state that can move between
+        visits)."""
+        yield Static("[dim]Switch to this tab to see the current stats.[/]",
+                     markup=True, id="metrics-empty")
+
+    async def refresh_metrics(self, harness: Harness, model: str,
+                              read_paths: list[str]) -> None:
+        """Replace the pane with a fresh snapshot.
+
+        `model` is this tab's best guess at "the model in use" -- the
+        last plan's `plan.model` if one exists, else an explicit
+        `/model` override, else "(automatic routing)"; there is no
+        single fixed model otherwise, since routing picks per request.
+        `ollama.model_info()` is only meaningful for a local model (a
+        real `/api/show` call); a `openrouter/...` model gets a plain
+        note instead, since this client has no equivalent metadata probe.
+        """
+        await self.remove_children()
+        agent = harness.agent
+        stats = agent.stats()
+        lines = [f"[bold]model in use[/] {escape(model) if model else '(automatic routing)'}"]
+
+        if model and not any(model.startswith(f"{p}/") for p in agent.backends):
+            info = agent.ollama.model_info(model)
+            if info:
+                lines.append(
+                    f"  {info.get('params_b', 0):.1f}B params, "
+                    f"context ceiling {info.get('context_length', 0):,} tokens, "
+                    + ("thinking-capable" if info.get("thinking_capable") else "not thinking-capable"))
+            else:
+                lines.append("  [dim]model info unavailable -- is Ollama reachable?[/]")
+        elif model:
+            lines.append("  [dim]remote model -- no local size/context data available[/]")
+
+        accelerator = detect_accelerator()
+        lines.append(f"[bold]hardware[/] {escape(accelerator.render())}")
+
+        lines.append(
+            f"[bold]this session[/] {stats['turns']} turn(s), {stats['repairs']} repair(s), "
+            f"context {stats['context_tokens']:,} tokens "
+            f"({stats['context_usage']:.0%} full, {stats['compressions']} compression(s))")
+
+        ollama_stats = stats["ollama"]
+        lines.append(
+            f"[bold]local model calls (since app start)[/] {ollama_stats['calls']} call(s), "
+            f"{ollama_stats['prompt_tokens']:,} prompt + {ollama_stats['completion_tokens']:,} "
+            f"completion tokens, mean {ollama_stats['mean_seconds']:.1f}s/call")
+
+        for prefix, backend_stats in stats["backends"].items():
+            cost = backend_stats.get("cost_usd")
+            cost_text = f", ${cost:.4f} spent" if cost is not None else ""
+            lines.append(
+                f"[bold]{escape(prefix)} calls (since app start)[/] "
+                f"{backend_stats['calls']} call(s), "
+                f"{backend_stats.get('prompt_tokens', 0):,} prompt + "
+                f"{backend_stats.get('completion_tokens', 0):,} completion tokens"
+                f"{cost_text}")
+
+        await self.mount(Static("\n".join(lines), markup=True, classes="metrics-block"))
+
+        if read_paths:
+            await self.mount(Static(
+                "[bold]files read this session[/]\n"
+                + "\n".join(f"  {escape(path)}" for path in read_paths),
+                markup=True, classes="metrics-block"))
+        else:
+            await self.mount(Static(
+                "[dim]No read-only step's output has entered the model's "
+                "context yet this session.[/]", markup=True))
+
+
 @dataclass
 class SessionTab:
     """One tab's state: its own Harness/Agent/context, its own busy flag.
@@ -561,6 +652,8 @@ class HarnessApp(App):
     #model { height: 1fr; padding: 0 1; }
     #evidence { height: 1fr; padding: 0 1; }
     .evidence-block { padding: 0 0 1 0; }
+    #metrics { height: 1fr; padding: 0 1; }
+    .metrics-block { padding: 0 0 1 0; }
     #prompt { dock: bottom; }
     .step-card {
         height: auto; border: round $panel; margin: 0 0 1 0; padding: 0 1;
@@ -685,8 +778,8 @@ class HarnessApp(App):
 
     @staticmethod
     def _build_sidebar() -> TabbedContent:
-        """The right-hand pane: Actions, Thinking, Session, Model, Evidence
-        as tabs, not five stacked panes. "Actions" is the operator-facing
+        """The right-hand pane: Actions, Thinking, Session, Model, Evidence,
+        Metrics as tabs, not six stacked panes. "Actions" is the operator-facing
         label; the widget/id/method names underneath stay `PlanPane`/
         `#plan`/`_plan_pane` -- it's still the gated proposal (steps,
         undo, Run/Reject), a rename of the label shown, not the concept.
@@ -713,6 +806,8 @@ class HarnessApp(App):
             TabPane("Model", ModelPane(id="model"), id="sidebar-model"))
         sidebar.compose_add_child(
             TabPane("Evidence", EvidencePane(id="evidence"), id="sidebar-evidence"))
+        sidebar.compose_add_child(
+            TabPane("Metrics", MetricsPane(id="metrics"), id="sidebar-metrics"))
         return sidebar
 
     def _build_tab_pane(self, session_id: str, title: str) -> TabPane:
@@ -817,6 +912,9 @@ class HarnessApp(App):
 
     def _model_pane(self, session_id: str) -> ModelPane:
         return self._tab_pane(session_id).query_one("#model", ModelPane)
+
+    def _metrics_pane(self, session_id: str) -> MetricsPane:
+        return self._tab_pane(session_id).query_one("#metrics", MetricsPane)
 
     def _prompt(self, session_id: str) -> Input:
         return self._tab_pane(session_id).query_one("#prompt", Input)
@@ -1360,6 +1458,26 @@ class HarnessApp(App):
         models = local + VERIFIED_OPENROUTER_MODELS
         self.run_worker(
             self._model_pane(session_id).refresh_models(models, tab.model_override),
+            exclusive=False)
+
+    @on(TabbedContent.TabActivated, "#sidebar", pane="#sidebar-metrics")
+    def _sidebar_metrics_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Recompute the Metrics tab's snapshot each time the operator
+        switches to it -- same trigger as Evidence/Session/Model above,
+        same reasoning. `model` is this tab's best real guess at "the
+        model in use": the last plan's own `plan.model` if one exists
+        (routing already resolved it by then), else an explicit `/model`
+        override, else nothing -- there is no single fixed model
+        otherwise, since routing picks fresh per request."""
+        session_id = self._session_id_of(event.tabbed_content)
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return
+        model = ((tab.current.plan.model if tab.current and tab.current.plan else "")
+                 or tab.model_override or "")
+        read_paths = sorted(tab.harness.agent.read_memory.paths.keys())
+        self.run_worker(
+            self._metrics_pane(session_id).refresh_metrics(tab.harness, model, read_paths),
             exclusive=False)
 
     @on(OptionList.OptionSelected, "#session-options")

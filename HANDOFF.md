@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 720 passed
+python3 -m pytest tests/ -q          # must print 721 passed
 harness doctor
 ```
 
@@ -2083,6 +2083,59 @@ method. Three pieces, all in `harness/tui.py`:
 > appears before anything runs, that cancelling adds zero chat lines,
 > and that confirming adds exactly one.
 
+### 2.48 A sixth sidebar tab, Metrics: spend, token use, model/hardware stats, and which files a session's read-only steps have actually fed into the model
+
+Requested alongside the `reads`/`forget` memory mechanism (§2.46) --
+that entry covers *what the model can see*; this one covers *what the
+operator can see about what the model is costing and running on*.
+`MetricsPane`, wired in after Evidence (`Actions, Thinking, Session,
+Model, Evidence, Metrics`), refreshed on activation like the other
+three real-data tabs, not continuously.
+
+The one real design decision here: two genuinely different scopes sit
+side by side in this pane, and it says which is which rather than
+blurring them together. `Agent.stats()`'s `context_tokens`/
+`context_usage`/`compressions`/`turns`/`repairs` are real per-session
+numbers -- one `Agent`, one `ContextCompressor` per tab. But
+`HarnessApp.ollama` and `HarnessApp.backends` are **single instances
+shared across every tab** (`HarnessApp.__init__` takes both from the
+first tab's `Harness` and hands the same objects to every later
+`_new_harness()` call, confirmed by reading that constructor, not
+assumed) -- so `OllamaClient.prompt_tokens`/`completion_tokens`/`calls`
+and `OpenRouterClient.cost_usd` are cumulative **since the app
+started**, across every tab, not this session's own spend. The pane
+labels those lines "(since app start)" rather than presenting a
+per-session number this architecture cannot actually produce -- the
+same honesty this project already applies to rollback's three-state
+`undone`/`unverified`/`failed` (§2's own table) rather than collapsing
+an unprovable case into a comfortable-looking two.
+
+Model size/context-ceiling/thinking-capability is a **fresh** real
+`OllamaClient.model_info()` probe of whichever model this tab last
+actually used (`plan.model` if a plan exists, else the `/model`
+override, else "(automatic routing)"), not a stale cached guess --
+same reasoning as the routing-guardrail entries in this file's OS-
+engineering section. A `openrouter/...` model gets a plain "no local
+size/context data" note instead, since this client has no equivalent
+metadata endpoint. The accelerator/`ollama ps` line reuses
+`detect_accelerator()` directly (a narrow, cheap, single-purpose real
+probe) rather than routing through `Agent.observe(refresh=True)`,
+which would also re-run `model_info()` against every locally pulled
+model just to get one hardware line -- disproportionate for a tab that
+might get opened many times in a session.
+
+"Files read this session" is `agent.read_memory.paths.keys()` --
+exactly the set §2.46's `ReadMemory` is already tracking, surfaced here
+rather than duplicating that bookkeeping.
+
+> Guarded by `tests/test_tui.py::
+> test_the_sidebar_metrics_tab_shows_session_stats_and_files_read`
+> (drives a real `reads` step through Run, then asserts the model-in-use
+> line, a real `accelerator:` line, the per-session turn count, the
+> shared client's cumulative-calls line, and the read file path all
+> appear) and the updated
+> `test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`.
+
 ---
 
 ## 3. Things already tried that failed
@@ -2112,7 +2165,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 720, must stay green
+python3 -m pytest tests/ -q                       # 721, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2794,7 +2847,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 720
+test command     python3 -m pytest tests/ -q     # 721
 ```
 
 ---

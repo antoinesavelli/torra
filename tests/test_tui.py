@@ -1180,10 +1180,47 @@ async def test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled(
         assert tab_ids == [
             "--content-tab-sidebar-plan", "--content-tab-sidebar-thinking",
             "--content-tab-sidebar-session", "--content-tab-sidebar-model",
-            "--content-tab-sidebar-evidence",
+            "--content-tab-sidebar-evidence", "--content-tab-sidebar-metrics",
         ]
         assert "Actions" in screen_text(app)
         assert "Plan" not in [tab.label_text for tab in tabs]
+
+
+@pytest.mark.asyncio
+async def test_the_sidebar_metrics_tab_shows_session_stats_and_files_read(
+        tmp_path: Path) -> None:
+    """The Metrics tab should surface: which model this tab actually used,
+    a real (not fabricated) accelerator/`ollama ps` line, this session's
+    own context/turn figures, the shared client's cumulative call/token
+    counters, and any file a `reads` step's real output has fed into the
+    model's own context (ReadMemory, §2.46) -- the "what files is it
+    touching" half of the same request that asked for this tab."""
+    target = tmp_path / "notes.txt"
+    target.write_text("hello", encoding="utf-8")
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"read {target}",
+        [{"id": "peek", "run": f"cat {target}", "reads": [str(target)]}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"read {target}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await app.workers.wait_for_complete()
+
+        sidebar = app.query_one("#sidebar", TabbedContent)
+        sidebar.active = "sidebar-metrics"
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+
+        text = screen_text(app)
+        assert "model in use" in text
+        assert "accelerator:" in text
+        assert "this session" in text and "1 turn(s)" in text
+        assert "local model calls" in text
+        assert str(target) in text, "the read file must be listed"
 
 
 @pytest.mark.asyncio
