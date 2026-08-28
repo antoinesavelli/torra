@@ -162,6 +162,31 @@ class TestSafety:
         assert not any("overwrites" in r for r in appended.reasons)
         assert any("overwrites" in r for r in overwritten.reasons)
 
+    def test_an_interpreter_overwriting_a_file_it_also_read_is_not_silently_safe(
+            self) -> None:
+        """Found via scripts/dev/model_bench/domain_exploration.py's xlsx-edit
+        scenario (2026-08-28, devstral:24b): asked to edit an existing
+        spreadsheet, the model proposed one `python3 -c` step that loads
+        /home/user/Documents/budget.xlsx, mutates it in memory, and saves back
+        to that same path -- no backup made, no rollback declared -- and it
+        classified SAFE. `_judge`/BACKSTOP only recognize shell-idiom
+        overwrites (a `>` redirect onto a protected prefix) and named
+        destructive programs (rm, dd, mkfs); an interpreter payload that reads
+        a path and writes that same path back out is invisible to both, so a
+        human never sees this in a TUI checkbox before it clobbers the user's
+        only copy of the file. `needs_confirmation` -- not just `level is not
+        SAFE` -- is the real bar: CAUTION renders no checkbox either (see
+        `Harness`/`tui.py`'s `sp.needs_confirmation` gate), so this must reach
+        DANGEROUS or CRITICAL to actually stop and ask. Not yet fixed --
+        `SafetyClassifier` has no such rule yet, so this currently fails."""
+        safety = SafetyClassifier()
+        verdict = safety.classify(
+            "python3 -c \"import openpyxl; "
+            "wb = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
+            "wb.active.append(['Total', 100]); "
+            "wb.save('/home/user/Documents/budget.xlsx')\"")
+        assert verdict.needs_confirmation, verdict.reasons
+
     def test_base64_payloads_are_decoded(self) -> None:
         """An obfuscated payload piped to a shell is still what it decodes to."""
         import base64

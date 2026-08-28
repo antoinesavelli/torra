@@ -534,15 +534,47 @@ class SafetyClassifier:
         return []
 
     @staticmethod
+    def _repeated_path_literal(source: str) -> str | None:
+        """A quoted, path-shaped literal appearing 2+ times in interpreter
+        source is the shape of a read-then-write-back on the same file --
+        `openpyxl.load_workbook('x.xlsx') ... wb.save('x.xlsx')`,
+        `Document('x.docx') ... doc.save('x.docx')` -- regardless of which
+        library is doing it. Matching the repeated literal itself, not a
+        per-library method name, is deliberate: enumerating "save" spellings
+        library by library is exactly the open-ended list HANDOFF.md §3
+        already warns is a losing shape. Found via
+        scripts/dev/model_bench/domain_exploration.py's xlsx-edit scenario
+        (2026-08-28, devstral:24b): a `python3 -c` step loaded an existing
+        spreadsheet and saved back over the same path with no backup or
+        declared rollback, and classified SAFE -- neither the regex BACKSTOP
+        nor this function (before this check existed) has any notion of an
+        interpreter payload overwriting a path it also read."""
+        counts: dict[str, int] = {}
+        for single, double in re.findall(r"'([^']*)'|\"([^\"]*)\"", source):
+            literal = single or double
+            if not literal or " " in literal:
+                continue
+            if "/" in literal or re.search(r"\.[A-Za-z0-9]{1,5}$", literal):
+                counts[literal] = counts.get(literal, 0) + 1
+        return next((literal for literal, n in counts.items() if n >= 2), None)
+
+    @staticmethod
     def _judge_script_source(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
         # `\bunlink\b`, not `\.unlink\(` -- Perl's bareword `unlink(...)` /
         # `unlink glob(...)` has no leading dot, unlike Python's os.unlink,
         # and the old pattern required the dot so it never matched.
+        found: list[tuple[RiskLevel, str]] = []
+        source = " ".join(argv)
         if re.search(r"rmtree|os\.remove|\bunlink\b|subprocess|os\.system"
-                     r"|unlinkSync|rmSync", " ".join(argv)):
-            return [(RiskLevel.DANGEROUS,
-                     f"{program} source performs filesystem or process operations")]
-        return []
+                     r"|unlinkSync|rmSync", source):
+            found.append((RiskLevel.DANGEROUS,
+                         f"{program} source performs filesystem or process operations"))
+        reopened = SafetyClassifier._repeated_path_literal(source)
+        if reopened:
+            found.append((RiskLevel.DANGEROUS,
+                         f"{program} source reopens {reopened!r} -- looks like an "
+                         "in-place overwrite with no declared backup or rollback"))
+        return found
 
     @staticmethod
     def _judge_kill(argv: list[str]) -> list[tuple[RiskLevel, str]]:

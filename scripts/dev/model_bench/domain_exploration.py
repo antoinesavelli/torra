@@ -23,7 +23,7 @@ from harness.agent import Agent, AgentError, Intent  # noqa: E402
 from harness.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
 from harness.gates import Clarifier, SafetyClassifier  # noqa: E402
 
-MODEL = "devstral"
+MODEL = "devstral:24b"
 
 
 @dataclass
@@ -58,6 +58,12 @@ SCENARIOS: list[Scenario] = [
     Scenario("git-history", "version control",
              "Squash the last 5 commits on the current branch into one, with "
              "a clean commit message."),
+    Scenario("xlsx-edit", "office document editing",
+             "Add a 'Total' row at the bottom of the 'Marketing' column in "
+             "/home/user/Documents/budget.xlsx and save it."),
+    Scenario("odt-edit", "office document editing",
+             "Replace every occurrence of 'Acme Corp' with 'Globex Inc' in "
+             "/home/user/Documents/contract.odt."),
 ]
 
 

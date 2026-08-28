@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 724 passed
+python3 -m pytest tests/ -q          # must print 725 passed
 harness doctor
 ```
 
@@ -2194,6 +2194,34 @@ changed to make that possible.
 > frees the prompt instantly; the abandoned background call finishing
 > ~1s later changed nothing (`busy` stayed False, no plan appeared).
 
+### 2.51 An interpreter payload that reopens a path it already read classified SAFE -- no notion of "this overwrites a file it just loaded"
+
+Found via `scripts/dev/model_bench/domain_exploration.py`'s xlsx-edit
+scenario (2026-08-28, `devstral:24b`): asked to edit an existing
+spreadsheet, the model proposed one `python3 -c` step --
+`openpyxl.load_workbook('budget.xlsx') ... wb.save('budget.xlsx')` -- with
+no backup made and no rollback declared. `SafetyClassifier` classified it
+SAFE: `_judge`/BACKSTOP only recognize shell-idiom overwrites (a `>`
+redirect onto a protected prefix) and named destructive programs (`rm`,
+`dd`, `mkfs`); an interpreter payload that reads a path and writes that
+same path back out was invisible to both, so it would have run with no
+TUI checkbox at all (`needs_confirmation` -- the actual gate `tui.py`'s
+checkbox reads -- is DANGEROUS/CRITICAL only; CAUTION renders no checkbox
+either, so reaching CAUTION alone would not have fixed this).
+
+Fixed in `_judge_script_source` via a new `_repeated_path_literal` check:
+a quoted, path-shaped literal appearing 2+ times in an interpreter's `-c`
+source is treated as DANGEROUS ("reopens this path, no declared backup").
+Matching the *repeated literal itself*, not a per-library method name
+(`.save(`, `.to_excel(`, `.write(`, ...), is the deliberate choice --
+enumerating save-spellings library by library is exactly the open-ended
+"list of things to detect" §3 already documents as a losing shape. This
+catches the pattern regardless of which library (openpyxl, python-docx,
+odfpy, plain `open()`) is doing the overwriting.
+
+> Guarded by `tests/test_gates.py::TestSafety::
+> test_an_interpreter_overwriting_a_file_it_also_read_is_not_silently_safe`.
+
 ---
 
 ## 3. Things already tried that failed
@@ -2223,7 +2251,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 724, must stay green
+python3 -m pytest tests/ -q                       # 725, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2905,7 +2933,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 724
+test command     python3 -m pytest tests/ -q     # 725
 ```
 
 ---
