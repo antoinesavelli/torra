@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 687 passed
+python3 -m pytest tests/ -q          # must print 712 passed
 harness doctor
 ```
 
@@ -1959,6 +1959,79 @@ app-level query, once more than one tab might be open.
 > `test_selecting_a_model_in_the_sidebar_tab_sets_the_override`,
 > `test_selecting_automatic_routing_in_the_sidebar_model_tab_clears_the_override`
 
+### 2.46 A read-only step's real output now enters the model's own memory, tagged by path -- and it can say a path no longer helps
+
+Direct feedback, in two parts: "let me see what files it's accessing," and
+(once investigating that surfaced a real gap) "let the model drop content
+that turned out not to matter." The gap found first: execution output
+never re-entered `Agent.context` at all. `Agent._remember()` only ever
+stored the operator's request text and the *proposed step commands*
+(`turn.spec.steps[i]['run']`) -- real `StepResult.output` from
+`Harness.execute()` is a separate call, entirely disconnected from
+`Agent.converse()`, and nothing threaded it back. Ask a follow-up in the
+same conversation about what a `grep`/`cat` step actually found, and the
+model had no memory of it -- only that it once proposed running the
+command.
+
+Closed with a new declared field, `reads: list[str]` on `Step` -- the
+read counterpart to `touches`, validated and parsed identically (same
+`_validate_path_list`, same `STEP_FIELDS` entry, same `to_steps()`
+plumbing). Declared, not inferred from `command`: guessing a path out of
+an arbitrary shell command is exactly the kind of regex-guessing this
+project's own evasion-detection work already measured missing 5 of 12
+cases (`SafetyClassifier.resolve`'s whole reason for existing). Once a
+step declaring `reads` actually completes (real run, not dry, not
+failed, not skipped-as-declined), `Harness._finish_success()` feeds its
+real output into the model's context, tagged by every declared path.
+`PLAN_SCHEMA` also gained a top-level `forget: list[str]` the model can
+name in any later reply -- a path whose remembered content no longer
+helps gets dropped from context on that same turn, before the new
+exchange is recorded. Both are documented to the model as rule 10 in
+`SYSTEM_PROMPT`, explicit about not forgetting by default: "do this when
+it is genuinely no longer useful... forgetting something you still need
+means guessing at it instead next time."
+
+One thing checked and found not to apply: a read step being *declined*
+rather than *skipped for some other reason*. `cat`/`grep` classify SAFE
+regardless of which file they target -- `SafetyClassifier` reasons about
+command destructiveness, not file sensitivity, so there is no real path
+by which a read-only step ever needs an explicit tick in the first
+place. An early test written for "a declined read step's output must
+not leak" was deleted once this was confirmed live
+(`SafetyClassifier().classify('cat /secret.env').needs_confirmation ==
+False`) -- it was testing a scenario the classifier makes unreachable,
+not a real gap.
+
+`ReadMemory` (the mechanism itself: `remember`/`forget`/`reset`, plus
+the free function `remember_step_reads` that `Harness` calls) was split
+into its own module, `harness/read_memory.py`, in the same change --
+`agent.py` and `pipeline.py` both crossed the 500-functional-LOC
+Modularity threshold the moment this landed inline (GPA 3.83 -> 3.67),
+same real, measured reason `dependency_warnings.py`/`prompts.py` were
+split out earlier (§2.41/§2.42). One real wrinkle in doing that split:
+`harness.pipeline_types` already imports `Turn` from `harness.agent`, so
+an unconditional `from .pipeline_types import RunResult` inside
+`read_memory.py` -- needed only for `remember_step_reads`'s type hint --
+would have completed a real import cycle (`agent -> read_memory ->
+pipeline_types -> agent`) and failed at interpreter startup. Guarded
+behind `if TYPE_CHECKING:` instead: mypy still resolves the real type,
+Python itself never executes that import. `from __future__ import
+annotations` alone does not fix this -- it defers *annotations* to
+strings, but a module-level `import` statement runs regardless of that
+future import.
+
+> Guarded by `tests/test_core.py::TestTaskSpecStepValidation` (`reads`
+> cases), `tests/test_read_memory.py` (14 cases: `ReadMemory.remember`/
+> `.forget`/`.reset` and `remember_step_reads`, direct import so this
+> module registers on the scorecard's Testing dimension, not just
+> reached transitively through agent.py/pipeline.py),
+> `tests/test_agent.py::test_agents_read_memory_is_wired_to_its_own_context`,
+> `test_converse_acts_on_forget_before_remembering_the_new_turn`,
+> `test_reset_clears_read_memory_too`, `tests/test_pipeline.py::
+> test_a_completed_read_steps_output_feeds_back_into_agent_context`,
+> `test_a_dry_run_never_feeds_read_output_into_context`,
+> `test_a_failed_read_steps_output_never_feeds_into_context`
+
 ---
 
 ## 3. Things already tried that failed
@@ -1988,7 +2061,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 687, must stay green
+python3 -m pytest tests/ -q                       # 712, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2670,7 +2743,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 687
+test command     python3 -m pytest tests/ -q     # 712
 ```
 
 ---

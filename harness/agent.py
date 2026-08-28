@@ -3,7 +3,7 @@
 Depends on: harness.core (ContextCompressor, ContextStep, MachineState, ModelBackend,
 OllamaClient, Step, StepResult, TaskSpec, observe_machine, resolve_backend),
 harness.gates (Clarifier, ModelRouter, SafetyClassifier), harness.prompts
-(PLAN_SCHEMA, SYSTEM_PROMPT).
+(PLAN_SCHEMA, SYSTEM_PROMPT), harness.read_memory (ReadMemory).
 
 The design rule throughout: the model produces a TaskSpec and nothing else. It
 does not execute, it does not get a shell, it does not decide what is safe. It
@@ -40,6 +40,7 @@ from .core import (
 )
 from .gates import Clarifier, ModelRouter, SafetyClassifier, model_available
 from .prompts import PLAN_SCHEMA, SYSTEM_PROMPT
+from .read_memory import ReadMemory
 
 __all__ = ["Intent", "Turn", "Agent", "AgentError", "PLAN_SCHEMA", "SYSTEM_PROMPT"]
 
@@ -74,6 +75,12 @@ class Turn:
     repairs: int = 0
     seconds: float = 0.0
     raw: str = ""
+    #: Paths of previously-read files the model says no longer help --
+    #: `Agent.converse()` acts on this against `_read_context` right after
+    #: parsing (§2.46). Kept on `Turn`, not consumed and discarded, so the
+    #: audit trail records what the model chose to forget, not just that
+    #: something happened to `self.context`.
+    forget: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serializable dict form, for the audit trail."""
@@ -90,6 +97,7 @@ class Turn:
             "machine_observed": self.machine_observed,
             "repairs": self.repairs,
             "seconds": round(self.seconds, 3),
+            "forget": list(self.forget),
         }
 
 
@@ -149,6 +157,12 @@ class Agent:
         self.state: MachineState | None = None
         self.turns: list[Turn] = []
         self._turn_counter: int = 0
+        #: A read-only step's real output, tagged by path, once it's
+        #: actually run -- lets a later `Turn.forget` find and remove
+        #: exactly that entry from `self.context` (§2.46). `Harness`
+        #: writes to this directly (`remember_step_reads`); `Agent` only
+        #: reads from it, via `.forget()` below.
+        self.read_memory = ReadMemory(self.context, on_change=self._on_context_change)
 
     # -- observation ------------------------------------------------------- #
 
@@ -375,6 +389,8 @@ class Agent:
             turn.repairs = repairs
 
         turn.seconds = time.perf_counter() - started
+        if turn.forget:
+            self.read_memory.forget(turn.forget)
         self._remember(turn)
         self.turns.append(turn)
         return turn
@@ -395,7 +411,8 @@ class Agent:
             questions=[str(q) for q in (data.get("questions") or [])],
             model=model, routing_reason=routing_reason,
             clarifier_gaps=list(gaps), anchors=list(anchors),
-            machine_observed=observed, raw=raw)
+            machine_observed=observed, raw=raw,
+            forget=[str(p) for p in (data.get("forget") or [])])
 
         if intent is Intent.PLAN:
             task = data.get("task")
@@ -492,6 +509,8 @@ class Agent:
                               turn.routing_reason, turn.clarifier_gaps,
                               turn.anchors, turn.machine_observed)
         revised.repairs = turn.repairs + 1
+        if revised.forget:
+            self.read_memory.forget(revised.forget)
         self._remember(revised)
         self.turns.append(revised)
         return revised
@@ -555,6 +574,7 @@ class Agent:
         self.context.entries.clear()
         self.turns.clear()
         self._turn_counter = 0
+        self.read_memory.reset()
 
     def fast_forward_turn_counter(self, at_least: int) -> None:
         """Never backwards -- keeps a reopened session reusing old task_ids (§2.26)."""

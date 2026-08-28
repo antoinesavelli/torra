@@ -55,6 +55,15 @@ class Step:
     description: str = ""
     estimated_seconds: float | None = None
     touches: list[str] = field(default_factory=list)
+    #: Paths a read-only step accesses without modifying -- the read
+    #: counterpart to `touches`. Declared, not inferred from `command`
+    #: (the same reasoning `touches` already rests on): guessing a path
+    #: out of an arbitrary shell command is exactly the kind of thing
+    #: this codebase's own evasion-detection work already found regex
+    #: guessing bad at. Lets `Harness` feed a step's real output back
+    #: into the model's context, tagged by which file it came from, once
+    #: the step actually runs (§2.46).
+    reads: list[str] = field(default_factory=list)
     cwd: str | None = None
     timeout: float | None = None
     run: Callable[[], Any] | None = None
@@ -82,7 +91,7 @@ class StepResult:
 #: Fields a step may declare. Anything else is a typo, and typos in a document
 #: that drives root shell commands are errors rather than shrugs.
 STEP_FIELDS: set[str] = {
-    "id", "kind", "run", "description", "estimated_seconds", "touches",
+    "id", "kind", "run", "description", "estimated_seconds", "touches", "reads",
     "cwd", "timeout",
 }
 
@@ -170,6 +179,7 @@ class TaskSpec:
         seen.add(step_id)
         where = f"{source or 'task'}: step {index}"
         cls._validate_path_list(raw.get("touches"), "touches", where)
+        cls._validate_path_list(raw.get("reads"), "reads", where)
         cls._validate_estimated_seconds(raw.get("estimated_seconds"), where)
 
     @staticmethod
@@ -303,6 +313,7 @@ class TaskSpec:
                 estimated_seconds=(float(raw["estimated_seconds"])
                                    if raw.get("estimated_seconds") is not None else None),
                 touches=[str(t) for t in (raw.get("touches") or [])],
+                reads=[str(r) for r in (raw.get("reads") or [])],
                 cwd=cwd,
                 timeout=timeout,
                 run=action,

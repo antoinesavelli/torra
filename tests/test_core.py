@@ -902,6 +902,22 @@ class TestTaskSpecStepValidation:
         steps = spec.to_steps()
         assert steps[0].touches == []
 
+    def test_a_bare_string_reads_is_rejected(self) -> None:
+        """`reads` gets the exact same list-type validation as `touches`
+        (§2.46) -- same audit finding, same fix, one field over."""
+        with pytest.raises(TaskSpecError, match="'reads' must be a list"):
+            TaskSpec.validate(self._base(reads="/mnt/system-library/quirks.md"))
+
+    def test_a_well_formed_reads_field_validates_and_builds_cleanly(self) -> None:
+        spec = TaskSpec.validate(self._base(reads=["/mnt/system-library/quirks.md"]))
+        steps = spec.to_steps()
+        assert steps[0].reads == ["/mnt/system-library/quirks.md"]
+
+    def test_an_absent_reads_is_fine(self) -> None:
+        spec = TaskSpec.validate(self._base())
+        steps = spec.to_steps()
+        assert steps[0].reads == []
+
     def test_a_dry_run_step_describes_instead_of_running(self) -> None:
         """`to_steps(dry_run=True)`'s own closure branch -- distinct from
         Harness._run_one_step's separate runtime dry-run short-circuit,
@@ -1920,6 +1936,27 @@ class TestContextCompressor:
 
         result = c.compress(force=True)
         assert result.to_dict()["triggered"] is False
+
+    def test_remove_drops_the_named_entry_and_no_other(self) -> None:
+        c = ContextCompressor(max_tokens=1000)
+        c.add("u1", "user", "keep me")
+        c.add("read:/etc/hosts", "system", "127.0.0.1 localhost")
+        c.add("a1", "assistant", "also keep me")
+
+        removed = c.remove("read:/etc/hosts")
+
+        assert removed is True
+        assert [e.entry_id for e in c.entries] == ["u1", "a1"]
+        assert "127.0.0.1" not in "".join(e.content for e in c.entries)
+
+    def test_remove_of_an_id_that_is_not_there_is_a_harmless_no_op(self) -> None:
+        c = ContextCompressor(max_tokens=1000)
+        c.add("u1", "user", "hello")
+
+        removed = c.remove("read:/never/added")
+
+        assert removed is False
+        assert [e.entry_id for e in c.entries] == ["u1"]
 
     def test_the_cut_search_stops_as_soon_as_the_target_is_met(self) -> None:
         """Compressing more than needed would throw away recoverable

@@ -104,6 +104,17 @@ class ContextCompressor:
         self.entries.append(item)
         return item
 
+    def remove(self, entry_id: str) -> bool:
+        """Drop one entry by id -- the model saying a previously-read file's
+        content no longer helps (Agent._forget). True if it was actually
+        found and removed; False for an id that's already gone (already
+        compressed away, or never existed), which the caller treats as a
+        harmless no-op, not an error -- the operator's memory of what it
+        read and the model's are not the same clock."""
+        before = len(self.entries)
+        self.entries = [e for e in self.entries if e.entry_id != entry_id]
+        return len(self.entries) != before
+
     @staticmethod
     def _summarize(chunk: list[ContextStep]) -> str:
         """Compact extractive summary of a slice of history."""

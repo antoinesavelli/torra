@@ -181,6 +181,51 @@ def test_answering_questions_re_plans() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Read memory / forget (§2.46) -- ReadMemory's own behavior (remember,
+# replace-on-reread, cap, forget, reset) has dedicated coverage in
+# tests/test_read_memory.py; these are the Agent-integration points that
+# file can't reach: is agent.read_memory actually wired to agent.context,
+# and does converse() actually act on a model-named forget before
+# recording the new turn.
+# --------------------------------------------------------------------------- #
+
+
+def test_agents_read_memory_is_wired_to_its_own_context() -> None:
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}))
+
+    agent.read_memory.remember("/mnt/system-library/quirks.md", "quirk #12: ...")
+
+    assert any("quirk #12" in e.content for e in agent.context.entries), (
+        "agent.read_memory must write into agent.context, not a separate store")
+
+
+def test_converse_acts_on_forget_before_remembering_the_new_turn() -> None:
+    """End to end: a model reply naming `forget` actually removes that
+    context entry, not just records the request -- confirmed by re-reading
+    `agent.context.entries` after `converse()` returns, not by inspecting
+    `turn.forget` alone (that only proves parsing worked)."""
+    agent = build_agent(scripted(
+        {"intent": "answer", "message": "ok",
+         "forget": ["/mnt/system-library/quirks.md"]}))
+    agent.read_memory.remember("/mnt/system-library/quirks.md", "no longer relevant")
+
+    turn = agent.converse("some later, unrelated request")
+
+    assert turn.forget == ["/mnt/system-library/quirks.md"]
+    assert not any("no longer relevant" in e.content for e in agent.context.entries)
+
+
+def test_reset_clears_read_memory_too() -> None:
+    agent = build_agent(scripted({"intent": "answer", "message": "ok"}))
+    agent.read_memory.remember("/mnt/system-library/quirks.md", "content")
+
+    agent.reset()
+
+    assert agent.read_memory.paths == {}
+    assert agent.context.entries == []
+
+
+# --------------------------------------------------------------------------- #
 # Guarding against the model itself
 # --------------------------------------------------------------------------- #
 

@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **687 passed**. Then:
+Expect **712 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -224,6 +224,14 @@ rollback:
 Unknown step fields are a hard error. A typo in a document that drives root
 shell commands should stop the run.
 
+`reads: [/path]` (the read counterpart to `touches`) declares a path a
+step reads without modifying. Meaningful mainly for a model-generated
+plan, not a hand-written one: once such a step completes for real, its
+output enters the *model's own memory* of the conversation, tagged by
+that path -- `harness run`/`harness check` never touch the model at all,
+so declaring it on a hand-written step validates cleanly but has nothing
+to feed.
+
 If a run crashes partway through, re-running the identical task file skips
 whatever steps already completed for real instead of redoing them --
 validated against `task_id` and the step sequence, so an edited or
@@ -389,7 +397,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 687 cases, organised by subsystem |
+| `tests/` | 712 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -450,7 +458,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 687 cases
+python3 -m pytest tests/ -v              # 712 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

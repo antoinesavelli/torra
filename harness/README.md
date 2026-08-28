@@ -12,6 +12,7 @@ The package. Model proposes, five gates decide, the operator approves.
 | `pipeline.py` | `Harness`, the seven-stage orchestrator, the only thing that decides what runs |
 | `pipeline_types.py` | The data model `Harness` produces: `Stage`, `Outcome`, `StepPlan`, `Plan`, `RunResult` |
 | `dependency_warnings.py` | Best-effort, pre-`execute()` check for an approved step depending on a declined one -- never blocks, so it isn't under `gates/` |
+| `read_memory.py` | A completed read-only step's real output entering the model's own context, tagged by path, and the model later saying a path no longer helps |
 | `cli.py` | Entry points: `harness`, `ask`, `plan`, `run`, `check`, `doctor`, `evidence`, `label` |
 | `tui.py` | The terminal interface: one tab per session, chat pane plus the gated plan pane, pickers to reopen a past session or choose a model |
 | `__init__.py` | Package-level re-exports |

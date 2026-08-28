@@ -5,7 +5,9 @@ OllamaClient, ConflictDetector, ResumePoint), harness.core.tasks (shell_output_s
 directly -- not re-exported from harness.core, same as shell itself), harness.gates
 (all five guardrails), harness.pipeline_types (Stage, Outcome, StepPlan, Plan,
 RunResult -- the data model this module produces), harness.dependency_warnings
-(the pre-execute, advisory-only check `Harness.dependency_warnings` delegates to).
+(the pre-execute, advisory-only check `Harness.dependency_warnings` delegates to),
+harness.read_memory (remember_step_reads, feeding a completed read step's real
+output into the model's own context).
 
 converse/observe/propose/gate/present/execute/report. `observe`/`propose`
 live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
@@ -47,6 +49,7 @@ from .gates import (
     VerifiedRollback,
 )
 from .pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
+from .read_memory import remember_step_reads
 from .telemetry import TaskLogger
 
 __all__ = ["Stage", "Outcome", "StepPlan", "Plan", "RunResult", "Harness"]
@@ -529,6 +532,7 @@ class Harness:
             # _gate()'s propose-time snapshot, and a dry run must not blow
             # away the shadow copies the real run still needs.
             self.undo.cleanup()
+            remember_step_reads(self.agent.read_memory, result)
         try:
             resume_path.unlink(missing_ok=True)
         except OSError:

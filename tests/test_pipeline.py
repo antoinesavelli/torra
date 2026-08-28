@@ -512,6 +512,62 @@ def test_a_dry_run_keeps_its_shadow_copies(make_harness, tmp_path: Path) -> None
     )
 
 
+def test_a_completed_read_steps_output_feeds_back_into_agent_context(
+        make_harness, tmp_path: Path) -> None:
+    """§2.46: a step declaring `reads` gets its real output remembered,
+    tagged by the path -- so a later turn can act on what it found
+    instead of only remembering that the step was proposed."""
+    target = tmp_path / "quirks.md"
+    target.write_text("quirk #12: something specific", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", "read the quirks file",
+        [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}])))
+
+    done = harness.execute(harness.plan("read the quirks file"), {})
+
+    assert done.outcome is Outcome.COMPLETED
+    assert any(str(target) in e.content and "quirk #12" in e.content
+              for e in harness.agent.context.entries)
+
+
+def test_a_dry_run_never_feeds_read_output_into_context(
+        make_harness, tmp_path: Path) -> None:
+    """A dry run's output is a `[dry-run] ...` placeholder, not real
+    content -- feeding that into the model's memory as if it were the
+    file's real content would be actively wrong, not just unhelpful.
+    Checks for the distinctive `remember_read` tag, not a bare path
+    substring -- see test_a_failed_read_steps_output_never_feeds_into_context
+    for why a bare substring check would pass even when remember_read()
+    correctly never fired."""
+    target = tmp_path / "quirks.md"
+    target.write_text("quirk #12: something specific", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", "read the quirks file",
+        [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}])))
+
+    done = harness.execute(harness.plan("read the quirks file"), {}, dry_run=True)
+
+    assert done.outcome is Outcome.COMPLETED
+    assert not any(f"[read {target}]" in e.content for e in harness.agent.context.entries)
+
+
+def test_a_failed_read_steps_output_never_feeds_into_context(
+        make_harness) -> None:
+    """Checks for the distinctive `remember_read` tag, not a bare path
+    substring -- the path also legitimately appears in _remember()'s own
+    "Proposed: read: cat /no/such/file" summary line regardless of
+    whether the step ever ran, which would make a bare substring check
+    pass even when remember_read() correctly never fired."""
+    harness = make_harness(scripted(plan_reply(
+        "t", "read a file that fails",
+        [{"id": "read", "run": "cat /no/such/file", "reads": ["/no/such/file"]}])))
+
+    done = harness.execute(harness.plan("read a file that fails"), {})
+
+    assert done.outcome is Outcome.FAILED
+    assert not any("[read /no/such/file]" in e.content for e in harness.agent.context.entries)
+
+
 def test_a_declared_safe_rollback_is_still_classified(make_harness,
                                                        tmp_path: Path) -> None:
     """A declared `safe: true` cannot suppress a real CRITICAL classification.

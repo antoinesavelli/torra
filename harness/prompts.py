@@ -19,6 +19,7 @@ PLAN_SCHEMA = """{
   "intent": "plan" | "ask" | "answer" | "refuse",
   "message": "one or two sentences to the operator",
   "questions": ["only when intent is ask"],
+  "forget": ["path of a previously-read file whose content no longer helps"],
   "task": {
     "task_id": "short-kebab-id",
     "request": "one line restating what this accomplishes, with concrete targets",
@@ -32,7 +33,8 @@ PLAN_SCHEMA = """{
                        "confirms, what it depends on from an earlier step, "
                        "or what it sets up for a later one",
         "estimated_seconds": 10,
-        "touches": ["/files/this/step/modifies"]
+        "touches": ["/files/this/step/modifies"],
+        "reads": ["/files/this/step/reads/but/does/not/modify"]
       }
     ],
     "rollback": [
@@ -93,6 +95,16 @@ Rules that matter:
    claims hardware or a service is down when it is reported present and
    working), use intent "ask" and name the discrepancy. Do not plan around
    an unverified claim just because the operator stated it as fact.
+10. List every file a read-only step's output actually comes from in
+    `reads` (the read counterpart to `touches` in rule 3) -- once that
+    step runs, its real output is added to your own memory of this
+    conversation, tagged by that path, so a later turn can act on what
+    it found instead of only remembering that the step was proposed.
+    If a file you read earlier turns out not to matter for this
+    conversation anymore, name its path in the top-level `forget` list
+    to drop it from your memory -- do this when it is genuinely no
+    longer useful, not by default; forgetting something you still need
+    means guessing at it instead next time.
 
 Output schema:
 """ + PLAN_SCHEMA
