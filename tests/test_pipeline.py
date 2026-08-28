@@ -198,6 +198,162 @@ def test_an_approved_step_runs(make_harness, tmp_path: Path) -> None:
     assert not victim.exists()
 
 
+def test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one(
+        make_harness, tmp_path: Path) -> None:
+    """The point of partial execution: one declined step used to reject
+    the whole plan, including a sibling step that was already approved.
+    Now the approved one runs and the declined one is skipped, not run."""
+    keep = tmp_path / "keep.txt"
+    delete = tmp_path / "delete.txt"
+    keep.write_text("stay", encoding="utf-8")
+    delete.write_text("go", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", "delete two files",
+        [{"id": "rm-keep", "run": f"rm -f {keep}", "touches": [str(keep)]},
+         {"id": "rm-delete", "run": f"rm -f {delete}", "touches": [str(delete)]}])))
+
+    planned = harness.plan("delete two files")
+    done = harness.execute(planned, approvals={"rm-keep": False, "rm-delete": True})
+
+    assert done.outcome is Outcome.COMPLETED
+    assert keep.exists(), "the declined step must not have run"
+    assert not delete.exists(), "the approved step must still run"
+    skipped = [r for r in done.results if r.step_id == "rm-keep"]
+    assert skipped and "[skipped] not approved" in skipped[0].output
+    ran = [r for r in done.results if r.step_id == "rm-delete"]
+    assert ran and ran[0].ok
+
+
+def test_declining_every_step_in_a_multi_step_plan_still_rejects_all_of_it(
+        make_harness, tmp_path: Path) -> None:
+    """Generalizes test_a_dangerous_step_does_not_run_unapproved to more
+    than one step: REJECTED, with empty results, is only for the case
+    where *nothing* ends up approved -- not just any single refusal."""
+    v1, v2 = tmp_path / "v1.txt", tmp_path / "v2.txt"
+    v1.write_text("a", encoding="utf-8")
+    v2.write_text("b", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", "delete two files",
+        [{"id": "rm1", "run": f"rm -f {v1}", "touches": [str(v1)]},
+         {"id": "rm2", "run": f"rm -f {v2}", "touches": [str(v2)]}])))
+
+    planned = harness.plan("delete two files")
+    done = harness.execute(planned, approvals={})
+
+    assert done.outcome is Outcome.REJECTED
+    assert done.results == []
+    assert v1.exists() and v2.exists()
+
+
+def test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep(
+        make_harness, tmp_path: Path) -> None:
+    """_stage_rollback used to push every step's undo unconditionally --
+    including a declined step that never ran. If an approved step further
+    along then failed and triggered a rollback sweep, it would try to
+    "restore" a file the declined step never touched in the first place.
+    Needs a real undo actually staged (from the approved write step) or
+    the sweep has nothing to report at all and the assertion proves
+    nothing -- the declined step's rm alone would leave rollback empty."""
+    written = tmp_path / "written.txt"
+    written.write_text("original", encoding="utf-8")
+    declined_victim = tmp_path / "declined.txt"
+    declined_victim.write_text("never touched", encoding="utf-8")
+    harness = make_harness(scripted(plan_reply(
+        "t", "write, a declined delete, then a step that fails",
+        [{"id": "write", "kind": "write",
+          "run": f"printf 'changed\\n' > {written}", "touches": [str(written)]},
+         {"id": "rm-declined", "run": f"rm -f {declined_victim}",
+          "touches": [str(declined_victim)]},
+         {"id": "will-fail", "run": "exit 1"}])))
+
+    planned = harness.plan("mixed run")
+    done = harness.execute(
+        planned, approvals={"rm-declined": False, "will-fail": True})
+
+    assert done.outcome is Outcome.FAILED
+    assert declined_victim.exists(), "the declined step's file must be untouched"
+    assert done.rollback is not None and done.rollback.results, \
+        "the write step's real undo must have been staged and swept"
+    descriptions = " ".join(r.description for r in done.rollback.results)
+    assert str(declined_victim) not in descriptions, \
+        "a declined step's undo must never be staged, let alone attempted"
+
+
+def test_dependency_warnings_flags_an_approved_step_using_a_declined_paths_output(
+        make_harness) -> None:
+    """Best-effort, not a guarantee -- a plain substring check against
+    `touches`, computed before execute() so the caller can show it while
+    the operator can still change their mind. The declined step must
+    genuinely need confirmation, or it is never "declined" at all --
+    `dependency_warnings` treats a safe step as approved regardless of
+    what the approvals dict says, same as `_apply_approvals` itself."""
+    harness = make_harness(scripted(plan_reply(
+        "t", "remove then reference it",
+        [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
+          "touches": ["/tmp/scratch-dir/data.txt"]},
+         {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"}])))
+
+    planned = harness.plan("remove then reference it")
+    assert planned.plan is not None and planned.plan.needs_confirmation, \
+        "rm must actually need confirmation for this test to mean anything"
+    warnings = Harness.dependency_warnings(
+        planned.plan, approvals={"rm-declined": False, "use-it": True})
+
+    assert len(warnings) == 1
+    assert "use-it" in warnings[0]
+    assert "/tmp/scratch-dir/data.txt" in warnings[0]
+    assert "rm-declined" in warnings[0]
+
+
+def test_dependency_warnings_is_empty_when_nothing_was_declined(
+        make_harness) -> None:
+    harness = make_harness(scripted(plan_reply(
+        "t", "two safe steps",
+        [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}])))
+
+    planned = harness.plan("two safe steps")
+
+    assert Harness.dependency_warnings(planned.plan, approvals={}) == []
+
+
+def test_dependency_warnings_is_empty_when_no_approved_step_references_the_path(
+        make_harness) -> None:
+    harness = make_harness(scripted(plan_reply(
+        "t", "unrelated steps",
+        [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/x.txt",
+          "touches": ["/tmp/scratch-dir/x.txt"]},
+         {"id": "unrelated", "run": "echo hello"}])))
+
+    planned = harness.plan("unrelated steps")
+    assert planned.plan is not None and planned.plan.needs_confirmation
+    warnings = Harness.dependency_warnings(
+        planned.plan, approvals={"rm-declined": False, "unrelated": True})
+
+    assert warnings == []
+
+
+def test_dependency_warnings_module_works_standalone_not_just_via_harness(
+        make_harness) -> None:
+    """`Harness.dependency_warnings` is `staticmethod(_dependency_warnings)`
+    from harness.dependency_warnings -- imported and called directly here
+    so the split-out module is exercised on its own, not only through the
+    Harness re-export every other test in this file goes through."""
+    from harness.dependency_warnings import dependency_warnings
+
+    harness = make_harness(scripted(plan_reply(
+        "t", "remove then reference it",
+        [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
+          "touches": ["/tmp/scratch-dir/data.txt"]},
+         {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"}])))
+
+    planned = harness.plan("remove then reference it")
+    warnings = dependency_warnings(
+        planned.plan, approvals={"rm-declined": False, "use-it": True})
+
+    assert len(warnings) == 1
+    assert "use-it" in warnings[0] and "rm-declined" in warnings[0]
+
+
 def test_on_output_receives_live_chunks_tagged_with_the_step_id(
         make_harness, tmp_path: Path) -> None:
     """The mechanism behind the TUI's live step-output view -- see

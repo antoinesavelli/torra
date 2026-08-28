@@ -193,6 +193,46 @@ async def test_a_safe_plan_gets_no_checkbox(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs(
+        tmp_path: Path) -> None:
+    """Ticking one dangerous step's box while leaving a sibling it depends
+    on unticked used to just silently run whatever got approved -- the
+    operator only found out from the results after the fact, if at all.
+    dependency_warnings() is checked in _execute_plan_body right before
+    execute() runs, so this must land in chat before the run finishes."""
+    victim = tmp_path / "data.txt"
+    victim.write_text("original", encoding="utf-8")
+    # "use-it" must be genuinely DANGEROUS too, or it gets no checkbox at
+    # all (a safe step auto-approves regardless of what's ticked) and this
+    # test would prove nothing about a *declined* sibling.
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "remove then reference it",
+        [{"id": "rm-declined", "run": f"rm -f {victim}", "touches": [str(victim)]},
+         {"id": "use-it", "run": f"rm -f {victim}.copy; echo {victim}",
+          "touches": [f"{victim}.copy"]}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = "remove then reference it"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        boxes = {b.id: b for b in app.query(Checkbox) if (b.id or "").startswith("approve-")}
+        assert len(boxes) == 2
+        for card in app.query(StepCard):
+            box_id = f"approve-{card.index}"
+            if box_id in boxes:
+                boxes[box_id].value = (card.plan_step.step.step_id == "use-it")
+
+        await pilot.click("#run")
+        await pilot.pause(0.4)
+        await app.workers.wait_for_complete()
+
+        text = screen_text(app)
+        assert "warning:" in text
+        assert "use-it" in text and "rm-declined" in text
+
+
+@pytest.mark.asyncio
 async def test_reject_records_the_decision(tmp_path: Path) -> None:
     """Found in a full-file audit: clicking Reject used to bypass the
     pipeline entirely -- no audit record, no telemetry entry, just

@@ -368,6 +368,23 @@ def test_rule_6_no_longer_flatly_forbids_planning_for_a_question() -> None:
     assert "telling the operator to run it themselves" in SYSTEM_PROMPT
 
 
+def test_prompts_module_keeps_the_schema_the_model_sees_in_sync_with_the_prompt() -> None:
+    """harness.prompts holds PLAN_SCHEMA and SYSTEM_PROMPT (split out of
+    agent.py, which mixes prompt copy with conversation/repair-loop logic
+    -- see prompts.py's own docstring for the real, measured LOC reason).
+    Imported directly here, not just via harness.agent's re-export, so
+    this module is exercised on its own. Pins the actual coupling PLAN_SCHEMA's
+    own comment promises: SYSTEM_PROMPT is built by appending it verbatim,
+    so the schema the model is told about and the schema TaskSpec.validate
+    enforces can't drift apart."""
+    from harness.prompts import PLAN_SCHEMA
+    from harness.prompts import SYSTEM_PROMPT as prompts_system_prompt
+
+    assert prompts_system_prompt.endswith(PLAN_SCHEMA)
+    assert prompts_system_prompt is SYSTEM_PROMPT, \
+        "harness.agent's SYSTEM_PROMPT must be the same object, not a copy"
+
+
 # --------------------------------------------------------------------------- #
 # Malformed model output
 # --------------------------------------------------------------------------- #

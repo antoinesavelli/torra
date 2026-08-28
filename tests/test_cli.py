@@ -173,6 +173,125 @@ def test_approve_at_prompt_records_a_real_yes_and_no(
     assert "no automatic undo for this step" in capsys.readouterr().out
 
 
+def test_approve_at_prompt_shows_the_steps_description(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """The operator needs the *why* right where they're deciding, not just
+    the raw command -- found live: neither this prompt nor print_plan ever
+    printed `step.description` at all, so a model that wrote real
+    reasoning into it had nowhere for that reasoning to reach the operator."""
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "delete a stale cache",
+        "steps": [{"id": "rm", "run": "rm -rf /tmp/build-cache",
+                  "description": "clears the cache confirmed stale by "
+                                 "the earlier du check"}]}, source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    cli.approve_at_prompt(plan)
+
+    assert "confirmed stale by the earlier du check" in capsys.readouterr().out
+
+
+def test_approve_at_prompt_does_not_print_a_description_that_only_repeats_run(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "delete a file",
+        "steps": [{"id": "rm", "run": "rm -f /tmp/x",
+                  "description": "rm -f /tmp/x"}]}, source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    cli.approve_at_prompt(plan)
+
+    out = capsys.readouterr().out
+    assert "-- rm -f /tmp/x" not in out, "the command must not double as its own description"
+
+
+# --------------------------------------------------------------------------- #
+# print_plan
+# --------------------------------------------------------------------------- #
+
+
+def test_print_plan_shows_a_steps_description(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "check disk usage",
+        "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage",
+                  "description": "confirms free space before the larger "
+                                 "copy in the next step"}]}, source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+
+    cli.print_plan(plan)
+
+    assert "confirms free space before the larger copy" in capsys.readouterr().out
+
+
+def test_print_plan_does_not_repeat_the_command_as_a_description(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "check disk usage",
+        "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage"}]},
+        source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+
+    cli.print_plan(plan)
+
+    out = capsys.readouterr().out
+    assert out.count("df -h /mnt/ParamoStorage") == 1
+
+
+# --------------------------------------------------------------------------- #
+# print_dependency_warnings
+# --------------------------------------------------------------------------- #
+
+
+def test_print_dependency_warnings_shows_a_real_hit_before_execute_would_run(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The whole point of calling this before execute(): the operator sees
+    it while they can still change what they approved, not buried in the
+    execution report after the commands already ran."""
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "remove then reference it",
+        "steps": [
+            {"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
+             "touches": ["/tmp/scratch-dir/data.txt"]},
+            {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"},
+        ]}, source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+
+    cli.print_dependency_warnings(plan, {"rm-declined": False, "use-it": True})
+
+    out = capsys.readouterr().out
+    assert "use-it" in out and "rm-declined" in out
+
+
+def test_print_dependency_warnings_prints_nothing_when_there_is_nothing_to_flag(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    spec = TaskSpec.validate({
+        "task_id": "t", "request": "two unrelated safe steps",
+        "steps": [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}]},
+        source="test")
+    harness = Harness(workdir=tmp_path / "wd",
+                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    plan = harness._gate(spec)
+
+    cli.print_dependency_warnings(plan, {})
+
+    assert capsys.readouterr().out == ""
+
+
 # --------------------------------------------------------------------------- #
 # evidence (pre-existing)
 # --------------------------------------------------------------------------- #

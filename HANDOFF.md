@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 659 passed
+python3 -m pytest tests/ -q          # must print 674 passed
 harness doctor
 ```
 
@@ -1717,6 +1717,119 @@ more real post-fix traffic, then re-measure.
 > behavioral claim itself is the live A/B table above, not something a
 > scripted-transport test can re-verify)
 
+### 2.41 A step's `description` reached nowhere the operator could see it -- neither CLI surface ever printed the field at all
+
+Found from direct feedback: the plan pane read as a bare list of shell
+commands with no explanation of why each one was there. Investigating
+turned up two separate gaps, not one:
+
+- **The model was only ever asked for *what*, never *why*.**
+  `PLAN_SCHEMA`'s `description` field said `"what this step does"` --
+  rule 4 added no further guidance, so a model that dutifully restated
+  `run` in prose (or left it blank) was fully compliant with what it was
+  actually told. Reworded the schema hint and extended rule 4 to ask
+  explicitly for the reasoning: what a step confirms, what it depends on
+  from an earlier step, what it sets up for a later one -- and to say the
+  overall shape in `message` for a multi-step plan, not repeat each
+  step's own description there.
+- **Even a well-written description had nowhere to go.** `cli.py`'s
+  `print_plan()` and `approve_at_prompt()` never printed `step.description`
+  at all -- confirmed live across every `harness plan` run earlier in
+  this session, description text never once appeared. `tui.py`'s
+  `StepCard` already had the display logic (skip when empty or identical
+  to `run`); the CLI had no such logic because it had no logic for this
+  field whatsoever. Added the same skip-if-redundant print to both CLI
+  functions, in `approve_at_prompt()` specifically at the point the
+  operator is deciding whether to tick the box, not just in the
+  post-hoc plan listing.
+
+Content quality still depends on the model -- live-tested, `devstral:24b`
+produced descriptions ranging from genuinely useful ("clears the cache
+confirmed stale by the earlier du check") to fairly shallow restatements
+("List Docker images older than 30 days"). This is an honest,
+capability-dependent ceiling (`HANDOFF.md`'s own site-knowledge-library
+entry above makes the same caveat for a different feature), not
+something further prompt-wording iteration was pursued to close -- see
+§3's table for why chasing a closed-vocabulary-shaped fix on no new
+measurement is the wrong move here too.
+
+> Guarded by `tests/test_cli.py::
+> test_print_plan_shows_a_steps_description`,
+> `test_print_plan_does_not_repeat_the_command_as_a_description`,
+> `test_approve_at_prompt_shows_the_steps_description`,
+> `test_approve_at_prompt_does_not_print_a_description_that_only_repeats_run`
+
+### 2.42 `execute()` used to reject an entire plan over one declined step -- now it skips just that step, plus a best-effort warning when an approved step looks like it depended on one
+
+Found from direct feedback: ticking some dangerous steps and leaving
+others unticked ran nothing at all, not even the steps that were already
+approved -- including safe steps that never needed a tick in the first
+place. `_apply_approvals` already computed per-step approval correctly;
+`execute()` just short-circuited to `Outcome.REJECTED` the instant
+*any* step came back refused, before `_run_steps()` ever got a chance to
+run the rest.
+
+Three coordinated changes, none of which touch what "approved" means for
+a single step (the named invariant, `test_a_dangerous_step_does_not_run_unapproved`,
+is untouched and still passes unmodified):
+
+- `execute()` only returns `REJECTED` (nothing at all attempted) when
+  **zero** steps end up approved. A mixed approval now logs a "partial
+  approval" decision and proceeds.
+- `_run_steps()` gained a skip branch for `not sp.approved`, parallel to
+  the existing resumed-step skip branch -- a declined step is recorded
+  as `[skipped] not approved: <command>` and never reaches
+  `_run_one_step()`. Deliberately does **not** set `result.executed`
+  the way the resumed branch does: a resumed step really did run, for
+  real, in an earlier attempt (`resolve_resume` vouches for it); a
+  declined step never ran at all, so marking it "executed" would be
+  false. (See §8's contract line and `test_execute_twice_...` for why
+  `executed`'s exact semantics matter enough to spell this out.)
+- `_stage_rollback()` now only pushes a step's undo when `sp.approved`
+  -- staging one for a step that's never going to run would let a later
+  rollback sweep try to "restore" a file that was never touched.
+
+**The one risk this can't engineer away:** the harness has no model of
+dependencies *between* steps. Declining step 2 while approving step 3
+might make step 3 fail or behave surprisingly, and nothing here can
+detect that in general -- it's on the operator to judge when ticking
+boxes. `Harness.dependency_warnings(plan, approvals)` (a separate,
+public, side-effect-free static method, meant to be called by the
+caller *after* collecting approvals and *before* calling `execute()`, so
+the warning lands while the operator can still change their mind) covers
+exactly one narrow, structural case: an approved step's command contains
+a literal path from a declined step's `touches`. A plain substring
+check, not a real dependency graph -- deliberately not attempting
+anything cleverer, since that would be exactly the open-ended "list of
+things to detect" §3's table already warns against. It cannot catch a
+dependency on a file's *contents* rather than its path, and cannot rule
+out a coincidental match; both CLI entry points and the TUI print/show
+its output but never block on it.
+
+Both `harness.dependency_warnings` and `PLAN_SCHEMA`/`SYSTEM_PROMPT`
+(§2.41 above) were split into their own top-level modules
+(`harness/dependency_warnings.py`, `harness/prompts.py`) in the same
+change -- not a style preference, a measured one: `pipeline.py` and
+`agent.py` both crossed the defensive-coding scorecard's 500-functional-LOC
+Modularity threshold once these additions landed (GPA 3.83 -> 3.67),
+and `scripts/dev/defensive_coding_report.py`'s Definition of Done
+requires fixing that in the same change, not deferring it. Same
+precedent as `resolve_resume()` moving into `core/resume.py` (§2.33):
+a real, measured reason, not LOC-shuffling for its own sake. Neither
+module lives under `harness/gates/` despite being safety-adjacent --
+unlike the five real gates, `dependency_warnings` never blocks anything,
+so filing it there would misrepresent what it does.
+
+> Guarded by `tests/test_pipeline.py::
+> test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one`,
+> `test_declining_every_step_in_a_multi_step_plan_still_rejects_all_of_it`,
+> `test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep`,
+> `test_dependency_warnings_flags_an_approved_step_using_a_declined_paths_output`
+> + 3 more, `tests/test_cli.py::
+> test_print_dependency_warnings_shows_a_real_hit_before_execute_would_run`,
+> `tests/test_tui.py::
+> test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs`
+
 ---
 
 ## 3. Things already tried that failed
@@ -1746,7 +1859,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 659, must stay green
+python3 -m pytest tests/ -q                       # 674, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2404,6 +2517,10 @@ core object      Harness(workdir, ollama=, agent=, safety=, verifier=, undo=,
                          telemetry=, recheck_between_steps=True, knowledge_dir=None)
 plan             Harness.plan(request, model=None) -> RunResult
 execute          Harness.execute(result, approvals: Dict[str, bool], dry_run=False)
+                 -- a declined step is skipped, not a whole-plan reject,
+                 unless *zero* steps end up approved (§2.42)
+dep. warnings    Harness.dependency_warnings(plan, approvals) -> list[str]
+                 -- best-effort, call before execute(), never blocks (§2.42)
 one shot         Harness.run(request, approve: Callable[[Plan], Dict[str,bool]])
 
 outcomes         answered | needs_answer | refused | awaiting_approval |
@@ -2412,7 +2529,8 @@ stages           converse observe propose gate present execute report
 risk levels      safe caution dangerous critical
 exit codes       0 ok, 1 usage, 2 gate-stopped or unapproved, 3 failed
 
-model contract   JSON only, schema in harness.agent.PLAN_SCHEMA
+model contract   JSON only, schema in harness.prompts.PLAN_SCHEMA
+                 (re-exported from harness.agent for existing importers)
                  intent: plan | ask | answer | refuse
                  the model NEVER executes; it returns a TaskSpec
 
@@ -2423,7 +2541,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 659
+test command     python3 -m pytest tests/ -q     # 674
 ```
 
 ---

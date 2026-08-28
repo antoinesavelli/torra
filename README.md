@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **659 passed**. Then:
+Expect **674 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -87,9 +87,20 @@ stdout/stderr streams live into the chat as it runs, tagged with the step
 id -- the only place a successful step's output is ever shown, so unlike
 the thinking line it stays in the transcript after the run finishes.
 
-Dangerous steps arrive with an **unticked** box. Safe steps get no box at all,
-because asking for approval on `df -h` trains people to tick without reading,
-which is how the one that mattered gets ticked too.
+Dangerous steps arrive with an **unticked** box, each with a description of
+*why* it's there -- what it confirms, what it depends on from an earlier
+step, what it sets up for a later one -- not just the bare command. Safe
+steps get no box at all, because asking for approval on `df -h` trains
+people to tick without reading, which is how the one that mattered gets
+ticked too.
+
+Ticking some dangerous steps and leaving others declined runs the ticked
+ones and skips the rest -- it no longer rejects the whole plan over one
+declined step. If an approved step's command looks like it depends on a
+declined one (references a path the declined step would have produced),
+you'll see a warning before anything runs; it's a best-effort hint; not a
+guarantee, since the harness has no real model of dependencies between
+steps.
 
 Every conversation is a tab. Each tab is a fully independent session -- its
 own model context, its own gate history -- so running a plan in one never
@@ -358,7 +369,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 659 cases, organised by subsystem |
+| `tests/` | 674 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -419,7 +430,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 659 cases
+python3 -m pytest tests/ -v              # 674 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

@@ -110,10 +110,20 @@ def print_plan(plan: Plan) -> None:
         flag = "CONFIRM" if sp.needs_confirmation else "   ok  "
         print(f"  {index}. [{flag}] {sp.verdict.level.value:9} {sp.step.step_id}")
         print(f"       {sp.step.command}")
+        if sp.step.description and sp.step.description != sp.step.command:
+            print(f"       -- {sp.step.description}")
         if sp.undos:
             print(f"       undo: {sp.undos[0].description[:70]}")
         else:
             print("       undo: none derivable")
+
+
+def print_dependency_warnings(plan: Plan, approvals: dict[str, bool]) -> None:
+    """Show any Harness.dependency_warnings() hits before execute() runs --
+    the whole point is the operator sees this while they can still change
+    their mind, not buried in the execution report after the fact."""
+    for warning in Harness.dependency_warnings(plan, approvals):
+        print(f"  warning: {warning}")
 
 
 def approve_at_prompt(plan: Plan) -> dict[str, bool]:
@@ -121,6 +131,8 @@ def approve_at_prompt(plan: Plan) -> dict[str, bool]:
     approvals: dict[str, bool] = {}
     for sp in plan.needs_confirmation:
         print(f"\n  [{sp.verdict.level.value.upper()}] {sp.step.command}")
+        if sp.step.description and sp.step.description != sp.step.command:
+            print(f"    -- {sp.step.description}")
         for reason in sp.verdict.reasons[:3]:
             print(f"    {reason}")
         if not sp.undos:
@@ -232,6 +244,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return EXIT_BLOCKED
 
     approvals = {} if args.non_interactive else approve_at_prompt(result.plan)
+    print_dependency_warnings(result.plan, approvals)
     done = harness.execute(result, approvals, dry_run=args.dry_run)
     _print_execution_report(done)
     return OUTCOME_EXIT.get(done.outcome.value, EXIT_FAILED)
@@ -273,6 +286,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         return EXIT_BLOCKED
 
     approvals = {} if args.non_interactive else approve_at_prompt(plan)
+    print_dependency_warnings(plan, approvals)
     done = harness.execute(result, approvals, dry_run=args.dry_run)
     _print_execution_report(done)
     return OUTCOME_EXIT.get(done.outcome.value, EXIT_FAILED)

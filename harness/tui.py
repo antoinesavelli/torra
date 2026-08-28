@@ -1142,6 +1142,9 @@ class HarnessApp(App):
             self.call_from_thread(self._set_busy, session_id, False, "")
             return
         approvals = self.call_from_thread(self._approvals, session_id)
+        for warning in Harness.dependency_warnings(result.plan, approvals):
+            self.call_from_thread(self._say, session_id, "harness",
+                                  f"warning: {warning}", "yellow")
 
         def on_output(step_id: str, chunk: str) -> None:
             self.call_from_thread(self._append_step_output, session_id, step_id, chunk)

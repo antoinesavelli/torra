@@ -8,8 +8,10 @@ The package. Model proposes, five gates decide, the operator approves.
 | [`core/`](core/README.md) | Task/step primitives, conflict detection, context compression, the Ollama client |
 | [`telemetry/`](telemetry/README.md) | Task logging, human labels, drift and loophole audits |
 | `agent.py` | The model loop: conversation to validated `TaskSpec`, never a shell |
+| `prompts.py` | `PLAN_SCHEMA`/`SYSTEM_PROMPT` -- the literal text handed to the model, split out of `agent.py` |
 | `pipeline.py` | `Harness`, the seven-stage orchestrator, the only thing that decides what runs |
 | `pipeline_types.py` | The data model `Harness` produces: `Stage`, `Outcome`, `StepPlan`, `Plan`, `RunResult` |
+| `dependency_warnings.py` | Best-effort, pre-`execute()` check for an approved step depending on a declined one -- never blocks, so it isn't under `gates/` |
 | `cli.py` | Entry points: `harness`, `ask`, `plan`, `run`, `check`, `doctor`, `evidence`, `label` |
 | `tui.py` | The terminal interface: one tab per session, chat pane plus the gated plan pane, pickers to reopen a past session or choose a model |
 | `__init__.py` | Package-level re-exports |

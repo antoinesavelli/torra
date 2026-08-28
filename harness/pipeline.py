@@ -4,7 +4,8 @@ Depends on: harness.agent (Agent), harness.core (task/step primitives, ModelBack
 OllamaClient, ConflictDetector, ResumePoint), harness.core.tasks (shell_output_sink,
 directly -- not re-exported from harness.core, same as shell itself), harness.gates
 (all five guardrails), harness.pipeline_types (Stage, Outcome, StepPlan, Plan,
-RunResult -- the data model this module produces).
+RunResult -- the data model this module produces), harness.dependency_warnings
+(the pre-execute, advisory-only check `Harness.dependency_warnings` delegates to).
 
 converse/observe/propose/gate/present/execute/report. `observe`/`propose`
 live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
@@ -34,6 +35,7 @@ from .core import (
     resolve_resume,
 )
 from .core.tasks import shell_output_sink
+from .dependency_warnings import dependency_warnings as _dependency_warnings
 from .gates import (
     Clarifier,
     DecisionLog,
@@ -254,6 +256,11 @@ class Harness:
             {"tracked_paths": tracked})
         return plan
 
+    #: Public: `Harness.dependency_warnings(plan, approvals)`. Delegates to
+    #: harness.dependency_warnings -- see that module's docstring for why
+    #: it's a separate file rather than a method body here.
+    dependency_warnings = staticmethod(_dependency_warnings)
+
     # -- stage 6: execute -------------------------------------------------- #
 
     def execute(self, result: RunResult, approvals: dict[str, bool] | None = None,
@@ -278,15 +285,24 @@ class Harness:
 
         # A step needing confirmation and absent from `approvals` is treated
         # as refused -- defaulting an unanswered dangerous command to yes is
-        # how accidents happen.
+        # how accidents happen. The whole plan is only REJECTED when
+        # *nothing* ends up approved; a mixed approval runs the approved
+        # steps and skips the rest (`_run_steps`'s "not sp.approved" branch)
+        # rather than blocking everything, including steps that never
+        # needed a tick in the first place.
         refused = self._apply_approvals(plan, approvals or {})
-        if refused:
+        if refused and not any(sp.approved for sp in plan.steps):
             result.outcome = Outcome.REJECTED
             result.abort_reason = ("not approved: "
                                    + ", ".join(sp.step.step_id for sp in refused))
             self.decisions.log(Stage.PRESENT.value, "plan rejected",
                                result.abort_reason)
             return self._finish(result, started)
+        if refused:
+            self.decisions.log(
+                Stage.PRESENT.value, "partial approval",
+                f"{len(refused)} step(s) declined and will be skipped: "
+                + ", ".join(sp.step.step_id for sp in refused))
 
         self._stage_rollback(plan)
 
@@ -337,9 +353,14 @@ class Harness:
         return [sp for sp in plan.steps if sp.approved is False]
 
     def _stage_rollback(self, plan: Plan) -> None:
-        """Push every step's derived undos, then the plan's declared ones."""
+        """Push every approved step's derived undos, then the plan's
+        declared ones. Skips a declined step's undos deliberately -- there
+        is nothing to undo for a step that never ran, and staging one
+        anyway would let a later rollback sweep "restore" a file a
+        declined step never touched."""
         for sp in plan.steps:
-            self.rollback.push_many(sp.undos)
+            if sp.approved:
+                self.rollback.push_many(sp.undos)
         for description, command, undo, declared_safe in plan.spec.rollback_actions():
             # A declared rollback entry only gets to make a command *more*
             # cautious than SafetyClassifier would, never less: the command
@@ -358,8 +379,8 @@ class Harness:
             self.rollback.add(description, undo, safe=effective_safe)
         self.decisions.log(
             Stage.PRESENT.value, "approved",
-            f"{len(plan.steps)} step(s) approved, rollback depth "
-            f"{self.rollback.depth}")
+            f"{sum(1 for sp in plan.steps if sp.approved)} step(s) approved, "
+            f"rollback depth {self.rollback.depth}")
 
     def _run_steps(self, plan: Plan, result: RunResult, dry_run: bool,
                     resume: ResumePoint, resume_path: Path,
@@ -379,6 +400,18 @@ class Harness:
                                        f"[resumed] {sp.step.command}", seconds=0.0)
                 result.results.append(sp.result)
                 result.executed = True
+                continue
+
+            if not sp.approved:
+                # A declined step in an otherwise-mixed approval: skipped,
+                # not run -- never reaches `_run_one_step`, so it can never
+                # set `result.executed`. Not `result.executed = True` here
+                # deliberately: this step genuinely never ran, unlike the
+                # resumed case above (which vouches for a real prior run).
+                sp.result = StepResult(sp.step.step_id, True,
+                                       f"[skipped] not approved: {sp.step.command}",
+                                       seconds=0.0)
+                result.results.append(sp.result)
                 continue
 
             if self.recheck_between_steps:
