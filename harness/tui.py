@@ -498,6 +498,48 @@ class ModelPicker(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ConfirmDialog(ModalScreen[bool]):
+    """A yes/no prompt. Dismisses with True (confirmed) or False (cancelled
+    or Escaped) -- never `None`, unlike SessionPicker/ModelPicker, since a
+    caller here always needs a definite go/no-go rather than a third
+    "nothing chosen" state."""
+
+    BINDINGS = [("escape", "dismiss_no", "Cancel")]
+
+    CSS = """
+    ConfirmDialog { align: center middle; }
+    #confirm-box {
+        width: 60%; height: auto; max-height: 80%;
+        border: round $warning; background: $surface; padding: 1 2;
+    }
+    #confirm-actions { padding-top: 1; }
+    """
+
+    def __init__(self, message: str, confirm_label: str = "Yes") -> None:
+        super().__init__()
+        self._message = message
+        self._confirm_label = confirm_label
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-box"):
+            yield Static(self._message, markup=True)
+            with Horizontal(id="confirm-actions"):
+                yield Button(self._confirm_label, variant="error", id="confirm-yes")
+                yield Button("Cancel", id="confirm-no")
+
+    @on(Button.Pressed, "#confirm-yes")
+    def _yes(self, event: Button.Pressed) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#confirm-no")
+    def _no(self, event: Button.Pressed) -> None:
+        self.dismiss(False)
+
+    def action_dismiss_no(self) -> None:
+        """Escape: same as Cancel."""
+        self.dismiss(False)
+
+
 class HarnessApp(App):
     """The tabbed terminal interface -- one tab per independent session."""
 
@@ -1037,8 +1079,26 @@ class HarnessApp(App):
 
     @on(Button.Pressed, "#run")
     def pressed_run(self, event: Button.Pressed) -> None:
-        """Execute the approved plan."""
-        self.execute_plan(self._session_id_of(event.button), dry_run=False)
+        """Execute the approved plan -- asks first if this exact plan
+        already ran for real once. `Harness.execute()` already refuses a
+        second real run outright (`_refuse_replay`, keyed on
+        `result.executed`), so this can't be bypassed into a real replay
+        either way; the point is to stop the doomed click before it's even
+        dispatched and ask instead of it looking like nothing happened,
+        the same reasoning `_set_busy`'s button-disabling already follows
+        for #reject."""
+        session_id = self._session_id_of(event.button)
+        tab = self.sessions[session_id]
+        if tab.current is not None and tab.current.executed:
+            def _handle(confirmed: bool | None) -> None:
+                if confirmed:
+                    self.execute_plan(session_id, dry_run=False)
+
+            self.push_screen(
+                ConfirmDialog("This plan's commands already ran once. Run it again?"),
+                _handle)
+            return
+        self.execute_plan(session_id, dry_run=False)
 
     @on(Button.Pressed, "#dryrun")
     def pressed_dry(self, event: Button.Pressed) -> None:
@@ -1351,6 +1411,22 @@ class HarnessApp(App):
             self.call_from_thread(self._say, session_id, "harness", "No plan to run.", "dim")
             self.call_from_thread(self._set_busy, session_id, False, "")
             return
+        if not dry_run and result.executed:
+            # Harness.execute() would refuse this outright (_refuse_replay)
+            # without re-running a single command -- but it would still
+            # return the same RunResult with its `results` list untouched,
+            # and _executed() below would then reprint that entire prior
+            # transcript into the chat a second time, which is exactly
+            # what read as "clicking Run repeats the chat." Short-circuit
+            # here instead: one clear line, nothing re-executed, nothing
+            # re-printed. (Reaching this at all means the operator already
+            # confirmed through pressed_run's dialog -- this is not a new
+            # way to skip that confirmation.)
+            self.call_from_thread(
+                self._say, session_id, "harness",
+                "Nothing to run -- this plan's commands already ran.", "dim")
+            self.call_from_thread(self._set_busy, session_id, False, "")
+            return
         approvals = self.call_from_thread(self._approvals, session_id)
         for warning in Harness.dependency_warnings(result.plan, approvals):
             self.call_from_thread(self._say, session_id, "harness",
@@ -1376,6 +1452,14 @@ class HarnessApp(App):
             return  # the tab was closed while this was in flight
         self._set_busy(session_id, False, "")
         tab.current = result
+        if not dry_run and result.executed:
+            # A real run happened for real on this exact plan -- Run stays
+            # clickable (pressed_run now asks for confirmation on a second
+            # click) but no longer looks like a fresh, not-yet-run plan.
+            # Only reached for a genuine first-time completion: a
+            # confirmed re-click is short-circuited earlier in
+            # _execute_plan_body and never reaches here.
+            self._mark_run_used(session_id)
         style = OUTCOME_STYLE.get(result.outcome.value, "")
         prefix = "[dry run] " if dry_run else ""
 
@@ -1411,6 +1495,17 @@ class HarnessApp(App):
         if result.audit_path:
             self._say(session_id, "harness", f"audit: {escape(str(result.audit_path))}", "dim")
         self._status(session_id, f"[{style}]{result.outcome.value}[/]")
+
+    def _mark_run_used(self, session_id: str) -> None:
+        """Grey Run out -- `variant="default"` is already this app's grey
+        look, the same one "Dry run" uses unstyled right next to it, so
+        this reuses an existing visual, not a new one. query(), not
+        query_one(): PlanPane.show() rebuilds the button row fresh for
+        every new plan, so there's nothing to grey the first time a plan
+        with nothing approved yet is shown."""
+        pane = self._tab_pane(session_id)
+        for button in pane.query(Button).filter("#run"):
+            button.variant = "default"
 
     def _set_busy(self, session_id: str, busy: bool, message: str) -> None:
         """Toggle one session's busy state and, if it's the active tab, the status line."""

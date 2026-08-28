@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 712 passed
+python3 -m pytest tests/ -q          # must print 720 passed
 harness doctor
 ```
 
@@ -2032,6 +2032,57 @@ future import.
 > `test_a_dry_run_never_feeds_read_output_into_context`,
 > `test_a_failed_read_steps_output_never_feeds_into_context`
 
+### 2.47 Run stayed clickable (and green) after a real run completed -- a second click never re-ran anything for real, but it did reprint the whole prior transcript, reading as "the run repeated"
+
+`Harness.execute()` already refused to actually replay commands on an
+already-executed `RunResult` (`_refuse_replay`, keyed on
+`result.executed`, §2.8) -- that part was never broken. What was broken:
+`_set_busy` only disables Run/Dry-run/Reject *while* `busy=True`, then
+re-enables them the moment a run finishes, so Run stayed clickable
+(still green, `variant="success"`) after a completed real run. A second
+click dispatched `execute_plan()` again, which called
+`tab.harness.execute()` again, which hit `_refuse_replay` and handed
+back the *same* `RunResult` with its `results` list untouched --
+`_executed()` then iterated that list and re-said every step's
+"ok/fail ... Ns" line, the completed/failed message, the agent summary,
+and the rollback report a second time. No command actually ran twice,
+but the operator watching the chat pane could not tell that from "the
+chat repeating."
+
+Fixed in the TUI layer only -- `Harness.execute()`/`_refuse_replay`
+itself is untouched, per this file's own "ask first" rule for that
+method. Three pieces, all in `harness/tui.py`:
+
+1. `pressed_run` now checks `tab.current.executed` before dispatching at
+   all. If a real run already completed on this exact plan, it pushes a
+   new `ConfirmDialog` (a small `ModalScreen[bool]`, same shape as
+   `SessionPicker`/`ModelPicker`) instead of calling `execute_plan()`
+   directly. `result.executed` is False for a REJECTED-with-nothing-
+   approved outcome and for a BLOCKED-before-any-step-ran outcome (see
+   §2.8's fix) -- both stay retryable with no prompt, unchanged.
+2. `_execute_plan_body` now checks `not dry_run and result.executed`
+   *before* calling `tab.harness.execute()` at all, and short-circuits
+   with one dim "Nothing to run -- this plan's commands already ran."
+   line rather than letting the call reach `_refuse_replay` and then
+   reprinting the untouched `results` list a second time. Reaching this
+   path at all means the operator already confirmed via (1) -- this is
+   not a second way to skip that confirmation, since `execute_plan()`
+   only ever gets called after a `True` dismiss.
+3. `_executed()` calls a new `_mark_run_used()` after a genuine (not
+   short-circuited) real completion, which sets the `#run` button's
+   `variant` to `"default"` -- the same grey look `"Dry run"` already
+   has unstyled in the same button row, reused rather than inventing a
+   new visual. `PlanPane.show()` fully rebuilds the button row for every
+   new plan, so this needs no explicit reset when a fresh plan arrives.
+
+> Guarded by `tests/test_tui.py::
+> test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript`
+> -- spies on `Harness.execute` to assert it is called exactly once
+> total (never a second time, not even a refused one, since the TUI now
+> short-circuits before reaching it), asserts the confirmation dialog
+> appears before anything runs, that cancelling adds zero chat lines,
+> and that confirming adds exactly one.
+
 ---
 
 ## 3. Things already tried that failed
@@ -2061,7 +2112,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 712, must stay green
+python3 -m pytest tests/ -q                       # 720, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2743,7 +2794,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 712
+test command     python3 -m pytest tests/ -q     # 720
 ```
 
 ---

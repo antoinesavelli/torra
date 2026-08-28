@@ -399,7 +399,21 @@ class TestModelInfo:
     def test_billions_are_parsed(self) -> None:
         info = self._client({"details": {"parameter_size": "14.8B"},
                              "capabilities": ["completion"]}).model_info("x")
-        assert info == {"params_b": 14.8, "chat_capable": True, "thinking_capable": False}
+        assert info == {"params_b": 14.8, "chat_capable": True, "thinking_capable": False,
+                        "context_length": 0}
+
+    def test_context_length_is_read_from_the_family_prefixed_key(self) -> None:
+        """The real key is family-prefixed ("qwen35.context_length",
+        "llama.context_length", ...) and the family varies per model --
+        confirmed live against a real daemon (qwen3.5 reported
+        "qwen35.context_length": 262144)."""
+        info = self._client({"details": {"parameter_size": "8.0B"},
+                             "model_info": {"qwen35.context_length": 262144}}).model_info("x")
+        assert info["context_length"] == 262144
+
+    def test_missing_model_info_key_reports_zero_context_length(self) -> None:
+        info = self._client({"details": {"parameter_size": "8.0B"}}).model_info("x")
+        assert info["context_length"] == 0
 
     def test_thinking_capability_is_read_from_capabilities(self) -> None:
         info = self._client({"details": {"parameter_size": "8.0B"},
@@ -486,6 +500,56 @@ class TestChatResponseShape:
             transport=lambda path, payload, timeout: {"message": {"content": "   "}})
         with pytest.raises(OllamaError, match="empty response"):
             client.chat("model", [{"role": "user", "content": "hi"}])
+
+
+class TestChatTokenCounts:
+    """OllamaClient.chat() reads real per-call token counts off Ollama's
+    own response (`prompt_eval_count`/`eval_count`), confirmed live
+    against a real daemon -- not estimated, the way ContextCompressor's
+    own token counting is."""
+
+    def test_token_counts_accumulate_across_calls(self) -> None:
+        client = OllamaClient(transport=lambda path, payload, timeout: {
+            "message": {"content": "hi there"},
+            "prompt_eval_count": 12, "eval_count": 5})
+
+        client.chat("model", [{"role": "user", "content": "hi"}])
+        client.chat("model", [{"role": "user", "content": "hi again"}])
+
+        assert client.prompt_tokens == 24
+        assert client.completion_tokens == 10
+        assert client.stats()["prompt_tokens"] == 24
+        assert client.stats()["completion_tokens"] == 10
+
+    def test_a_response_missing_token_counts_contributes_zero_not_a_crash(self) -> None:
+        """An old Ollama version, or a scripted test transport that omits
+        these fields entirely, must not raise -- same defensive posture
+        the rest of chat()'s shape handling already has."""
+        client = OllamaClient(
+            transport=lambda path, payload, timeout: {"message": {"content": "hi there"}})
+
+        client.chat("model", [{"role": "user", "content": "hi"}])
+
+        assert client.prompt_tokens == 0
+        assert client.completion_tokens == 0
+
+    def test_token_counts_are_read_from_the_streamed_final_chunk_too(self) -> None:
+        """_http_stream folds the last NDJSON line (the one carrying
+        done: true and the real counts) into what chat() reads from --
+        on_thinking's path must see the same counts a plain call would."""
+        def stream_transport(path, payload, timeout, on_thinking):
+            return {"message": {"content": "hi there"},
+                   "prompt_eval_count": 7, "eval_count": 3, "done": True}
+
+        client = OllamaClient(
+            transport=lambda p, pay, t: (_ for _ in ()).throw(
+                AssertionError("plain transport must not be used with on_thinking")),
+            stream_transport=stream_transport)
+
+        client.chat("model", [{"role": "user", "content": "hi"}], on_thinking=lambda c: None)
+
+        assert client.prompt_tokens == 7
+        assert client.completion_tokens == 3
 
 
 class TestChatThinking:
@@ -679,6 +743,39 @@ class TestOpenRouterClient:
                 "choices": [{"message": {"content": "hi there"}}]})
         assert client.chat("anthropic/claude-3.5-sonnet",
                            [{"role": "user", "content": "hi"}]) == "hi there"
+
+    def test_token_and_cost_counts_accumulate_from_the_usage_field(self) -> None:
+        """OpenRouter's own `usage` object, present by default on a
+        non-streaming completion (this client never sets stream: true) --
+        confirmed against OpenRouter's own API reference, not assumed."""
+        client = OpenRouterClient(
+            api_key="k",
+            transport=lambda path, payload, timeout: {
+                "choices": [{"message": {"content": "hi there"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4, "cost": 0.0012}})
+
+        client.chat("x", [{"role": "user", "content": "hi"}])
+        client.chat("x", [{"role": "user", "content": "hi again"}])
+
+        assert client.prompt_tokens == 20
+        assert client.completion_tokens == 8
+        assert client.cost_usd == pytest.approx(0.0024)
+        stats = client.stats()
+        assert stats["prompt_tokens"] == 20
+        assert stats["completion_tokens"] == 8
+        assert stats["cost_usd"] == pytest.approx(0.0024)
+
+    def test_a_response_missing_the_usage_field_contributes_zero_not_a_crash(self) -> None:
+        client = OpenRouterClient(
+            api_key="k",
+            transport=lambda path, payload, timeout: {
+                "choices": [{"message": {"content": "hi there"}}]})
+
+        client.chat("x", [{"role": "user", "content": "hi"}])
+
+        assert client.prompt_tokens == 0
+        assert client.completion_tokens == 0
+        assert client.cost_usd == 0.0
 
     def test_json_mode_sets_response_format_not_ollamas_format_field(self) -> None:
         seen: dict[str, Any] = {}

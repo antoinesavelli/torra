@@ -89,6 +89,15 @@ class OllamaClient:
         self.consecutive_failures: int = 0
         self.calls: int = 0
         self.total_seconds: float = 0.0
+        #: Cumulative real token counts, read from Ollama's own response --
+        #: `prompt_eval_count`/`eval_count`, present in both the plain and
+        #: streaming shapes (`_http_stream` folds the final NDJSON line,
+        #: which carries them, into what it returns). Confirmed live
+        #: against a real daemon, not assumed present in every reply --
+        #: an old Ollama version or a scripted test transport that omits
+        #: them just contributes 0, never raises.
+        self.prompt_tokens: int = 0
+        self.completion_tokens: int = 0
 
     # -- transport --------------------------------------------------------- #
 
@@ -221,6 +230,19 @@ class OllamaClient:
                 value = float(match.group(1))
                 params_b = value if match.group(2) == "B" else value / 1000
             capabilities = data.get("capabilities")
+            model_details = data.get("model_info")
+            # The real key is family-prefixed ("qwen35.context_length",
+            # "llama.context_length", ...) and the family varies per model,
+            # so this looks for whichever key actually ends in
+            # ".context_length" instead of guessing the family name --
+            # confirmed live against a real daemon (qwen3.5 reported
+            # "qwen35.context_length": 262144), not assumed from docs.
+            context_length = 0
+            if isinstance(model_details, dict):
+                for key, value in model_details.items():
+                    if key.endswith(".context_length") and isinstance(value, int):
+                        context_length = value
+                        break
             return {
                 "params_b": params_b,
                 "chat_capable": ("completion" in capabilities
@@ -231,6 +253,7 @@ class OllamaClient:
                 # them, not be assumed to.
                 "thinking_capable": ("thinking" in capabilities
                                      if capabilities is not None else False),
+                "context_length": context_length,
             }
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
@@ -310,6 +333,8 @@ class OllamaClient:
             if not isinstance(data, dict):
                 raise TypeError(f"expected a mapping, got {type(data).__name__}")
             content = ((data.get("message") or {}).get("content") or "").strip()
+            self.prompt_tokens += int(data.get("prompt_eval_count") or 0)
+            self.completion_tokens += int(data.get("eval_count") or 0)
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             self.last_status = OllamaStatus.UNREACHABLE
@@ -334,4 +359,6 @@ class OllamaClient:
             "total_seconds": round(self.total_seconds, 3),
             "mean_seconds": round(self.total_seconds / self.calls, 3) if self.calls else 0.0,
             "last_error": self.last_error,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
         }

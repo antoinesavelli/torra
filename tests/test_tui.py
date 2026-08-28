@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 from conftest import plan_reply, scripted
-from textual.widgets import Checkbox, Input, OptionList, Static, Tab, TabbedContent
+from textual.widgets import Button, Checkbox, Input, OptionList, Static, Tab, TabbedContent
 
 from harness.agent import Intent, Turn
 from harness.core import MachineState, OllamaClient
@@ -26,6 +26,8 @@ from harness.pipeline import Harness, Outcome, RunResult
 from harness.tui import (
     SPINNER_FRAMES,
     VERIFIED_OPENROUTER_MODELS,
+    ChatLine,
+    ConfirmDialog,
     HarnessApp,
     ModelPicker,
     SessionPicker,
@@ -474,6 +476,81 @@ async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> 
         assert "Plan rejected. Nothing ran." not in text, (
             "the wrong-outcome message was shown for a plan that already ran"
         )
+
+
+@pytest.mark.asyncio
+async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript(
+        tmp_path: Path) -> None:
+    """Found live: Run stayed clickable (and green) after a real run
+    completed, and clicking it again -- while never actually re-running
+    anything for real, Harness.execute()'s own `_refuse_replay` guard
+    already saw to that -- still called execute() again and reprinted the
+    whole prior transcript into the chat, reading as if the run itself had
+    repeated. Run now greys out after one real use; a second click asks
+    before dispatching anything at all, and even once confirmed it must
+    not call execute() again or add more than one short line to the chat."""
+    marker = tmp_path / "counter"
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"append to {marker}",
+        [{"id": "bump", "run": f"echo x >> {marker}"}])))
+
+    calls: list[str] = []
+    orig_execute = app.harness.execute
+
+    def spy(result: RunResult, approvals: dict[str, bool] | None = None,
+            dry_run: bool = False, on_output: Any | None = None) -> RunResult:
+        calls.append("enter")
+        return orig_execute(result, approvals, dry_run, on_output=on_output)
+
+    app.harness.execute = spy  # type: ignore[method-assign]
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"append to {marker}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        await app.workers.wait_for_complete()
+        assert marker.read_text(encoding="utf-8") == "x\n", "the step must run once"
+        assert len(calls) == 1
+
+        run_button = app.query_one("#run", Button)
+        assert run_button.variant == "default", \
+            "Run should grey out (Dry run's own look) after a real run"
+
+        lines_after_first_run = len(app.query(ChatLine))
+
+        # A second click must ask first, not act -- and asking must not
+        # itself dispatch anything.
+        await pilot.click("#run")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ConfirmDialog), \
+            "a second click should ask before acting"
+        assert len(calls) == 1, "opening the confirmation must not run anything"
+
+        await pilot.click("#confirm-no")
+        await pilot.pause(0.2)
+        assert marker.read_text(encoding="utf-8") == "x\n"
+        assert len(calls) == 1, "cancelling must not run anything either"
+        assert len(app.query(ChatLine)) == lines_after_first_run, \
+            "cancelling must not add any chat output"
+
+        # Confirming still can't force a real replay (Harness.execute()'s
+        # own guard would refuse it even if reached) -- but it must not
+        # even call execute() again, and must add exactly one short line,
+        # not the whole prior transcript a second time.
+        await pilot.click("#run")
+        await pilot.pause(0.2)
+        await pilot.click("#confirm-yes")
+        await app.workers.wait_for_complete()
+
+        assert marker.read_text(encoding="utf-8") == "x\n", \
+            "confirming must still not re-run the real command"
+        assert len(calls) == 1, "confirming must not call execute() again"
+        assert len(app.query(ChatLine)) == lines_after_first_run + 1, \
+            "confirming should add exactly one line, not replay the transcript"
+        assert "already ran" in screen_text(app)
 
 
 @pytest.mark.asyncio

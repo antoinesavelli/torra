@@ -55,6 +55,17 @@ class OpenRouterClient:
         self.last_error: str = ""
         self.calls: int = 0
         self.total_seconds: float = 0.0
+        #: Cumulative real token counts and USD cost, read from
+        #: OpenRouter's own response `usage` object -- present by default
+        #: on a non-streaming completion (this client never sets
+        #: `stream: true`), confirmed against OpenRouter's own API
+        #: reference, not assumed. `usage.cost` is USD directly, the same
+        #: unit OpenRouter's own pricing pages quote (verified live this
+        #: project's own real test calls, e.g. grok-4.6 at $2/$6 per M
+        #: input/output tokens) -- not a separate "credit" currency.
+        self.prompt_tokens: int = 0
+        self.completion_tokens: int = 0
+        self.cost_usd: float = 0.0
 
     # -- transport --------------------------------------------------------- #
 
@@ -133,6 +144,10 @@ class OpenRouterClient:
             if not isinstance(choices, list) or not choices:
                 raise TypeError("response had no choices")
             content = ((choices[0].get("message") or {}).get("content") or "").strip()
+            usage = data.get("usage") or {}
+            self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+            self.completion_tokens += int(usage.get("completion_tokens") or 0)
+            self.cost_usd += float(usage.get("cost") or 0.0)
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             raise OllamaError(
@@ -173,4 +188,7 @@ class OpenRouterClient:
             "total_seconds": round(self.total_seconds, 3),
             "mean_seconds": round(self.total_seconds / self.calls, 3) if self.calls else 0.0,
             "last_error": self.last_error,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "cost_usd": round(self.cost_usd, 6),
         }
