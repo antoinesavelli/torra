@@ -27,7 +27,10 @@ from harness.core import (
     OllamaError,
     OllamaStatus,
     OpenRouterClient,
+    build_ssh_runner,
+    observe_executor,
     observe_machine,
+    resolve_executor_config,
 )
 from harness.core.conflict import Conflict
 from harness.core.machine import (
@@ -196,6 +199,118 @@ def test_fallback_model_default_is_actually_pulled() -> None:
     catalog change has to touch this constant deliberately, not by
     accident."""
     assert OllamaClient().fallback_model == "qwen3.5:latest"
+
+
+class TestExecutorObservation:
+    """Read-only observation of a second, real machine ("executor") over
+    SSH -- HANDOFF.md §2.52. No test here touches a live network: every
+    runner is fake, matching the rest of this file's style
+    (test_a_failed_probe_does_not_abort_observation,
+    test_an_extra_probe_populates_extras_and_a_failure_does_not_abort_the_rest).
+    """
+
+    def test_resolve_executor_config_returns_none_when_host_unset(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HARNESS_EXECUTOR_HOST", raising=False)
+        assert resolve_executor_config() is None
+
+    def test_resolve_executor_config_reads_from_environment(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HARNESS_EXECUTOR_HOST", "10.0.0.44")
+        monkeypatch.setenv("HARNESS_EXECUTOR_USER", "antoine")
+        monkeypatch.setenv("HARNESS_EXECUTOR_SSH_KEY", "/some/key")
+        assert resolve_executor_config() == ("10.0.0.44", "antoine", "/some/key")
+
+    def test_resolve_executor_config_explicit_args_override_environment(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HARNESS_EXECUTOR_HOST", "env-host")
+        assert resolve_executor_config(host="explicit-host", user="u", key_path="k") == (
+            "explicit-host", "u", "k")
+
+    def test_observe_executor_reuses_observe_machine_unchanged(self) -> None:
+        """Same fake-runner shape as a local observe_machine() call --
+        proves executor observation is not a parallel, divergent
+        implementation, just observe_machine() pointed at a different
+        runner."""
+        def runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command == "hostname":
+                return "executor-box"
+            if command == "uname -r":
+                return "6.9.0-executor"
+            return "ok"
+
+        state = observe_executor(runner)
+        assert state.hostname == "executor-box"
+        assert state.kernel == "6.9.0-executor"
+        assert state.accelerator.kind in ("cpu", "cuda", "rocm")
+
+    def test_observe_executor_never_raises_when_the_runner_always_fails(self) -> None:
+        def always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
+            raise RuntimeError("host unreachable")
+
+        state = observe_executor(always_fails)
+        assert isinstance(state, MachineState)
+        assert any("RuntimeError" in e for e in state.errors)
+
+    def test_observe_executor_handles_a_dead_host_timeout_without_raising(self) -> None:
+        def always_times_out(command: str, cwd: str | None, timeout: float | None) -> str:
+            raise subprocess.TimeoutExpired("ssh", 5)
+
+        state = observe_executor(always_times_out)
+        assert isinstance(state, MachineState)
+        assert state.errors
+
+    def test_build_ssh_runner_wraps_the_command_and_matches_shells_contract(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_run(argv: list[str], **kwargs: Any) -> Any:
+            captured["argv"] = argv
+            return subprocess.CompletedProcess(argv, 0, stdout="remote output\n", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        runner = build_ssh_runner("10.0.0.44", user="antoine", key_path="~/.ssh/exec_key")
+        result = runner("hostname", None, 10.0)
+
+        assert result == "remote output"
+        argv = captured["argv"]
+        assert argv[0] == "ssh"
+        assert "BatchMode=yes" in argv
+        assert "-i" in argv and os.path.expanduser("~/.ssh/exec_key") in argv
+        assert "antoine@10.0.0.44" in argv
+        assert argv[-1] == "hostname"
+
+    def test_build_ssh_runner_raises_like_shell_on_a_nonzero_exit(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_run(argv: list[str], **kwargs: Any) -> Any:
+            return subprocess.CompletedProcess(argv, 255, stdout="", stderr="Connection refused")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        runner = build_ssh_runner("10.0.0.44")
+        with pytest.raises(RuntimeError, match="exit 255.*Connection refused"):
+            runner("hostname", None, 10.0)
+
+    def test_machine_state_render_includes_a_clearly_labeled_executor_block(
+            self) -> None:
+        state = MachineState(
+            hostname="workstation",
+            executor=MachineState(hostname="executor-box", kernel="6.9.0-executor"))
+        text = state.render()
+        assert "executor" in text
+        assert "read-only" in text
+        assert "cannot execute" in text
+        assert "executor-box" in text
+        assert "6.9.0-executor" in text
+
+    def test_machine_state_render_omits_the_executor_block_when_absent(self) -> None:
+        text = MachineState(hostname="workstation").render()
+        assert "executor" not in text
+
+    def test_machine_state_to_dict_round_trips_a_nested_executor(self) -> None:
+        state = MachineState(hostname="workstation",
+                             executor=MachineState(hostname="executor-box"))
+        data = state.to_dict()
+        assert data["executor"]["hostname"] == "executor-box"
 
 
 class TestKnowledgeLibrary:

@@ -14,7 +14,15 @@ from __future__ import annotations
 from .backend import ModelBackend, resolve_backend
 from .conflict import Conflict, ConflictDetector, ConflictKind
 from .context import CompressionResult, ContextCompressor, ContextStep
-from .machine import Accelerator, MachineState, detect_accelerator, observe_machine
+from .machine import (
+    Accelerator,
+    MachineState,
+    build_ssh_runner,
+    detect_accelerator,
+    observe_executor,
+    observe_machine,
+    resolve_executor_config,
+)
 from .ollama import OllamaClient, OllamaStatus, RecoveryOption
 from .openrouter import OpenRouterClient
 from .resume import ResumePoint, ResumeResolution, resolve_resume
@@ -38,5 +46,6 @@ __all__ = [
     "OllamaStatus", "RecoveryOption", "OllamaClient",
     "ModelBackend", "resolve_backend", "OpenRouterClient",
     "Accelerator", "detect_accelerator", "MachineState", "observe_machine",
+    "build_ssh_runner", "observe_executor", "resolve_executor_config",
     "SessionMeta", "SessionRecord", "SessionStore",
 ]

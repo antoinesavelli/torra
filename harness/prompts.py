@@ -105,6 +105,12 @@ Rules that matter:
     to drop it from your memory -- do this when it is genuinely no
     longer useful, not by default; forgetting something you still need
     means guessing at it instead next time.
+11. Observed state may include a second, real machine ("executor") if the
+    operator has one configured -- those facts are for you to reason about
+    only. There is no way for you to run a command there: every step you
+    propose, no matter what it names or targets, only ever executes on
+    THIS machine. Never propose an `ssh ...` step (or anything else)
+    intended to act on executor.
 
 Output schema:
 """ + PLAN_SCHEMA

@@ -1,7 +1,8 @@
 """What the box looks like right now, and what the model will actually run on.
 
 Depends on: harness.core.tasks (shell), harness.core.ollama (OllamaClient, for
-the model listing observe_machine attaches).
+the model listing observe_machine attaches), stdlib subprocess (lazily
+imported, build_ssh_runner only) and os.environ (resolve_executor_config).
 """
 
 from __future__ import annotations
@@ -18,12 +19,14 @@ from typing import Any
 from .ollama import OllamaClient
 from .tasks import shell
 
-__all__ = ["Accelerator", "detect_accelerator", "MachineState", "observe_machine"]
+__all__ = ["Accelerator", "detect_accelerator", "MachineState", "observe_machine",
+          "build_ssh_runner", "observe_executor", "resolve_executor_config"]
 
 #: Parameter counts for models whose name does not carry one.
 KNOWN_MODEL_PARAMS_B: dict[str, float] = {
     "devstral": 24.0, "codestral": 22.0, "mistral": 7.0, "mixtral": 47.0,
     "llama3": 8.0, "phi3": 3.8, "gemma2": 9.0, "deepseek-coder": 6.7,
+    "devstral-small-2": 24.0, "muse-glimmer": 30.0, "gpt-oss": 20.0,
 }
 
 
@@ -237,6 +240,13 @@ class MachineState:
     memory: str = ""
     cwd: str = ""
     accelerator: Accelerator = field(default_factory=Accelerator)
+    #: A second, real machine ("executor"), observed read-only over SSH when
+    #: configured -- see observe_executor()/resolve_executor_config(). None
+    #: (the default) means either no such machine is configured or its own
+    #: observation failed; either way, no executor block is rendered and
+    #: nothing about local behavior changes (HANDOFF.md §2.52). Never
+    #: populate this field's own .executor -- render() has no cycle guard.
+    executor: MachineState | None = None
     ollama_models: list[str] = field(default_factory=list)
     ollama_models_dir: str = ""
     #: A configured, optional local directory of site-specific documentation
@@ -300,6 +310,15 @@ class MachineState:
                      for name, heading in self.knowledge_library.items()]
         for name, value in self.extras.items():
             lines += ["", f"{name}:", value]
+        if self.executor is not None:
+            lines += [
+                "",
+                "--- executor (a second, real machine, reached over SSH for "
+                "read-only observation only -- these facts are informational; "
+                "you cannot execute anything there, every step you propose "
+                "still runs on THIS machine) ---",
+                self.executor.render(),
+            ]
         return "\n".join(lines)
 
 
@@ -475,3 +494,83 @@ def observe_machine(
             state.errors.append(f"ollama_models_dir: {type(exc).__name__}: {exc}")
 
     return state
+
+
+def resolve_executor_config(
+    host: str | None = None, user: str | None = None, key_path: str | None = None,
+) -> tuple[str, str, str] | None:
+    """(host, user, key_path) for an optional second, SSH-reachable machine
+    ("executor") -- explicit args win, else HARNESS_EXECUTOR_HOST/_USER/
+    _SSH_KEY from the environment, same explicit-overrides-env precedent as
+    Harness._resolve_knowledge_dir. Gated on `host` alone: `user`/`key_path`
+    may resolve empty and fall through to ssh's own config/agent/default-
+    identity resolution. None (feature entirely absent, no SSH ever
+    attempted) when no host resolves either way -- read by
+    Agent.__init__ once at construction, not something a caller ordinarily
+    calls directly."""
+    resolved_host = host if host is not None else os.environ.get("HARNESS_EXECUTOR_HOST", "")
+    if not resolved_host:
+        return None
+    resolved_user = user if user is not None else os.environ.get("HARNESS_EXECUTOR_USER", "")
+    resolved_key = key_path if key_path is not None else os.environ.get(
+        "HARNESS_EXECUTOR_SSH_KEY", "")
+    return (resolved_host, resolved_user, resolved_key)
+
+
+def build_ssh_runner(
+    host: str, user: str = "", key_path: str = "", connect_timeout: float = 5.0,
+) -> Callable[[str, str | None, float | None], str]:
+    """A runner matching shell()'s exact contract (same signature, same
+    raise-on-nonzero/return-stripped-stdout behavior), wrapping each command
+    in a non-interactive SSH call to `host` instead of running it locally --
+    drop-in for observe_machine()'s/detect_accelerator()'s existing `runner`
+    injection point, never a Step's own execution path (HANDOFF.md §2.52:
+    nothing calls this but Agent's own default observer).
+
+    BatchMode=yes plus a closed stdin guarantees ssh can never sit waiting on
+    a passphrase/host-key prompt nobody is watching -- that would otherwise
+    hang an unrelated, local-only turn. StrictHostKeyChecking=accept-new
+    (not =no) trusts a new host key on first contact but still fails on a
+    *changed* key later.
+    """
+    def run(command: str, cwd: str | None, timeout: float | None) -> str:
+        import shlex
+        import subprocess
+
+        remote_command = f"cd {shlex.quote(cwd)} && {command}" if cwd else command
+        argv = ["ssh", "-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
+               "-o", f"ConnectTimeout={int(connect_timeout)}",
+               "-o", "StrictHostKeyChecking=accept-new"]
+        if key_path:
+            argv += ["-i", os.path.expanduser(key_path)]
+        argv.append(f"{user}@{host}" if user else host)
+        argv.append(remote_command)
+        result = subprocess.run(argv, capture_output=True, text=True,
+                                stdin=subprocess.DEVNULL, timeout=timeout or 3600)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"exit {result.returncode}: "
+                f"{(result.stderr or result.stdout).strip()[:400]}")
+        return (result.stdout or "").strip()
+    return run
+
+
+def observe_executor(
+    runner: Callable[[str, str | None, float | None], str],
+    extra: dict[str, str] | None = None,
+) -> MachineState:
+    """Read-only facts about a second machine, reusing observe_machine()/
+    OBSERVE_COMMANDS/detect_accelerator() completely unchanged -- just
+    pointed at `runner` instead of local shell(). Never raises: a
+    genuinely unreachable or misconfigured executor degrades to a mostly-
+    empty MachineState with the failure in .errors, the same guarantee
+    observe_machine() already gives each individual local probe. This
+    function's own try/except is defense-in-depth on top of that -- it
+    makes "never raises" an absolute guarantee here specifically, not just
+    an inherited property. `ollama=None` deliberately: getting executor's
+    model list would need a second real OllamaClient pointed at its
+    daemon, out of scope for a first version (HANDOFF.md §2.52)."""
+    try:
+        return observe_machine(runner=runner, extra=extra)
+    except Exception as exc:
+        return MachineState(errors=[f"executor: {type(exc).__name__}: {exc}"])

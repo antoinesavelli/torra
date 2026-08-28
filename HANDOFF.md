@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 725 passed
+python3 -m pytest tests/ -q          # must print 740 passed
 harness doctor
 ```
 
@@ -2222,6 +2222,72 @@ odfpy, plain `open()`) is doing the overwriting.
 > Guarded by `tests/test_gates.py::TestSafety::
 > test_an_interpreter_overwriting_a_file_it_also_read_is_not_silently_safe`.
 
+### 2.52 Read-only observation of a second, real machine ("executor") over SSH -- explicitly not remote execution
+
+Operator asked whether harness could "reach across to executor if needed."
+Two ways to do that exist, with very different risk: read-only observability
+(feed real facts about a second machine into the model's context) vs. actual
+remote execution (let a step really run there). The second would need
+`SafetyClassifier` to understand `ssh <host> "..."` the same deliberate way
+it already unwraps `sudo`/`env`/`timeout`/`sh -c` -- a new evasion class --
+and breaks undo entirely (`UndoGenerator` only snapshots local files).
+Operator chose read-only observability. This entry covers only that; remote
+execution was deliberately not built as a side effect.
+
+**Anti-goal, worth re-reading before extending this:** nothing here adds a
+new way for the model to cause anything to run on executor. No new
+`Step.kind`. `TaskSpec.to_steps()`/`SafetyClassifier` never see an
+executor-bound command. The only caller of the new SSH-runner machinery is
+`Agent.__init__`'s own default observer, via `_observe_with_executor()`.
+`grep -rn "build_ssh_runner\|observe_executor" harness/` shows exactly two
+files: the definitions in `harness/core/machine.py` and the one call site in
+`harness/agent.py`. Don't let that grow past two without re-reading this
+entry first. Also: don't ever call `observe_executor()` with its own nested
+executor config (no chained third machine) -- `MachineState.render()` has no
+cycle guard, and would recurse forever on a self-referential or circular
+`.executor` chain.
+
+Implementation reuses `observe_machine()`/`detect_accelerator()`'s existing
+injectable-`runner` DI pattern completely unchanged -- `build_ssh_runner()`
+just returns a runner matching `shell()`'s exact contract (same signature,
+raise-on-nonzero/return-stripped-stdout) that wraps each command in a
+non-interactive SSH call instead of running it locally. `BatchMode=yes` plus
+a closed stdin guarantees ssh can never sit waiting on a prompt nobody is
+watching -- that would otherwise hang an unrelated, local-only turn.
+`resolve_executor_config()` reads `HARNESS_EXECUTOR_HOST`/`_USER`/`_SSH_KEY`
+from the environment (same explicit-overrides-env, `.env`/`load_dotenv()`
+precedent as `OPENROUTER_API_KEY`) -- `None` (feature entirely absent, zero
+SSH ever attempted) when `HARNESS_EXECUTOR_HOST` is unset, which is the
+default for anyone without it configured. `MachineState.executor` is
+attached inside `Agent.__init__`'s default observer closure, so it's
+refetched on exactly the same cache/refresh cadence
+(`Agent.observe(refresh=...)`) as local facts already are, for free.
+`SYSTEM_PROMPT` gained one rule telling the model the executor block, when
+present, is informational only -- confirmed live it holds: asked to
+"restart the ollama service on executor," the model asked a clarifying
+question about the service name rather than either restarting the *local*
+service by mistake or proposing an `ssh` step.
+
+Confirmed live against the real executor box (`10.0.0.44`): `harness ask
+--non-interactive "what does executor look like right now"` correctly
+reported its real hostname, kernel, GPU (RTX 2070 SUPER, real free VRAM),
+disk, and memory, answered directly from observed state with zero steps
+proposed.
+
+> Guarded by `tests/test_core.py::TestExecutorObservation` (11 cases:
+> `resolve_executor_config`'s env/explicit-arg precedence,
+> `observe_executor`'s reuse of `observe_machine` and its never-raises
+> guarantee on both a failing runner and a `subprocess.TimeoutExpired`,
+> `build_ssh_runner`'s argv shape and `shell()`-matching raise contract,
+> `MachineState.render()`/`.to_dict()` with and without an executor block)
+> and four `tests/test_agent.py` cases (config reaching the default observer,
+> the no-config default path never touching SSH at all, the executor state
+> sharing the local state's cache, and the new `SYSTEM_PROMPT` rule's
+> presence). No live-SSH test is in the automated suite -- `10.0.0.44` is a
+> specific external host, not the always-present-on-any-runner exception
+> `systemctl`/`dpkg-query`/`inotify` get; the manual check above is the
+> real-network verification instead.
+
 ---
 
 ## 3. Things already tried that failed
@@ -2251,7 +2317,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 725, must stay green
+python3 -m pytest tests/ -q                       # 740, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2933,7 +2999,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 725
+test command     python3 -m pytest tests/ -q     # 740
 ```
 
 ---

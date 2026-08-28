@@ -1,9 +1,10 @@
 """The model loop: turns a conversation into a validated TaskSpec, never a shell.
 
 Depends on: harness.core (ContextCompressor, ContextStep, MachineState, ModelBackend,
-OllamaClient, Step, StepResult, TaskSpec, observe_machine, resolve_backend),
-harness.gates (Clarifier, ModelRouter, SafetyClassifier), harness.prompts
-(PLAN_SCHEMA, SYSTEM_PROMPT), harness.read_memory (ReadMemory).
+OllamaClient, Step, StepResult, TaskSpec, observe_machine, resolve_backend,
+build_ssh_runner, observe_executor, resolve_executor_config), harness.gates
+(Clarifier, ModelRouter, SafetyClassifier), harness.prompts (PLAN_SCHEMA,
+SYSTEM_PROMPT), harness.read_memory (ReadMemory).
 
 The design rule throughout: the model produces a TaskSpec and nothing else. It
 does not execute, it does not get a shell, it does not decide what is safe. It
@@ -33,7 +34,10 @@ from .core import (
     StepResult,
     TaskSpec,
     TaskSpecError,
+    build_ssh_runner,
+    observe_executor,
     observe_machine,
+    resolve_executor_config,
 )
 from .core import (
     resolve_backend as _resolve_backend,
@@ -101,6 +105,23 @@ class Turn:
         }
 
 
+def _observe_with_executor(
+    ollama: OllamaClient, knowledge_dir: str | None,
+    executor_config: tuple[str, str, str] | None,
+) -> MachineState:
+    """Today's observe_machine() call, plus the optional executor
+    sub-observation attached afterward -- composition, not a change to what
+    observe_machine() itself does (HANDOFF.md §2.52). `executor_config` is
+    None (the common case) whenever HARNESS_EXECUTOR_HOST isn't set, and
+    then this behaves exactly like the plain observe_machine() call it
+    replaces -- no SSH is ever attempted."""
+    state = observe_machine(ollama=ollama, knowledge_dir=knowledge_dir)
+    if executor_config is not None:
+        host, user, key_path = executor_config
+        state.executor = observe_executor(build_ssh_runner(host, user, key_path))
+    return state
+
+
 class Agent:
     """Turns a conversation into a validated TaskSpec.
 
@@ -146,8 +167,9 @@ class Agent:
         self.clarifier = clarifier or Clarifier()
         self.safety = safety or SafetyClassifier()
         self.context = compressor or ContextCompressor(max_tokens=24_000)
+        self._executor_config = resolve_executor_config()
         self._observe = observer or (
-            lambda: observe_machine(ollama=ollama, knowledge_dir=knowledge_dir))
+            lambda: _observe_with_executor(ollama, knowledge_dir, self._executor_config))
         self.max_repairs = self.MAX_REPAIRS if max_repairs is None else int(max_repairs)
         self.system_prompt = system_prompt
         self._on_context_change = on_context_change

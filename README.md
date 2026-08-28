@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **724 passed**. Then:
+Expect **740 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -349,6 +349,27 @@ handing an unrecognized name straight to Ollama would.
 
 ---
 
+## A second machine (executor)
+
+If you have a second, SSH-reachable machine, the model can see real facts
+about it -- hostname, kernel, uptime, disk, memory, GPU -- to reason about in
+its answers. This is **read-only observation only**: there is no way for a
+step to execute anything there. Every step still only ever runs on the
+machine `harness` itself is running on, no exceptions.
+
+```bash
+export HARNESS_EXECUTOR_HOST=10.0.0.44
+export HARNESS_EXECUTOR_USER=antoine
+export HARNESS_EXECUTOR_SSH_KEY=~/.ssh/id_ed25519_executor_link
+```
+
+Same `.env`/shell-export precedence as `OPENROUTER_API_KEY` above. Absent
+`HARNESS_EXECUTOR_HOST`, this is entirely off -- no SSH connection is ever
+attempted, and nothing about local-only behavior changes (`HANDOFF.md`
+§2.52).
+
+---
+
 ## Site-knowledge library
 
 Point the harness at a directory of Markdown docs about this specific machine
@@ -413,7 +434,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 724 cases, organised by subsystem |
+| `tests/` | 740 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -474,7 +495,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 724 cases
+python3 -m pytest tests/ -v              # 740 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

@@ -1032,6 +1032,88 @@ def test_knowledge_dir_reaches_the_default_observer(monkeypatch: pytest.MonkeyPa
     assert seen["knowledge_dir"] == "/some/library"
 
 
+def test_executor_config_reaches_the_default_observer_when_configured(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mirrors test_knowledge_dir_reaches_the_default_observer -- confirms
+    the executor sub-observation actually happens through Agent's default
+    observer closure when configured, and that build_ssh_runner's output
+    is what observe_executor is called with (HANDOFF.md §2.52)."""
+    import harness.agent as agent_module
+
+    seen: dict[str, object] = {}
+    sentinel_runner = object()
+
+    monkeypatch.setattr(agent_module, "resolve_executor_config",
+                        lambda: ("10.0.0.44", "antoine", "/key"))
+
+    def fake_build_ssh_runner(host, user="", key_path="", connect_timeout=5.0):
+        seen["ssh_runner_args"] = (host, user, key_path)
+        return sentinel_runner
+
+    def fake_observe_executor(runner, extra=None):
+        seen["runner"] = runner
+        return MachineState(hostname="executor-fake")
+
+    monkeypatch.setattr(agent_module, "build_ssh_runner", fake_build_ssh_runner)
+    monkeypatch.setattr(agent_module, "observe_executor", fake_observe_executor)
+
+    agent = Agent(OllamaClient(transport=lambda p, pay, t: {}))
+    state = agent.observe()
+
+    assert seen["ssh_runner_args"] == ("10.0.0.44", "antoine", "/key")
+    assert seen["runner"] is sentinel_runner
+    assert state.executor is not None
+    assert state.executor.hostname == "executor-fake"
+
+
+def test_no_executor_config_means_the_default_observer_never_touches_ssh(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The concrete regression guard for "the no-config default path is
+    behaviorally identical to today" -- build_ssh_runner/observe_executor
+    must not even be called, not just "called and no-op", when
+    HARNESS_EXECUTOR_HOST isn't set."""
+    import harness.agent as agent_module
+
+    monkeypatch.setattr(agent_module, "resolve_executor_config", lambda: None)
+
+    def must_not_be_called(*args: object, **kwargs: object) -> object:
+        raise AssertionError("executor machinery must not run without config")
+
+    monkeypatch.setattr(agent_module, "build_ssh_runner", must_not_be_called)
+    monkeypatch.setattr(agent_module, "observe_executor", must_not_be_called)
+
+    agent = Agent(OllamaClient(transport=lambda p, pay, t: {}))
+    state = agent.observe()
+
+    assert state.executor is None
+
+
+def test_agent_observe_caches_the_executor_state_without_refresh() -> None:
+    """Same cache identity guarantee local state already has -- the
+    executor sub-observation happens inside the same self._observe()
+    closure Agent.observe()'s cache already covers, so it needs no
+    separate caching logic of its own."""
+    calls = {"n": 0}
+
+    def fake_observer() -> MachineState:
+        calls["n"] += 1
+        return MachineState(executor=MachineState(hostname=f"executor-{calls['n']}"))
+
+    agent = Agent(OllamaClient(transport=lambda p, pay, t: {}), observer=fake_observer)
+    first = agent.observe()
+    second = agent.observe()
+
+    assert first is second
+    assert first.executor is not None
+    assert first.executor.hostname == "executor-1"
+    assert calls["n"] == 1
+
+
+def test_system_prompt_tells_the_model_executor_is_observation_only() -> None:
+    assert "no way for you to run a command" in SYSTEM_PROMPT
+    assert "executor" in SYSTEM_PROMPT
+
+
 def test_observe_refresh_repopulates_stale_model_metadata() -> None:
     """Found in a full-file audit: the model-metadata block only ran when
     `router.available` was still falsy, so `observe(refresh=True)` -- whose
