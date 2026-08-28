@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 721 passed
+python3 -m pytest tests/ -q          # must print 724 passed
 harness doctor
 ```
 
@@ -2136,6 +2136,53 @@ rather than duplicating that bookkeeping.
 > appear) and the updated
 > `test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`.
 
+### 2.50 A live indicator sat where nobody was looking -- moved next to the prompt, plus a real way to abandon an in-flight plan request
+
+Two complaints, same root cause: the only busy feedback was the shared
+`#status` line, docked at the very bottom of the whole screen *below*
+the sidebar -- far from the prompt input an operator is actually
+watching after they hit enter. It was always updating correctly (10fps
+spinner, elapsed seconds, confirmed live in this session's own earlier
+end-to-end run); nobody could see it from where they were looking, which
+reads identically to "there's no indicator" from the outside.
+
+Fixed with a second, per-tab widget: `#busy-line`, sitting directly
+above `#prompt` (a plain, non-docked `Static` in `#left`'s normal flow,
+placed between `#chat` and the `dock: bottom` `#prompt` -- confirmed
+live that ordering two `dock: bottom` siblings does NOT position by
+compose/CSS order the way it might look like it should; only one widget
+in a container may safely dock to a given edge for this to lay out
+predictably). `_tick_spinner` now writes the same spinner/elapsed text
+to both `#status` and `#busy-line` -- `#busy-line` needs no "only if
+active tab" guard the way `#status` does, since it's a real per-tab
+widget, so a backgrounded tab's own state stays correct without polling.
+
+The second complaint -- "there's no way to stop thinking" -- exposed a
+real constraint, not just a missing button: `OllamaClient.chat()`'s
+non-streaming path (any non-thinking-capable model, i.e. most routing
+outcomes) is one blocking `urlopen()` + `.read()` with no checkpoint at
+all; Python cannot forcibly kill a thread blocked on a real syscall from
+outside it. So this is *not* real cancellation of the network call --
+it's UI-side abandonment: `SessionTab.generation`, bumped by the new
+Escape binding (`action_stop_thinking`), lets `_planned()`/the new
+`_report_plan_error()` recognize a result that arrives after the
+operator gave up on it and discard it silently, while the UI frees up
+immediately. Deliberately scoped to the planning phase only --
+`execute_plan()`'s busy state never responds to Escape, since
+interrupting a real, approved shell step mid-write is a safety hazard,
+not a UI convenience, and nothing about `Harness.execute()`/`reject()`
+changed to make that possible.
+
+> Guarded by `tests/test_tui.py::
+> test_the_busy_line_above_the_prompt_shows_the_same_live_spinner`,
+> `test_escape_stops_an_in_flight_plan_request_and_discards_its_late_result`
+> (a real 1.2s-delayed scripted reply, confirms Escape frees the UI
+> immediately and the late result never renders a plan), and
+> `test_escape_does_nothing_while_idle_or_while_a_run_is_executing`.
+> Confirmed live against the real local Ollama daemon: Escape mid-request
+> frees the prompt instantly; the abandoned background call finishing
+> ~1s later changed nothing (`busy` stayed False, no plan appeared).
+
 ---
 
 ## 3. Things already tried that failed
@@ -2165,7 +2212,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 721, must stay green
+python3 -m pytest tests/ -q                       # 724, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2847,7 +2894,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 721
+test command     python3 -m pytest tests/ -q     # 724
 ```
 
 ---

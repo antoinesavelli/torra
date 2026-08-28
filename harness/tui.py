@@ -500,6 +500,16 @@ class SessionTab:
     # never lowers the bar for a DANGEROUS/CRITICAL step, which still
     # always needs an explicit human tick regardless of this flag.
     auto_run: bool = False
+    # Bumped by action_stop_thinking() to mark whichever plan_request is
+    # currently in flight as abandoned. A real network read can't be
+    # forcibly interrupted mid-syscall, so the underlying model call may
+    # keep running in the background -- this is what lets _planned()
+    # recognize a late-arriving result as stale and discard it instead of
+    # silently surfacing a plan the operator already asked to abandon.
+    # Never touched by execute_plan()/Run -- stopping an approved step
+    # mid-execution is a real safety hazard (it could interrupt a real
+    # write), not a UI convenience, so that path stays uninterruptible.
+    generation: int = 0
 
 
 class SessionPicker(ModalScreen[str | None]):
@@ -654,6 +664,7 @@ class HarnessApp(App):
     .evidence-block { padding: 0 0 1 0; }
     #metrics { height: 1fr; padding: 0 1; }
     .metrics-block { padding: 0 0 1 0; }
+    #busy-line { height: 1; padding: 0 1; color: $text-muted; }
     #prompt { dock: bottom; }
     .step-card {
         height: auto; border: round $panel; margin: 0 0 1 0; padding: 0 1;
@@ -700,6 +711,12 @@ class HarnessApp(App):
         # in the same KEY_ALIASES table) and isn't claimed by Input's own
         # BINDINGS the way ctrl+d/ctrl+w already are (HANDOFF.md §2.38).
         ("f2", "choose_model", "Choose model"),
+        # Only meaningful while planning (SessionTab.generation's own
+        # docstring covers why); the prompt input is disabled the whole
+        # time a request is in flight (_set_busy), so this never has to
+        # compete with Input's own BINDINGS for the keypress the way
+        # ctrl+d/ctrl+w do above.
+        ("escape", "stop_thinking", "Stop"),
     ]
 
     def __init__(self, harness: Harness | None = None,
@@ -822,6 +839,7 @@ class HarnessApp(App):
             Horizontal(
                 Vertical(
                     VerticalScroll(id="chat"),
+                    Static("", id="busy-line"),
                     Input(placeholder="what do you want done?", id="prompt"),
                     id="left"),
                 Vertical(self._build_sidebar(), id="right")),
@@ -918,6 +936,9 @@ class HarnessApp(App):
 
     def _prompt(self, session_id: str) -> Input:
         return self._tab_pane(session_id).query_one("#prompt", Input)
+
+    def _busy_line(self, session_id: str) -> Static:
+        return self._tab_pane(session_id).query_one("#busy-line", Static)
 
     def _say(self, session_id: str, who: str, text: str, style: str = "") -> None:
         """Append a line to one session's chat pane and scroll to it."""
@@ -1077,12 +1098,20 @@ class HarnessApp(App):
         request landing before the worker thread got around to setting
         `busy` itself (a `submitted()`/`action_rerun()` guard check racing
         the first call's own thread round trip) could start a second
-        `Harness.plan()` concurrently against the same Agent."""
+        `Harness.plan()` concurrently against the same Agent.
+
+        `my_generation` is captured *before* dispatch and carried through
+        to `_planned()`/the error path -- see `SessionTab.generation`'s
+        own docstring: `action_stop_thinking` (Escape) bumps it to mark
+        this exact in-flight request abandoned, so a result that arrives
+        after the operator already gave up on it gets discarded instead
+        of silently becoming the active plan."""
+        my_generation = self.sessions[session_id].generation
         self._set_busy(session_id, True, "thinking...")
-        self.run_worker(partial(self._plan_request_body, session_id, request),
+        self.run_worker(partial(self._plan_request_body, session_id, request, my_generation),
                         thread=True, exclusive=True, group=f"session-{session_id}")
 
-    def _plan_request_body(self, session_id: str, request: str) -> None:
+    def _plan_request_body(self, session_id: str, request: str, my_generation: int) -> None:
         tab = self.sessions[session_id]
 
         def on_thinking(chunk: str) -> None:
@@ -1096,11 +1125,22 @@ class HarnessApp(App):
                                       on_thinking=on_thinking)
         except Exception as exc:
             self.call_from_thread(self._clear_thinking, session_id)
-            self.call_from_thread(self._say, session_id, "error",
-                                  f"{type(exc).__name__}: {escape(str(exc))}")
-            self.call_from_thread(self._set_busy, session_id, False, "")
+            self.call_from_thread(
+                self._report_plan_error, session_id, exc, my_generation)
             return
-        self.call_from_thread(self._planned, session_id, result)
+        self.call_from_thread(self._planned, session_id, result, my_generation)
+
+    def _report_plan_error(self, session_id: str, exc: Exception, my_generation: int) -> None:
+        """The error-path twin of `_planned()`'s stale-result check --
+        an abandoned request's eventual failure shouldn't surface either,
+        or Escape would "stop" the spinner only to have a confusing error
+        pop up moments later for a request the operator already gave up
+        on."""
+        tab = self.sessions.get(session_id)
+        if tab is None or my_generation != tab.generation:
+            return
+        self._say(session_id, "error", f"{type(exc).__name__}: {escape(str(exc))}")
+        self._set_busy(session_id, False, "")
 
     def _outcome_answered(self, session_id: str, result: RunResult) -> None:
         self._status(session_id, "[cyan]answered, nothing to run[/]")
@@ -1158,11 +1198,18 @@ class HarnessApp(App):
                       "auto-run: nothing needs confirmation, running now", "dim")
             self.execute_plan(session_id)
 
-    def _planned(self, session_id: str, result: RunResult) -> None:
-        """Render whatever the model decided, dispatched by outcome."""
+    def _planned(self, session_id: str, result: RunResult, my_generation: int) -> None:
+        """Render whatever the model decided, dispatched by outcome.
+
+        `my_generation != tab.generation` means the operator hit Escape
+        (`action_stop_thinking`) on this exact request before it finished
+        -- the underlying model call kept running in the background
+        (nothing can forcibly interrupt a real network read from here),
+        but its result is stale by now and must not silently become the
+        active plan the operator already asked to abandon."""
         tab = self.sessions.get(session_id)
-        if tab is None:
-            return  # the tab was closed while this was in flight
+        if tab is None or my_generation != tab.generation:
+            return  # the tab was closed, or this exact request was stopped
         tab.current = result
         self._clear_thinking(session_id)
         self._set_busy(session_id, False, "")
@@ -1251,6 +1298,33 @@ class HarnessApp(App):
         if tab.last_request and not tab.busy:
             self._say(session_id, "you", f"{escape(tab.last_request)} \\[re-plan]")
             self.plan_request(session_id, tab.last_request)
+
+    def action_stop_thinking(self) -> None:
+        """Escape: abandon an in-flight plan request -- never an approved
+        run in progress. Interrupting a step mid-execution could cut off
+        a real write partway through, trading a UI convenience for a real
+        safety hazard, so `execute_plan()`'s busy state is deliberately
+        left out of this -- only a "thinking..." (plan_request) busy
+        state responds to Escape at all.
+
+        Python cannot forcibly kill a real network read mid-syscall from
+        here, so the underlying model call may keep running in the
+        background regardless of this. What this actually does: bump
+        `SessionTab.generation` so whichever result eventually arrives
+        from that exact request is recognized as stale by `_planned()`/
+        `_report_plan_error()` and discarded rather than silently
+        surfacing, and free the UI immediately so the operator isn't
+        stuck waiting on it."""
+        session_id = self.active_session_id
+        tab = self.sessions.get(session_id)
+        if tab is None or not tab.busy or not tab.busy_message.startswith("thinking"):
+            return
+        tab.generation += 1
+        self._clear_thinking(session_id)
+        self._set_busy(session_id, False, "")
+        self._say(session_id, "harness",
+                  "stopped -- if the model was still generating, its answer "
+                  "will be discarded when it finishes.", "dim")
 
     def action_clear_chat(self) -> None:
         """Clear the active tab's conversation and the model's context.
@@ -1666,17 +1740,40 @@ class HarnessApp(App):
             tab.busy_started = time.monotonic()
             self._tick_spinner(session_id)
             tab.spinner_timer = self.set_interval(0.1, partial(self._tick_spinner, session_id))
-        elif message:
-            self._status(session_id, f"[dim]{message}[/]")
+        else:
+            # Always cleared, not just "if message" like #status below --
+            # #busy-line has no other use, so a stale spinner frame left
+            # sitting there once busy=False would just be wrong, not a
+            # deliberate parting message the way #status's is.
+            self._busy_line(session_id).update("")
+            if message:
+                self._status(session_id, f"[dim]{message}[/]")
 
     def _tick_spinner(self, session_id: str) -> None:
-        """Advance one session's spinner frame and elapsed time, if it's the active tab."""
+        """Advance one session's spinner frame and elapsed time.
+
+        Written to two places: the shared #status line (only visible for
+        the active tab, as before) and this tab's own #busy-line, which
+        sits directly above the prompt input rather than at the very
+        bottom of the whole screen below the sidebar -- found live: an
+        operator watching the input box they just typed into had no
+        reason to notice a status line that far away, even though it was
+        updating correctly the whole time. #busy-line is per-tab, unlike
+        #status, so a backgrounded tab's own indicator stays correct
+        without an "only if active" check -- switching back to it never
+        shows a stale frame the way a shared, active-tab-only line would.
+        The "Esc to stop" hint only appears while actually planning --
+        stopping an approved run mid-execution is not offered (see
+        `action_stop_thinking`'s own docstring for why)."""
         tab = self.sessions.get(session_id)
         if tab is None:
             return  # the tab was closed while this was in flight
         frame = SPINNER_FRAMES[int(time.monotonic() * 10) % len(SPINNER_FRAMES)]
         elapsed = time.monotonic() - tab.busy_started
-        self._status(session_id, f"[dim]{frame} {tab.busy_message} {elapsed:.1f}s[/]")
+        stop_hint = "  (Esc to stop)" if tab.busy_message.startswith("thinking") else ""
+        text = f"[dim]{frame} {tab.busy_message} {elapsed:.1f}s{stop_hint}[/]"
+        self._status(session_id, text)
+        self._busy_line(session_id).update(text)
 
 
 def run_tui(workdir: Path | None = None,

@@ -12,6 +12,8 @@ constructs a RunResult directly rather than round-tripping the whole pipeline.
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +64,18 @@ def status_text(app: HarnessApp) -> str:
     return ""
 
 
+def busy_line_text(app: HarnessApp, session_id: str) -> str:
+    """One tab's #busy-line text, same attribute-hunting as status_text --
+    empty (not just falsy) is a real, distinct state here (idle), so this
+    returns "" rather than None when nothing is set."""
+    busy_line = app._busy_line(session_id)
+    for attribute in ("content", "renderable", "_content"):
+        value = getattr(busy_line, attribute, None)
+        if value:
+            return str(value)
+    return ""
+
+
 def build(tmp_path: Path, transport, **harness_kwargs: Any) -> HarnessApp:
     """A HarnessApp wired to a scripted backend."""
     harness = Harness(workdir=tmp_path / "wd",
@@ -69,6 +83,25 @@ def build(tmp_path: Path, transport, **harness_kwargs: Any) -> HarnessApp:
                       **harness_kwargs)
     harness.agent._observe = lambda: MachineState(hostname="pop-os")
     return HarnessApp(harness=harness)
+
+
+def slow_scripted(delay: float, *replies: dict[str, Any]):
+    """Like conftest.scripted(), but the /api/chat reply itself takes
+    `delay` real seconds to arrive -- long enough for a test to act while
+    a plan request is still genuinely in flight on its worker thread."""
+    queue = list(replies)
+    tags = {"models": [{"name": m} for m in ["qwen3:32b", "devstral", "qwen3:8b"]]}
+
+    def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        if path == "/api/tags":
+            return tags
+        if path == "/api/show":
+            return {}
+        time.sleep(delay)
+        reply = queue.pop(0) if len(queue) > 1 else (queue[0] if queue else {})
+        return {"message": {"content": json.dumps(reply)}}
+
+    return transport
 
 
 @pytest.mark.asyncio
@@ -130,6 +163,117 @@ async def test_the_status_line_shows_a_live_spinner_while_busy(tmp_path: Path) -
 
         app._set_busy(app.active_session_id, False, "")
         assert app.sessions[app.active_session_id].spinner_timer is None
+
+
+@pytest.mark.asyncio
+async def test_the_busy_line_above_the_prompt_shows_the_same_live_spinner(
+        tmp_path: Path) -> None:
+    """Found live: the only busy indicator was the shared #status line,
+    docked at the very bottom of the whole screen below the sidebar --
+    easy to miss from the prompt input the operator is actually looking
+    at. #busy-line sits directly above the prompt and must show the same
+    live spinner/elapsed text, then clear the moment busy ends -- and,
+    unlike #status, do this correctly per-tab with no "only if active"
+    caveat."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+
+        assert busy_line_text(app, session_id) == "", "idle state must start empty"
+
+        app._set_busy(session_id, True, "thinking...")
+        await pilot.pause()
+        first = busy_line_text(app, session_id)
+        assert "thinking..." in first
+        assert any(frame in first for frame in SPINNER_FRAMES)
+        assert "Esc to stop" in first
+
+        await pilot.pause(0.3)
+        assert busy_line_text(app, session_id) != first, "the busy line never advanced"
+
+        app._set_busy(session_id, False, "")
+        assert busy_line_text(app, session_id) == "", "must clear once busy ends"
+
+
+@pytest.mark.asyncio
+async def test_escape_stops_an_in_flight_plan_request_and_discards_its_late_result(
+        tmp_path: Path) -> None:
+    """The model call itself can't be killed mid-syscall (a real network
+    read has no cooperative checkpoint for a non-streaming reply), so
+    Escape can only abandon the request from the UI's side: free the
+    prompt immediately, and make sure the result -- if the background
+    thread ever does finish -- gets discarded instead of silently
+    surfacing as though nothing had been stopped."""
+    app = build(tmp_path, slow_scripted(1.2, plan_reply(
+        "t", "say hi", [{"id": "greet", "run": "echo hi"}])))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+
+        app.query_one("#prompt", Input).value = "say hi"
+        await pilot.press("enter")
+        for _ in range(20):
+            if app.sessions[session_id].busy:
+                break
+            await pilot.pause(0.05)
+        assert app.sessions[session_id].busy, "the request should still be in flight"
+        generation_before = app.sessions[session_id].generation
+
+        app.action_stop_thinking()
+        await pilot.pause()
+
+        assert not app.sessions[session_id].busy, "Escape must free the UI immediately"
+        assert not app.query_one("#prompt", Input).disabled
+        assert app.sessions[session_id].generation == generation_before + 1
+        assert "stopped" in screen_text(app)
+
+        # The scripted reply is still going to land ~1.2s after it
+        # started -- wait for the worker to actually finish, then confirm
+        # it changed nothing: no plan rendered, and busy did not flip
+        # back on for a result nobody is waiting for anymore.
+        await app.workers.wait_for_complete()
+        assert not app.query(StepCard), "a stopped request's late plan must not render"
+        assert not app.sessions[session_id].busy
+
+
+@pytest.mark.asyncio
+async def test_escape_does_nothing_while_idle_or_while_a_run_is_executing(
+        tmp_path: Path) -> None:
+    """Only a "thinking..." (plan_request) busy state may be interrupted.
+    Stopping an approved run mid-execution could cut a real write off
+    partway through -- a safety hazard, not a UI convenience -- so Escape
+    must be a no-op both when nothing is happening and while steps are
+    actually running."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", "say hi slowly",
+        [{"id": "greet", "run": "sleep 0.6 && echo hi"}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.action_stop_thinking()
+        await pilot.pause()
+        assert not app.sessions[app.active_session_id].busy, \
+            "Escape while idle must not do anything odd"
+
+        app.query_one("#prompt", Input).value = "say hi slowly"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        assert app.query(StepCard), "plan did not render"
+
+        await pilot.click("#run")
+        for _ in range(20):
+            if app.busy:
+                break
+            await pilot.pause(0.05)
+        assert app.busy, "the run should still be in flight"
+
+        app.action_stop_thinking()
+        await pilot.pause()
+        assert app.busy, "Escape must not interrupt an approved run in progress"
+
+        await app.workers.wait_for_complete()
+        assert not app.busy
 
 
 @pytest.mark.asyncio

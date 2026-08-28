@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **721 passed**. Then:
+Expect **724 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -99,6 +99,15 @@ this order:
   tab, not tracked per session), and which files a `reads` step's real
   output has fed into the model's own context this session.
 
+A live spinner and elapsed time appear directly above the prompt input while
+the model is planning or a run is in progress -- not just in the header's
+status line, which is easy to miss when you're looking at what you just
+typed. While planning, it also says `Esc to stop`: the model call itself
+can't be killed mid-request, but Escape frees the input immediately and
+discards whatever answer eventually arrives. An approved run in progress is
+never interruptible this way -- stopping real command execution partway
+through is a safety hazard, not a convenience.
+
 Once you approve a plan, each step's real stdout/stderr streams live
 into the chat as it runs, tagged with the step id -- the only place a
 successful step's output is ever shown, so unlike the reasoning stream
@@ -129,6 +138,7 @@ model's own memory of it come back exactly as they were.
 | Key | Does |
 |-----|------|
 | `enter` | send |
+| `escape` | stop an in-flight plan request (never an approved run in progress -- see the interface section below) |
 | `ctrl+d` | dry run: every gate, nothing executes |
 | `ctrl+r` | re-plan the last request |
 | `ctrl+l` | clear the conversation (keeps the persisted history -- leaves a marker, not a gap) |
@@ -403,7 +413,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 721 cases, organised by subsystem |
+| `tests/` | 724 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -464,7 +474,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 721 cases
+python3 -m pytest tests/ -v              # 724 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is
