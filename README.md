@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **681 passed**. Then:
+Expect **687 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -75,17 +75,27 @@ run over uncommitted local changes.
 
 ## The interface
 
-Chat on the left, a sidebar on the right. The sidebar has three tabs:
-**Plan** (the current proposal -- every step's risk level, why the
-classifier said so, whether an undo exists), **Evidence** (a live
-health/crash summary, the same content `harness evidence` prints,
-recomputed each time you switch to it), and **Thinking** (the live
-reasoning stream, for a model that exposes it, e.g. `deepseek-r1` or
-`qwen3:32b` -- grows while it plans and resets once the plan or answer
-arrives; not part of the saved conversation, just a window into that one
-turn). Once you approve a plan, each step's real stdout/stderr streams
-live into the chat as it runs, tagged with the step id -- the only place
-a successful step's output is ever shown, so unlike the reasoning stream
+Chat on the left, a sidebar on the right. The sidebar has five tabs, in
+this order:
+
+- **Actions** -- the current proposal: every step's risk level, why the
+  classifier said so, whether an undo exists, and the Run/Reject/Dry run
+  buttons. (Still `PlanPane` internally -- the label changed, not the concept.)
+- **Thinking** -- the live reasoning stream, for a model that exposes it
+  (e.g. `deepseek-r1` or `qwen3:32b`) -- grows while it plans and resets
+  once the plan or answer arrives; not part of the saved conversation,
+  just a window into that one turn.
+- **Session** -- browse and reopen a past session without leaving the
+  tab, the persistent sibling of `ctrl+o`'s picker; recomputed each time
+  you switch to it.
+- **Model** -- pick this tab's model override without a modal, the
+  persistent sibling of `f2`'s picker; same list, same behavior.
+- **Evidence** -- a live health/crash summary, the same content
+  `harness evidence` prints, recomputed each time you switch to it.
+
+Once you approve a plan, each step's real stdout/stderr streams live
+into the chat as it runs, tagged with the step id -- the only place a
+successful step's output is ever shown, so unlike the reasoning stream
 it stays in the transcript after the run finishes.
 
 Dangerous steps arrive with an **unticked** box, each with a description of
@@ -379,7 +389,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 681 cases, organised by subsystem |
+| `tests/` | 687 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -440,7 +450,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 681 cases
+python3 -m pytest tests/ -v              # 687 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

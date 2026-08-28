@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 681 passed
+python3 -m pytest tests/ -q          # must print 687 passed
 harness doctor
 ```
 
@@ -1910,6 +1910,55 @@ before that undo runs.)
 > `test_bare_auto_command_reports_state_without_toggling`,
 > `test_auto_command_rejects_a_garbage_argument`
 
+### 2.45 Session and Model got their own sidebar tabs alongside Plan (relabeled "Actions") and Thinking -- persistent siblings of the `ctrl+o`/`f2` modals, not replacements
+
+Direct feedback: reaching a past session or a model choice always meant a
+modal overlay (`SessionPicker`/`ModelPicker`), even though the sidebar
+already had room for exactly this. Added `SessionPane`/`ModelPane`,
+mirroring `EvidencePane`'s own "start empty, refresh on `TabActivated`"
+contract -- `_sidebar_session_activated`/`_sidebar_model_activated` are
+new handlers with the identical shape as the existing
+`_sidebar_evidence_activated` (`@on(TabbedContent.TabActivated,
+"#sidebar", pane="#sidebar-<name>")`, not a bare `"#sidebar"` selector,
+for the same reason documented there). `f2` and `ctrl+o` stay wired to
+their modals -- this is an added, persistent alternative for keeping the
+list in view while deciding, not a replacement; both paths call the
+exact same `_set_model_override`/`_open_or_switch_to` so they can't
+drift into showing or doing something different from each other.
+`ModelPane.refresh_models` deliberately reuses `action_choose_model`'s
+own local-plus-`VERIFIED_OPENROUTER_MODELS` assembly rather than
+re-deriving it, for the same reason.
+
+Tab order is now Actions, Thinking, Session, Model, Evidence -- "Plan"
+relabeled "Actions" is a display-string change only; the class stays
+`PlanPane`, the id stays `#plan`/`sidebar-plan`, `_plan_pane()` is
+unchanged. It is still the gated proposal (steps, undo, Run/Reject/Dry
+run) -- "Actions" is how it reads to the operator, not a different
+concept underneath.
+
+Writing the reorder's own test caught a real ambiguity worth flagging
+for the next person testing anything sidebar-related with two tabs open:
+`app.query_one("#sidebar", TabbedContent)` is not session-scoped -- every
+session tab composes its own nested sidebar sharing that same id
+(HANDOFF.md §2.30's exact ambiguity, previously only documented for
+`#plan`/`#evidence`), and `query_one` does not raise on the collision,
+it silently returns the first breadth-first match. With only one tab
+open this never bites; the moment a test (or a future handler) opens a
+second tab and then queries bare `"#sidebar"`, it can silently operate
+on the *other* tab's sidebar. The fix is the same one `_plan_pane(session_id)`/
+`_evidence_pane(session_id)` already use: scope through
+`self._tab_pane(session_id).query_one("#sidebar", ...)`, never a bare
+app-level query, once more than one tab might be open.
+
+> Guarded by `tests/test_tui.py::
+> test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`,
+> `test_the_sidebar_session_tab_renders_saved_sessions_on_activation`,
+> `test_selecting_a_session_in_the_sidebar_tab_switches_to_it` (the one
+> that caught the `#sidebar` scoping ambiguity above),
+> `test_the_sidebar_model_tab_renders_models_on_activation`,
+> `test_selecting_a_model_in_the_sidebar_tab_sets_the_override`,
+> `test_selecting_automatic_routing_in_the_sidebar_model_tab_clears_the_override`
+
 ---
 
 ## 3. Things already tried that failed
@@ -1939,7 +1988,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 681, must stay green
+python3 -m pytest tests/ -q                       # 687, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2621,7 +2670,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 681
+test command     python3 -m pytest tests/ -q     # 687
 ```
 
 ---

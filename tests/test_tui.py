@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 from conftest import plan_reply, scripted
-from textual.widgets import Checkbox, Input, OptionList, Static, TabbedContent
+from textual.widgets import Checkbox, Input, OptionList, Static, Tab, TabbedContent
 
 from harness.agent import Intent, Turn
 from harness.core import MachineState, OllamaClient
@@ -1087,6 +1087,145 @@ async def test_the_sidebar_evidence_tab_renders_real_content_on_activation(
         text = screen_text(app)
         assert "outcomes:" in text
         assert "no crashes recorded" in text
+
+
+@pytest.mark.asyncio
+async def test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        sidebar = app.query_one("#sidebar", TabbedContent)
+        tabs = list(sidebar.query(Tab))
+        tab_ids = [tab.id for tab in tabs]
+
+        assert tab_ids == [
+            "--content-tab-sidebar-plan", "--content-tab-sidebar-thinking",
+            "--content-tab-sidebar-session", "--content-tab-sidebar-model",
+            "--content-tab-sidebar-evidence",
+        ]
+        assert "Actions" in screen_text(app)
+        assert "Plan" not in [tab.label_text for tab in tabs]
+
+
+@pytest.mark.asyncio
+async def test_the_sidebar_session_tab_renders_saved_sessions_on_activation(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt", Input).value = "hi"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        await app.workers.wait_for_complete()
+
+        sidebar = app.query_one("#sidebar", TabbedContent)
+        sidebar.active = "sidebar-session"
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+
+        option_list = app._session_pane(app.active_session_id).query_one(OptionList)
+        assert option_list.option_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_selecting_a_session_in_the_sidebar_tab_switches_to_it(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt", Input).value = "remember this one"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        await app.workers.wait_for_complete()
+        first_id = app.active_session_id
+
+        await pilot.press("ctrl+t")
+        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        assert app.active_session_id != first_id
+
+        # Not a bare app.query_one("#sidebar", ...): each session tab
+        # composes its own nested sidebar TabbedContent sharing the same
+        # id (HANDOFF.md §2.30's exact ambiguity), and query_one doesn't
+        # raise on that -- it silently returns the first breadth-first
+        # match, which with two tabs open is the *other* tab's sidebar.
+        sidebar = app._tab_pane(app.active_session_id).query_one("#sidebar", TabbedContent)
+        sidebar.active = "sidebar-session"
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+
+        option_list = app._session_pane(app.active_session_id).query_one(OptionList)
+        option_list.highlighted = option_list.get_option_index(first_id)
+        option_list.action_select()
+        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+
+        assert app.active_session_id == first_id
+
+
+@pytest.mark.asyncio
+async def test_the_sidebar_model_tab_renders_models_on_activation(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        sidebar = app.query_one("#sidebar", TabbedContent)
+        sidebar.active = "sidebar-model"
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+
+        option_list = app._model_pane(app.active_session_id).query_one(OptionList)
+        assert option_list.option_count == 6, \
+            "automatic routing + 3 scripted local models + 2 verified openrouter models"
+        assert option_list.get_option_at_index(0).id == ""
+
+
+@pytest.mark.asyncio
+async def test_selecting_a_model_in_the_sidebar_tab_sets_the_override(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+
+        sidebar = app.query_one("#sidebar", TabbedContent)
+        sidebar.active = "sidebar-model"
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+
+        option_list = app._model_pane(session_id).query_one(OptionList)
+        option_list.highlighted = option_list.get_option_index("devstral")
+        option_list.action_select()
+        await pilot.pause(0.2)
+
+        assert app.sessions[session_id].model_override == "devstral"
+        assert "model override set to devstral" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_selecting_automatic_routing_in_the_sidebar_model_tab_clears_the_override(
+        tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        session_id = app.active_session_id
+        app.sessions[session_id].model_override = "devstral"
+
+        sidebar = app.query_one("#sidebar", TabbedContent)
+        sidebar.active = "sidebar-model"
+        await pilot.pause(0.3)
+        await app.workers.wait_for_complete()
+
+        option_list = app._model_pane(session_id).query_one(OptionList)
+        option_list.highlighted = option_list.get_option_index("")
+        option_list.action_select()
+        await pilot.pause(0.2)
+
+        assert app.sessions[session_id].model_override is None
+        assert "model override cleared" in screen_text(app)
 
 
 @pytest.mark.asyncio

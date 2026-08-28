@@ -302,6 +302,62 @@ class ThinkingPane(VerticalScroll):
         self.query_one("#thinking-text", Static).update(THINKING_PLACEHOLDER)
 
 
+class SessionPane(VerticalScroll):
+    """Sidebar tab: browse and reopen a past session without a modal --
+    the persistent, always-in-view sibling of `ctrl+o`'s `SessionPicker`.
+    Both stay wired: this is for keeping the list in view while deciding,
+    the modal is for a quick jump without leaving the current tab."""
+
+    def compose(self) -> ComposeResult:
+        """Start empty -- filled in on first activation, not at mount
+        time, same as EvidencePane (the list can change between visits;
+        no point building it before the operator ever looks)."""
+        yield Static("[dim]Switch to this tab to see saved sessions.[/]",
+                     markup=True, id="session-empty")
+
+    async def refresh_sessions(self, metas: list[SessionMeta]) -> None:
+        """Replace the pane with one option per session, newest first --
+        same content `SessionPicker` shows, embedded instead of modal."""
+        await self.remove_children()
+        if not metas:
+            await self.mount(Static("[dim]No saved sessions yet.[/]", markup=True))
+            return
+        await self.mount(OptionList(*[
+            Option(f"{escape(meta.name) or '(unnamed)'}  "
+                  f"[dim]{time.strftime('%Y-%m-%d %H:%M', time.localtime(meta.updated_at))}[/]",
+                  id=meta.session_id)
+            for meta in metas], id="session-options"))
+
+
+class ModelPane(VerticalScroll):
+    """Sidebar tab: pick this tab's model override without a modal -- the
+    persistent, always-in-view sibling of `f2`'s `ModelPicker`. Both stay
+    wired, same reasoning as `SessionPane` above."""
+
+    def compose(self) -> ComposeResult:
+        """Start empty -- filled in on first activation; the local model
+        list can change between visits (`ollama pull`/`rm` since the tab
+        was last shown)."""
+        yield Static("[dim]Switch to this tab to choose a model.[/]",
+                     markup=True, id="model-empty")
+
+    async def refresh_models(self, models: list[str], current_override: str | None) -> None:
+        """Replace the pane with "(automatic routing)" plus each model --
+        local ones plain, remote ones tagged so a tap doesn't accidentally
+        trigger a paid call. Same content `ModelPicker` shows."""
+        await self.remove_children()
+        auto_marker = " [dim](current)[/]" if not current_override else ""
+        options = [Option(f"(automatic routing){auto_marker}", id="")]
+        for model in models:
+            marker = " [dim](current)[/]" if model == current_override else ""
+            tag = " [dim](remote, paid)[/]" if model.startswith("openrouter/") else ""
+            options.append(Option(f"{escape(model)}{tag}{marker}", id=model))
+        await self.mount(OptionList(*options, id="model-options"))
+        await self.mount(Static("[dim]Only hand-verified openrouter/... models are "
+                               "listed -- use /model <name> for any other remote "
+                               "model.[/]", markup=True))
+
+
 @dataclass
 class SessionTab:
     """One tab's state: its own Harness/Agent/context, its own busy flag.
@@ -452,6 +508,9 @@ class HarnessApp(App):
     #right { width: 50%; }
     #chat  { height: 1fr; padding: 0 1; }
     #plan  { height: 1fr; padding: 0 1; }
+    #thinking { height: 1fr; padding: 0 1; }
+    #session { height: 1fr; padding: 0 1; }
+    #model { height: 1fr; padding: 0 1; }
     #evidence { height: 1fr; padding: 0 1; }
     .evidence-block { padding: 0 0 1 0; }
     #prompt { dock: bottom; }
@@ -578,8 +637,11 @@ class HarnessApp(App):
 
     @staticmethod
     def _build_sidebar() -> TabbedContent:
-        """The right-hand pane: Plan (the gated proposal) + Evidence (a live
-        health/crash summary) as tabs, not two stacked panes.
+        """The right-hand pane: Actions, Thinking, Session, Model, Evidence
+        as tabs, not five stacked panes. "Actions" is the operator-facing
+        label; the widget/id/method names underneath stay `PlanPane`/
+        `#plan`/`_plan_pane` -- it's still the gated proposal (steps,
+        undo, Run/Reject), a rename of the label shown, not the concept.
 
         `TabbedContent(*children)` is NOT `Horizontal`/`Vertical`'s generic
         `*children: Widget` slot -- it overrides the positional-args slot
@@ -594,11 +656,15 @@ class HarnessApp(App):
         plain `@staticmethod` invoked before the app is even running
         (HANDOFF.md §2.30)."""
         sidebar = TabbedContent(id="sidebar")
-        sidebar.compose_add_child(TabPane("Plan", PlanPane(id="plan"), id="sidebar-plan"))
-        sidebar.compose_add_child(
-            TabPane("Evidence", EvidencePane(id="evidence"), id="sidebar-evidence"))
+        sidebar.compose_add_child(TabPane("Actions", PlanPane(id="plan"), id="sidebar-plan"))
         sidebar.compose_add_child(
             TabPane("Thinking", ThinkingPane(id="thinking"), id="sidebar-thinking"))
+        sidebar.compose_add_child(
+            TabPane("Session", SessionPane(id="session"), id="sidebar-session"))
+        sidebar.compose_add_child(
+            TabPane("Model", ModelPane(id="model"), id="sidebar-model"))
+        sidebar.compose_add_child(
+            TabPane("Evidence", EvidencePane(id="evidence"), id="sidebar-evidence"))
         return sidebar
 
     def _build_tab_pane(self, session_id: str, title: str) -> TabPane:
@@ -697,6 +763,12 @@ class HarnessApp(App):
 
     def _thinking_pane(self, session_id: str) -> ThinkingPane:
         return self._tab_pane(session_id).query_one("#thinking", ThinkingPane)
+
+    def _session_pane(self, session_id: str) -> SessionPane:
+        return self._tab_pane(session_id).query_one("#session", SessionPane)
+
+    def _model_pane(self, session_id: str) -> ModelPane:
+        return self._tab_pane(session_id).query_one("#model", ModelPane)
 
     def _prompt(self, session_id: str) -> Input:
         return self._tab_pane(session_id).query_one("#prompt", Input)
@@ -1194,6 +1266,53 @@ class HarnessApp(App):
         self.run_worker(
             self._evidence_pane(session_id).refresh_summary(tab.harness, self._crash_reporter),
             exclusive=False)
+
+    @on(TabbedContent.TabActivated, "#sidebar", pane="#sidebar-session")
+    def _sidebar_session_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Recompute the Session tab's list each time the operator switches
+        to it -- same trigger as Evidence above, same reasoning."""
+        session_id = self._session_id_of(event.tabbed_content)
+        if session_id not in self.sessions:
+            return
+        self.run_worker(
+            self._session_pane(session_id).refresh_sessions(self.session_store.list_sessions()),
+            exclusive=False)
+
+    @on(TabbedContent.TabActivated, "#sidebar", pane="#sidebar-model")
+    def _sidebar_model_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Recompute the Model tab's list each time the operator switches
+        to it -- same trigger as Evidence above, same reasoning. Same
+        local-plus-verified-remote assembly as `action_choose_model` (f2)
+        -- kept identical on purpose, not re-derived, so the sidebar tab
+        and the modal never quietly show a different list."""
+        session_id = self._session_id_of(event.tabbed_content)
+        tab = self.sessions.get(session_id)
+        if tab is None:
+            return
+        router = tab.harness.agent.router
+        local = sorted(m for m in self.ollama.models() if router._chat_capable(m))
+        models = local + VERIFIED_OPENROUTER_MODELS
+        self.run_worker(
+            self._model_pane(session_id).refresh_models(models, tab.model_override),
+            exclusive=False)
+
+    @on(OptionList.OptionSelected, "#session-options")
+    def _session_option_chosen(self, event: OptionList.OptionSelected) -> None:
+        """A click in the Session tab's embedded list -- same action
+        `SessionPicker`'s modal selection triggers."""
+        if event.option_id:
+            self._open_or_switch_to(event.option_id)
+
+    @on(OptionList.OptionSelected, "#model-options")
+    def _model_option_chosen(self, event: OptionList.OptionSelected) -> None:
+        """A click in the Model tab's embedded list -- same action
+        `ModelPicker`'s modal selection triggers. `event.option_id` is
+        `""` for "(automatic routing)", never `None`, for an option
+        actually in the list -- `_set_model_override` already treats an
+        empty string as "clear the override", the same as bare `/model`."""
+        session_id = self._session_id_of(event.option_list)
+        if event.option_id is not None:
+            self._set_model_override(session_id, event.option_id)
 
     def execute_plan(self, session_id: str, dry_run: bool = False) -> None:
         """Execute in a worker thread, reading approvals from the checkboxes.
