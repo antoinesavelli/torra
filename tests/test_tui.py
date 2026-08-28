@@ -555,49 +555,76 @@ async def test_plan_request_reports_an_unexpected_exception(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_append_thinking_mounts_and_grows_a_live_reasoning_line(
+async def test_append_thinking_grows_the_thinking_tab(
         tmp_path: Path) -> None:
     """`_append_thinking` is `on_thinking`'s destination once it crosses
     back onto the event-loop thread via `call_from_thread` -- called
     directly here since the streaming callback itself is exercised at the
-    OllamaClient/Agent layer (test_core.py/test_agent.py)."""
+    OllamaClient/Agent layer (test_core.py/test_agent.py). Renders into
+    the sidebar's Thinking tab (ThinkingPane), not inline in chat -- a
+    real reasoning chain runs to hundreds of lines."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
-    async with app.run_test():
+    async with app.run_test() as pilot:
         session_id = app.active_session_id
         tab = app.sessions[session_id]
-        assert tab.reasoning_line is None
+        assert tab.reasoning_text == ""
 
         app._append_thinking(session_id, "Let me ")
         app._append_thinking(session_id, "think about this.")
+        await pilot.pause(0.1)
 
-        assert tab.reasoning_line is not None
         assert tab.reasoning_text == "Let me think about this."
         assert "Let me think about this." in screen_text(app)
 
 
 @pytest.mark.asyncio
-async def test_clear_thinking_removes_the_live_reasoning_line(tmp_path: Path) -> None:
+async def test_many_rapid_thinking_chunks_do_not_race(tmp_path: Path) -> None:
+    """Found live: ThinkingPane.append() used to `await remove_children()`
+    then `await mount(Static(id="thinking-text"))` on every chunk -- fine
+    for one call, but on_thinking can fire many times before Textual gets
+    a chance to run an earlier call's scheduled coroutine, so a second
+    remove-then-mount landed while the first's mount() was still pending
+    and crashed with DuplicateIds (two widgets sharing that id). Fixed by
+    updating one persistent Static synchronously instead. 30 chunks with
+    no pause between them is what a real streaming response looks like,
+    not the 2-chunk case the other thinking tests use."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        for i in range(30):
+            app._append_thinking(session_id, f"chunk{i} ")
+        await pilot.pause(0.1)
+
+        assert app.is_running, "a DuplicateIds crash would have killed the app"
+        tab = app.sessions[session_id]
+        assert tab.reasoning_text == "".join(f"chunk{i} " for i in range(30))
+        assert "chunk29" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_clear_thinking_resets_the_thinking_tab(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         session_id = app.active_session_id
         app._append_thinking(session_id, "reasoning in progress")
+        await pilot.pause(0.1)
         assert "reasoning in progress" in screen_text(app)
 
         app._clear_thinking(session_id)
         await pilot.pause(0.1)
 
         tab = app.sessions[session_id]
-        assert tab.reasoning_line is None
         assert tab.reasoning_text == ""
         assert "reasoning in progress" not in screen_text(app)
+        assert "No reasoning stream yet" in screen_text(app)
 
 
 @pytest.mark.asyncio
-async def test_a_completed_plan_request_leaves_no_reasoning_line_behind(
+async def test_a_completed_plan_request_leaves_no_reasoning_text_behind(
         tmp_path: Path) -> None:
     """End to end through the real worker-thread path: a model that streams
-    reasoning during `plan()` must not leave the live line mounted once the
-    turn is done -- ephemeral by design (SessionTab.reasoning_line's
+    reasoning during `plan()` must not leave it in the Thinking tab once
+    the turn is done -- ephemeral by design (`SessionTab.reasoning_text`'s
     docstring), not a permanent part of the transcript."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
 
@@ -617,8 +644,8 @@ async def test_a_completed_plan_request_leaves_no_reasoning_line_behind(
         await pilot.pause(0.3)
 
         tab = app.sessions[app.active_session_id]
-        assert tab.reasoning_line is None
         assert tab.reasoning_text == ""
+        assert "Let me check." not in screen_text(app)
         assert "done" in screen_text(app)
 
 
@@ -1148,6 +1175,118 @@ async def test_bare_model_command_clears_the_override(tmp_path: Path) -> None:
 
         assert app.sessions[session_id].model_override is None
         assert "cleared" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_auto_command_turns_it_on_and_off(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        assert app.sessions[session_id].auto_run is False
+
+        app.query_one("#prompt", Input).value = "/auto on"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert app.sessions[session_id].auto_run is True
+        assert "auto-run on" in screen_text(app)
+
+        app.query_one("#prompt", Input).value = "/auto off"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert app.sessions[session_id].auto_run is False
+        assert "auto-run off" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_bare_auto_command_reports_state_without_toggling(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        app.sessions[session_id].auto_run = True
+
+        app.query_one("#prompt", Input).value = "/auto"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert app.sessions[session_id].auto_run is True, "bare /auto must not toggle"
+        assert "auto-run is on" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_auto_command_rejects_a_garbage_argument(tmp_path: Path) -> None:
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+
+        app.query_one("#prompt", Input).value = "/auto sure"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+
+        assert app.sessions[session_id].auto_run is False
+        assert "usage: /auto on | /auto off" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_auto_run_executes_a_plan_with_nothing_needing_confirmation(
+        tmp_path: Path) -> None:
+    """The actual feature: a plan made entirely of SAFE/CAUTION steps
+    (already auto-approved today, per Verdict.needs_confirmation) no
+    longer waits for a manual Run click when auto-run is on."""
+    target = tmp_path / "v.txt"
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.sessions[app.active_session_id].auto_run = True
+
+        app.query_one("#prompt", Input).value = f"touch {target}"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        await app.workers.wait_for_complete()
+
+        assert target.exists(), "auto-run must have executed without a Run click"
+        assert "auto-run: nothing needs confirmation" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_auto_run_never_bypasses_confirmation_for_a_dangerous_step(
+        tmp_path: Path) -> None:
+    """The safety guarantee: auto-run only ever fires when needs_confirmation
+    is already empty. A DANGEROUS step still always waits for an explicit
+    tick and a Run click, this flag or not."""
+    victim = tmp_path / "v.txt"
+    victim.write_text("keep me", encoding="utf-8")
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"remove {victim}",
+        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.sessions[app.active_session_id].auto_run = True
+
+        app.query_one("#prompt", Input).value = f"delete {victim}"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        await app.workers.wait_for_complete()
+
+        assert victim.exists(), "a dangerous step must never auto-run"
+        assert "auto-run:" not in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_auto_run_defaults_to_off(tmp_path: Path) -> None:
+    """Existing behavior (wait for a manual Run click) is preserved unless
+    the operator explicitly opts in with /auto on."""
+    target = tmp_path / "v.txt"
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.query_one("#prompt", Input).value = f"touch {target}"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        await app.workers.wait_for_complete()
+
+        assert not target.exists(), "must wait for Run without auto-run enabled"
 
 
 @pytest.mark.asyncio

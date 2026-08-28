@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **674 passed**. Then:
+Expect **681 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -75,17 +75,18 @@ run over uncommitted local changes.
 
 ## The interface
 
-Chat on the left, a sidebar on the right. The sidebar has two tabs: **Plan**
-(the current proposal -- every step's risk level, why the classifier said
-so, whether an undo exists) and **Evidence** (a live health/crash summary,
-the same content `harness evidence` prints, recomputed each time you switch
-to it). For a model that exposes reasoning tokens (e.g. `deepseek-r1`), a
-dimmed live "thinking" line appears in the chat while it plans and clears
-once the plan or answer arrives -- not part of the saved conversation, just
-a window into that one turn. Once you approve a plan, each step's real
-stdout/stderr streams live into the chat as it runs, tagged with the step
-id -- the only place a successful step's output is ever shown, so unlike
-the thinking line it stays in the transcript after the run finishes.
+Chat on the left, a sidebar on the right. The sidebar has three tabs:
+**Plan** (the current proposal -- every step's risk level, why the
+classifier said so, whether an undo exists), **Evidence** (a live
+health/crash summary, the same content `harness evidence` prints,
+recomputed each time you switch to it), and **Thinking** (the live
+reasoning stream, for a model that exposes it, e.g. `deepseek-r1` or
+`qwen3:32b` -- grows while it plans and resets once the plan or answer
+arrives; not part of the saved conversation, just a window into that one
+turn). Once you approve a plan, each step's real stdout/stderr streams
+live into the chat as it runs, tagged with the step id -- the only place
+a successful step's output is ever shown, so unlike the reasoning stream
+it stays in the transcript after the run finishes.
 
 Dangerous steps arrive with an **unticked** box, each with a description of
 *why* it's there -- what it confirms, what it depends on from an earlier
@@ -132,6 +133,15 @@ way to reach an `openrouter/...` model beyond that verified set, since
 OpenRouter's full catalog isn't enumerated. Bare `/model` (or picking
 "(automatic routing)") clears the override back to routing's own choice.
 See **OpenRouter** below for the one built-in alternative to a local model.
+
+`/auto on` skips the manual Run click for a plan with zero steps needing
+confirmation -- a plan made entirely of SAFE/CAUTION steps runs the moment
+it's proposed instead of waiting for a click. It never changes what needs
+a tick in the first place: a DANGEROUS/CRITICAL step always waits for an
+explicit approval regardless of this setting. `/auto off` turns it back
+off (the default); bare `/auto` reports the current state without
+toggling it. Per tab, and not persisted across a restart, same as
+`/model`.
 
 **`ctrl+c` copy not landing in your real clipboard?** Textual copies via an OSC 52
 terminal escape sequence, which some terminals don't honor -- confirmed live on
@@ -369,7 +379,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 674 cases, organised by subsystem |
+| `tests/` | 681 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -430,7 +440,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 674 cases
+python3 -m pytest tests/ -v              # 681 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

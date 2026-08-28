@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 674 passed
+python3 -m pytest tests/ -q          # must print 681 passed
 harness doctor
 ```
 
@@ -1830,6 +1830,86 @@ so filing it there would misrepresent what it does.
 > `tests/test_tui.py::
 > test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs`
 
+### 2.43 The live reasoning stream moved from one inline chat line to its own sidebar tab -- found live: rapid chunks racing two `remove()`-then-`mount()` calls crashed with `DuplicateIds`
+
+Direct feedback: a single dimmed line inline in the chat, replaced in
+place on every token, was unreadable past a sentence or two -- a real
+reasoning chain runs to hundreds of lines. Moved to a third sidebar tab
+(`ThinkingPane`, alongside Plan and Evidence), same ephemeral-by-design
+contract as before (never written to `SessionStore` or telemetry, reset
+the moment the turn finishes -- `SessionTab.reasoning_text`'s docstring
+still says so).
+
+The first implementation kept `PlanPane`/`EvidencePane`'s own pattern --
+`await self.remove_children()` then `await self.mount(Static(...))` on
+every call -- and it broke immediately under real use, not in review:
+`on_thinking` can fire many times before Textual's event loop gets
+around to running an earlier call's scheduled `mount()` coroutine, so a
+second `remove_children()`/`mount()` pair landed while the first's
+`mount()` was still pending, and both tried to mount a `Static`
+carrying the same id -- `textual.widgets._widget_list.DuplicateIds`,
+confirmed by a test with 30 rapid chunks and no pause between them (the
+2-chunk case the other thinking tests already had did not reproduce it
+reliably, since Textual's own scheduling doesn't always interleave two
+calls that close together -- this is why the regression test uses 30,
+not 2). `PlanPane`/`EvidencePane` don't hit this in practice because
+neither is called more than once per event; `ThinkingPane.append()` is
+called on every streamed token, which is the actual difference that
+made the same pattern unsafe here.
+
+Fixed by mounting exactly one `Static` at `compose()` time and updating
+it in place via the synchronous `Static.update()` on every subsequent
+call, instead of removing and remounting. `update()` has no `await`
+inside it, so there is no window for a second call to land mid-mutation
+-- the race isn't narrowed, it's structurally impossible. `_append_thinking`/
+`_clear_thinking` call `ThinkingPane.append()`/`.reset()` directly now
+(no `self.run_worker(...)` wrapper), since there's no coroutine left to
+schedule.
+
+> Guarded by `tests/test_tui.py::
+> test_many_rapid_thinking_chunks_do_not_race` (30 chunks, no pause --
+> the case that actually reproduced `DuplicateIds`),
+> `test_append_thinking_grows_the_thinking_tab`,
+> `test_clear_thinking_resets_the_thinking_tab`,
+> `test_a_completed_plan_request_leaves_no_reasoning_text_behind`
+
+### 2.44 `/auto on`: skip the Run click for a plan that already needed no tick, never for one that does
+
+Direct feedback: even an all-SAFE/CAUTION plan (already auto-approved by
+`Verdict.needs_confirmation`, no checkbox rendered at all) still required
+a manual Run click in the TUI -- the CLI's `harness ask` never had this
+friction, since `approve_at_prompt()`'s loop over `plan.needs_confirmation`
+is simply empty for such a plan and `execute()` proceeds with no prompt at
+all. `SessionTab.auto_run` (default `False`, runtime-only and not
+persisted -- reopening a session must drop back to requiring a manual
+click, same reasoning `model_override` already documents) closes that
+one specific gap for the TUI, set per tab via `/auto on` / `/auto off`
+(bare `/auto` reports the current state instead of toggling blind).
+
+The one condition that matters: `_outcome_plan_ready` only calls
+`execute_plan()` automatically when `len(plan.needs_confirmation) == 0`
+**and** `tab.auto_run` is true -- both, not either. This is deliberately
+never a way to relax what counts as needing confirmation in the first
+place; a DANGEROUS/CRITICAL step still always renders its checkbox and
+still always waits for an explicit human tick and an explicit Run,
+`/auto` setting or not. (An earlier, considered and rejected version of
+this request: let a DANGEROUS step with full undo coverage skip
+confirmation too, on the theory that a verified rollback makes it safe
+to auto-run. Rejected on the same precedent HANDOFF.md's domain
+invariants already establish -- "a declared `rollback:` command is
+still classified, a step's own `safe: true` can only make
+`SafetyClassifier` more cautious, never override it": reversibility and
+risk are different axes, and this codebase has already drawn that line
+once. "Has an undo" says nothing about how bad the blast radius is
+before that undo runs.)
+
+> Guarded by `tests/test_tui.py::
+> test_auto_run_executes_a_plan_with_nothing_needing_confirmation`,
+> `test_auto_run_never_bypasses_confirmation_for_a_dangerous_step`,
+> `test_auto_run_defaults_to_off`, `test_auto_command_turns_it_on_and_off`,
+> `test_bare_auto_command_reports_state_without_toggling`,
+> `test_auto_command_rejects_a_garbage_argument`
+
 ---
 
 ## 3. Things already tried that failed
@@ -1859,7 +1939,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 674, must stay green
+python3 -m pytest tests/ -q                       # 681, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -2541,7 +2621,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 674
+test command     python3 -m pytest tests/ -q     # 681
 ```
 
 ---

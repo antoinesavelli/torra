@@ -103,9 +103,11 @@ OUTCOME_STYLE: dict[str, str] = {
 class ChatLine(Static):
     """One line in the conversation pane.
 
-    Mutable via `set_text` (not just constructed once) so a live-streaming
-    reasoning block can grow in place -- see `HarnessApp._append_thinking`
-    -- instead of remounting a new widget per token.
+    Mutable via `set_text` (not just constructed once) so a live step's
+    growing stdout/stderr can update in place -- see
+    `HarnessApp._append_step_output` -- instead of remounting a new widget
+    per chunk. (Live reasoning used this too before it moved to its own
+    sidebar tab, `ThinkingPane` -- see `HarnessApp._append_thinking`.)
     """
 
     _PREFIXES = {"you": "[bold cyan]you[/]", "agent": "[bold green]agent[/]",
@@ -256,6 +258,50 @@ class EvidencePane(VerticalScroll):
                                 markup=True, classes="evidence-block"))
 
 
+#: Shown in the Thinking tab whenever no stream is live -- the pane's own
+#: starting content and what `reset()` restores it to.
+THINKING_PLACEHOLDER = ("[dim]No reasoning stream yet -- appears here while "
+                        "a thinking-capable model plans.[/]")
+
+
+class ThinkingPane(VerticalScroll):
+    """The sidebar's third tab: the live reasoning stream for whichever
+    turn is currently planning, for a model that exposes it.
+
+    Was a single ephemeral line inline in the chat; moved to its own tab
+    since a real reasoning chain runs to hundreds of lines and a single
+    line that keeps growing and re-rendering was unreadable for anything
+    past a sentence or two. Still ephemeral by design -- never written to
+    SessionStore or telemetry, cleared the moment the turn finishes,
+    same reasoning as the inline version this replaced.
+
+    One `Static`, updated in place via the synchronous `Static.update()`,
+    not removed and remounted per chunk. Found live: `on_thinking` can
+    fire many times before Textual gets a chance to run an `await
+    self.mount(...)` coroutine scheduled by an earlier chunk, so two
+    remove-then-mount calls raced and the second's `mount()` crashed with
+    `DuplicateIds` -- the same widget id mounted twice. `update()` has no
+    such window: it mutates the existing widget synchronously, so there is
+    nothing left to race."""
+
+    def compose(self) -> ComposeResult:
+        """Start empty."""
+        yield Static(THINKING_PLACEHOLDER, markup=True, id="thinking-text")
+
+    def append(self, text: str) -> None:
+        """Replace the display with the full accumulated text so far --
+        whole-text, not a delta append: `Static.update()` replaces content
+        wholesale, and re-sending the full accumulated string each call
+        (same pattern `ChatLine.set_text` already used for this) is what
+        makes that safe regardless of call order."""
+        self.query_one("#thinking-text", Static).update(escape(text))
+        self.scroll_end(animate=False)
+
+    def reset(self) -> None:
+        """Back to the empty placeholder once a turn finishes."""
+        self.query_one("#thinking-text", Static).update(THINKING_PLACEHOLDER)
+
+
 @dataclass
 class SessionTab:
     """One tab's state: its own Harness/Agent/context, its own busy flag.
@@ -282,9 +328,10 @@ class SessionTab:
     # Also runtime-only and just as deliberately not persisted: reasoning
     # tokens are a live look at the model thinking, not a durable record --
     # see HANDOFF.md's note on why this stays out of SessionStore/telemetry.
-    reasoning_line: ChatLine | None = None
+    # Rendered in the sidebar's Thinking tab (ThinkingPane), not inline in
+    # chat -- a real reasoning chain runs to hundreds of lines.
     reasoning_text: str = ""
-    # Live per-step execution output. Unlike reasoning_line, these are not
+    # Live per-step execution output. Unlike reasoning_text, these are not
     # cleared when the run finishes -- StepResult's captured stdout is
     # never shown anywhere else in the TUI, so the live line is the only
     # place an operator ever sees a successful step's output, and stays as
@@ -292,6 +339,14 @@ class SessionTab:
     # multi-step plan gets one growing line per step, not one shared line.
     output_lines: dict[str, ChatLine] = field(default_factory=dict)
     output_text: dict[str, str] = field(default_factory=dict)
+    # Runtime-only, deliberately never persisted -- same reasoning as
+    # model_override just above: reopening a session must drop back to
+    # requiring a manual Run click, not silently keep auto-executing.
+    # Only ever changes what happens for a plan with *zero* steps needing
+    # confirmation (SAFE/CAUTION already run without a tick today) --
+    # never lowers the bar for a DANGEROUS/CRITICAL step, which still
+    # always needs an explicit human tick regardless of this flag.
+    auto_run: bool = False
 
 
 class SessionPicker(ModalScreen[str | None]):
@@ -542,6 +597,8 @@ class HarnessApp(App):
         sidebar.compose_add_child(TabPane("Plan", PlanPane(id="plan"), id="sidebar-plan"))
         sidebar.compose_add_child(
             TabPane("Evidence", EvidencePane(id="evidence"), id="sidebar-evidence"))
+        sidebar.compose_add_child(
+            TabPane("Thinking", ThinkingPane(id="thinking"), id="sidebar-thinking"))
         return sidebar
 
     def _build_tab_pane(self, session_id: str, title: str) -> TabPane:
@@ -638,6 +695,9 @@ class HarnessApp(App):
     def _evidence_pane(self, session_id: str) -> EvidencePane:
         return self._tab_pane(session_id).query_one("#evidence", EvidencePane)
 
+    def _thinking_pane(self, session_id: str) -> ThinkingPane:
+        return self._tab_pane(session_id).query_one("#thinking", ThinkingPane)
+
     def _prompt(self, session_id: str) -> Input:
         return self._tab_pane(session_id).query_one("#prompt", Input)
 
@@ -648,29 +708,25 @@ class HarnessApp(App):
         chat.scroll_end(animate=False)
 
     def _append_thinking(self, session_id: str, chunk: str) -> None:
-        """Grow this session's live reasoning line by one delta, mounting
-        it on the first chunk. Called via `call_from_thread` from the plan
-        worker thread -- `on_thinking` fires from inside `OllamaClient.chat`'s
-        streaming read loop, which runs on that same worker thread."""
+        """Grow this session's live reasoning text by one delta and push
+        the whole accumulated text into the sidebar's Thinking tab. Called
+        via `call_from_thread` from the plan worker thread -- `on_thinking`
+        fires from inside `OllamaClient.chat`'s streaming read loop, which
+        runs on that same worker thread."""
         tab = self.sessions.get(session_id)
         if tab is None:
             return  # the tab was closed while a stream was still in flight
-        if tab.reasoning_line is None:
-            tab.reasoning_line = ChatLine("agent", "", "dim italic")
-            self._chat(session_id).mount(tab.reasoning_line)
         tab.reasoning_text += chunk
-        tab.reasoning_line.set_text(escape(tab.reasoning_text))
-        self._chat(session_id).scroll_end(animate=False)
+        self._thinking_pane(session_id).append(tab.reasoning_text)
 
     def _clear_thinking(self, session_id: str) -> None:
-        """Drop the live reasoning line once a turn is done -- ephemeral by
+        """Reset the Thinking tab once a turn is done -- ephemeral by
         design, never written to SessionStore or telemetry (see
-        `SessionTab.reasoning_line`'s docstring)."""
+        `SessionTab.reasoning_text`'s docstring)."""
         tab = self.sessions.get(session_id)
-        if tab is None or tab.reasoning_line is None:
+        if tab is None or not tab.reasoning_text:
             return
-        self.run_worker(tab.reasoning_line.remove(), exclusive=False)  # type: ignore[arg-type]  # textual stub is stricter than the accepted runtime API
-        tab.reasoning_line = None
+        self._thinking_pane(session_id).reset()
         tab.reasoning_text = ""
 
     def _reset_step_output(self, session_id: str) -> None:
@@ -732,6 +788,9 @@ class HarnessApp(App):
         if request == "/model" or request.startswith("/model "):
             self._set_model_override(session_id, request.removeprefix("/model").strip())
             return
+        if request == "/auto" or request.startswith("/auto "):
+            self._set_auto_run(session_id, request.removeprefix("/auto").strip())
+            return
         tab.last_request = request
         if not tab.meta.name:
             self._name_session(session_id, request)
@@ -755,6 +814,31 @@ class HarnessApp(App):
                       "model override cleared -- routing decides again", "dim")
             return
         self._say(session_id, "harness", f"model override set to {escape(override)}", "dim")
+
+    def _set_auto_run(self, session_id: str, arg: str) -> None:
+        """`/auto on` skips the manual Run click for a plan with zero steps
+        needing confirmation -- SAFE/CAUTION steps already execute with no
+        tick today, this just removes the extra click for a plan made
+        entirely of them. `/auto off` (or bare `/auto`) turns it back off;
+        bare `/auto` also reports the current state rather than silently
+        toggling, so the operator never has to remember what it was set to.
+        Never changes what needs a tick in the first place -- a DANGEROUS/
+        CRITICAL step still always requires an explicit human approval,
+        this flag or not."""
+        tab = self.sessions[session_id]
+        if arg not in ("on", "off", ""):
+            self._say(session_id, "harness", "usage: /auto on | /auto off", "dim")
+            return
+        if arg == "":
+            self._say(session_id, "harness",
+                      f"auto-run is {'on' if tab.auto_run else 'off'}", "dim")
+            return
+        tab.auto_run = arg == "on"
+        self._say(session_id, "harness",
+                  f"auto-run {'on' if tab.auto_run else 'off'} -- "
+                  "a plan needing no tick at all will run immediately"
+                  if tab.auto_run else
+                  "auto-run off -- every plan waits for Run", "dim")
 
     def _name_session(self, session_id: str, request: str) -> None:
         """Give an unnamed session a name from its first real request."""
@@ -848,6 +932,13 @@ class HarnessApp(App):
             f"{pending} need a tick[/]" if pending else
             f"[green]plan ready: {len(result.plan.steps)} step(s), "
             "nothing needs confirmation[/]")
+        # auto-run only ever fires when *nothing* needed a tick in the
+        # first place -- a DANGEROUS/CRITICAL step still always waits for
+        # Run, this flag or not (see SessionTab.auto_run's own docstring).
+        if not pending and self.sessions[session_id].auto_run:
+            self._say(session_id, "harness",
+                      "auto-run: nothing needs confirmation, running now", "dim")
+            self.execute_plan(session_id)
 
     def _planned(self, session_id: str, result: RunResult) -> None:
         """Render whatever the model decided, dispatched by outcome."""
