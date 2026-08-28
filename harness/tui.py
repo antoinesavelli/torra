@@ -54,7 +54,13 @@ __all__ = ["HarnessApp", "run_tui"]
 #: (see scripts/dev/model_bench/REPORT.md) -- a static "thinking..." label
 #: looks identical whether it's been one second or frozen for sixty, so the
 #: status line animates and counts up instead of just sitting there.
-SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+#: Plain ASCII, not the Braille Patterns block (U+2800-U+28FF) -- found
+#: live: that block is silently missing from several common terminal
+#: fallback fonts (GNOME Terminal's default "Monospace" among them), so
+#: the frame would render as nothing at all rather than a visibly wrong
+#: glyph, reading as "there's no spinner" when the widget was updating
+#: correctly the whole time. `|/-\` renders identically everywhere.
+SPINNER_FRAMES = "|/-\\"
 
 #: Live step output is capped for display, not for what actually gets
 #: captured -- StepResult.output stays the full text regardless. A step
