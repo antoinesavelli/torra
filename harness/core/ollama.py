@@ -59,7 +59,7 @@ class OllamaClient:
         host: str = DEFAULT_HOST,
         timeout: float = 120.0,
         probe_timeout: float = 1.0,
-        fallback_model: str = "qwen3.5:latest",
+        fallback_model: str = "gpt-oss:20b",
         transport: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
         stream_transport: Callable[
             [str, dict[str, Any], float, Callable[[str], None]], dict[str, Any]] | None = None,
@@ -77,6 +77,12 @@ class OllamaClient:
         for exactly this (falls through to `available[0]` when even the
         fallback isn't pulled), so this wasn't a crash -- just consistently
         wrong advice to whoever read it.
+
+        Changed from "qwen3.5:latest" to "gpt-oss:20b" on 2026-08-28 (the
+        operator's own request: no Chinese-origin models) -- same role,
+        smallest of the current catalog, not yet re-verified against the
+        specific failure qwen3.5:latest was found to have on "quick"-style
+        requests (see `ROUTING_RULES`' own comment in `harness/gates/router.py`).
         """
         self.host = host.rstrip("/")
         self.timeout = float(timeout)

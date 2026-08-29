@@ -297,14 +297,23 @@ it only in `ollama ps`, which nobody reads before typing a request.
 
 | Request mentions | Routed model | Why |
 |---|---|---|
-| debug, crash, traceback, root cause | `qwen3:32b` | deepest local reasoning budget |
+| debug, crash, traceback, root cause | `gpt-oss:20b` | deepest local reasoning budget (replaces qwen3:32b, then muse-glimmer:30b; measured best of 4 models 2026-08-28) |
 | deploy, release, provision, systemd unit | `devstral:24b` | benchmarked best at tool/file-editing work |
-| refactor, implement, patch, migrate code | `qwen3-coder:30b` | code-generation specialist (not yet benchmarked here) |
-| plan, architect, design, trade-off | `qwen3:32b` | long-context reasoning |
-| analyze, summarize, review, audit | `qwen3:32b` | reasoning-bound, not tool-bound |
+| refactor, implement, patch, migrate code | `devstral-small-2:24b` | 65.8% SWE-bench Verified (replaces qwen3-coder:30b, 2026-08-28; still not benchmarked against this harness) |
+| plan, architect, design, trade-off | `gpt-oss:20b` | long-context reasoning (replaces qwen3:32b, then muse-glimmer:30b; measured best of 4 models 2026-08-28) |
+| analyze, summarize, review, audit | `gpt-oss:20b` | reasoning-bound, not tool-bound (replaces qwen3:32b, then muse-glimmer:30b; measured best of 4 models 2026-08-28) |
 | list, show, status, "what is" | `devstral:24b` | measured live: qwen3.5:latest gave a content-free non-answer on 1 of 5 real disk/status checks |
-| ambiguous (no clear target) | `qwen3:32b` | measured better at asking a clarifying question than guessing |
+| ambiguous (no clear target) | `gpt-oss:20b` | measured better at asking a clarifying question than guessing (replaces qwen3:32b, then muse-glimmer:30b; measured best of 4 models 2026-08-28) |
 | none of the above | `devstral:24b` | the measured-reliable general default |
+
+Every Qwen-origin model in the catalog was swapped for a non-Chinese equivalent on
+2026-08-28 (operator request): `qwen3-coder:30b` → `devstral-small-2:24b` (Mistral AI),
+`qwen3:32b` → `muse-glimmer:30b` (Meta) → `gpt-oss:20b` (OpenAI) after a real benchmark
+run showed muse-glimmer tied on accuracy but ~6x the latency with a hard timeout,
+`qwen3.5:latest` → `gpt-oss:20b` (the `OllamaClient` fallback default). `devstral:24b`
+was already non-Chinese and is untouched.
+See `harness/gates/router.py`'s `ROUTING_RULES` comment for the full reasoning and the
+"not yet benchmarked against this harness" caveat.
 
 Whatever gets picked still has to fit: if the free VRAM can't hold it, the router
 downgrades to the next model that does, and says so in the routing reason -- never

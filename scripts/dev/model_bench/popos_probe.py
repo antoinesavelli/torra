@@ -21,7 +21,15 @@ from bench import OLLAMA_HOST, make_metrics_transport  # noqa: E402
 
 from harness.core import OllamaClient  # noqa: E402
 
-MODELS = ["qwen3:32b", "qwen3.5:latest", "qwen3-coder:30b", "devstral:24b"]
+#: Updated 2026-08-28: qwen3:32b/qwen3.5:latest/qwen3-coder:30b were swapped
+#: for non-Chinese equivalents in harness/gates/router.py's ROUTING_RULES
+#: (operator request); this list follows so a future probe run tests what's
+#: actually live rather than retired models. devstral:24b is untouched.
+#: muse-glimmer:30b briefly held the debug/plan/analyze slot the same day
+#: but was replaced by gpt-oss:20b after a real bench.py run found it tied
+#: on accuracy with ~6x the latency and a hard timeout -- dropped from
+#: this list too, since it is no longer what the router actually routes to.
+MODELS = ["gpt-oss:20b", "devstral-small-2:24b", "devstral:24b"]
 
 
 @dataclass

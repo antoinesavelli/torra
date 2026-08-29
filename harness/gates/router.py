@@ -59,6 +59,41 @@ class ModelChoice:
 #: actually measured. Do not read it as a benchmark result the way the
 #: other four rules are.
 #:
+#: On 2026-08-28, every Qwen-origin model in that four-model catalog (the
+#: operator's own request: no Chinese-origin models) was swapped for a
+#: non-Chinese equivalent at the analogous size/role, chosen from public
+#: benchmarks (SWE-bench Verified, LiveBench) rather than by name --
+#: "code" -> devstral-small-2:24b (Mistral AI, Apache 2.0, 65.8%
+#: SWE-bench Verified vs. the un-benchmarked qwen3-coder:30b it replaces)
+#: and "debug"/"plan"/"analyze" -> muse-glimmer:30b initially (Meta,
+#: Apache 2.0, benchmarked ahead of Qwen3.6-27B on agentic tool
+#: reliability). `devstral:24b` (already non-Chinese) was left untouched
+#: for "deploy"/"quick"; do not fold it into this swap without a
+#: separate, measured reason.
+#:
+#: muse-glimmer:30b was replaced by gpt-oss:20b the same day, same role,
+#: after actually running scripts/dev/model_bench/bench.py against the
+#: new catalog (results.json, 2026-08-28) -- the one measurement this
+#: whole swap had been missing. Tied with devstral-small-2:24b/devstral:24b
+#: on intent accuracy (10/13), muse-glimmer was ~6x the mean latency of
+#: the other three models (50.9s vs. 7-15s) and the only one of the four
+#: that errored at all: a hard 300s timeout on t8-timer-with-quantities
+#: with zero tokens generated. Root-caused live, not guessed: repeated
+#: identical warm /api/chat calls to muse-glimmer showed `load_duration`
+#: growing call over call (8s, 19s, 32s, 36s for four back-to-back
+#: identical prompts) instead of collapsing to ~0 like an already-resident
+#: model should -- a real per-call reload/session-setup tax on this
+#: machine's OLLAMA_MAX_LOADED_MODELS=1 config that gpt-oss:20b pays too
+#: (it showed the same pattern, noisier) but far less of, being the
+#: lightest model in the catalog (~13GB vs. muse-glimmer's ~18GB). gpt-oss
+#: measured the best intent accuracy of all four models tested (11/13)
+#: at the fastest generation speed (171 tok/s vs. muse-glimmer's 44.8),
+#: with zero errors -- a real win on this harness's own battery, not a
+#: guess. muse-glimmer:30b's Apache 2.0 weights are still pulled locally
+#: as of this writing but no longer routed to by name; nothing here
+#: prevents re-measuring it if a future Ollama release changes this
+#: machine's reload behavior for its architecture.
+#:
 #: "quick" originally targeted qwen3.5:latest on the same "obvious fit by
 #: name" basis (the smallest pulled model, for lookups assumed too trivial
 #: to justify a bigger one) -- changed 2026-08-17 after live testing this
@@ -84,21 +119,39 @@ class ModelChoice:
 #: "summarize everything" phrasing. If that specific phrasing pattern
 #: matters enough to chase further, it needs its own measurement, not
 #: another reactive swap.
+#:
+#: qwen3:32b itself -- the model this paragraph credits with the only
+#: correct "summarize everything" answer -- was retired in the 2026-08-28
+#: Qwen-removal swap above, replaced by muse-glimmer:30b and then, the
+#: same day, gpt-oss:20b (see this file's own comment above). The
+#: historical finding stands (it is what was measured, on qwen3:32b,
+#: that day); it does not carry over to gpt-oss:20b until someone re-runs
+#: it -- gpt-oss:20b's own measured numbers so far are from the
+#: JSON-planning battery, not this specific "summarize everything"
+#: phrasing.
 ROUTING_RULES: list[tuple[str, str, str, str]] = [
     ("debug", r"\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)"
               r"|root\s*cause|failing|broken|bug)\b",
-     "qwen3:32b", "debugging needs the deepest reasoning budget available locally"),
+     "gpt-oss:20b", "debugging needs the deepest reasoning budget available "
+                   "locally (replaces qwen3:32b, then muse-glimmer:30b; "
+                   "measured best intent accuracy and speed of 4 models "
+                   "tested 2026-08-28, see this file's own comment above)"),
     ("deploy", r"\b(deploy|release|ship|rollout|provision|terraform|ansible|"
                r"systemd\s+unit)\b",
      "devstral:24b", "deployment work needs strong tool and file editing behaviour"),
     ("code", r"\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|"
              r"migrate\s+code)\b",
-     "qwen3-coder:30b", "code generation is qwen3-coder's namesake specialty "
-                        "(not yet benchmarked against this harness)"),
+     "devstral-small-2:24b", "65.8% SWE-bench Verified (Mistral AI, Apache 2.0); "
+                            "replaces qwen3-coder:30b, 2026-08-28 Qwen-removal "
+                            "swap -- still not benchmarked against this harness"),
     ("plan", r"\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b",
-     "qwen3:32b", "planning benefits from long context reasoning"),
+     "gpt-oss:20b", "planning benefits from long context reasoning "
+                   "(replaces qwen3:32b, then muse-glimmer:30b; measured "
+                   "best intent accuracy and speed 2026-08-28)"),
     ("analyze", r"\b(analy[sz]e|summar[iy]|review|audit|explain)\b",
-     "qwen3:32b", "analysis is reasoning bound, not tool bound"),
+     "gpt-oss:20b", "analysis is reasoning bound, not tool bound "
+                   "(replaces qwen3:32b, then muse-glimmer:30b; measured "
+                   "best intent accuracy and speed 2026-08-28)"),
     ("quick", r"\b(list|show|print|cat|what\s+is|check|status)\b",
      "devstral:24b", "measured live 2026-08-17: qwen3.5 gave a content-free "
                      "non-answer on 1 of 5 real disk/status checks, devstral "
@@ -112,6 +165,7 @@ KNOWN_PARAMS_B: dict[str, float] = {
     "devstral": 24.0, "codestral": 22.0, "mistral": 7.0, "mixtral": 47.0,
     "llama3": 8.0, "llama3.1": 8.0, "phi3": 3.8, "gemma2": 9.0,
     "deepseek-coder": 6.7, "starcoder2": 7.0, "granite-code": 8.0,
+    "devstral-small-2": 24.0, "muse-glimmer": 30.0, "gpt-oss": 20.0,
 }
 
 RULE_WEIGHTS: dict[str, float] = {
@@ -148,7 +202,13 @@ class ModelRouter:
     #: latency) -- this only overrides the *unmatched-request* fallback,
     #: not that benchmark's routing rules, and only when there is nothing
     #: else to route on.
-    AMBIGUOUS_FALLBACK_MODEL: str = "qwen3:32b"
+    #:
+    #: Set to gpt-oss:20b as of 2026-08-28 (qwen3:32b retired in the
+    #: Qwen-removal swap, briefly replaced by muse-glimmer:30b same day --
+    #: see ROUTING_RULES' own comment for why that didn't stick). Same
+    #: role, not yet re-verified against the specific "asks instead of
+    #: guessing" behavior qwen3:32b was credited with above.
+    AMBIGUOUS_FALLBACK_MODEL: str = "gpt-oss:20b"
 
     def __init__(
         self,

@@ -2147,6 +2147,109 @@ one-fact-per-line way as everything else in this tab.
 > client's cumulative-calls line, and the read file path all appear) and
 > the updated `test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`.
 
+### 2.49 Every Qwen-origin model in the four-model catalog was swapped for a non-Chinese equivalent (operator request), and the swap itself broke the live `ollama.service` twice
+
+Operator request, not a measured gap: no Chinese-origin models in the
+routing catalog. Chosen from public benchmarks (SWE-bench Verified,
+LiveBench), not by name, the same discipline this file already demands
+for anything that isn't a guess:
+
+| Role | Old (retired) | New | Why this one |
+|---|---|---|---|
+| debug/plan/analyze, `AMBIGUOUS_FALLBACK_MODEL` | `qwen3:32b` → `muse-glimmer:30b` (see correction below) | `gpt-oss:20b` (OpenAI, Apache 2.0) | measured best intent accuracy (11/13) and speed (171 tok/s) of 4 models on this harness's own battery |
+| code | `qwen3-coder:30b` | `devstral-small-2:24b` (Mistral AI, Apache 2.0) | 65.8% SWE-bench Verified vs. the un-benchmarked model it replaces |
+| `OllamaClient.fallback_model` default | `qwen3.5:latest` | `gpt-oss:20b` (OpenAI, Apache 2.0) | smallest of the new catalog, same role |
+
+`devstral:24b` (deploy/quick) was already non-Chinese and is untouched
+-- folding it into `devstral-small-2:24b` too was considered and
+deliberately not done, since nothing measured that combination and it
+wasn't what was asked. Same honest caveat this file already applies to
+`qwen3-coder:30b`'s original "obvious fit by name" status now applies
+to both replacements: public benchmark numbers are not this harness's
+own 12-task JSON-planning battery in `scripts/dev/model_bench/
+REPORT.md`, and neither has been run through it. Every historical §2
+entry above that names `qwen3:32b`/`qwen3-coder:30b`/`qwen3.5:latest`
+by name (§2.9, §2.35, the "quick" routing note near this file's OS-
+engineering section) describes what was true of *those* models on the
+day it was found -- it does not carry over to their replacements
+automatically, and is left as-written rather than rewritten, the same
+way §2.35 layered a root cause onto §2.34 instead of editing it.
+
+**The swap exposed two more live wires in the process, both fixed, neither
+part of the original ask:**
+
+1. `muse-glimmer:30b` requires Ollama >=0.32.8 for the NVIDIA backend;
+   this machine ran 0.23.1. The operator ran the official installer
+   themselves (`curl -fsSL https://ollama.com/install.sh | sh`) --
+   upgrading a root-owned binary and restarting a live system service is
+   outside what this agent will do unattended, on-request or not.
+2. The installer's fresh systemd unit switched `ollama.service` to a new
+   dedicated `ollama` system user, replacing whatever ran it before
+   (evidently `antoine`, the owner of every file under
+   `/mnt/ParamoStorage/AIModels`). `/mnt/ParamoStorage` itself is
+   `drwx------ antoine antoine` and `AIModels/blobs` is the same --
+   the new user could not traverse into the mount at all, then (after a
+   scoped `setfacl -m u:ollama:--x` traverse grant) could not read the
+   blobs it needed. Fixed by reverting to the previous, already-correct
+   permission model instead of chasing per-directory ACLs: a new
+   `/etc/systemd/system/ollama.service.d/override-user.conf` drop-in
+   pins `User=antoine`/`Group=antoine`, layered on top of the existing
+   hand-tuned `override.conf` from the 2026-08-10 incident (`Requires=
+   mnt-ParamoStorage.mount`, the 5-restart start limit) rather than
+   replacing it -- both drop-ins apply, base unit last.
+
+**Correction, same day: `muse-glimmer:30b` did not survive contact with
+this harness's own benchmark.** The table above already reflects the
+final state; this is the measurement that produced it. Once all three
+replacements were pulled, `scripts/dev/model_bench/bench.py` was
+actually run against the new catalog (`devstral-small-2:24b`,
+`muse-glimmer:30b`, `gpt-oss:20b`, `devstral:24b` -- results in
+`scripts/dev/model_bench/results.json`, 2026-08-28) -- the measurement
+this whole swap had been missing, same discipline as `qwen3-coder:30b`'s
+original "not yet benchmarked" caveat. `muse-glimmer:30b` tied
+`devstral-small-2:24b`/`devstral:24b` on intent accuracy (10/13) but ran
+at ~6x their mean latency (50.9s vs. 7-15s) and was the only one of the
+four that errored: a hard 300s timeout on `t8-timer-with-quantities`
+with zero tokens generated.
+
+Root-caused live rather than left as an unexplained number: four
+identical back-to-back `/api/chat` calls to an already-warm
+`muse-glimmer:30b` showed `load_duration` *growing* call over call (8s,
+19s, 32s, 36s) instead of collapsing to ~0 the way an already-resident
+model should -- a real per-call reload/session-setup tax under this
+machine's `OLLAMA_MAX_LOADED_MODELS=1` config. `gpt-oss:20b` showed the
+same pattern (noisier, still double digits every call), just less of
+it, being the lightest model in the catalog (~13GB vs. muse-glimmer's
+~18GB) -- consistent with this being a cost of the model's size/newness
+in Ollama (muse-glimmer needed the just-upgraded 0.32.8+ runtime) rather
+than a defect specific to muse-glimmer's reasoning quality. `gpt-oss:20b`
+separately measured the best intent accuracy of all four (11/13) at the
+fastest generation speed (171 tok/s), with zero errors -- a real win on
+this harness's own battery, not a name-based guess. `harness/gates/
+router.py`'s `AMBIGUOUS_FALLBACK_MODEL` and the debug/plan/analyze
+`ROUTING_RULES` entries were updated to `gpt-oss:20b` accordingly.
+`muse-glimmer:30b` was removed from the local catalog (`ollama rm`)
+once `gpt-oss:20b` took over its role; nothing here rules out
+re-pulling and re-measuring it if a future Ollama release changes
+this machine's reload behavior for its
+architecture.
+
+> Guarded by `tests/test_gates.py::TestRouting` (`CONTRACT`,
+> `TestHardwareAwareRouting`, the ambiguous-fallback pair) and
+> `tests/test_core.py::test_fallback_model_default_is_actually_pulled`,
+> all re-pinned to the final model names (`gpt-oss:20b` for debug/plan/
+> analyze/ambiguous-fallback, `devstral-small-2:24b` for code). No test
+> exists for the systemd user/ACL fix -- it isn't code this repo ships,
+> it's this specific machine's service configuration; verified live via
+> `systemctl status ollama.service` (active, no restarts) and `ollama
+> list` showing all three new models pulled. The muse-glimmer timing
+> finding is verified by the bench run itself
+> (`scripts/dev/model_bench/results.json`) plus the standalone
+> back-to-back `/api/chat` reproduction described above (not itself
+> committed as a test -- it was a live diagnostic against the real
+> daemon, the same category of verification this file's OS-engineering
+> section already treats as legitimate alongside the unit-test suite).
+
 ### 2.50 A live indicator sat where nobody was looking -- moved next to the prompt, plus a real way to abandon an in-flight plan request
 
 Two complaints, same root cause: the only busy feedback was the shared

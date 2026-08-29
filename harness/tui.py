@@ -81,7 +81,7 @@ STEP_OUTPUT_DISPLAY_CAP = 8000
 #: on a slug guess.
 VERIFIED_OPENROUTER_MODELS: list[str] = [
     "openrouter/x-ai/grok-4.6",
-    "openrouter/deepseek/deepseek-v4-pro",
+    "openrouter/openai/gpt-5.6-sol",
 ]
 
 

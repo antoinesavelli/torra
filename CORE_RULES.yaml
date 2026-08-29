@@ -70,8 +70,8 @@ risk_mitigations:
     host: http://localhost:11434
     probe_timeout_seconds: 0.5
     monitor_interval_seconds: 5
-    fallback_model: qwen3.5:latest   # OllamaClient's own default; was qwen3:8b until a
-                                      # full-file audit found it referenced a deleted model
+    fallback_model: gpt-oss:20b   # OllamaClient's own default; was qwen3.5:latest until
+                                   # the 2026-08-28 Qwen-removal swap, qwen3:8b before that
 
 model_routing:
   # Model catalog pruned to four on 2026-07-28: qwen3:32b, qwen3-coder:30b,
@@ -82,6 +82,18 @@ model_routing:
   # model_params_b/model_chat_capable), not from these names -- see
   # HANDOFF.md §2.9 for why the name alone stopped being trustworthy the
   # moment the catalog grew past three known models.
+  #
+  # On 2026-08-28 every Qwen-origin model was swapped for a non-Chinese
+  # equivalent (operator request): qwen3-coder:30b -> devstral-small-2:24b,
+  # qwen3:32b -> muse-glimmer:30b -> gpt-oss:20b (debug/plan/analyze +
+  # ambiguous-fallback; muse-glimmer replaced same-day after actually
+  # benchmarking the new catalog -- see router.py's own comment for why),
+  # qwen3.5:latest -> gpt-oss:20b (OllamaClient's own fallback_model
+  # default). devstral:24b (already non-Chinese) is untouched. See
+  # harness/gates/router.py's own ROUTING_RULES comment for the full
+  # reasoning, including the "not yet benchmarked against this harness"
+  # caveat that now applies to the two replacements the same way it always
+  # applied to qwen3-coder:30b.
   default: devstral:24b   # unmatched requests: measured most reliable of the four, not cheapest
   # Phase 3 ScoringModelSelector weights. Higher wins a tie on match count.
   # The rule matching earliest in the text also gets a 2x lead multiplier,
@@ -100,24 +112,24 @@ model_routing:
     # over deploy on weight, not on being listed first.
     - name: debug
       pattern: '\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)|root\s*cause|failing|broken|bug)\b'
-      model: qwen3:32b
-      reason: debugging needs the deepest reasoning budget available locally
+      model: gpt-oss:20b
+      reason: debugging needs the deepest reasoning budget available locally (replaces qwen3:32b, then muse-glimmer:30b -- measured best of 4 models 2026-08-28)
     - name: deploy
       pattern: '\b(deploy|release|ship|rollout|provision|terraform|ansible|systemd\s+unit)\b'
       model: devstral:24b
       reason: deployment work needs strong tool and file editing behavior
     - name: code
       pattern: '\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|migrate\s+code)\b'
-      model: qwen3-coder:30b
-      reason: code generation is qwen3-coder's namesake specialty (not yet benchmarked against this harness)
+      model: devstral-small-2:24b
+      reason: 65.8% SWE-bench Verified (Mistral AI, Apache 2.0); replaces qwen3-coder:30b, 2026-08-28 -- still not benchmarked against this harness
     - name: plan
       pattern: '\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b'
-      model: qwen3:32b
-      reason: planning benefits from long context reasoning
+      model: gpt-oss:20b
+      reason: planning benefits from long context reasoning (replaces qwen3:32b, then muse-glimmer:30b -- measured best of 4 models 2026-08-28)
     - name: analyze
       pattern: '\b(analy[sz]e|summar[iy]|review|audit|explain)\b'
-      model: qwen3:32b
-      reason: analysis is reasoning bound, not tool bound
+      model: gpt-oss:20b
+      reason: analysis is reasoning bound, not tool bound (replaces qwen3:32b, then muse-glimmer:30b -- measured best of 4 models 2026-08-28)
     - name: quick
       pattern: '\b(list|show|print|cat|what\s+is|check|status)\b'
       model: devstral:24b

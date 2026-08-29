@@ -1475,14 +1475,14 @@ class TestRouting:
     CONTRACT = [
         ("deploy the api container to staging", "devstral:24b"),
         ("release the new systemd unit", "devstral:24b"),
-        ("debug why nginx keeps crashing", "qwen3:32b"),
-        ("find the root cause of this traceback", "qwen3:32b"),
+        ("debug why nginx keeps crashing", "gpt-oss:20b"),
+        ("find the root cause of this traceback", "gpt-oss:20b"),
         ("list the running containers", "devstral:24b"),
-        ("debug the failing deploy to production", "qwen3:32b"),
-        ("deploy the fix for the crash", "qwen3:32b"),
-        ("check why the release is broken", "qwen3:32b"),
-        ("review the deploy script before we ship it", "qwen3:32b"),
-        ("refactor the auth module", "qwen3-coder:30b"),
+        ("debug the failing deploy to production", "gpt-oss:20b"),
+        ("deploy the fix for the crash", "gpt-oss:20b"),
+        ("check why the release is broken", "gpt-oss:20b"),
+        ("review the deploy script before we ship it", "gpt-oss:20b"),
+        ("refactor the auth module", "devstral-small-2:24b"),
     ]
 
     def test_the_routing_contract(self) -> None:
@@ -1526,11 +1526,16 @@ class TestRouting:
         devstral (the class default), it proposed a destructive-shaped cleanup
         plan instead of asking what was wrong; the identical prompt routed to
         qwen3:32b asked the right clarifying question. `ambiguous=True` is how
-        the caller (Agent.converse) passes Clarifier's own verdict in."""
+        the caller (Agent.converse) passes Clarifier's own verdict in.
+        qwen3:32b was retired in the 2026-08-28 Qwen-removal swap and
+        AMBIGUOUS_FALLBACK_MODEL now points at its replacement,
+        gpt-oss:20b -- this only proves the routing plumbing still
+        reaches whatever that constant names, not that the replacement
+        asks the same right question (unverified, see router.py's comment)."""
         router = ModelRouter()
         choice = router.select("storage issues on paramostorage", ambiguous=True)
         assert choice.rule == "default"
-        assert choice.model == "qwen3:32b"
+        assert choice.model == "gpt-oss:20b"
 
     def test_an_ambiguous_request_prefers_the_default_over_an_arbitrary_fit(self) -> None:
         """Found live 2026-08-17: qwen3:32b (32.8B real params) needs ~23.5GB
@@ -1541,21 +1546,24 @@ class TestRouting:
         same ambiguous request. When AMBIGUOUS_FALLBACK_MODEL doesn't fit,
         this must prefer the measured-reliable default_model over whatever
         else happens to be big and available, not the model that just
-        proved itself unreliable for this kind of request."""
-        class EverythingButQwen32bFits:
-            """Both devstral and the larger qwen3-coder fit -- proves this
+        proved itself unreliable for this kind of request. Re-parametrized
+        2026-08-28 onto the post-Qwen-removal names (gpt-oss:20b /
+        devstral-small-2:24b) -- it exercises the same mechanism, not a
+        re-verification of the original qwen3:32b/qwen3-coder:30b finding."""
+        class EverythingButAmbiguousFallbackFits:
+            """Both devstral and the larger devstral-small-2 fit -- proves this
             deliberately skips _pick_replacement()'s "largest fitting"
-            choice (which would pick qwen3-coder here) for default_model."""
+            choice (which would pick devstral-small-2 here) for default_model."""
 
             gpu = True
             free_vram_mb = 20000
 
             def fits(self, model: str) -> bool:
-                return model != "qwen3:32b"
+                return model != "gpt-oss:20b"
 
         router = ModelRouter(
-            available=["qwen3:32b", "devstral:24b", "qwen3-coder:30b"],
-            accelerator=EverythingButQwen32bFits())
+            available=["gpt-oss:20b", "devstral:24b", "devstral-small-2:24b"],
+            accelerator=EverythingButAmbiguousFallbackFits())
         choice = router.select("storage issues on paramostorage", ambiguous=True)
         assert choice.model == "devstral:24b"
 
@@ -1737,7 +1745,7 @@ class TestHardwareAwareRouting:
     what the machine can actually run, so it is where the two get reconciled.
     """
 
-    AVAILABLE = ["qwen3:32b", "qwen3:8b", "devstral:24b", "phi3"]
+    AVAILABLE = ["gpt-oss:20b", "qwen3:8b", "devstral:24b", "phi3"]
 
     def _router(self, accelerator):
         from harness.gates import ModelRouter
@@ -1746,7 +1754,7 @@ class TestHardwareAwareRouting:
     def test_a_big_gpu_gets_the_big_model(self) -> None:
         from harness.core import Accelerator
         router = self._router(Accelerator("cuda", "RTX 4090", 24564, 23000))
-        assert router.select("debug why nginx keeps crashing").model == "qwen3:32b"
+        assert router.select("debug why nginx keeps crashing").model == "gpt-oss:20b"
         assert router.select("deploy the api to staging").model == "devstral:24b"
 
     def test_cpu_only_never_loads_a_32b_model(self) -> None:
@@ -1757,7 +1765,7 @@ class TestHardwareAwareRouting:
 
         assert choice.model == "qwen3:8b"
         assert "no GPU" in choice.reason, "the swap must be visible, not silent"
-        assert router.downgrades == [("debug", "qwen3:32b", "qwen3:8b")]
+        assert router.downgrades == [("debug", "gpt-oss:20b", "qwen3:8b")]
 
     def test_a_small_card_gets_a_model_that_fits(self) -> None:
         from harness.core import Accelerator
@@ -1779,13 +1787,13 @@ class TestHardwareAwareRouting:
         """Routing must behave exactly as before when hardware is unknown."""
         from harness.gates import ModelRouter
         plain = ModelRouter(available=self.AVAILABLE)
-        assert plain.select("debug why nginx keeps crashing").model == "qwen3:32b"
+        assert plain.select("debug why nginx keeps crashing").model == "gpt-oss:20b"
         assert plain.downgrades == []
 
     def test_model_choice_to_dict_is_serializable(self) -> None:
         choice = ModelRouter().select("debug why nginx keeps crashing")
         d = choice.to_dict()
-        assert d["model"] == "qwen3:32b"
+        assert d["model"] == "gpt-oss:20b"
         assert d["rule"] == "debug"
 
     def test_explain_reports_no_rule_matched_for_an_unmatched_request(self) -> None:
@@ -1798,4 +1806,4 @@ class TestHardwareAwareRouting:
         router = ModelRouter()
         text = router.explain("debug why nginx keeps crashing")
         assert "debug" in text
-        assert "qwen3:32b" in text
+        assert "gpt-oss:20b" in text

@@ -197,8 +197,9 @@ def test_fallback_model_default_is_actually_pulled() -> None:
     back to {model}" recovery-option text were recommending a model that
     no longer exists. Pin this to the current curated four so a future
     catalog change has to touch this constant deliberately, not by
-    accident."""
-    assert OllamaClient().fallback_model == "qwen3.5:latest"
+    accident. Updated 2026-08-28: qwen3.5:latest -> gpt-oss:20b, part of
+    replacing every Qwen-origin model in the catalog (operator request)."""
+    assert OllamaClient().fallback_model == "gpt-oss:20b"
 
 
 class TestExecutorObservation:

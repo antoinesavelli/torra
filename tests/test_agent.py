@@ -897,7 +897,7 @@ def test_routing_falls_back_to_a_model_that_exists() -> None:
     turn = agent.converse("debug why nginx keeps crashing")
 
     assert turn.model == "qwen3:8b", (
-        "routed to qwen3:32b, which is not pulled, and did not fall back"
+        "routed to gpt-oss:20b, which is not pulled, and did not fall back"
     )
 
 
