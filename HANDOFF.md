@@ -1531,8 +1531,8 @@ Two choices worth stating so a future edit doesn't quietly undo them:
   with a stale or placeholder value without it silently shadowing a
   real one set elsewhere.
 
-`.env` is gitignored; `.env.example` (tracked) documents the expected
-keys with empty placeholder values, never a real one.
+`.env` is gitignored; only `OPENROUTER_API_KEY` is read from it (see README.md's
+OpenRouter section for the expected key), never a real value committed anywhere.
 
 > Guarded by `tests/test_cli.py::TestLoadEnvFile`: a not-yet-set variable
 > gets loaded, an already-set one is never overridden, a missing file is

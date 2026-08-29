@@ -344,7 +344,7 @@ export OPENROUTER_API_KEY=...          # never a CLI arg, never persisted to dis
 harness ask "..." --model openrouter/anthropic/claude-3.5-sonnet
 ```
 
-Or copy `.env.example` to `.env` at the repo root and set it there --
+Or put `OPENROUTER_API_KEY=...` in a `.env` file at the repo root --
 `harness` loads it automatically on every command (`cli.py`'s
 `_load_env_file`), no shell config needed. `.env` is already in
 `.gitignore`; an explicit `export` in your shell always wins over
