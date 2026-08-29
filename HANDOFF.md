@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 740 passed
+python3 -m pytest tests/ -q          # must print 757 passed
 harness doctor
 ```
 
@@ -2391,6 +2391,131 @@ proposed.
 > `systemctl`/`dpkg-query`/`inotify` get; the manual check above is the
 > real-network verification instead.
 
+### 2.53 Editing a file on `executor`: pull-edit-push, never model-authored `ssh`, an unconditional CRITICAL floor, and a real snapshot-based undo
+
+Follow-up to §2.52's read-only observation: the operator asked for actual
+edits, not just visibility. Two designs exist, with very different risk --
+raw SSH command passthrough (the model writes `ssh host "..."` text
+directly) vs. pull-edit-push (harness pulls the file locally, an ordinary
+step edits the local copy, a single always-escalated step pushes it back).
+Operator chose pull-edit-push. **The model never authors ssh/scp text
+anywhere in this mechanism** -- `SafetyClassifier` needed zero new evasion
+surface, because it never has to resolve a remote command at all.
+
+**The anti-goal, worth re-reading before extending this:** no new way for
+the model to cause anything to run on `executor` outside this one, narrow,
+harness-controlled mechanism. `grep -rn "build_remote_pull_action\|
+build_remote_push_action\|escalate_remote_push" harness/` shows exactly
+three files: the definitions in `harness/core/remote_edit.py`, the call
+site in `harness/core/tasks.py`'s `to_steps()` (pull/push actions) and
+`_validate_step` (field requirements), and the call site in
+`harness/pipeline.py`'s `_gate()` (the escalation). Nothing under
+`harness/gates/safety.py` changed at all.
+
+**Two new `Step.kind` values, real meaning for the first time.**
+`Step.kind` (`harness/core/tasks.py`) was already a real field, already in
+`STEP_FIELDS`, already settable by the model -- confirmed by grepping the
+whole tree before this change that *nothing* branched on it anywhere.
+`remote_pull`/`remote_push` are the first values that do. For these two
+kinds only, `Step.command`/`Step.run` are **harness-authored, deterministic
+text** (`f"pull {remote_path} from executor"` / `f"push local edit back to
+{remote_path} on executor"`), not the model's own `run` field -- the model
+still writes a `run` value (required by `_validate_step`, unchanged for
+every other kind), but it's ignored for what actually executes and what
+gets classified on these two kinds specifically. This is the one deliberate,
+narrow exception to `Step`'s own docstring invariant ("command is both what
+executes and what gets classified... the single most important invariant in
+the harness") -- the invariant's *spirit* still holds exactly, it's just
+harness code authoring that text instead of the model, precisely so the
+model can never smuggle arbitrary command text into a remote-write path.
+**Never extend this exception to any other kind.**
+
+**How a step actually moves a file.** `remote_pull` declares `remote_path`
+(source, on executor) and `touches: [<local path the model chooses>]`
+(destination); its real action fetches the remote content over the
+executor's SSH runner (`harness.core.machine.build_ssh_runner`, §2.52,
+reused unchanged) and writes it to that local path -- an ordinary local
+file after that, editable by a completely normal local step with the
+existing, unchanged pipeline. `remote_push` declares the same `remote_path`
+and `reads: [<that local path>]`; its real action reads the local file and
+uploads it, base64-encoded in transit (so arbitrary real content --
+newlines, quotes, anything -- survives the single-command-string interface
+the runner requires, without the model ever having to construct that
+encoding itself).
+
+**The CRITICAL floor is unconditional, not content-based.**
+`Harness._gate()` calls `escalate_remote_push(verdict, step.kind)`
+(`harness/core/remote_edit.py`) right after `SafetyClassifier.classify()`.
+The harness-authored command text for a push step names no real program
+`SafetyClassifier` recognizes, so it classifies SAFE on its own almost every
+time -- irrelevant, because the floor applies regardless. **CRITICAL, not
+DANGEROUS**: unlike a local DANGEROUS step, a remote write has no local
+audit/conflict-detection safety net around it, and its only undo
+(`capture_remote_file`, next paragraph) can silently be *absent* if the
+pre-push snapshot itself failed -- CRITICAL guarantees this always surfaces
+with the strongest visual weight the UI has, never blending in with a
+routine step.
+
+**Undo: `UndoGenerator.capture_remote_file()`** (`harness/gates/undo.py`) is
+the direct remote mirror of `capture_file()`, same real, provable bar (a
+`verify` that re-checks actual state, not "the call didn't raise"). Snapshot
+happens at gate time (`for_step()`, before the push ever runs), stored in
+the *same local* shadow-dir mechanism `capture_file` already uses. Present
+case: shadow the current remote content, `undo` re-uploads it, `verify`
+re-fetches and compares by digest. Absent case (the push creates a new
+remote file): `undo` deletes it, `verify` re-confirms absence -- exactly
+`capture_file`'s own `FILE_ABSENT` shape. **If the snapshot itself fails for
+any reason** (no executor configured, unreachable, permission denied,
+anything) `capture_remote_file` returns `None` -- the push step is honestly
+**"uncovered"**, the same `dd`/`mkfs` philosophy this file already
+documents ("declared uncovered rather than inventing an inverse it cannot
+guarantee"), never a fabricated or best-effort undo. The operator sees 0%
+coverage for that step and decides whether to approve it anyway, same
+choice they already make for any other uncovered dangerous step today.
+
+**Undo only ever runs during a real failure sweep in the same `execute()`
+call -- confirmed live, and true for local files too, not remote-specific.**
+`_finish_success()` calls `self.undo.cleanup()` on any COMPLETED run ("Nothing
+failed, so nothing rolls back to these snapshots") -- shadow copies,
+including a remote snapshot, do not survive past a successful run. Found by
+hand while writing this entry's own live verification: a first draft tried
+calling a push step's `UndoAction.undo()` *after* `execute()` had already
+returned `COMPLETED`, and it failed with a real `FileNotFoundError` on the
+already-cleaned-up shadow file -- not a bug, the system was never designed
+to support manual undo after success, for any file, local or remote. The
+real, supported path is `_sweep_rollback()` firing automatically when a
+*later* step in the *same* run fails.
+
+**Confirmed live, twice, against the real executor box (`10.0.0.44`):**
+first, a real pull → real local edit → real push, confirmed by an
+independent `cat` over a fresh SSH connection that the remote content
+genuinely changed. Second, the same three steps followed by a step that
+deliberately fails (`false`), triggering a real `_sweep_rollback` in the
+same run -- `done.rollback.undone` showed the remote restore action, and an
+independent `cat` afterward confirmed the real remote file was genuinely
+back to its original content. Both runs used a real, disposable
+`/tmp/...` file on executor, cleaned up afterward.
+
+> Guarded by `tests/test_core.py::TestRemoteEditSteps` (6 cases:
+> `to_steps()` builds harness-authored pull/push actions and ignores the
+> model's own `run` text, real content flows through correctly including
+> base64 round-trip, clean failure with no executor configured, and the
+> three new `_validate_step` field requirements), `tests/test_gates.py::
+> TestCaptureRemoteFile` (6 cases: present/absent/failure snapshot cases,
+> `for_step()` wiring, and that an ordinary step never touches the executor
+> runner at all), and `tests/test_pipeline.py::TestRemotePushEscalation`
+> (5 cases: the unconditional floor confirmed against the classifier's own
+> SAFE verdict on the same text, no escalation for `remote_pull`, a full
+> pull-edit-push run with a real captured undo, an uncovered push still
+> requiring approval, and a failing push triggering the normal rollback
+> sweep with zero new recovery logic). `harness/core/remote_edit.py` is a
+> new module, split out of `tasks.py`/`pipeline.py` immediately -- both
+> crossed this project's 500-functional-LOC modularity threshold the
+> moment this landed inline (same real, measured reason
+> `dependency_warnings.py`/`read_memory.py`/`resume.py` were split out
+> earlier), confirmed by `scripts/dev/defensive_coding_report.py` before
+> and after the extraction.
+
 ---
 
 ## 3. Things already tried that failed
@@ -2420,7 +2545,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 740, must stay green
+python3 -m pytest tests/ -q                       # 757, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -3102,7 +3227,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 740
+test command     python3 -m pytest tests/ -q     # 757
 ```
 
 ---

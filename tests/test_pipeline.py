@@ -1099,6 +1099,139 @@ def test_a_step_with_no_run_action_fails_instead_of_crashing(make_harness) -> No
     assert "has no run action attached" in done.results[0].error
 
 
+class TestRemotePushEscalation:
+    """`_gate()`'s unconditional CRITICAL floor for `remote_push` steps --
+    HANDOFF.md §2.53. No test here touches a live network; the executor
+    runner is always a fake dict-backed callable."""
+
+    def test_remote_push_is_critical_even_though_its_own_text_classifies_safe(
+            self, make_harness, tmp_path: Path) -> None:
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
+                      "remote_path": "/etc/nginx/nginx.conf",
+                      "reads": [str(tmp_path / "local.conf")]}]}, source="test")
+        harness = make_harness(scripted({}))
+        harness._executor_runner = None  # unconfigured -- irrelevant to classification
+
+        plan = harness._gate(spec)
+
+        sp = plan.steps[0]
+        assert sp.verdict.level is RiskLevel.CRITICAL
+        assert any("less-guarded machine" in r for r in sp.verdict.reasons)
+        # Confirms this is a floor, not a fluke: the harness-authored
+        # command text alone matches nothing in SafetyClassifier.
+        from harness.gates import SafetyClassifier
+        assert SafetyClassifier().classify(sp.step.command).level is RiskLevel.SAFE
+
+    def test_remote_pull_gets_no_escalation(self, make_harness, tmp_path: Path) -> None:
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
+                      "remote_path": "/etc/nginx/nginx.conf",
+                      "touches": [str(tmp_path / "local.conf")]}]}, source="test")
+        harness = make_harness(scripted({}))
+        harness._executor_runner = None
+
+        plan = harness._gate(spec)
+
+        assert plan.steps[0].verdict.level is RiskLevel.SAFE
+
+    def test_end_to_end_pull_edit_push_with_a_real_snapshot_based_undo(
+            self, make_harness, tmp_path: Path) -> None:
+        remote = {"/etc/nginx/nginx.conf": "listen 80;\n"}
+        local_path = tmp_path / "nginx.conf"
+
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command.startswith("test -e"):
+                return "yes" if "/etc/nginx/nginx.conf" in remote else "no"
+            if command.startswith("cat "):
+                return remote["/etc/nginx/nginx.conf"]
+            if "base64 -d" in command:
+                import base64
+                encoded = command.split("echo ", 1)[1].split(" |", 1)[0].strip("'")
+                remote["/etc/nginx/nginx.conf"] = base64.b64decode(encoded).decode("utf-8")
+                return ""
+            raise AssertionError(f"unexpected command: {command}")
+
+        harness = make_harness(scripted(plan_reply(
+            "t", "edit nginx on executor",
+            [{"id": "pull", "kind": "remote_pull",
+              "run": "ignored", "remote_path": "/etc/nginx/nginx.conf",
+              "touches": [str(local_path)]},
+             {"id": "edit", "kind": "shell",
+              "run": f"echo 'listen 8080;' > {local_path}",
+              "touches": [str(local_path)]},
+             {"id": "push", "kind": "remote_push",
+              "run": "ignored", "remote_path": "/etc/nginx/nginx.conf",
+              "reads": [str(local_path)]}])),
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner))
+        harness._executor_runner = fake_runner
+        planned = harness.plan("edit nginx on executor")
+
+        push_step = next(sp for sp in planned.plan.steps if sp.step.kind == "remote_push")
+        assert push_step.verdict.level is RiskLevel.CRITICAL
+        assert len(push_step.undos) == 1, "a real snapshot must be captured before execute()"
+
+        done = harness.execute(planned, {
+            sp.step.step_id: True for sp in planned.plan.steps})
+
+        assert done.outcome is Outcome.COMPLETED
+        assert remote["/etc/nginx/nginx.conf"] == "listen 8080;\n"
+
+    def test_a_push_with_a_failed_snapshot_is_uncovered_and_still_needs_approval(
+            self, make_harness, tmp_path: Path) -> None:
+        def always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
+            raise RuntimeError("executor unreachable")
+
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
+                      "remote_path": "/etc/nginx/nginx.conf",
+                      "reads": [str(tmp_path / "local.conf")]}]}, source="test")
+        harness = make_harness(
+            scripted({}),
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=always_fails))
+        harness._executor_runner = always_fails
+
+        plan = harness._gate(spec)
+
+        sp = plan.steps[0]
+        assert sp.undos == [], "a failed snapshot must mean genuinely no undo"
+        assert sp.verdict.level is RiskLevel.CRITICAL, \
+            "still needs an explicit tick even with no undo coverage"
+        assert plan.coverage.get("coverage_ratio", 1.0) < 1.0
+
+    def test_a_failing_push_step_triggers_the_normal_rollback_sweep(
+            self, make_harness, tmp_path: Path) -> None:
+        """No new mid-run recovery path needed -- a step whose run() raises
+        already sweeps every already-run step's undo in reverse, and that
+        composes correctly here with zero changes."""
+        local_path = tmp_path / "nginx.conf"
+        local_path.write_text("original\n", encoding="utf-8")
+
+        def push_always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
+            raise RuntimeError("connection reset")
+
+        harness = make_harness(scripted(plan_reply(
+            "t", "push a change",
+            [{"id": "edit", "kind": "shell",
+              "run": f"echo changed > {local_path}", "touches": [str(local_path)]},
+             {"id": "push", "kind": "remote_push", "run": "ignored",
+              "remote_path": "/etc/nginx/nginx.conf", "reads": [str(local_path)]}])),
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow"))
+        harness._executor_runner = push_always_fails
+        planned = harness.plan("push a change")
+
+        done = harness.execute(planned, {
+            sp.step.step_id: True for sp in planned.plan.steps})
+
+        assert done.outcome is Outcome.FAILED
+        assert done.rollback is not None
+        assert local_path.read_text(encoding="utf-8") == "original\n", \
+            "the local edit must have been rolled back by the normal sweep"
+
+
 def test_execute_on_a_result_with_no_plan_fails_rather_than_crashing(make_harness) -> None:
     """execute() is only ever called on an AWAITING_APPROVAL result with a
     plan attached in normal use -- this is the defensive guard for a

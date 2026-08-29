@@ -9,7 +9,7 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 |---|---|
 | `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it |
 | `state.py` | VERIFY_STATE: `StateVerifier`, preconditions rechecked between steps, TTL cached |
-| `undo.py` | ROLLBACK_ON_FAIL, half one: `UndoGenerator` derives undo actions from what a step declares |
+| `undo.py` | ROLLBACK_ON_FAIL, half one: `UndoGenerator` derives undo actions from what a step declares -- also `capture_remote_file`, the same real snapshot/restore bar over an optional executor SSH runner, for `remote_push` steps (`HANDOFF.md` §2.53) |
 | `rollback.py` | ROLLBACK_ON_FAIL, half two: `VerifiedRollback` proves each undo actually worked |
 | `clarifier.py` | ASK_CLARIFYING_QUESTIONS: `Clarifier` detects ambiguity by missing structure, not phrasing |
 | `router.py` | Model routing: `ModelRouter` scores every rule instead of taking the first match -- also tracks `model_chat_capable`/`model_thinking_capable` from the daemon's own `/api/show` data (`HANDOFF.md` §2.31) |

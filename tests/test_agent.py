@@ -1109,9 +1109,15 @@ def test_agent_observe_caches_the_executor_state_without_refresh() -> None:
     assert calls["n"] == 1
 
 
-def test_system_prompt_tells_the_model_executor_is_observation_only() -> None:
-    assert "no way for you to run a command" in SYSTEM_PROMPT
-    assert "executor" in SYSTEM_PROMPT
+def test_system_prompt_tells_the_model_ordinary_steps_never_target_executor() -> None:
+    """Rule 11 no longer says "no way to run a command there" outright --
+    remote_pull/remote_push (rule 12, HANDOFF.md §2.53) genuinely can
+    change a file on executor now. What must still hold: an ordinary step
+    never targets executor, and the model must never hand-write an ssh
+    step to try."""
+    assert "only ever executes on THIS machine" in SYSTEM_PROMPT
+    assert "Never propose an `ssh ...` step" in SYSTEM_PROMPT
+    assert "remote_pull" in SYSTEM_PROMPT and "remote_push" in SYSTEM_PROMPT
 
 
 def test_observe_refresh_repopulates_stale_model_metadata() -> None:

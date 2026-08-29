@@ -1,13 +1,14 @@
 """Harness: the seven-stage orchestrator, the only thing that decides what runs.
 
 Depends on: harness.agent (Agent), harness.core (task/step primitives, ModelBackend,
-OllamaClient, ConflictDetector, ResumePoint), harness.core.tasks (shell_output_sink,
-directly -- not re-exported from harness.core, same as shell itself), harness.gates
-(all five guardrails), harness.pipeline_types (Stage, Outcome, StepPlan, Plan,
-RunResult -- the data model this module produces), harness.dependency_warnings
-(the pre-execute, advisory-only check `Harness.dependency_warnings` delegates to),
-harness.read_memory (remember_step_reads, feeding a completed read step's real
-output into the model's own context).
+OllamaClient, ConflictDetector, ResumePoint, build_ssh_runner, resolve_executor_config --
+same optional second-machine config Agent resolves for observation, §2.52, reused here
+for remote_pull/remote_push and their undo, §2.53), harness.core.remote_edit/.tasks
+(escalate_remote_push, shell_output_sink -- neither re-exported from harness.core),
+harness.gates (all five guardrails), harness.pipeline_types (Stage, Outcome, StepPlan,
+Plan, RunResult -- the data model this module produces), harness.dependency_warnings
+(the advisory-only check `Harness.dependency_warnings` delegates to), harness.read_memory
+(remember_step_reads, feeding a completed read step's real output into the model's context).
 
 converse/observe/propose/gate/present/execute/report. `observe`/`propose`
 live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
@@ -34,8 +35,11 @@ from .core import (
     ResumePoint,
     StepResult,
     TaskSpec,
+    build_ssh_runner,
+    resolve_executor_config,
     resolve_resume,
 )
+from .core.remote_edit import escalate_remote_push
 from .core.tasks import shell_output_sink
 from .dependency_warnings import dependency_warnings as _dependency_warnings
 from .gates import (
@@ -88,8 +92,17 @@ class Harness:
         self.clarifier = clarifier or Clarifier()
         self.router = router or ModelRouter()
         self.verifier = verifier or StateVerifier()
+        # None (the common case: HARNESS_EXECUTOR_HOST unset) means every
+        # remote_pull/remote_push step fails cleanly and every remote_push
+        # step is honestly "uncovered" -- same config Agent already resolves
+        # for read-only observation (§2.52), reused here, not re-resolved
+        # independently.
+        executor_config = resolve_executor_config()
+        self._executor_runner = (
+            build_ssh_runner(*executor_config) if executor_config is not None else None)
         self.undo = undo or UndoGenerator(
-            shadow_dir=self.workdir / f"harness-shadow-{os.getpid()}")
+            shadow_dir=self.workdir / f"harness-shadow-{os.getpid()}",
+            executor_runner=self._executor_runner)
         self.rollback = rollback or VerifiedRollback()
         self.conflicts = conflicts or ConflictDetector()
         self.decisions = decisions or DecisionLog()
@@ -222,12 +235,16 @@ class Harness:
         # Runs on every command regardless of who wrote it. The agent
         # pre-screens its own proposals, but that is a courtesy to save the
         # operator's attention, not a substitute for this.
-        steps = spec.to_steps()
+        steps = spec.to_steps(executor_runner=self._executor_runner)
         plan = Plan(spec=spec, model=turn.model if turn else "",
                     repairs=turn.repairs if turn else 0)
 
         for step in steps:
             verdict = self.safety.classify(step.command)
+            # Unconditional CRITICAL floor for remote_push, regardless of
+            # what its (harness-authored) command text classifies to on its
+            # own -- see escalate_remote_push's own docstring for why.
+            escalate_remote_push(verdict, step.kind)
             undos = self.undo.for_step(step)
             plan.steps.append(StepPlan(step=step, verdict=verdict, undos=undos))
             self.decisions.log(

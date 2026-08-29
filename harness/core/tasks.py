@@ -2,7 +2,9 @@
 
 Depends on: PyYAML (lazily imported in `TaskSpec.load`/`to_yaml`), stdlib `subprocess`/
 `queue` (lazily imported in `shell`/`_shell_streaming`), stdlib `threading` (module-level,
-for the `shell_output_sink` thread-local).
+for the `shell_output_sink` thread-local), `.remote_edit` (lazily imported inside
+`_validate_step`/`to_steps`'s `build()` to avoid a real cycle -- `remote_edit.py` imports
+`HarnessError`/`TaskSpecError` from this module at its own top level, see HANDOFF.md §2.53).
 """
 
 from __future__ import annotations
@@ -64,6 +66,15 @@ class Step:
     #: into the model's context, tagged by which file it came from, once
     #: the step actually runs (§2.46).
     reads: list[str] = field(default_factory=list)
+    #: The executor-side path a `kind="remote_pull"`/`"remote_push"` step
+    #: targets -- unused for every other kind. Pull fetches this path's
+    #: real content into `touches[0]` (local); push uploads `reads[0]`'s
+    #: real local content to this path. Never model-authored ssh/scp text:
+    #: for these two kinds, `command`/`run` are harness-constructed from
+    #: this field, not from the plan's own `run` text (HANDOFF.md §2.53) --
+    #: the one deliberate, narrow exception to this class's own "command is
+    #: both what executes and what gets classified" invariant above.
+    remote_path: str | None = None
     cwd: str | None = None
     timeout: float | None = None
     run: Callable[[], Any] | None = None
@@ -92,7 +103,7 @@ class StepResult:
 #: that drives root shell commands are errors rather than shrugs.
 STEP_FIELDS: set[str] = {
     "id", "kind", "run", "description", "estimated_seconds", "touches", "reads",
-    "cwd", "timeout",
+    "cwd", "timeout", "remote_path",
 }
 
 #: Fields a rollback entry may declare. Same discipline as STEP_FIELDS --
@@ -181,6 +192,12 @@ class TaskSpec:
         cls._validate_path_list(raw.get("touches"), "touches", where)
         cls._validate_path_list(raw.get("reads"), "reads", where)
         cls._validate_estimated_seconds(raw.get("estimated_seconds"), where)
+        # Lazy: .remote_edit imports HarnessError/TaskSpecError from this
+        # module at its own top level, so importing it back here at module
+        # load time would cycle -- deferred until _validate_step actually
+        # runs, well after both modules have finished loading (§2.53).
+        from .remote_edit import validate_remote_step_fields
+        validate_remote_step_fields(raw, where)
 
     @staticmethod
     def _validate_rollback_entry(raw: Any, index: int, source: str) -> None:
@@ -289,31 +306,63 @@ class TaskSpec:
         self,
         dry_run: bool = False,
         runner: Callable[[str, str | None, float | None], str] | None = None,
+        executor_runner: Callable[[str, str | None, float | None], str] | None = None,
     ) -> list[Step]:
-        """Build executable Steps whose command is byte for byte the `run` text."""
+        """Build executable Steps whose command is byte for byte the `run` text.
+
+        `executor_runner` is the one deliberate exception: for
+        `kind="remote_pull"`/`"remote_push"` only, `command`/`run` are
+        harness-constructed from `remote_path`/`touches`/`reads` instead of
+        the model's own `run` text -- see `Step.remote_path`'s docstring and
+        `HANDOFF.md` §2.53 for why. `None` (no executor configured) means
+        those two kinds fail cleanly with a clear error the moment they'd
+        run, same as any other step whose precondition isn't met.
+        """
         execute = runner or shell
 
         def build(raw: dict[str, Any], index: int) -> Step:
             """Turn one step mapping into an executable Step."""
-            command = str(raw["run"])
+            step_id = str(raw.get("id") or f"step{index}")
+            kind = str(raw.get("kind") or "shell")
             cwd = raw.get("cwd")
             timeout = raw.get("timeout")
+            touches = [str(t) for t in (raw.get("touches") or [])]
+            reads = [str(r) for r in (raw.get("reads") or [])]
+            remote_path = raw.get("remote_path")
 
-            def action() -> str:
-                """Run this step's command, or describe it under dry run."""
-                if dry_run:
-                    return f"[dry-run] {command}"
-                return execute(command, cwd, timeout)
+            if kind in ("remote_pull", "remote_push"):
+                # Lazy: .remote_edit imports from this module at its own
+                # top level, so importing it back here at module load time
+                # would cycle -- deferred until build() actually runs,
+                # well after both modules have finished loading (§2.53).
+                from .remote_edit import build_remote_pull_action, build_remote_push_action
+                if kind == "remote_pull":
+                    command = f"pull {remote_path} from executor"
+                    action: Callable[[], Any] = build_remote_pull_action(
+                        str(remote_path), touches, executor_runner, dry_run, command)
+                else:
+                    command = f"push local edit back to {remote_path} on executor"
+                    action = build_remote_push_action(
+                        str(remote_path), reads, executor_runner, dry_run, command)
+            else:
+                command = str(raw["run"])
+
+                def action() -> str:
+                    """Run this step's command, or describe it under dry run."""
+                    if dry_run:
+                        return f"[dry-run] {command}"
+                    return execute(command, cwd, timeout)
 
             return Step(
-                step_id=str(raw.get("id") or f"step{index}"),
+                step_id=step_id,
                 command=command,
-                kind=str(raw.get("kind") or "shell"),
+                kind=kind,
                 description=str(raw.get("description") or command),
                 estimated_seconds=(float(raw["estimated_seconds"])
                                    if raw.get("estimated_seconds") is not None else None),
-                touches=[str(t) for t in (raw.get("touches") or [])],
-                reads=[str(r) for r in (raw.get("reads") or [])],
+                touches=touches,
+                reads=reads,
+                remote_path=str(remote_path) if remote_path is not None else None,
                 cwd=cwd,
                 timeout=timeout,
                 run=action,

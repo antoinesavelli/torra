@@ -796,6 +796,102 @@ class TestUndoGeneration:
         assert live.exists()
 
 
+class TestCaptureRemoteFile:
+    """UndoGenerator.capture_remote_file(): the direct remote mirror of
+    capture_file, over a fake executor_runner -- no test here touches a
+    live network (HANDOFF.md §2.53)."""
+
+    def test_none_when_no_executor_runner_is_configured(self, tmp_path: Path) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow")
+        assert generator.capture_remote_file("/etc/nginx/nginx.conf") is None
+        assert any("no executor configured" in s for s in generator.skipped)
+
+    def test_present_case_snapshots_and_restores_byte_for_byte(
+            self, tmp_path: Path) -> None:
+        remote: dict[str, str] = {"/etc/nginx/nginx.conf": "original\n"}
+
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command.startswith("test -e"):
+                return "yes" if "/etc/nginx/nginx.conf" in remote else "no"
+            if command.startswith("cat "):
+                return remote["/etc/nginx/nginx.conf"]
+            if "base64 -d" in command:
+                import base64
+                encoded = command.split("echo ", 1)[1].split(" |", 1)[0].strip("'")
+                remote["/etc/nginx/nginx.conf"] = base64.b64decode(encoded).decode("utf-8")
+                return ""
+            raise AssertionError(f"unexpected command: {command}")
+
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner)
+        action = generator.capture_remote_file("/etc/nginx/nginx.conf", "push")
+        assert action is not None
+        assert action.snapshot is not None
+        assert action.snapshot.kind is SnapshotKind.FILE_CONTENT
+
+        remote["/etc/nginx/nginx.conf"] = "CLOBBERED\n"
+        action.undo()
+        assert remote["/etc/nginx/nginx.conf"] == "original\n"
+        assert _verify(action) is True
+
+    def test_absent_case_undo_deletes_what_the_push_created(self, tmp_path: Path) -> None:
+        remote: dict[str, str] = {}
+
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command.startswith("test -e"):
+                return "yes" if "/tmp/new.conf" in remote else "no"
+            if command.startswith("rm -f"):
+                remote.pop("/tmp/new.conf", None)
+                return ""
+            raise AssertionError(f"unexpected command: {command}")
+
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner)
+        action = generator.capture_remote_file("/tmp/new.conf", "push")
+        assert action is not None
+        assert action.snapshot is not None
+        assert action.snapshot.kind is SnapshotKind.FILE_ABSENT
+
+        remote["/tmp/new.conf"] = "made by the push"
+        action.undo()
+        assert "/tmp/new.conf" not in remote
+        assert _verify(action) is True
+
+    def test_none_when_the_runner_fails_outright_not_a_broken_undo(
+            self, tmp_path: Path) -> None:
+        """Never a fabricated or best-effort undo -- a push step this
+        happens to is honestly 'uncovered', the same as dd/mkfs."""
+        def always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
+            raise RuntimeError("host unreachable")
+
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=always_fails)
+        assert generator.capture_remote_file("/etc/nginx/nginx.conf") is None
+        assert any("existence check failed" in s for s in generator.skipped)
+
+    def test_for_step_wires_remote_push_kind_to_capture_remote_file(
+            self, tmp_path: Path) -> None:
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command.startswith("test -e"):
+                return "no"
+            if command.startswith("rm -f"):
+                return ""
+            raise AssertionError(f"unexpected command: {command}")
+
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner)
+        step = Step("push", kind="remote_push", remote_path="/etc/nginx/nginx.conf")
+        actions = generator.for_step(step)
+        assert len(actions) == 1
+        assert actions[0].snapshot is not None
+        assert actions[0].snapshot.target == "/etc/nginx/nginx.conf"
+
+    def test_for_step_does_nothing_remote_for_an_ordinary_step(self, tmp_path: Path) -> None:
+        def must_not_be_called(command: str, cwd: str | None, timeout: float | None) -> str:
+            raise AssertionError("an ordinary step must never touch the executor runner")
+
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
+                                  executor_runner=must_not_be_called)
+        actions = generator.for_step(Step("edit", command="echo hi"))
+        assert actions == []
+
+
 class TestUndoGeneratorRealProbesAndFailureEdges:
     """The rest of undo.py that TestUndoGeneration doesn't reach: the real
     (non-injected) systemctl/dpkg probes every UndoGenerator falls back to

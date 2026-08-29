@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **740 passed**. Then:
+Expect **757 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -362,9 +362,9 @@ handing an unrecognized name straight to Ollama would.
 
 If you have a second, SSH-reachable machine, the model can see real facts
 about it -- hostname, kernel, uptime, disk, memory, GPU -- to reason about in
-its answers. This is **read-only observation only**: there is no way for a
-step to execute anything there. Every step still only ever runs on the
-machine `harness` itself is running on, no exceptions.
+its answers, and can edit a file there through a narrow, controlled
+mechanism. In both cases the model never authors an `ssh`/`scp` command
+itself; the harness constructs the real action.
 
 ```bash
 export HARNESS_EXECUTOR_HOST=10.0.0.44
@@ -376,6 +376,17 @@ Same `.env`/shell-export precedence as `OPENROUTER_API_KEY` above. Absent
 `HARNESS_EXECUTOR_HOST`, this is entirely off -- no SSH connection is ever
 attempted, and nothing about local-only behavior changes (`HANDOFF.md`
 §2.52).
+
+**Editing a file there is pull-edit-push, never a raw remote command.** The
+model proposes exactly three steps: pull the file to a local path it
+chooses, an ordinary local edit step against that path (full undo/snapshot
+coverage, unchanged), then push it back. The push step always needs an
+explicit tick, regardless of what it looks like -- writing to a second,
+less-guarded machine is always treated as the harness's highest risk level,
+unconditionally. Its undo is real: the file's prior content is snapshotted
+over SSH before the push runs, so a failure later in the same run genuinely
+restores it, the same provable bar local file undo already has
+(`HANDOFF.md` §2.53).
 
 ---
 
@@ -443,7 +454,7 @@ wearing a percentage sign.
 | `harness/cli.py` | entry points |
 | `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 740 cases, organised by subsystem |
+| `tests/` | 757 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -504,7 +515,7 @@ isn't one, so those numbers are no longer claimed here at all.
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 740 cases
+python3 -m pytest tests/ -v              # 757 cases
 ```
 
 Nothing needs a live Ollama, systemd, or network. Every external dependency is

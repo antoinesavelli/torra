@@ -127,8 +127,17 @@ class UndoGenerator:
         package_probe: Callable[[], set[str]] | None = None,
         max_shadow_bytes: int | None = None,
         prefer_reflink: bool = True,
+        executor_runner: Callable[[str, str | None, float | None], str] | None = None,
     ) -> None:
-        """Configure the shadow directory, injectable probes, and size/reflink policy."""
+        """Configure the shadow directory, injectable probes, and size/reflink policy.
+
+        `executor_runner`, when given, is what `capture_remote_file()` uses
+        to snapshot/restore a file on a second, SSH-reachable machine
+        ("executor") -- the same runner `harness.core.machine.build_ssh_runner`
+        already builds (§2.52). `None` (the default, and what every existing
+        caller still gets) means `capture_remote_file` always returns `None`
+        -- a `remote_push` step is then honestly "uncovered", never a
+        fabricated undo (`HANDOFF.md` §2.53)."""
         import tempfile
 
         self.shadow_dir = Path(shadow_dir) if shadow_dir else Path(
@@ -140,6 +149,7 @@ class UndoGenerator:
         self.max_shadow_bytes = (self.MAX_SHADOW_BYTES if max_shadow_bytes is None
                                  else int(max_shadow_bytes))
         self.prefer_reflink = bool(prefer_reflink)
+        self._executor_runner = executor_runner
         self.reflink_supported: bool | None = None
         self.reflink_copies: int = 0
         self.byte_copies: int = 0
@@ -362,6 +372,85 @@ class UndoGenerator:
         return UndoAction(f"restore {target} from snapshot ({how})", undo_restore,
                           True, lambda: self.digest(target) == dig, True, snap, step_id)
 
+    def capture_remote_file(self, remote_path: str, step_id: str = "") -> UndoAction | None:
+        """Snapshot one file on executor (over `self._executor_runner`) and
+        build its restore action -- the direct remote mirror of
+        `capture_file`, same real, provable undo/verify bar.
+
+        `None` (no `UndoAction` at all) whenever the remote original can't
+        be captured for any reason -- no executor configured, unreachable,
+        permission denied, anything. That makes the calling `remote_push`
+        step honestly "uncovered", the same philosophy this class already
+        applies to `dd`/`mkfs`/anything it cannot guarantee an inverse for:
+        never a fabricated or best-effort undo (`HANDOFF.md` §2.53)."""
+        if self._executor_runner is None:
+            self.skipped.append(f"{remote_path} (executor): no executor configured")
+            return None
+        runner = self._executor_runner
+
+        import shlex
+        exists_probe = f"test -e {shlex.quote(remote_path)} && echo yes || echo no"
+        try:
+            exists = runner(exists_probe, None, 15.0).strip() == "yes"
+        except Exception as exc:
+            self.skipped.append(f"{remote_path} (executor): existence check failed {exc!r}")
+            return None
+
+        if not exists:
+            def undo_absent() -> None:
+                """Delete whatever the push created on executor."""
+                runner(f"rm -f {shlex.quote(remote_path)}", None, 15.0)
+
+            def verify_absent() -> bool:
+                try:
+                    return runner(exists_probe, None, 15.0).strip() == "no"
+                except Exception:
+                    return False
+
+            snap = Snapshot(SnapshotKind.FILE_ABSENT, remote_path,
+                            "did not exist on executor before the step")
+            self.snapshots.append(snap)
+            return UndoAction(
+                f"delete {remote_path} on executor (it did not exist before)",
+                undo_absent, True, verify_absent, True, snap, step_id)
+
+        try:
+            content = runner(f"cat {shlex.quote(remote_path)}", None, 30.0)
+        except Exception as exc:
+            self.skipped.append(f"{remote_path} (executor): shadow capture failed {exc!r}")
+            return None
+
+        self._counter += 1
+        shadow = self.shadow_dir / f"{self._counter:05d}_executor_{Path(remote_path).name}"
+        try:
+            shadow.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            self.skipped.append(f"{remote_path} (executor): shadow write failed {exc!r}")
+            return None
+
+        dig = self.digest(shadow)
+        snap = Snapshot(SnapshotKind.FILE_CONTENT, remote_path,
+                        f"{len(content)} bytes via executor cat", str(shadow), dig)
+        self.snapshots.append(snap)
+
+        def undo_restore() -> None:
+            """Push the shadowed bytes back to executor."""
+            import base64
+            shadow_content = shadow.read_text(encoding="utf-8")
+            encoded = base64.b64encode(shadow_content.encode("utf-8")).decode("ascii")
+            runner(f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}",
+                  None, 30.0)
+
+        def verify_restore() -> bool:
+            try:
+                current = runner(f"cat {shlex.quote(remote_path)}", None, 30.0)
+            except Exception:
+                return False
+            return hashlib.sha256(current.encode("utf-8")).hexdigest() == dig
+
+        return UndoAction(f"restore {remote_path} on executor from snapshot",
+                          undo_restore, True, verify_restore, True, snap, step_id)
+
     def capture_service(self, unit: str, step_id: str = "") -> UndoAction:
         """Snapshot a unit's state and build its restore action."""
         before = self._service_probe(unit)
@@ -434,6 +523,17 @@ class UndoGenerator:
             action = self.capture_file(path, step_id)
             if action:
                 actions.append(action)
+
+        if getattr(step, "kind", "") == "remote_push" and getattr(step, "remote_path", None):
+            # Snapshotted at gate time, before the push has run for real --
+            # same "capture before it happens" timing capture_file already
+            # uses, just over the executor runner instead of the local
+            # filesystem. None (no executor configured, unreachable, or the
+            # snapshot itself failed) means genuinely no undo, not a
+            # skipped entry silently treated as covered (HANDOFF.md §2.53).
+            remote_action = self.capture_remote_file(step.remote_path, step_id)
+            if remote_action:
+                actions.append(remote_action)
 
         command = getattr(step, "command", "") or ""
         for _verb, unit in SERVICE_PATTERN.findall(command):

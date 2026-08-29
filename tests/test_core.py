@@ -43,6 +43,7 @@ from harness.core.machine import (
 )
 from harness.core.tasks import (
     ContextBudgetError,
+    HarnessError,
     TaskSpec,
     TaskSpecError,
     shell,
@@ -312,6 +313,104 @@ class TestExecutorObservation:
                              executor=MachineState(hostname="executor-box"))
         data = state.to_dict()
         assert data["executor"]["hostname"] == "executor-box"
+
+
+class TestRemoteEditSteps:
+    """Pull-edit-push: a `remote_pull`/`remote_push` step's `command`/`run`
+    are harness-authored, never the model's own `run` text -- HANDOFF.md
+    §2.53. No test here touches a live network; `executor_runner` is
+    always a fake dict-backed callable."""
+
+    def test_to_steps_builds_a_remote_pull_step_that_writes_the_local_destination(
+            self, tmp_path: Path) -> None:
+        local_dest = tmp_path / "pulled-nginx.conf"
+
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            assert "nginx.conf" in command
+            return "server { listen 80; }\n"
+
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
+                      "remote_path": "/etc/nginx/nginx.conf",
+                      "touches": [str(local_dest)]}]})
+        steps = spec.to_steps(executor_runner=fake_runner)
+        step = steps[0]
+
+        assert step.command == "pull /etc/nginx/nginx.conf from executor"
+        assert step.kind == "remote_pull"
+        assert step.remote_path == "/etc/nginx/nginx.conf"
+        assert step.run is not None
+        output = step.run()
+        assert "pulled" in output
+        assert local_dest.read_text(encoding="utf-8") == "server { listen 80; }\n"
+
+    def test_to_steps_builds_a_remote_push_step_that_uploads_the_local_source(
+            self, tmp_path: Path) -> None:
+        local_src = tmp_path / "edited-nginx.conf"
+        local_src.write_text("server { listen 8080; }\n", encoding="utf-8")
+        pushed: dict[str, str] = {}
+
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command.startswith("echo "):
+                pushed["command"] = command
+            return ""
+
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
+                      "remote_path": "/etc/nginx/nginx.conf",
+                      "reads": [str(local_src)]}]})
+        steps = spec.to_steps(executor_runner=fake_runner)
+        step = steps[0]
+
+        assert step.command == "push local edit back to /etc/nginx/nginx.conf on executor"
+        output = step.run()
+        assert "pushed" in output
+        # Base64-encoded in transit -- the real content must not appear
+        # literally in the command string, but it must decode back to it.
+        import base64
+        assert "listen 8080" not in pushed["command"]
+        encoded = pushed["command"].split("echo ", 1)[1].split(" |", 1)[0].strip("'")
+        assert base64.b64decode(encoded).decode("utf-8") == "server { listen 8080; }\n"
+
+    def test_remote_pull_and_push_fail_cleanly_with_no_executor_configured(
+            self, tmp_path: Path) -> None:
+        local_path = tmp_path / "somefile"
+        pull_spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
+                      "remote_path": "/etc/hosts", "touches": [str(local_path)]}]})
+        push_spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
+                      "remote_path": "/etc/hosts", "reads": [str(local_path)]}]})
+
+        for spec in (pull_spec, push_spec):
+            step = spec.to_steps(executor_runner=None)[0]
+            assert step.run is not None
+            with pytest.raises(HarnessError, match="executor"):
+                step.run()
+
+    def test_validate_requires_remote_path_for_remote_pull_and_push(self) -> None:
+        for kind in ("remote_pull", "remote_push"):
+            with pytest.raises(TaskSpecError, match="remote_path"):
+                TaskSpec.validate({"task_id": "t", "request": "r",
+                                   "steps": [{"id": "s", "kind": kind, "run": "ignored"}]})
+
+    def test_validate_requires_touches_for_remote_pull(self) -> None:
+        with pytest.raises(TaskSpecError, match="touches"):
+            TaskSpec.validate({
+                "task_id": "t", "request": "r",
+                "steps": [{"id": "s", "kind": "remote_pull", "run": "ignored",
+                          "remote_path": "/etc/hosts"}]})
+
+    def test_validate_requires_reads_for_remote_push(self) -> None:
+        with pytest.raises(TaskSpecError, match="reads"):
+            TaskSpec.validate({
+                "task_id": "t", "request": "r",
+                "steps": [{"id": "s", "kind": "remote_push", "run": "ignored",
+                          "remote_path": "/etc/hosts"}]})
 
 
 class TestKnowledgeLibrary:

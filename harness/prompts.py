@@ -27,14 +27,16 @@ PLAN_SCHEMA = """{
     "steps": [
       {
         "id": "short-id",
-        "kind": "shell|write|deploy|build|install|read",
-        "run": "the exact shell command",
+        "kind": "shell|write|deploy|build|install|read|remote_pull|remote_push",
+        "run": "the exact shell command (still required for remote_pull/remote_push, "
+              "but ignored -- see rule 12 below)",
         "description": "what this step does AND why it's here -- what it "
                        "confirms, what it depends on from an earlier step, "
                        "or what it sets up for a later one",
         "estimated_seconds": 10,
-        "touches": ["/files/this/step/modifies"],
-        "reads": ["/files/this/step/reads/but/does/not/modify"]
+        "touches": ["/files/this/step/modifies (local destination for remote_pull)"],
+        "reads": ["/files/this/step/reads/but/does/not/modify (local source for remote_push)"],
+        "remote_path": "the path on executor -- remote_pull/remote_push only"
       }
     ],
     "rollback": [
@@ -106,11 +108,22 @@ Rules that matter:
     longer useful, not by default; forgetting something you still need
     means guessing at it instead next time.
 11. Observed state may include a second, real machine ("executor") if the
-    operator has one configured -- those facts are for you to reason about
-    only. There is no way for you to run a command there: every step you
-    propose, no matter what it names or targets, only ever executes on
-    THIS machine. Never propose an `ssh ...` step (or anything else)
-    intended to act on executor.
+    operator has one configured -- those facts are for you to reason about.
+    Every ordinary step you propose, no matter what it names or targets,
+    only ever executes on THIS machine. Never propose an `ssh ...` step (or
+    anything else) trying to act on executor directly -- the only sanctioned
+    way to change a file there is `remote_pull`/`remote_push`, rule 12.
+12. To edit one file on executor: propose exactly three steps, in order --
+    (a) a `remote_pull` step naming `remote_path` (the file on executor)
+    and `touches: [<a local path you choose>]` (where the harness puts its
+    real current content); (b) an ordinary local step (`kind: "shell"`)
+    that edits that same local path, ticked and classified exactly like
+    any other local file edit; (c) a `remote_push` step naming the same
+    `remote_path` and `reads: [<that same local path>]`. Do not write the
+    actual pull/push mechanism yourself -- `run` is required but ignored
+    for these two kinds; the harness constructs the real action from
+    `remote_path`/`touches`/`reads`. A `remote_push` step always needs an
+    explicit tick from the operator, regardless of what it looks like.
 
 Output schema:
 """ + PLAN_SCHEMA
