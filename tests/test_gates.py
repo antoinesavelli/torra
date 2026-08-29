@@ -347,6 +347,28 @@ class TestSafetyCoverageEdges:
         assert verdict.level is RiskLevel.CAUTION
         assert not any("writes to a system path" in r for r in verdict.reasons)
 
+    def test_zip_repacking_over_an_existing_home_directory_file_is_dangerous(
+            self) -> None:
+        """Sibling gap to §2.51: xlsx/odt are both zip containers, and the
+        other natural way to edit one -- extract, edit the inner XML, repack
+        with `zip` -- was invisible to `_judge` entirely. `zip` had no
+        PROGRAM_RISK entry and wasn't in any dispatch rule, so overwriting an
+        existing document this way classified SAFE even though `cp`/`mv` onto
+        the same path already classify DANGEROUS via the same protected-
+        prefix check (`test_mv_to_an_unprotected_path_is_not_escalated`
+        above proves that check exists for `mv`). `devstral:24b` proposed
+        exactly this repack approach, unprompted, for an odt-edit scenario in
+        domain_exploration.py. Not yet fixed -- `zip` isn't dispatched
+        anywhere yet, so this currently fails."""
+        verdict = SafetyClassifier().classify(
+            "zip -r /home/user/Documents/contract.odt content.xml -x content.xml")
+        assert verdict.level is RiskLevel.DANGEROUS
+        assert any("writes to a system path" in r for r in verdict.reasons)
+
+    def test_zip_to_an_unprotected_path_is_not_escalated(self) -> None:
+        verdict = SafetyClassifier().classify("zip -r /tmp/backup.zip /tmp/staging")
+        assert not any("writes to a system path" in r for r in verdict.reasons)
+
     def test_explain_renders_the_full_trace_including_an_unwrap_origin(self) -> None:
         safety = SafetyClassifier()
         text = safety.explain('sh -c "rm -rf /var/lib/x"')

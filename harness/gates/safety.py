@@ -476,8 +476,18 @@ class SafetyClassifier:
             (program == "kill", lambda: self._judge_kill(argv)),
             (program in ("chmod", "chown"),
              lambda: self._judge_chmod_chown(program, protected)),
-            (program in ("tee", "cp", "mv"),
-             lambda: self._judge_tee_cp_mv(program, protected)),
+            (program in ("tee", "cp", "mv", "zip"),
+             # `zip`'s output archive is a write target exactly like cp/mv's
+             # destination -- xlsx/odt are both zip containers, and repacking
+             # one over an existing path (extract, edit the inner XML,
+             # `zip -r original.file ...`) is as much an overwrite as `cp`/
+             # `mv` onto the same path, which this same protected-prefix
+             # check already catches. `unzip` deliberately excluded: its
+             # archive argument is a read source, not a write target, so
+             # reusing this generic operand-protected check for it would
+             # misclassify an ordinary extraction of an existing file as
+             # "writes to a system path".
+             lambda: self._judge_tee_cp_mv_zip(program, protected)),
         ]
         for matched, call in rules:
             if matched:
@@ -608,7 +618,7 @@ class SafetyClassifier:
         return []
 
     @staticmethod
-    def _judge_tee_cp_mv(program: str, protected: bool) -> list[tuple[RiskLevel, str]]:
+    def _judge_tee_cp_mv_zip(program: str, protected: bool) -> list[tuple[RiskLevel, str]]:
         if protected:
             return [(RiskLevel.DANGEROUS, f"{program} writes to a system path")]
         return []

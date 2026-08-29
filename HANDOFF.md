@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 757 passed
+python3 -m pytest tests/ -q          # must print 759 passed
 harness doctor
 ```
 
@@ -2516,6 +2516,43 @@ back to its original content. Both runs used a real, disposable
 > earlier), confirmed by `scripts/dev/defensive_coding_report.py` before
 > and after the extraction.
 
+### 2.54 `zip` repacking a document over its own path was the sibling gap to §2.51 -- xlsx/odt are both zip containers, and `zip` had no dispatch rule at all
+
+§2.51 closed the single-interpreter-script overwrite shape
+(`load_workbook('x.xlsx') ... .save('x.xlsx')`). The other natural way to
+edit a document that's actually a zip container (xlsx and odt both are) is
+extract the archive, edit the inner XML, and repack with `zip` -- and
+`devstral:24b` reached for exactly that, unprompted, when asked to edit an
+`odt-edit` scenario in `domain_exploration.py` ("extract it, modify the
+content, and then repack it"). `zip` had no `PROGRAM_RISK` entry and wasn't
+in any `_judge` dispatch rule, so `zip -r contract.odt content.xml`
+classified SAFE even onto a path under `/home` -- the exact same protected-
+prefix check that already makes `cp`/`mv` onto that path DANGEROUS
+(`test_mv_to_an_unprotected_path_is_not_escalated` proves that check
+exists) simply never got a chance to run for `zip`, since `zip` wasn't
+dispatched to it at all.
+
+Fixed by adding `zip` to the same dispatch as `tee`/`cp`/`mv`
+(`_judge_tee_cp_mv_zip`, renamed from `_judge_tee_cp_mv` since it now
+covers a fourth program) -- `zip`'s output archive is a write target
+exactly like `cp`/`mv`'s destination, so the existing protected-prefix
+check applies unchanged. `unzip` was deliberately left out: its archive
+argument is a *read* source, not a write target, so reusing this same
+generic operand-protected check for it would misclassify an ordinary
+extraction of an existing file (`unzip /home/user/archive.zip -d /tmp`) as
+"writes to a system path" -- a real false positive, not a hypothetical
+one, since the operand-protected check has no notion of which argument is
+being read versus written. No measured case shows `unzip` itself
+overwriting something it shouldn't (e.g. `unzip -o` onto a protected
+destination), so no rule was added for it -- adding one now would be
+guessing, exactly what HANDOFF.md §3 already warns against.
+
+> Guarded by `tests/test_gates.py::TestSafetyCoverageEdges::
+> test_zip_repacking_over_an_existing_home_directory_file_is_dangerous`
+> and `test_zip_to_an_unprotected_path_is_not_escalated` (the negative
+> case, confirming zip onto a non-protected path stays unescalated the
+> same way `mv`/`cp` do).
+
 ---
 
 ## 3. Things already tried that failed
@@ -2545,7 +2582,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 757, must stay green
+python3 -m pytest tests/ -q                       # 759, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -3227,7 +3264,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 757
+test command     python3 -m pytest tests/ -q     # 759
 ```
 
 ---
