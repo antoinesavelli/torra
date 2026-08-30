@@ -187,6 +187,96 @@ class TestSafety:
             "wb.save('/home/user/Documents/budget.xlsx')\"")
         assert verdict.needs_confirmation, verdict.reasons
 
+    def test_reading_the_same_path_twice_is_not_an_overwrite(self) -> None:
+        """Found testing §2.51 for real against actual xlsx files: the
+        repeated-literal check counted occurrences only, with no notion of
+        which calls read versus write, so two independent read-only
+        `load_workbook()` calls on the same path -- comparing a file to
+        itself, or validating it before processing it, both completely
+        ordinary -- classified DANGEROUS with zero writes anywhere. Fixed by
+        requiring at least two distinct call shapes touching the literal (a
+        read-named call followed by a differently-named call is the actual
+        load-then-save signature; the same call name repeated twice is not)
+        plus explicit mode-awareness for the one call where read/write share
+        a name: `open(path, 'r')` vs `open(path, 'w')`."""
+        safety = SafetyClassifier()
+        verdict = safety.classify(
+            "python3 -c \"import openpyxl; "
+            "wb1 = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
+            "wb2 = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
+            "print(wb1.active.max_row, wb2.active.max_row)\"")
+        assert not verdict.needs_confirmation, verdict.reasons
+
+    def test_open_builtin_read_then_write_same_path_is_still_caught(self) -> None:
+        """The call-shape distinction above can't use "different call name"
+        for `open()`, since Python's own read and write paths share one
+        name -- only the mode argument tells them apart. Without special-
+        casing this, fixing the false positive above would silently reopen
+        the exact hole §2.51 closed for the single most common I/O
+        primitive in the language."""
+        safety = SafetyClassifier()
+        verdict = safety.classify(
+            "python3 -c \"data = open('/home/user/Documents/budget.csv', 'r').read(); "
+            "open('/home/user/Documents/budget.csv', 'w').write(data + ',Total,450')\"")
+        assert verdict.needs_confirmation, verdict.reasons
+
+    def test_open_builtin_read_twice_same_path_is_not_flagged(self) -> None:
+        """Negative case for the fix above: two read-mode `open()` calls on
+        the same path (default mode, and explicit 'r') must not be treated
+        as a write just because `open` was the repeated call name."""
+        safety = SafetyClassifier()
+        verdict = safety.classify(
+            "python3 -c \"a = open('/home/user/Documents/budget.csv').read(); "
+            "b = open('/home/user/Documents/budget.csv', 'r').read(); print(a == b)\"")
+        assert not verdict.needs_confirmation, verdict.reasons
+
+    def test_zip_repack_over_a_relative_document_path_is_still_dangerous(self) -> None:
+        """Found testing §2.54 for real: `_judge_tee_cp_mv_zip` reused the
+        same `protected` flag cp/mv already used, which only recognizes
+        absolute paths under PROTECTED_PREFIXES (system locations). A step
+        with a declared `cwd` inside the user's own document folder --a
+        completely ordinary way to write a task-- edits with a bare relative
+        filename, so `zip -r budget.xlsx ...` sailed through as SAFE with no
+        leading `/` in sight, the exact xlsx-repack shape §2.54 was supposed
+        to close. `cp`/`mv` onto the same relative name are equally
+        unprotected today (pre-existing, not new); this closes it for the
+        specific risk category this investigation is about -- overwriting
+        something that looks like an existing office document -- via a
+        small, closed extension set, not a blanket escalation of every
+        relative-path cp/mv/zip."""
+        safety = SafetyClassifier()
+        verdict = safety.classify("zip -r budget.xlsx xl/worksheets/sheet1.xml")
+        assert verdict.level is RiskLevel.DANGEROUS, verdict.reasons
+
+    def test_zip_to_a_relative_non_document_path_is_not_escalated(self) -> None:
+        """Negative case: an ordinary relative-path zip that isn't building
+        something shaped like an office document must stay unescalated --
+        this is deliberately narrow, not a blanket "relative path" rule."""
+        verdict = SafetyClassifier().classify("zip -r backup.zip staging/")
+        assert verdict.level is RiskLevel.SAFE, verdict.reasons
+
+    def test_a_python_comparison_operator_is_not_mistaken_for_a_redirect(self) -> None:
+        """Found testing xlsx commands for real: `_check_redirect`'s final
+        catch-all regex scans raw command text for a bare `>` with no
+        awareness of quoting, so an entirely ordinary Python comparison
+        inside a `-c` payload (`if wb.active.max_row > 2:`) read as an
+        "output redirect that overwrites" and escalated to CAUTION. Neither
+        §2.51 nor §2.54 touched this -- pre-existing, found while testing
+        realistic xlsx-editing scripts, which lean on comparisons like this
+        constantly."""
+        verdict = SafetyClassifier().classify(
+            "python3 -c \"import openpyxl; "
+            "wb = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
+            "print(wb.active.max_row > 2)\"")
+        assert not any("redirect" in r for r in verdict.reasons), verdict.reasons
+
+    def test_a_real_redirect_next_to_a_quoted_string_is_still_caught(self) -> None:
+        """Negative case for the fix above: masking quoted spans must not
+        blind the check to a genuine, unquoted redirect that merely
+        happens to sit next to a quoted argument on the same line."""
+        verdict = SafetyClassifier().classify("echo 'hello' > /etc/fstab")
+        assert verdict.level is RiskLevel.CRITICAL, verdict.reasons
+
     def test_base64_payloads_are_decoded(self) -> None:
         """An obfuscated payload piped to a shell is still what it decodes to."""
         import base64

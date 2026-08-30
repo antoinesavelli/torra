@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 759 passed
+python3 -m pytest tests/ -q          # must print 771 passed
 harness doctor
 ```
 
@@ -2553,6 +2553,61 @@ guessing, exactly what HANDOFF.md §3 already warns against.
 > case, confirming zip onto a non-protected path stays unescalated the
 > same way `mv`/`cp` do).
 
+### 2.55 Testing §2.51/§2.54 against real xlsx files, not just crafted corpus strings, found a false positive, a relative-path blind spot, and one unrelated pre-existing false positive
+
+Actually running xlsx-editing commands (not just classifying strings) is
+what surfaced all three -- the kind of gap a corpus of hand-written test
+cases doesn't reliably hit.
+
+**False positive:** `_repeated_path_literal` (§2.51) counted bare
+occurrences, so two independent, read-only `load_workbook()` calls on the
+same path -- comparing a file to itself, validating before processing,
+both completely ordinary -- classified DANGEROUS with zero writes
+anywhere. Fixed with `_call_signature`: a read-then-write has a real
+signature (two *differently*-named calls touching the same literal --
+`load_workbook`/`save`, `read_excel`/`to_excel`), while the same call name
+repeated is just a re-read. `open()` gets its own signature
+(`open:write`/`open:read` by mode) since it's the one call whose read and
+write paths share a name.
+
+**Relative-path blind spot:** `_judge_tee_cp_mv_zip` (§2.54) reused the
+same `protected` flag `cp`/`mv` already used, which only recognizes
+absolute paths under `PROTECTED_PREFIXES` (system locations). A step with
+a declared `cwd` inside the user's own document folder -- ordinary --
+edits with a bare relative filename, so `zip -r budget.xlsx ...` sailed
+through as SAFE with no leading `/` in sight: the exact repack-in-place
+shape §2.54 was supposed to close. `cp`/`mv` onto the same relative name
+are equally unprotected today (pre-existing, not introduced by §2.54);
+this closes it only for the risk category this investigation is about via
+a new, small, closed extension set (`DOCUMENT_CONTAINER_EXTENSIONS`:
+xlsx/xlsm/docx/pptx/odt/ods/odp) checked independent of `_protected` --
+deliberately not a blanket escalation of every relative-path
+`cp`/`mv`/`zip`, which would need its own corpus work against `ROUTINE`
+to avoid a false-positive regression on ordinary file management.
+
+**Unrelated pre-existing false positive, found the same way:**
+`_check_redirect`'s final catch-all scanned raw text for a bare `>`, so
+an entirely ordinary Python comparison inside a `-c` payload
+(`wb.active.max_row > 2`) read as an "output redirect that overwrites"
+and escalated to CAUTION -- realistic xlsx-editing scripts lean on
+comparisons like this constantly. Neither §2.51 nor §2.54 touched this.
+Fixed with `_mask_quoted`, a new sibling to `split_segments`'s own
+quote/escape state machine: blanks every character inside a quoted span
+before either redirect regex runs, so a `>` inside quotes is invisible to
+the check while a real, unquoted redirect elsewhere in the same line is
+untouched.
+
+> Guarded by `tests/test_gates.py::TestSafety::
+> test_reading_the_same_path_twice_is_not_an_overwrite`,
+> `test_open_builtin_read_then_write_same_path_is_still_caught` (positive)
+> and `test_open_builtin_read_twice_same_path_is_not_flagged` (negative),
+> `test_zip_repack_over_a_relative_document_path_is_still_dangerous`
+> (positive) and `test_zip_to_a_relative_non_document_path_is_not_escalated`
+> (negative), `test_a_python_comparison_operator_is_not_mistaken_for_a_redirect`
+> and `test_a_real_redirect_next_to_a_quoted_string_is_still_caught`
+> (negative, a genuine redirect next to an unrelated quoted argument on
+> the same line must still be caught).
+
 ---
 
 ## 3. Things already tried that failed
@@ -2582,7 +2637,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 759, must stay green
+python3 -m pytest tests/ -q                       # 771, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -3264,7 +3319,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 759
+test command     python3 -m pytest tests/ -q     # 771
 ```
 
 ---

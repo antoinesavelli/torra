@@ -118,6 +118,19 @@ SAFE_REDIRECT_TARGETS: frozenset[str] = frozenset({
     "/dev/null", "/dev/zero", "/dev/full", "/dev/stdout", "/dev/stderr",
 })
 
+#: xlsx/docx/pptx/odt/ods/odp are all zip containers -- `PROTECTED_PREFIXES`
+#: only recognizes absolute system locations, so a step with a declared
+#: `cwd` inside the user's own document folder (an entirely ordinary way to
+#: write a task) edits with a bare relative filename and never trips it.
+#: Found testing §2.54 for real: `zip -r budget.xlsx ...` with no leading
+#: `/` classified SAFE, the exact repack-in-place shape that section closed
+#: for absolute paths. A small, closed set of long-stable file formats, not
+#: an open-ended list of things to detect -- these extensions haven't
+#: changed in over a decade.
+DOCUMENT_CONTAINER_EXTENSIONS: tuple[str, ...] = (
+    ".xlsx", ".xlsm", ".docx", ".pptx", ".odt", ".ods", ".odp",
+)
+
 #: `su`'s `-c` payload is executed by a shell exactly like `sh -c`'s is, even
 #: though `su` isn't itself an interpreter -- listing it here is what makes
 #: `resolve()` recurse into it as shell syntax instead of leaving it as one
@@ -237,6 +250,34 @@ class SafetyClassifier:
 
         segments.append("".join(buf))
         return [s.strip() for s in segments if s.strip()]
+
+    @staticmethod
+    def _mask_quoted(text: str) -> str:
+        """Blank every character inside a quoted span (space, same length
+        and position) so `_check_redirect`'s raw-text `>` scan can't mistake
+        an ordinary in-string character for a real shell redirect, which has
+        no meaning inside quotes. Found testing real xlsx-editing scripts:
+        `print(wb.active.max_row > 2)` -- an ordinary Python comparison
+        inside a `-c` payload -- read as an output redirect and escalated to
+        CAUTION. Same quote/escape state machine as split_segments above,
+        repurposed to mask instead of split, rather than a second,
+        potentially-diverging implementation of the same quoting rules."""
+        out: list[str] = []
+        quote: str | None = None
+        escaped = False
+        for ch in text:
+            in_quote = quote is not None
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif quote:
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"'):
+                quote = ch
+            out.append(" " if in_quote else ch)
+        return "".join(out)
 
     def _tokenize(self, segment: str) -> list[str]:
         """Tokenize one segment, recording rather than swallowing failures."""
@@ -439,6 +480,14 @@ class SafetyClassifier:
             cleaned.startswith(p + "/") for p in PROTECTED_PREFIXES if p != "/")
 
     @staticmethod
+    def _looks_like_document_container(path: str) -> bool:
+        """True when a path's extension is a zip-based office document
+        format, regardless of whether it's absolute or relative -- see
+        DOCUMENT_CONTAINER_EXTENSIONS for why this exists alongside, not
+        instead of, `_protected`."""
+        return path.rsplit("/", 1)[-1].lower().endswith(DOCUMENT_CONTAINER_EXTENSIONS)
+
+    @staticmethod
     def _argv_shape(argv: list[str]) -> tuple[list[str], list[str], set[str]]:
         """Split argv into flags, operands, and single-char short-flag letters."""
         flags = [a for a in argv[1:] if a.startswith("-")]
@@ -458,6 +507,7 @@ class SafetyClassifier:
         program, argv = rc.program, rc.argv
         flags, operands, chars = self._argv_shape(argv)
         protected = any(self._protected(o) for o in operands)
+        overwrites_a_document = any(self._looks_like_document_container(o) for o in operands)
 
         if program in PROGRAM_RISK:
             level, why = PROGRAM_RISK[program]
@@ -487,7 +537,7 @@ class SafetyClassifier:
              # reusing this generic operand-protected check for it would
              # misclassify an ordinary extraction of an existing file as
              # "writes to a system path".
-             lambda: self._judge_tee_cp_mv_zip(program, protected)),
+             lambda: self._judge_tee_cp_mv_zip(program, protected, overwrites_a_document)),
         ]
         for matched, call in rules:
             if matched:
@@ -544,6 +594,24 @@ class SafetyClassifier:
         return []
 
     @staticmethod
+    def _call_signature(source: str, start: int, end: int) -> str | None:
+        """The call a quoted literal at source[start:end] is an argument to
+        -- "load_workbook" for `openpyxl.load_workbook('x.xlsx')`, or
+        "open:write"/"open:read" for Python's own `open()`, whose read and
+        write paths share one name and are told apart only by the mode
+        argument that follows. None when the literal isn't immediately
+        `name(` -- e.g. a bare comparison operand -- rather than a call
+        argument."""
+        before = re.search(r"([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*$", source[:start])
+        if not before:
+            return None
+        name = before.group(1).rsplit(".", 1)[-1]
+        if name != "open":
+            return name
+        mode = re.match(r"""^\s*,\s*(?:mode\s*=\s*)?['"]([rwaxb+]{1,4})['"]""", source[end:])
+        return "open:write" if mode and any(c in mode.group(1) for c in "wax+") else "open:read"
+
+    @staticmethod
     def _repeated_path_literal(source: str) -> str | None:
         """A quoted, path-shaped literal appearing 2+ times in interpreter
         source is the shape of a read-then-write-back on the same file --
@@ -558,15 +626,33 @@ class SafetyClassifier:
         spreadsheet and saved back over the same path with no backup or
         declared rollback, and classified SAFE -- neither the regex BACKSTOP
         nor this function (before this check existed) has any notion of an
-        interpreter payload overwriting a path it also read."""
-        counts: dict[str, int] = {}
-        for single, double in re.findall(r"'([^']*)'|\"([^\"]*)\"", source):
-            literal = single or double
+        interpreter payload overwriting a path it also read.
+
+        Counting bare occurrences over-fired on ordinary reads of the same
+        path twice (comparing a file to itself, validating then processing
+        it) -- found testing this for real against actual xlsx files, zero
+        writes anywhere, still classified DANGEROUS. A read-then-write has a
+        real, checkable signature instead: two *differently*-named calls
+        touching the same literal (`load_workbook`/`save`,
+        `read_excel`/`to_excel`) versus the same call repeated
+        (`load_workbook`/`load_workbook` -- just read twice). `open()` is
+        the one call whose read and write paths share a name, so it gets
+        its own mode-aware signature via `_call_signature` rather than
+        falling through this same-name-means-safe rule."""
+        occurrences: dict[str, list[str | None]] = {}
+        for m in re.finditer(r"'([^']*)'|\"([^\"]*)\"", source):
+            literal = m.group(1) or m.group(2)
             if not literal or " " in literal:
                 continue
             if "/" in literal or re.search(r"\.[A-Za-z0-9]{1,5}$", literal):
-                counts[literal] = counts.get(literal, 0) + 1
-        return next((literal for literal, n in counts.items() if n >= 2), None)
+                occurrences.setdefault(literal, []).append(
+                    SafetyClassifier._call_signature(source, m.start(), m.end()))
+        for literal, sigs in occurrences.items():
+            if len(sigs) < 2:
+                continue
+            if "open:write" in sigs or len(set(sigs) - {"open:read"}) >= 2:
+                return literal
+        return None
 
     @staticmethod
     def _judge_script_source(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
@@ -618,9 +704,15 @@ class SafetyClassifier:
         return []
 
     @staticmethod
-    def _judge_tee_cp_mv_zip(program: str, protected: bool) -> list[tuple[RiskLevel, str]]:
+    def _judge_tee_cp_mv_zip(program: str, protected: bool,
+                              overwrites_a_document: bool) -> list[tuple[RiskLevel, str]]:
         if protected:
             return [(RiskLevel.DANGEROUS, f"{program} writes to a system path")]
+        if overwrites_a_document:
+            return [(RiskLevel.DANGEROUS,
+                     f"{program} writes to a path that looks like an existing office "
+                     "document (xlsx/docx/pptx/odt/ods/odp are zip containers -- a "
+                     "relative path here still isn't a protected system prefix)")]
         return []
 
     @staticmethod
@@ -633,14 +725,25 @@ class SafetyClassifier:
         """Redirect-target risk: a concern neither _judge nor BACKSTOP looks
         at. Captures the operator (`>`/`>>`) alongside the target -- found
         in a full-file audit: classification was already correct for `>>`,
-        but the reason text always said "overwrites" even for an append."""
-        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+)", text)
-        if redirect and redirect.group(2) in SAFE_REDIRECT_TARGETS:
-            return []  # a stream sink or documented no-op; nothing is overwritten
-        if redirect and self._protected(redirect.group(2)):
-            verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
-            return [(RiskLevel.CRITICAL, f"redirect {verb} {redirect.group(2)}")]
-        if re.search(r">\s*[^>\s]", text):
+        but the reason text always said "overwrites" even for an append.
+
+        Matches against `_mask_quoted(text)`, not the raw text: a bare `>`
+        has no meaning inside a shell quote, and this used to fire on any
+        `>` character anywhere, including a Python comparison operator
+        inside a `-c` payload's own quotes. Targets are still sliced from
+        the original `text` at the same span -- masking only blanks
+        in-quote characters, so an unquoted match's span is identical in
+        both strings."""
+        masked = self._mask_quoted(text)
+        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+)", masked)
+        if redirect:
+            target = text[redirect.start(2):redirect.end(2)]
+            if target in SAFE_REDIRECT_TARGETS:
+                return []  # a stream sink or documented no-op; nothing is overwritten
+            if self._protected(target):
+                verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
+                return [(RiskLevel.CRITICAL, f"redirect {verb} {target}")]
+        if re.search(r">\s*[^>\s]", masked):
             return [(RiskLevel.CAUTION, "output redirect that overwrites")]
         return []
 
