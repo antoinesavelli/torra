@@ -55,9 +55,20 @@ class ConflictDetector:
     and moves in from outside.
     """
 
+    # proc/sys/dev are excluded regardless of which root is being watched --
+    # not dev-tooling noise like the rest of this tuple, but the three Linux
+    # pseudo-filesystems that mutate every instant on any live box, for
+    # reasons that have nothing to do with any task this detector is running
+    # against. A watch_roots=["/"] baseline (a model can propose this; found
+    # live on `executor`, 2026-08-30) walks straight into
+    # /proc/*/task/*/net/* -- per-thread network pseudo-files churning from
+    # unrelated processes -- and the pre-execute reconcile then sees tens of
+    # thousands of "external changes" and blocks a trivially safe read-only
+    # step that never had anything to do with them.
     DEFAULT_IGNORES: tuple[str, ...] = (
         ".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache",
         ".pytest_cache", ".tox", "target", "dist", "build", ".cache",
+        "proc", "sys", "dev",
     )
 
     def __init__(
