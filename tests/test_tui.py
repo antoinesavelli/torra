@@ -297,6 +297,33 @@ async def test_a_plan_renders_with_verdicts_and_a_checkbox(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_a_plan_needing_approval_flags_the_busy_line(tmp_path: Path) -> None:
+    """The checkbox itself only exists for someone already looking at the
+    Actions tab -- same blind spot #busy-line's spinner already fixed for
+    "is it still thinking" (§2.50), just never extended to "it's back and
+    needs you." Must clear again once the plan is dealt with: Reject here,
+    or a real Run's own busy-spinner when nothing needs approving is not
+    covered by this specific plan-ready path."""
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"remove {tmp_path}/v.txt",
+        [{"id": "rm", "run": f"rm -f {tmp_path}/v.txt",
+          "touches": [f"{tmp_path}/v.txt"]}])))
+
+    async with app.run_test(size=(120, 50)) as pilot:
+        session_id = app.active_session_id
+        app.query_one("#prompt", Input).value = f"delete {tmp_path}/v.txt"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        flag = busy_line_text(app, session_id)
+        assert "1" in flag and "approval" in flag.lower()
+
+        await pilot.click("#reject")
+        await pilot.pause(0.1)
+        assert busy_line_text(app, session_id) == "", "rejecting must clear the flag"
+
+
+@pytest.mark.asyncio
 async def test_a_step_id_with_a_space_does_not_crash_the_plan_pane(tmp_path: Path) -> None:
     """Found live: a DANGEROUS/CRITICAL step's id is arbitrary model-chosen
     text -- "delete old logs" is exactly as plausible as "rm". Textual DOM
@@ -662,6 +689,10 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
         run_button = app.query_one("#run", Button)
         assert run_button.variant == "default", \
             "Run should grey out (Dry run's own look) after a real run"
+        assert str(run_button.label) == "Run (again)", \
+            "the label itself should say what a second click means"
+        assert all(card.has_class("step-card--executed") for card in app.query(StepCard)), \
+            "every step row should dim once the plan has actually run"
 
         lines_after_first_run = len(app.query(ChatLine))
 
@@ -841,17 +872,24 @@ async def test_clear_thinking_resets_the_thinking_tab(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_completed_plan_request_leaves_no_reasoning_text_behind(
+async def test_reasoning_text_survives_until_the_next_question_is_asked(
         tmp_path: Path) -> None:
     """End to end through the real worker-thread path: a model that streams
-    reasoning during `plan()` must not leave it in the Thinking tab once
-    the turn is done -- ephemeral by design (`SessionTab.reasoning_text`'s
-    docstring), not a permanent part of the transcript."""
+    reasoning during `plan()` must leave it visible in the Thinking tab once
+    the turn is done -- it's a "what did it just reason about" record, not
+    a live-only indicator, so clearing it the instant an answer/plan lands
+    would defeat the point of ever showing it (found live: an operator who
+    glanced away mid-turn had nothing left to read by the time they looked
+    back). It must clear only once the *next* question is dispatched --
+    `SessionTab.reasoning_text` stays ephemeral (never written to
+    SessionStore or telemetry) either way."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    calls = {"n": 0}
 
     def fake_plan(request: str, model: str | None = None,
                   on_thinking: Any | None = None) -> RunResult:
-        if on_thinking is not None:
+        calls["n"] += 1
+        if calls["n"] == 1 and on_thinking is not None:
             on_thinking("Let me ")
             on_thinking("check.")
         return RunResult(request=request, outcome=Outcome.ANSWERED,
@@ -865,6 +903,18 @@ async def test_a_completed_plan_request_leaves_no_reasoning_text_behind(
         await pilot.pause(0.3)
 
         tab = app.sessions[app.active_session_id]
+        assert tab.reasoning_text == "Let me check."
+        assert "Let me check." in screen_text(app)
+
+        # Focus moves off #prompt once a turn completes (onto the chat
+        # scroll view) -- a real operator clicks back into the box before
+        # typing the next question, same as this does.
+        prompt = app.query_one("#prompt", Input)
+        prompt.focus()
+        prompt.value = "and what about memory"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
         assert tab.reasoning_text == ""
         assert "Let me check." not in screen_text(app)
         assert "done" in screen_text(app)
@@ -1436,8 +1486,10 @@ async def test_the_sidebar_model_tab_renders_models_on_activation(
         await app.workers.wait_for_complete()
 
         option_list = app._model_pane(app.active_session_id).query_one(OptionList)
-        assert option_list.option_count == 6, \
-            "automatic routing + 3 scripted local models + 2 verified openrouter models"
+        assert option_list.option_count == 8, \
+            ("automatic routing + a disabled 'local' header + 3 scripted local "
+             "models + a disabled 'remote (paid)' header + 2 verified openrouter "
+             "models")
         assert option_list.get_option_at_index(0).id == ""
 
 
@@ -1997,10 +2049,15 @@ async def test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override(
 
         assert isinstance(app.screen, ModelPicker)
         option_list = app.screen.query_one(OptionList)
-        assert option_list.option_count == 6, \
-            "automatic routing + 3 scripted local models + 2 verified openrouter models"
+        assert option_list.option_count == 8, \
+            ("automatic routing + a disabled 'local' header + 3 scripted local "
+             "models + a disabled 'remote (paid)' header + 2 verified openrouter "
+             "models")
         assert option_list.get_option_at_index(0).id == ""
 
+        # One "down" still lands on the first real local model -- the
+        # disabled group header right after "(automatic routing)" is
+        # transparently skipped by OptionList's own next-enabled navigation.
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause(0.2)
@@ -2022,11 +2079,16 @@ async def test_f2_lists_the_verified_openrouter_models_and_they_are_selectable(
         await pilot.pause(0.2)
 
         option_list = app.screen.query_one(OptionList)
-        ids = [option_list.get_option_at_index(i).id
-              for i in range(option_list.option_count)]
-        assert set(VERIFIED_OPENROUTER_MODELS) <= set(ids)
+        # Enabled options only: the disabled group headers count toward
+        # option_count/get_option_at_index but are transparently skipped by
+        # "down" navigation, so counting keypresses against a raw index that
+        # includes them would overshoot the target by one header slot.
+        enabled = [option_list.get_option_at_index(i).id
+                  for i in range(option_list.option_count)
+                  if not option_list.get_option_at_index(i).disabled]
+        assert set(VERIFIED_OPENROUTER_MODELS) <= set(enabled)
 
-        target = ids.index("openrouter/x-ai/grok-4.6")
+        target = enabled.index("openrouter/x-ai/grok-4.6")
         for _ in range(target):
             await pilot.press("down")
         await pilot.press("enter")
@@ -2052,6 +2114,55 @@ async def test_choosing_automatic_routing_clears_an_existing_override(
 
         assert app.sessions[session_id].model_override is None
         assert "model override cleared" in screen_text(app)
+
+
+@pytest.mark.asyncio
+async def test_the_model_picker_groups_local_and_remote_with_a_legend(
+        tmp_path: Path) -> None:
+    """Local and remote (paid) models must render under their own disabled
+    group header, in that order, and a model with a MODEL_DESCRIPTIONS
+    entry must show its blurb in the bottom legend."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"},
+                                   models=["devstral:24b", "qwen3:8b"]))
+    async with app.run_test() as pilot:
+        await pilot.press("f2")
+        await pilot.pause(0.2)
+
+        option_list = app.screen.query_one(OptionList)
+        prompts = [str(option_list.get_option_at_index(i).prompt)
+                  for i in range(option_list.option_count)]
+        local_header = next(i for i, p in enumerate(prompts) if "local" in p.lower())
+        remote_header = next(i for i, p in enumerate(prompts) if "remote" in p.lower())
+        devstral_index = next(i for i, p in enumerate(prompts) if "devstral:24b" in p)
+        grok_index = next(i for i, p in enumerate(prompts)
+                          if "openrouter/x-ai/grok-4.6" in p)
+        assert local_header < devstral_index < remote_header < grok_index, \
+            "local models must sit under the local header, remote under its own"
+
+        # screen_text() only sees the base screen's widgets, not a pushed
+        # modal's -- the modal is its own top-of-stack Screen, not a child
+        # of the App's own composed tree, so the legend has to be read off
+        # app.screen (the modal itself) directly.
+        modal_text = " ".join(str(getattr(w, "content", "")) for w in app.screen.query(Static))
+        assert "best-case uses" in modal_text
+        assert "devstral:24b" in modal_text and "deployment" in modal_text
+
+
+@pytest.mark.asyncio
+async def test_repicking_the_current_model_is_a_no_op(tmp_path: Path) -> None:
+    """Clicking the model that's already the override must not re-announce
+    it or otherwise act as if something changed."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        session_id = app.active_session_id
+        app.sessions[session_id].model_override = "devstral"
+
+        app.query_one("#prompt", Input).value = "/model devstral"
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+
+        assert app.sessions[session_id].model_override == "devstral"
+        assert "model override set to devstral" not in screen_text(app)
 
 
 @pytest.mark.asyncio

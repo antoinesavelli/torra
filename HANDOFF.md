@@ -13,7 +13,7 @@ already been tried and failed. Read it before changing anything in `harness/`.
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 771 passed
+python3 -m pytest tests/ -q          # must print 774 passed
 harness doctor
 ```
 
@@ -2608,6 +2608,114 @@ untouched.
 > (negative, a genuine redirect next to an unrelated quoted argument on
 > the same line must still be caught).
 
+### 2.56 Two operator-facing TUI asks: the Thinking tab cleared the instant an answer landed, and a plan needing approval had no signal anywhere near the prompt
+
+**Thinking tab timing.** `_clear_thinking` ran at the end of every turn --
+success (`_planned`), error (`_plan_request_body`'s except branch), and
+Escape-abandon (`action_stop_thinking`) all wiped it the moment that turn
+ended, so an operator who glanced away mid-answer had nothing left to read
+by the time they looked back. Moved the single clear to the *start* of
+`plan_request()` instead -- the one place every path back into a new turn
+already goes through, so it's a single change point rather than three, and
+it now stays exactly as the model left it until the operator actually asks
+something else, regardless of how the prior turn ended.
+
+**Approval flag.** A plan with DANGEROUS/CRITICAL steps only ever signalled
+"needs a tick" two ways: a checkbox rendered per step (invisible unless
+already on the Actions tab) and a line written to the shared `#status`
+bar -- the exact same "docked at the bottom, below the sidebar, nowhere
+near what the operator is actually looking at" problem §2.50 already fixed
+for the busy/thinking spinner, just never extended to this moment. Added
+`_flag_needs_approval`, writing directly to `#busy-line` (the same widget
+`_tick_spinner` uses, reused here since nothing else needs it while idle)
+whenever `_outcome_plan_ready` finds `pending > 0`. Cleared the same way
+the busy spinner already is: the next `_set_busy(True, ...)` call (a new
+question via `plan_request()`, or clicking Run/Dry-run) naturally
+overwrites it, and `pressed_reject` clears it explicitly since Reject
+never goes through `_set_busy` at all.
+
+> Guarded by `tests/test_tui.py::
+> test_reasoning_text_survives_until_the_next_question_is_asked` (replaces
+> the now-inverted `test_a_completed_plan_request_leaves_no_reasoning_text_behind`)
+> and `test_a_plan_needing_approval_flags_the_busy_line`.
+
+### 2.57 Model pickers grouped local vs. remote (paid), got a best-case-uses legend, and stopped re-announcing a no-op re-pick
+
+Three related operator-facing asks against `ModelPane`/`ModelPicker`
+(the sidebar tab and the `f2` modal, which deliberately render identical
+content -- see their own docstrings):
+
+**Grouping.** `models` already arrives local-then-remote
+(`local + VERIFIED_OPENROUTER_MODELS`), so the two were never actually
+interleaved -- just not visually separated, with each remote entry only
+distinguished by an inline `(remote, paid)` tag. Extracted the shared
+option-building logic (previously duplicated near-identically in both
+`ModelPane.refresh_models` and `ModelPicker.compose`) into module-level
+`_model_options()`, which now inserts a **disabled** `Option` as a group
+header before each non-empty group. Disabled, not a `Static` glued into
+the list: `OptionList` skips a disabled entry for both click and keyboard
+selection entirely (`find_next_enabled` in Textual's own
+`action_cursor_down`), so a header can't be tapped into an accidental
+override the way text appended onto a real Option's label could invite,
+and "down" from "(automatic routing)" still lands directly on the first
+real model with no dead keypress in between.
+
+**Legend.** New `MODEL_DESCRIPTIONS: dict[str, str]`, one line per model
+naming what it's actually for -- a name and a routing rule tell an
+operator nothing about *why* gpt-oss:20b is the debug/plan/analyze
+default versus devstral-small-2:24b for code. Deliberately a curated
+dict, not derived from `router.py`'s `ROUTING_RULES`: a rule's own
+rationale comment is several sentences of benchmark history and
+superseded-model context written for whoever edits the router, not a
+one-line UI blurb, and several rules can point at the same model. A model
+missing an entry just shows no blurb (`_model_legend()` returns `""` and
+callers skip mounting it) rather than a guessed one -- same discipline as
+`VERIFIED_OPENROUTER_MODELS` right above it in the file: earn the entry,
+don't guess it. Nothing enforces this dict staying in sync with
+`ROUTING_RULES` -- update both by hand when a routing target changes,
+same trust-based discipline this file already applies to READMEs.
+
+**No-op re-pick.** `_set_model_override` unconditionally reassigned
+`tab.model_override` and printed "model override set to X" even when `X`
+was already the current override -- clicking the same model twice (or
+picking "(automatic routing)" while already on it) read as if something
+had just changed when nothing had. Now returns immediately when the
+requested value already matches.
+
+> Guarded by `tests/test_tui.py::
+> test_the_model_picker_groups_local_and_remote_with_a_legend` and
+> `test_repicking_the_current_model_is_a_no_op`; the option-count
+> assertions in `test_the_sidebar_model_tab_renders_models_on_activation`,
+> `test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override`,
+> and the down-press-counting in
+> `test_f2_lists_the_verified_openrouter_models_and_they_are_selectable`
+> were updated for the two new disabled headers (`OptionList.option_count`
+> includes disabled entries even though keyboard navigation skips them,
+> so a raw-index-based down-press count silently overshoots once headers
+> exist -- fixed by counting only enabled options).
+
+### 2.58 A completed real run left every step row looking exactly like it had before anything happened
+
+`_mark_run_used` (§2.47: Run greys out and refuses to silently replay)
+only ever touched the Run button's own colour. The step cards it applies
+to -- the actual proposed commands, their verdicts, their checkboxes --
+never changed at all once the plan actually ran, so a plan pane looked
+identical whether nothing had happened yet or every step had just
+executed for real; only the small button colour difference (and the
+transcript, if you scrolled to it) said otherwise. Added
+`.step-card--executed` (60% opacity) applied to every `StepCard` in
+`_mark_run_used`, and changed Run's own label to "Run (again)" alongside
+its existing grey `variant="default"` -- the button now says what a
+second click means before `pressed_run`'s own confirm dialog
+("This plan's commands already ran once. Run it again?", already in
+place since §2.47) would. All three land together in `_mark_run_used`,
+still called from exactly one place (`_executed()`, only on a real,
+non-dry, first-time completion).
+
+> Guarded by `tests/test_tui.py::
+> test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript`,
+> extended with the label and step-card-dimming assertions.
+
 ---
 
 ## 3. Things already tried that failed
@@ -2637,7 +2745,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 771, must stay green
+python3 -m pytest tests/ -q                       # 774, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -3319,7 +3427,7 @@ shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 771
+test command     python3 -m pytest tests/ -q     # 774
 ```
 
 ---

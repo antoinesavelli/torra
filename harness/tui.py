@@ -84,6 +84,33 @@ VERIFIED_OPENROUTER_MODELS: list[str] = [
     "openrouter/openai/gpt-5.6-sol",
 ]
 
+#: One-line "what is this actually good for" per model, shown at the
+#: bottom of both model pickers -- a name and a routing rule tell an
+#: operator nothing about *why* it's the default for debug work versus
+#: code versus deploys. Deliberately a curated dict, not something
+#: derived from ROUTING_RULES: a rule's own rationale comment is written
+#: for whoever edits router.py, several sentences of benchmark history
+#: and superseded-model context, not a one-line UI blurb, and several
+#: rules can point at the same model (gpt-oss:20b covers three). A model
+#: missing here just shows no blurb rather than a guessed one -- same
+#: discipline as VERIFIED_OPENROUTER_MODELS just above: earn the entry,
+#: don't guess it. Keep in sync with router.py's ROUTING_RULES by hand;
+#: there is no test enforcing the two agree (see HANDOFF.md's "trust-based"
+#: source-of-truth entries for the same reasoning applied to READMEs).
+MODEL_DESCRIPTIONS: dict[str, str] = {
+    "gpt-oss:20b": "debugging, planning, analysis -- deepest local reasoning "
+                  "budget, measured best intent accuracy 2026-08-28",
+    "devstral:24b": "deployment, quick status checks -- the measured-reliable "
+                    "default; strong tool and file-editing behaviour",
+    "devstral-small-2:24b": "code -- refactors, scripts, patches "
+                            "(65.8% SWE-bench Verified, not yet run through "
+                            "this harness's own battery)",
+    "openrouter/x-ai/grok-4.6": "remote frontier model -- paid per call, "
+                                "manual /model override only, not auto-routed",
+    "openrouter/openai/gpt-5.6-sol": "remote frontier model -- paid per call, "
+                                     "manual /model override only, not auto-routed",
+}
+
 
 #: Risk level to a colour the eye can sort at a glance without reading.
 LEVEL_STYLE: dict[str, str] = {
@@ -335,6 +362,41 @@ class SessionPane(VerticalScroll):
             for meta in metas], id="session-options"))
 
 
+def _model_options(models: list[str], current_override: str | None) -> list[Option]:
+    """"(automatic routing)" first, then a disabled group header and the
+    local models, then another header and the remote/paid ones -- `models`
+    already arrives local-then-remote (`local + VERIFIED_OPENROUTER_MODELS`,
+    see the two call sites), so this only needs to find the split, not sort
+    anything. A disabled `Option` is the header, not a `Static` glued into
+    the list: `OptionList` skips a disabled entry for both click and
+    keyboard selection (`_chosen`/`_model_option_chosen` never see one),
+    so it can't be tapped into an accidental override the way plain text
+    appended onto a real Option's own label could invite."""
+    auto_marker = " [dim](current)[/]" if not current_override else ""
+    options = [Option(f"(automatic routing){auto_marker}", id="")]
+    local = [m for m in models if not m.startswith("openrouter/")]
+    remote = [m for m in models if m.startswith("openrouter/")]
+    for heading, group in (("local", local), ("remote (paid)", remote)):
+        if not group:
+            continue
+        options.append(Option(f"[bold]-- {heading} --[/]", disabled=True))
+        for model in group:
+            marker = " [dim](current)[/]" if model == current_override else ""
+            options.append(Option(f"{escape(model)}{marker}", id=model))
+    return options
+
+
+def _model_legend(models: list[str]) -> str:
+    """Bottom-of-pane "best-case uses" blurb, one line per model that has
+    a MODEL_DESCRIPTIONS entry -- silently skips any that don't rather
+    than guessing one (see MODEL_DESCRIPTIONS's own docstring). Returns
+    "" when nothing in `models` has an entry, so callers can mount it
+    unconditionally without an empty heading floating alone."""
+    lines = [f"[dim]{escape(model)} -- {MODEL_DESCRIPTIONS[model]}[/]"
+             for model in models if model in MODEL_DESCRIPTIONS]
+    return "[bold]best-case uses[/]\n" + "\n".join(lines) if lines else ""
+
+
 class ModelPane(VerticalScroll):
     """Sidebar tab: pick this tab's model override without a modal -- the
     persistent, always-in-view sibling of `f2`'s `ModelPicker`. Both stay
@@ -348,17 +410,16 @@ class ModelPane(VerticalScroll):
                      markup=True, id="model-empty")
 
     async def refresh_models(self, models: list[str], current_override: str | None) -> None:
-        """Replace the pane with "(automatic routing)" plus each model --
-        local ones plain, remote ones tagged so a tap doesn't accidentally
-        trigger a paid call. Same content `ModelPicker` shows."""
+        """Replace the pane with "(automatic routing)" plus each model,
+        grouped local-vs-remote (paid) so a tap doesn't accidentally
+        trigger a paid call, and a best-case-uses legend at the bottom.
+        Same content `ModelPicker` shows."""
         await self.remove_children()
-        auto_marker = " [dim](current)[/]" if not current_override else ""
-        options = [Option(f"(automatic routing){auto_marker}", id="")]
-        for model in models:
-            marker = " [dim](current)[/]" if model == current_override else ""
-            tag = " [dim](remote, paid)[/]" if model.startswith("openrouter/") else ""
-            options.append(Option(f"{escape(model)}{tag}{marker}", id=model))
-        await self.mount(OptionList(*options, id="model-options"))
+        await self.mount(OptionList(*_model_options(models, current_override),
+                                    id="model-options"))
+        legend = _model_legend(models)
+        if legend:
+            await self.mount(Static(legend, markup=True))
         await self.mount(Static("[dim]Only hand-verified openrouter/... models are "
                                "listed -- use /model <name> for any other remote "
                                "model.[/]", markup=True))
@@ -595,18 +656,15 @@ class ModelPicker(ModalScreen[str | None]):
         self._current = current_override
 
     def compose(self) -> ComposeResult:
-        """A titled box: automatic routing first, then each model --
-        local ones plain, remote ones tagged so a tap doesn't accidentally
-        trigger a paid call."""
+        """A titled box: automatic routing first, then each model grouped
+        local-vs-remote (paid) so a tap doesn't accidentally trigger a
+        paid call, then a best-case-uses legend."""
         with Vertical(id="picker-box"):
             yield Static("Choose a model  [dim](Escape to cancel)[/]", markup=True)
-            auto_marker = " [dim](current)[/]" if not self._current else ""
-            options = [Option(f"(automatic routing){auto_marker}", id="")]
-            for model in self._models:
-                marker = " [dim](current)[/]" if model == self._current else ""
-                tag = " [dim](remote, paid)[/]" if model.startswith("openrouter/") else ""
-                options.append(Option(f"{escape(model)}{tag}{marker}", id=model))
-            yield OptionList(*options)
+            yield OptionList(*_model_options(self._models, self._current))
+            legend = _model_legend(self._models)
+            if legend:
+                yield Static(legend, markup=True)
             yield Static("[dim]Only hand-verified openrouter/... models are listed "
                          "-- use /model <name> for any other remote model.[/]",
                          markup=True)
@@ -685,6 +743,7 @@ class HarnessApp(App):
     .step-card {
         height: auto; border: round $panel; margin: 0 0 1 0; padding: 0 1;
     }
+    .step-card--executed { opacity: 60%; }
     .step-command { color: $text; }
     .plan-header { padding: 0 0 1 0; }
     .plan-actions { height: auto; padding: 1 0; }
@@ -975,9 +1034,11 @@ class HarnessApp(App):
         self._thinking_pane(session_id).append(tab.reasoning_text)
 
     def _clear_thinking(self, session_id: str) -> None:
-        """Reset the Thinking tab once a turn is done -- ephemeral by
-        design, never written to SessionStore or telemetry (see
-        `SessionTab.reasoning_text`'s docstring)."""
+        """Reset the Thinking tab -- called from `plan_request()` at the
+        start of the *next* turn, not the end of this one, so the last
+        turn's reasoning stays readable until the operator actually moves
+        on. Ephemeral by design either way: never written to SessionStore
+        or telemetry (see `SessionTab.reasoning_text`'s docstring)."""
         tab = self.sessions.get(session_id)
         if tab is None or not tab.reasoning_text:
             return
@@ -1061,8 +1122,16 @@ class HarnessApp(App):
         actually used, which reaches the operator through the normal
         backend-down path (`_outcome_backend_down`) with the right
         recovery options already attached. A second, shallower check here
-        would just be a second place for that fact to drift out of sync."""
+        would just be a second place for that fact to drift out of sync.
+
+        A no-op re-pick of whatever's already current (clicking the same
+        model twice, or picking "(automatic routing)" while already on
+        it) returns before touching anything -- found live: it re-set the
+        identical value and printed "model override set to X" again,
+        reading as if something had just changed when nothing had."""
         tab = self.sessions[session_id]
+        if (override or None) == tab.model_override:
+            return
         tab.model_override = override or None
         if not override:
             self._say(session_id, "harness",
@@ -1121,7 +1190,16 @@ class HarnessApp(App):
         own docstring: `action_stop_thinking` (Escape) bumps it to mark
         this exact in-flight request abandoned, so a result that arrives
         after the operator already gave up on it gets discarded instead
-        of silently becoming the active plan."""
+        of silently becoming the active plan.
+
+        `_clear_thinking` runs here, not at the end of the previous turn --
+        the Thinking tab is meant to stay readable as a "what did it just
+        reason about" record until the operator moves on, not blank the
+        instant an answer lands. Clearing on the next question's own
+        dispatch, in the one place every path back into this method
+        already goes through, is what makes that true regardless of how
+        the prior turn ended (answered, errored, or Escape-abandoned)."""
+        self._clear_thinking(session_id)
         my_generation = self.sessions[session_id].generation
         self._set_busy(session_id, True, "thinking...")
         self.run_worker(partial(self._plan_request_body, session_id, request, my_generation),
@@ -1140,7 +1218,6 @@ class HarnessApp(App):
             result = tab.harness.plan(request, model=tab.model_override,
                                       on_thinking=on_thinking)
         except Exception as exc:
-            self.call_from_thread(self._clear_thinking, session_id)
             self.call_from_thread(
                 self._report_plan_error, session_id, exc, my_generation)
             return
@@ -1213,6 +1290,23 @@ class HarnessApp(App):
             self._say(session_id, "harness",
                       "auto-run: nothing needs confirmation, running now", "dim")
             self.execute_plan(session_id)
+        elif pending:
+            self._flag_needs_approval(session_id, pending)
+
+    def _flag_needs_approval(self, session_id: str, pending: int) -> None:
+        """A persistent, hard-to-miss "this needs you" marker right above
+        the prompt -- the same real estate `_tick_spinner` uses for the
+        busy/thinking indicator, and for the same reason (§2.50): the
+        shared bottom `#status` line already carries this exact fact
+        (`_outcome_plan_ready`'s own call just above), but it's the one an
+        operator watching the input box they just typed into has no
+        reason to ever look at. Unlike the spinner, nothing re-writes this
+        on a timer -- it just sits until `plan_request()` clears it for
+        the next question, `pressed_reject` clears it because the plan it
+        was about is gone, or a real Run's own busy-spinner overwrites it
+        because the plan no longer needs approving."""
+        self._busy_line(session_id).update(
+            f"[bold yellow]⚠ {pending} step(s) need approval -- see Actions[/]")
 
     def _planned(self, session_id: str, result: RunResult, my_generation: int) -> None:
         """Render whatever the model decided, dispatched by outcome.
@@ -1227,7 +1321,6 @@ class HarnessApp(App):
         if tab is None or my_generation != tab.generation:
             return  # the tab was closed, or this exact request was stopped
         tab.current = result
-        self._clear_thinking(session_id)
         self._set_busy(session_id, False, "")
         if result.turn and result.turn.message:
             self._say(session_id, "agent", escape(result.turn.message))
@@ -1298,6 +1391,7 @@ class HarnessApp(App):
                 return
         self._say(session_id, "harness", "Plan rejected. Nothing ran.", "dim")
         self._status(session_id, "[dim]rejected[/]")
+        self._busy_line(session_id).update("")
         tab.current = None
         self.run_worker(self._plan_pane(session_id).clear("Rejected."), exclusive=False)
 
@@ -1330,13 +1424,15 @@ class HarnessApp(App):
         from that exact request is recognized as stale by `_planned()`/
         `_report_plan_error()` and discarded rather than silently
         surfacing, and free the UI immediately so the operator isn't
-        stuck waiting on it."""
+        stuck waiting on it. The Thinking tab is deliberately left showing
+        whatever it reasoned about before being stopped -- `plan_request()`
+        clears it on the *next* question, not here -- same as the
+        answered/errored paths."""
         session_id = self.active_session_id
         tab = self.sessions.get(session_id)
         if tab is None or not tab.busy or not tab.busy_message.startswith("thinking"):
             return
         tab.generation += 1
-        self._clear_thinking(session_id)
         self._set_busy(session_id, False, "")
         self._say(session_id, "harness",
                   "stopped -- if the model was still generating, its answer "
@@ -1711,15 +1807,21 @@ class HarnessApp(App):
         self._status(session_id, f"[{style}]{result.outcome.value}[/]")
 
     def _mark_run_used(self, session_id: str) -> None:
-        """Grey Run out -- `variant="default"` is already this app's grey
-        look, the same one "Dry run" uses unstyled right next to it, so
-        this reuses an existing visual, not a new one. query(), not
-        query_one(): PlanPane.show() rebuilds the button row fresh for
-        every new plan, so there's nothing to grey the first time a plan
-        with nothing approved yet is shown."""
+        """Mark a completed real run as unmistakably not-fresh: Run's
+        variant greys to "default" (the same grey "Dry run" already uses
+        unstyled, so this reuses an existing visual, not a new one), its
+        label changes to "Run (again)" so the button itself says what a
+        second click means before `pressed_run`'s own confirm dialog would,
+        and every step row dims via `.step-card--executed`. query(), not
+        query_one(): PlanPane.show() rebuilds the plan pane fresh for every
+        new plan, so there's nothing to grey the first time a plan with
+        nothing approved yet is shown."""
         pane = self._tab_pane(session_id)
         for button in pane.query(Button).filter("#run"):
             button.variant = "default"
+            button.label = "Run (again)"
+        for card in pane.query(StepCard):
+            card.add_class("step-card--executed")
 
     def _set_busy(self, session_id: str, busy: bool, message: str) -> None:
         """Toggle one session's busy state and, if it's the active tab, the status line."""
