@@ -1697,12 +1697,20 @@ class HarnessApp(App):
 
         if result.rollback:
             report = result.rollback
+            # `cancelled` (an unsafe undo the operator declined) used to be
+            # silently missing here -- no caller wires up RollbackManager's
+            # confirm_unsafe, so every unsafe rollback action is auto-declined
+            # by that constructor's own default, and this line reported a
+            # clean "0 undone, 0 unverified, 0 failed" for a run where a
+            # declared rollback action never ran at all. Same fix as cli.py's
+            # _print_execution_report.
             self._say(session_id, "harness",
                       f"rollback: {len(report.undone)} undone, "
                       f"{len(report.unverified)} unverified, "
+                      f"{len(report.cancelled)} declined, "
                       f"{len(report.failed)} failed",
                       "green" if report.ok else "bold red")
-            for entry in report.unverified + report.failed:
+            for entry in report.unverified + report.cancelled + report.failed:
                 self._say(session_id, "error",
                           f"  {escape(entry.description)}: {escape(entry.error)}")
 
