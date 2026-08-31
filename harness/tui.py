@@ -387,14 +387,20 @@ def _model_options(models: list[str], current_override: str | None) -> list[Opti
 
 
 def _model_legend(models: list[str]) -> str:
-    """Bottom-of-pane "best-case uses" blurb, one line per model that has
+    """Bottom-of-pane "best-case uses" blurb, one entry per model that has
     a MODEL_DESCRIPTIONS entry -- silently skips any that don't rather
     than guessing one (see MODEL_DESCRIPTIONS's own docstring). Returns
     "" when nothing in `models` has an entry, so callers can mount it
-    unconditionally without an empty heading floating alone."""
-    lines = [f"[dim]{escape(model)} -- {MODEL_DESCRIPTIONS[model]}[/]"
+    unconditionally without an empty heading floating alone.
+
+    Found live: five entries run together with no blank line and an
+    undifferentiated dim name+description in one run of text wraps into
+    an unreadable block the eye can't segment back into "one per model" --
+    bolding the name and blank-lining between entries is what actually
+    lets it be scanned rather than read start to end."""
+    lines = [f"[bold]{escape(model)}[/]\n[dim]{MODEL_DESCRIPTIONS[model]}[/]"
              for model in models if model in MODEL_DESCRIPTIONS]
-    return "[bold]best-case uses[/]\n" + "\n".join(lines) if lines else ""
+    return "[bold]best-case uses[/]\n\n" + "\n\n".join(lines) if lines else ""
 
 
 class ModelPane(VerticalScroll):
