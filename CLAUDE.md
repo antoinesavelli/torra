@@ -77,7 +77,12 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
    much rigor and how much asking-first this needs.
 3. **DECIDE** — State the plan in one sentence. Ask if it touches the safety-critical path or
    persisted-state format; proceed if it's reversible and outside that path.
-4. **ACT** — Smallest edit that satisfies the task. Parallel tool calls when independent.
+4. **ACT** — Smallest edit that satisfies the task. Parallel tool calls when independent. For a
+   mechanical, atomic-diff-sized edit (not a judgment call), consider driving the on-disk local
+   model for it instead — see `system-library/AGENT_DOCTRINE.md`'s "Delegating mechanical work"
+   section and the `local-model-subagent` skill. This repo has no repo-specific coding agent of
+   its own in `opencode.json` (just `instructions` pointing here), so that means the global
+   `build`/`quick` agent names, not a Paramo-style named one.
 5. **VERIFY** — Run the relevant tests; never skip. If the change touches classification,
    routing, or rollback, also re-read the specific `HANDOFF.md` §2 entry it's near and confirm
    the invariant the entry describes still holds, not just that tests are green (a test can be
