@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **757 passed**. Then:
+Expect **783 passed**. Then:
 
 ```bash
 harness doctor     # environment check
@@ -202,6 +202,27 @@ harness ask "restart ollama" || echo "stopped with $?"
 
 `run` and `check` deliberately never touch the model. When it is down, or wrong,
 or you already know exactly what you want, the gates stay available without it.
+
+---
+
+## `ask --verify`: a bounded coding/refactor loop
+
+```bash
+harness ask "add input validation to the login handler" \
+    --verify "run pytest tests/test_login.py" \
+    --max-iterations 3
+```
+
+After the request completes, the same check is repeated; if it fails, the
+model is asked to fix the underlying issue and the check runs again, up to
+`--max-iterations` fix attempts (default 3). This is not a second way to run
+a command -- every round is an ordinary `plan()`/`gate()`/`execute()` turn on
+the same conversation, exactly what a human retyping "that failed, fix it"
+after reading real output would produce. It stops the moment any round isn't
+COMPLETED (rejected, blocked, backend down, or the model asks a clarifying
+question) -- an automated loop cannot safely answer for you, only a human
+turn can. See `harness/iterate.py` for the implementation and
+`CLAUDE_MIGRATION_ROADMAP.md` for why this is scoped the way it is.
 
 ---
 

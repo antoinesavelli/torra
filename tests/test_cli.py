@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import plan_reply, scripted
+from conftest import plan_replies_with_summaries, plan_reply, scripted
 
 import harness.cli as cli
 from harness.core import OllamaClient, TaskSpec
@@ -430,10 +430,12 @@ def test_evidence_prints_loophole_examples_when_present(
 
 
 def ask_args(workdir: Path, request: str, *, model=None, dry_run=False,
-             non_interactive=False, plan_only=False) -> argparse.Namespace:
+             non_interactive=False, plan_only=False, verify=None,
+             max_iterations=3) -> argparse.Namespace:
     return argparse.Namespace(workdir=str(workdir), request=request, model=model,
                               dry_run=dry_run, non_interactive=non_interactive,
-                              plan_only=plan_only)
+                              plan_only=plan_only, verify=verify,
+                              max_iterations=max_iterations)
 
 
 def test_ask_runs_a_safe_plan_end_to_end(tmp_path, monkeypatch,
@@ -449,6 +451,54 @@ def test_ask_runs_a_safe_plan_end_to_end(tmp_path, monkeypatch,
     assert exit_code == cli.EXIT_OK
     assert "outcome: completed" in out
     assert marker.exists()
+
+
+def test_ask_verify_fixes_a_failing_check_and_reports_success(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    patch_observe(monkeypatch)
+    # The placeholder request text below reads as underspecified to
+    # Clarifier.detect(), which would otherwise spend a scripted reply on
+    # a repair round -- see test_iterate.py's _no_repairs for why.
+    monkeypatch.setattr("harness.agent.Agent.MAX_REPAIRS", 0)
+    marker = tmp_path / "fixed"
+    patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
+        plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
+        plan_reply("verify1", "run the tests",
+                  [{"id": "verify", "run": f"test -f {marker}"}]),
+        plan_reply("fix", "fix it", [{"id": "fix", "run": f"touch {marker}"}]),
+        plan_reply("verify2", "run the tests",
+                  [{"id": "verify", "run": f"test -f {marker}"}]),
+    )))
+
+    exit_code = cli.cmd_ask(ask_args(
+        tmp_path, "add the feature", non_interactive=True,
+        verify="run the tests"))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_OK
+    assert "1 fix attempt(s) made" in out
+    assert "verified: yes" in out
+    assert marker.exists()
+
+
+def test_ask_verify_reports_failure_once_iterations_are_exhausted(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    patch_observe(monkeypatch)
+    monkeypatch.setattr("harness.agent.Agent.MAX_REPAIRS", 0)
+    patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
+        plan_reply("edit", "add x", [{"id": "edit", "run": "true"}]),
+        plan_reply("verify1", "check", [{"id": "verify", "run": "false"}]),
+        plan_reply("fix", "fix", [{"id": "fix", "run": "true"}]),
+        plan_reply("verify2", "check", [{"id": "verify", "run": "false"}]),
+    )))
+
+    exit_code = cli.cmd_ask(ask_args(
+        tmp_path, "add x", non_interactive=True, verify="check", max_iterations=1))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_FAILED
+    assert "verified: no" in out
+    assert "exhausted" in out
 
 
 def test_ask_plan_only_prints_the_plan_and_runs_nothing(

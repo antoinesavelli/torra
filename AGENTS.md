@@ -16,7 +16,7 @@ gated is real shell commands against a real Pop!_OS box (package managers, syste
 filesystem, boot configuration), not a sandbox.
 
 Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `harness.cli:main`,
-`harness.pipeline:Harness` (the only orchestrator). Tests: **653, must stay 653 passed**
+`harness.pipeline:Harness` (the only orchestrator). Tests: **783, must stay 783 passed**
 (`python3 -m pytest tests/ -q`) — nothing in `tests/` touches a live Ollama, systemd, or
 network; every external dependency is an injected callable.
 
@@ -92,7 +92,7 @@ Full param + return type hints on new/edited code.
 
 ## Definition of done
 
-1. `python3 -m pytest tests/ -q` — must stay 653 passed.
+1. `python3 -m pytest tests/ -q` — must stay 783 passed.
 2. Per-file docstring current on every touched module.
 3. That directory's `README.md` updated if a file was added/moved/renamed.
 4. `HANDOFF.md` §2 updated if the change touches an existing invariant.
@@ -103,7 +103,7 @@ Full param + return type hints on new/edited code.
 
 | Task | Command |
 |---|---|
-| Tests (all, must stay 653) | `python3 -m pytest tests/ -q` |
+| Tests (all, must stay 783) | `python3 -m pytest tests/ -q` |
 | Tests (one file/case) | `python3 -m pytest tests/test_gates.py -k <name>` |
 | Lint | `ruff check .` |
 | Type check | `mypy harness/` |

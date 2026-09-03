@@ -48,6 +48,24 @@ def plan_reply(task_id: str, request: str, steps: list[dict[str, Any]],
     return {"intent": "plan", "message": message, "task": task}
 
 
+#: Harness._finish() auto-summarizes any non-dry-run execute() that produced
+#: at least one result (success or failure) -- a second, separate /api/chat
+#: call. plan_replies_with_summaries() interleaves a filler reply for it so
+#: a multi-round scripted() conversation doesn't drift out of alignment.
+SUMMARY_FILLER: dict[str, Any] = {"message": "noted"}
+
+
+def plan_replies_with_summaries(*plan_replies: dict[str, Any]) -> list[dict[str, Any]]:
+    """Each reply followed by a summary filler, for scripted() -- use when
+    every round actually executes (not dry-run, not rejected/blocked before
+    a step runs)."""
+    out: list[dict[str, Any]] = []
+    for reply in plan_replies:
+        out.append(reply)
+        out.append(SUMMARY_FILLER)
+    return out
+
+
 @pytest.fixture()
 def fake_state() -> MachineState:
     return MachineState(hostname="pop-os", os_release="Pop!_OS 22.04",

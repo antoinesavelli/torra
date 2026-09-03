@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -31,6 +31,7 @@ from .core import (
     TaskSpecError,
 )
 from .gates import Clarifier, Precondition, SafetyClassifier, StateVerifier
+from .iterate import iterate
 from .pipeline import Harness, Outcome, Plan, RunResult
 from .telemetry import (
     CorpusExporter,
@@ -226,9 +227,36 @@ def _print_execution_report(done: RunResult) -> None:
         print(f"audit  : {done.audit_path}")
 
 
+def _approve_for_ask(args: argparse.Namespace) -> Callable[[Plan], dict[str, bool]]:
+    """The same approval policy the single-round path below uses."""
+    return (lambda plan: {}) if args.non_interactive else approve_at_prompt
+
+
+def cmd_ask_with_verify(harness: Harness, args: argparse.Namespace) -> int:
+    """`--verify`: the request, then a bounded (verify, fix)* cycle -- see
+    iterate.py for why this is still just ordinary plan()/execute() turns
+    on the same conversation, not a second way to run a command."""
+    report = iterate(
+        harness, args.request, args.verify, _approve_for_ask(args),
+        model=args.model, dry_run=args.dry_run,
+        max_iterations=args.max_iterations,
+        on_round=lambda r: _print_execution_report(r.last) if r.last else None)
+    if report.fix_attempts:
+        print(f"\n{report.fix_attempts} fix attempt(s) made")
+    if report.verified:
+        print("verified: yes")
+        return EXIT_OK
+    print(f"verified: no ({report.give_up_reason})")
+    return EXIT_FAILED
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     """One request, planned and approved at the prompt."""
     harness = build_harness(Path(args.workdir))
+
+    if getattr(args, "verify", None):
+        return cmd_ask_with_verify(harness, args)
+
     result = harness.plan(args.request, model=args.model)
 
     if result.turn and result.turn.message:
@@ -509,6 +537,13 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--dry-run", action="store_true")
     ask.add_argument("--non-interactive", action="store_true")
     ask.add_argument("--plan-only", action="store_true")
+    ask.add_argument("--verify",
+                     help="after the request completes, repeat this check "
+                          "(e.g. 'run pytest tests/') and, if it fails, ask "
+                          "the model to fix it and re-check -- up to "
+                          "--max-iterations times")
+    ask.add_argument("--max-iterations", type=int, default=3,
+                     help="fix attempts allowed under --verify (default: 3)")
     ask.set_defaults(func=cmd_ask)
 
     plan = sub.add_parser("plan", help="plan only, run nothing")

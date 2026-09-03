@@ -8,7 +8,7 @@ instructions the harness itself sends to its planning model (that's `harness/age
 `SYSTEM_PROMPT` and `docs/`, a different audience entirely; don't conflate the two).
 
 Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `harness.cli:main`,
-`harness.pipeline:Harness` (the only orchestrator). Tests: **653, must stay 653 passed**
+`harness.pipeline:Harness` (the only orchestrator). Tests: **783, must stay 783 passed**
 (`python3 -m pytest tests/ -q`) — nothing in `tests/` touches a live Ollama, systemd, or
 network; every external dependency is an injected callable (see `tests/conftest.py`).
 
@@ -41,6 +41,7 @@ Read the map for the area you're touching before grepping the source tree.
 | **Invariants that must never break, with the story behind each** | `HANDOFF.md` §2 |
 | Known live-wire bugs from the last full-codebase audit | `AUDIT_FINDINGS.md` |
 | How code here is graded (six dimensions, tiering, floors) | `DEFENSIVE_CODING_STANDARDS.md` |
+| Migrating off Claude Code as operator (what's built, what's scoped but not) | `CLAUDE_MIGRATION_ROADMAP.md` |
 
 **`CORE_RULES.yaml` is not a source of truth.** It's a human-readable snapshot of default
 values, loaded by nothing (`grep -rn CORE_RULES harness/` returns nothing) — it already
@@ -95,7 +96,7 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
 Not complete until all hold, in the *same* change:
 
 1. **Tests run and pass.** `python3 -m pytest tests/ -q` — the count is the fact:
-   **653 passed** is the current baseline. A change that adds behavior without adding a test
+   **783 passed** is the current baseline. A change that adds behavior without adding a test
    for it isn't done; a change that *removes* a test to make the suite pass is very likely
    deleting the thing HANDOFF.md §2 told you not to delete — stop and re-read that section
    before doing it.
@@ -193,7 +194,7 @@ wrong command runs against a real filesystem, package manager, or init system.
 
 ## When a check fails: fix the CAUSE, not the check
 
-The rule is AGENT_DOCTRINE.md's. This repo's guards: the 653-test suite, `ruff`/`mypy`, the
+The rule is AGENT_DOCTRINE.md's. This repo's guards: the 783-test suite, `ruff`/`mypy`, the
 defensive-coding scorecard, the evasion corpus in `test_gates.py::TestSafety`, the clarifier's
 ambiguity corpus. The ❌ path has a named precedent here — tuning the clarifier against its own
 test corpus instead of a fresh one (`HANDOFF.md` §4 calls this out explicitly as a mistake already
@@ -323,7 +324,7 @@ consolidated out of.
 
 | Task | Command |
 |---|---|
-| Tests (all, must stay 653) | `python3 -m pytest tests/ -q` |
+| Tests (all, must stay 783) | `python3 -m pytest tests/ -q` |
 | Tests (one file/case) | `python3 -m pytest tests/test_gates.py -k <name>` |
 | Lint | `ruff check .` |
 | Format | `ruff format .` |
