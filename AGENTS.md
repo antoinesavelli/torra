@@ -5,10 +5,10 @@ Full spec lives in `CLAUDE.md` (too long for most local models' context budget �
 say so instead of guessing. Auto-loaded by OpenCode via the `AGENTS.md` convention.
 
 **If you're a paid/capable model reading this file rather than the local model about to make the
-edit**: for a mechanical, atomic-diff-sized change, consider driving the local model (global
-`build`/`quick` agent — this repo has no repo-specific one) through it instead of editing
-yourself — see `CLAUDE.md`'s ACT step and the `local-model-subagent` skill. Not applicable if
-you're the local model already doing the edit.
+edit, check this before you touch anything**: is the change mechanical/atomic-diff-sized, not a
+judgment call? If so, drive the local model (global `build`/`quick` agent — this repo has no
+repo-specific one) through it instead of editing yourself — see `CLAUDE.md`'s ACT step and the
+`local-model-subagent` skill. Not applicable if you're the local model already doing the edit.
 
 A local model proposes an operating-system change. Five gates decide whether it runs. The
 operator approves. This is an OS-engineering agent first, a chat UI second — the thing being
