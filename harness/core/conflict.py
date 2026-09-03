@@ -55,9 +55,20 @@ class ConflictDetector:
     and moves in from outside.
     """
 
+    # proc/sys/dev are excluded regardless of which root is being watched --
+    # not dev-tooling noise like the rest of this tuple, but the three Linux
+    # pseudo-filesystems that mutate every instant on any live box, for
+    # reasons that have nothing to do with any task this detector is running
+    # against. A watch_roots=["/"] baseline (a model can propose this; found
+    # live on `executor`, 2026-08-30) walks straight into
+    # /proc/*/task/*/net/* -- per-thread network pseudo-files churning from
+    # unrelated processes -- and the pre-execute reconcile then sees tens of
+    # thousands of "external changes" and blocks a trivially safe read-only
+    # step that never had anything to do with them.
     DEFAULT_IGNORES: tuple[str, ...] = (
         ".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache",
         ".pytest_cache", ".tox", "target", "dist", "build", ".cache",
+        "proc", "sys", "dev",
     )
 
     def __init__(
@@ -333,15 +344,31 @@ class ConflictDetector:
         return conflicts
 
     def refresh(self, paths: Iterable[os.PathLike[str] | str] = ()) -> None:
-        """Re-baseline after the harness itself changed something."""
+        """Re-baseline ONLY the given paths, after the harness itself changed them.
+
+        Must never touch fingerprints/`_known` entries for any OTHER path. This
+        used to rebuild `self.fingerprints` from a full walk of every root and
+        unconditionally clear `_known` -- silently forgiving not just the
+        step's own declared write but any concurrent, unrelated external edit
+        to anything else under `watch_roots` that happened while that step was
+        running. Found live: `_run_steps` calls this after every step using
+        that step's own `touches` (often empty for a read/shell step); an
+        external write to an undeclared file mid-step was correctly caught by
+        `detect()` immediately before this call and had vanished immediately
+        after it, even though `paths` here never named the external file at
+        all. Conflict detection's real coverage window had silently shrunk to
+        "before the first step" only -- everything after collapsed into a
+        fresh baseline every single step, regardless of what changed.
+        """
         for path in paths:
             key = str(Path(path))
             self.hashes[key] = self.hash_file(key)
-        self.fingerprints = {}
-        for root in self.roots:
-            self.fingerprints.update(self._walk(root))
-        self._known.clear()
-        self._since_walk = 0
+            try:
+                st = Path(key).stat(follow_symlinks=False)
+                self.fingerprints[key] = (st.st_size, st.st_mtime_ns)
+            except OSError:
+                self.fingerprints.pop(key, None)
+            self._known.pop(key, None)
 
     def close(self) -> None:
         """Release inotify file descriptors."""

@@ -1760,6 +1760,41 @@ class TestConflictDetection:
 
         assert detector._detect_declared() == []
 
+    def test_refresh_does_not_erase_a_conflict_on_an_unrelated_path(
+            self, tmp_path) -> None:
+        """A step's own refresh(touches=[...]) must only re-baseline what it
+        declares -- an external edit to a DIFFERENT watched file, detected
+        before this call, has to still be there after it. Found live: refresh
+        used to rebuild fingerprints from a full walk of every root
+        regardless of `paths`, so any external conflict already recorded
+        anywhere under `watch_roots` vanished on the very next step's
+        refresh() call, not just the step's own declared change."""
+        mine = tmp_path / "mine.conf"
+        mine.write_text("v1", encoding="utf-8")
+        other = tmp_path / "other.txt"
+        other.write_text("baseline", encoding="utf-8")
+        detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
+        detector.baseline([str(mine)], roots=[tmp_path])
+
+        # Simulate a step that legitimately writes `mine` while, concurrently,
+        # something external edits `other` -- a file this step never declared.
+        mine.write_text("v2, written by the harness itself", encoding="utf-8")
+        other.write_text("edited by something else entirely", encoding="utf-8")
+
+        found_before_refresh = detector.detect()
+        assert any(c.path == str(other) for c in found_before_refresh)
+
+        detector.refresh([str(mine)])
+
+        found_after_refresh = detector.detect()
+        assert any(c.path == str(other) for c in found_after_refresh), (
+            "the external conflict on 'other' must survive a refresh() call "
+            "scoped to a completely different path"
+        )
+        assert not any(c.path == str(mine) for c in found_after_refresh), (
+            "the step's own declared write to 'mine' must NOT still read as a conflict"
+        )
+
     def test_close_is_a_no_op_when_inotify_was_never_started(self) -> None:
         detector = ConflictDetector(use_inotify=False)
         detector.close()  # must not raise

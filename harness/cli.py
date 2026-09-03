@@ -207,8 +207,20 @@ def _print_execution_report(done: RunResult) -> None:
     if done.abort_reason:
         print(f"reason : {done.abort_reason}")
     if done.rollback:
+        # `cancelled` (an unsafe undo the operator declined) used to be silently
+        # missing from this line entirely -- since no caller anywhere wires up
+        # RollbackManager's confirm_unsafe, every unsafe rollback action is
+        # auto-declined by that constructor's own default (`lambda action:
+        # False`), and this line reported "0 undone, 0 unverified, 0 failed"
+        # for that run -- reading as fully clean when a declared rollback
+        # action never ran at all. Found live: a task.yaml with an explicit
+        # `rm -f <path>` rollback entry (classified critical, so `safe` in the
+        # spec was overridden to effectively unsafe) left the target file in
+        # place after a deliberate failure, invisible in this summary and
+        # visible only in the audit JSON's rollback.results[].status.
         print(f"rollback: {len(done.rollback.undone)} undone, "
               f"{len(done.rollback.unverified)} unverified, "
+              f"{len(done.rollback.cancelled)} declined, "
               f"{len(done.rollback.failed)} failed")
     if done.audit_path:
         print(f"audit  : {done.audit_path}")
