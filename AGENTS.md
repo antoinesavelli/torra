@@ -73,6 +73,12 @@ touching any of these.
 - **A destructive/irreversible action never runs without an explicit human tick**, on every
   path (TUI, CLI, direct API) that can decline or execute a plan.
 
+## Secrets
+
+Never print, log, or paste a secret value (`OPENROUTER_API_KEY`, `.env` contents) — including in
+a suggested command like `RecoveryOption.action`. To check a var is set, show presence/length:
+`test -n "$VAR" && echo "VAR is set (${#VAR} chars)" || echo "VAR is MISSING"`.
+
 ## When to ask vs. act
 
 **Ask first:** anything on the safety-critical path (the five gates, `SafetyClassifier`,

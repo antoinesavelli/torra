@@ -169,7 +169,8 @@ class OpenRouterClient:
             # scrollback and any transcript downstream of it.
             RecoveryOption(
                 "check-key", "Check OPENROUTER_API_KEY",
-                "Every openrouter/* request needs a valid key in the environment.",
+                "Every openrouter/* request needs a valid key in the environment. Harness may also "
+                "load it from its own .env, which this shell check cannot see.",
                 'test -n "$OPENROUTER_API_KEY" && echo "OPENROUTER_API_KEY is set '
                 '(${#OPENROUTER_API_KEY} chars)" || echo "OPENROUTER_API_KEY is MISSING"'),
             RecoveryOption(

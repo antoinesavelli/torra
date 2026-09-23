@@ -295,6 +295,14 @@ consolidated out of.
   reaching for a live call in a test.
 - **Concurrent sessions share this working tree.** See AGENT_DOCTRINE.md's "Concurrent sessions
   share this working tree" — no repo-specific wrinkle here.
+- **Never print, log, or paste a secret value** (`OPENROUTER_API_KEY`, anything in `.env`, a
+  secret-bearing `os.environ` entry) — not in a debug `print`, a log line, a suggested command
+  (`RecoveryOption.action` is shown to operators and lands in the decisions log), a test fixture,
+  or a doc. To confirm a var is set, show presence/length, never the value:
+  `test -n "$VAR" && echo "VAR is set (${#VAR} chars)" || echo "VAR is MISSING"`. Precedent:
+  `OpenRouterClient.recovery_options()` once suggested `echo $OPENROUTER_API_KEY`; guarded by
+  `tests/test_core.py::TestOpenRouterClient::test_check_key_action_*`. Same rule as Paramo's
+  `SECURITY.md` ("Secrets must never be printed, logged, or pasted").
 - **Never let `CORE_RULES.yaml` numbers substitute for reading the code** — see the Area Maps
   section above.
 
