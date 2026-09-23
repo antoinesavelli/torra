@@ -164,10 +164,14 @@ class OpenRouterClient:
         """OpenRouter-shaped guidance -- "restart Ollama" would be exactly
         the wrong advice for an API-key or rate-limit failure here."""
         return [
+            # Presence + length only: an operator (or an agent) following
+            # `echo $OPENROUTER_API_KEY` put the full secret into terminal
+            # scrollback and any transcript downstream of it.
             RecoveryOption(
                 "check-key", "Check OPENROUTER_API_KEY",
                 "Every openrouter/* request needs a valid key in the environment.",
-                "echo $OPENROUTER_API_KEY"),
+                'test -n "$OPENROUTER_API_KEY" && echo "OPENROUTER_API_KEY is set '
+                '(${#OPENROUTER_API_KEY} chars)" || echo "OPENROUTER_API_KEY is MISSING"'),
             RecoveryOption(
                 "check-status", "Check OpenRouter's own status/credits",
                 f"{current_model} may be rate-limited, out of credits, or the "

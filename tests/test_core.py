@@ -1056,6 +1056,31 @@ class TestOpenRouterClient:
         assert "OPENROUTER_API_KEY" in titles
         assert "Ollama" not in titles and "systemctl" not in titles
 
+    @staticmethod
+    def _check_key_action() -> str:
+        options = OpenRouterClient(api_key="k").recovery_options()
+        return next(o.action for o in options if o.key == "check-key")
+
+    def test_check_key_action_never_suggests_echoing_the_key(self) -> None:
+        action = self._check_key_action()
+        assert "echo $OPENROUTER_API_KEY" not in action
+        assert 'echo "$OPENROUTER_API_KEY"' not in action
+        assert "printenv" not in action
+
+    def test_check_key_action_reveals_presence_and_length_never_the_value(self) -> None:
+        secret = "sk-or-v1-do-not-leak-0123456789"
+        env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}
+        cmd = ["sh", "-c", self._check_key_action()]
+
+        present = subprocess.run(
+            cmd, env={**env, "OPENROUTER_API_KEY": secret},
+            capture_output=True, text=True, check=True)
+        assert secret not in present.stdout + present.stderr
+        assert f"is set ({len(secret)} chars)" in present.stdout
+
+        missing = subprocess.run(cmd, env=env, capture_output=True, text=True, check=True)
+        assert "MISSING" in missing.stdout
+
     def test_stats_reports_calls_and_host(self) -> None:
         client = OpenRouterClient(
             api_key="k",
