@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "ask": [
+      "Edit(/harness/gates/**)",
+      "Edit(/harness/pipeline.py)",
+      "Edit(/harness/core/tasks.py)"
+    ]
+  }
+}

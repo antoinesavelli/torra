@@ -36,6 +36,7 @@ are AGENT_DOCTRINE.md's; this section is the harness-specific rest.)
 | Fact class | Canonical owner | Verified by |
 |---|---|---|
 | Safety/execution invariants | `HANDOFF.md` §2 | the specific test(s) each entry names |
+| Files Claude Code must ask before editing (the five gates, `Harness.execute`/`reject`, `Step` construction) | `.claude/settings.json` `permissions.ask` | *(trust-based: a new gate file under `harness/gates/` is covered by the glob; a renamed `pipeline.py`/`core/tasks.py` is not)* |
 | Default config *values* (informational only) | `CORE_RULES.yaml` | **nothing — known to drift, don't trust it** |
 | Default config *behavior* (what actually runs) | the module `CORE_RULES.yaml`'s header points to (`pipeline.py`, `gates/*.py`, `core/*.py`) | the test suite for that module |
 | What each package/file does | that directory's `README.md` | *(trust-based — no doc-audit test yet; keep honest by hand)* |
