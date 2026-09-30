@@ -8,7 +8,7 @@ this is a roadmap, not an implementation.
 
 ## Why a phased approach, not a big-bang expansion
 
-harness's own CLAUDE.md already has a rule for this ("before adding any
+harness's own AGENTS.md already has a rule for this ("before adding any
 feature," and "fix the cause, not the check"'s sibling: don't relax scope to
 get somewhere faster). Bolting on "everything Claude does" at once would
 mean skipping the four-question gate (does an existing gate cover this, does
@@ -26,7 +26,7 @@ loop didn't exist here before this change.
 `harness ask --verify "<check>" [--max-iterations N]` (default 3). See
 README.md's "`ask --verify`" section for usage.
 
-**Design constraint that shaped it:** harness's CLAUDE.md gates
+**Design constraint that shaped it:** harness's AGENTS.md gates
 `Harness.execute`, the five gates, and `Step.command`/`Step.run`
 construction as ask-first, safety-critical path. A naive implementation
 (one plan with an edit step followed by a test step) would also fight
@@ -93,7 +93,7 @@ it failed, don't reopen it" or "the operator prefers Y."
    (durable across sessions, not scoped to one conversation's context).
 3. Apply the four-question gate before wiring it into `SYSTEM_PROMPT` --
    `docs/README.md`'s own playbook already says not to do that step in the
-   same change that adds the source file (see CLAUDE.md's "Adding OS domain
+   same change that adds the source file (see agents/PLAYBOOKS.md's "Adding OS domain
    knowledge to `docs/`" playbook, item 4).
 
 **Not started.** No file exists for this yet; this section is the design

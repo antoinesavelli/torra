@@ -85,7 +85,7 @@ def iterate(
     command. It is the same sequence of turns a human retyping "that failed,
     fix it" after reading real output would produce, just bounded and
     automatic. See CLAUDE_MIGRATION_ROADMAP.md's design note for why that
-    keeps it off the safety-critical path this repo's CLAUDE.md gates on
+    keeps it off the safety-critical path this repo's AGENTS.md gates on
     asking first.
 
     Stops (without exhausting `max_iterations`) the moment any round's
