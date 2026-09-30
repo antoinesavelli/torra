@@ -12,7 +12,7 @@ Kept as a one-line-each historical index, not the original write-up — the
 original "What's wrong / proposed fix / regression test" prose is what a
 findings doc collects *before* a fix lands; once fixed, that prose is dead
 weight repeating what git history and the guarding test already say, and per
-`CLAUDE.md`'s own rule this file must shrink, not just accumulate a growing
+`AGENTS.md`'s own rule this file must shrink, not just accumulate a growing
 pile of "Fixed" stamps. If this file is ever extended with a **new**, still-open
 finding, give it the full write-up (what's wrong, evidence, proposed fix,
 regression test) the way these originally had it — trim it to one line only
