@@ -68,6 +68,8 @@ staged. Found a hunk you didn't write? Stop and find out whose it is.
 **Guidance placement.** Rules go in `AGENTS.md` (or a `docs/agents/<TOPIC>.md` / nested
 `<dir>/AGENTS.md`), never in `CLAUDE.md`, which only imports `AGENTS.md`.
 
+**Context is spend.** Every turn re-reads the whole conversation: batch independent calls in one turn, grep before reading and read only the lines needed, cap command output (`head`, `grep -m`, `--stat`), and offer a handoff to a fresh session at a task boundary once context is large.
+
 Full doctrine, read the section on demand (`/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md`):
 *Code conventions* and *Testing* before writing code · *Concurrent sessions* before staging or
 committing · *Before you ACT* and *Subagents* before delegating · *Cost and resources* before a paid
