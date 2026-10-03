@@ -1,6 +1,6 @@
 # Rename: harness → torra
 
-Written 2026-10-02. Status: **plan only, nothing executed.** The owner picked *torra* (Corsican: the
+Written 2026-10-02. Status (2026-10-03): **executed except Phase 3 and the old-unit deletion.** Done: Phase 0 backups (`/mnt/ParamoStorage/archive/harness-pre-torra-rename.bundle`, `dot-harness-pre-torra.tgz`), Phase 1 (`69b43a5`), Phase 2, Phase 4 (old `harness-*` unit files kept on disk for rollback), Phase 5 (system-library `2a5ee05`, Paramo `15927dc2`). Open: GitHub rename (Phase 3), delete old units, Corsican spelling check, `torra-doc-audit` model write failed twice on first runs (plumbing OK). Left as recorded: system-library `raw/`, `.ORIGINAL`, executor-machine docs, frozen `AIModels/agent-testing` fixtures, one owner quote. Original status was: **plan only, nothing executed.** The owner picked *torra* (Corsican: the
 Genoese coastal watchtower, which watches, signals and decides who lands) for this repo, the local
 model's system-engineering agent. This doc is the full-rename plan: package, CLI, directory, GitHub repo,
 host wiring and cross-repo references.
