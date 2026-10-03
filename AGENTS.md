@@ -105,6 +105,7 @@ Read the map for the area you're touching before grepping the source tree.
 | Known live-wire bugs from the last full-codebase audit | `AUDIT_FINDINGS.md` |
 | How code here is graded (six dimensions, tiering, floors) | `DEFENSIVE_CODING_STANDARDS.md` |
 | Migrating off Claude Code as operator (what's built, what's scoped but not) | `CLAUDE_MIGRATION_ROADMAP.md` |
+| Plan to an A on every `/grade` domain (findings, owner decisions, phases) | `GRADE_TO_A_PLAN.md` |
 
 `CORE_RULES.yaml` is loaded by nothing and is known to drift from the code it describes —
 never treat it as ground truth for "what does this actually do."
