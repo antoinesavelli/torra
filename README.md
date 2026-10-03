@@ -1,13 +1,13 @@
-# harness
+# torra
 
-[![CI](https://github.com/paramotrading/harness/actions/workflows/ci.yml/badge.svg)](https://github.com/paramotrading/harness/actions/workflows/ci.yml)
+[![CI](https://github.com/paramotrading/torra/actions/workflows/ci.yml/badge.svg)](https://github.com/paramotrading/torra/actions/workflows/ci.yml)
 
 A local model proposes. Five gates decide. You approve. Then it runs.
 
 ```bash
 pip install -e .
-harness doctor
-harness
+torra doctor
+torra
 ```
 
 ---
@@ -41,8 +41,8 @@ report     back into the conversation, and into telemetry
 Needs Python 3.10+, Ollama running locally with at least one model pulled.
 
 ```bash
-git clone https://github.com/paramotrading/harness.git ~/harness
-cd ~/harness
+git clone https://github.com/paramotrading/torra.git ~/torra
+cd ~/torra
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip -q
@@ -54,14 +54,14 @@ python3 -m pytest tests/ -q
 Expect **788 passed**. Then:
 
 ```bash
-harness doctor     # environment check
-harness            # the interface
+torra doctor     # environment check
+torra            # the interface
 ```
 
 Put it on PATH permanently:
 
 ```bash
-echo "alias harness='~/harness/.venv/bin/harness'" >> ~/.bashrc && source ~/.bashrc
+echo "alias torra='~/torra/.venv/bin/torra'" >> ~/.bashrc && source ~/.bashrc
 ```
 
 `inotify_simple` is optional and makes tree watching about 5,000x cheaper.
@@ -91,7 +91,7 @@ this order:
 - **Model** -- pick this tab's model override without a modal, the
   persistent sibling of `f2`'s picker; same list, same behavior.
 - **Evidence** -- a live health/crash summary, the same content
-  `harness evidence` prints, recomputed each time you switch to it.
+  `torra evidence` prints, recomputed each time you switch to it.
 - **Metrics** -- which model this tab actually used and its real size/
   context ceiling, a live `ollama ps`/GPU line, this session's own
   context/turn figures, cumulative token and OpenRouter spend counters
@@ -125,7 +125,7 @@ ones and skips the rest -- it no longer rejects the whole plan over one
 declined step. If an approved step's command looks like it depends on a
 declined one (references a path the declined step would have produced),
 you'll see a warning before anything runs; it's a best-effort hint; not a
-guarantee, since the harness has no real model of dependencies between
+guarantee, since torra has no real model of dependencies between
 steps.
 
 Every conversation is a tab. Each tab is a fully independent session -- its
@@ -184,20 +184,20 @@ middle-click to paste the X11 primary selection with no explicit copy step at al
 ## Commands
 
 ```bash
-harness                       # the interface
-harness ask "..."             # one request, approve at the prompt
-harness plan "..."            # plan only, print it, run nothing
-harness run task.yaml         # a hand-written task file, no model involved
-harness check task.yaml       # classify a task file without running it
-harness doctor                # environment check
-harness evidence              # what the harness has recorded about itself
-harness label                 # label recorded traffic
+torra                       # the interface
+torra ask "..."             # one request, approve at the prompt
+torra plan "..."            # plan only, print it, run nothing
+torra run task.yaml         # a hand-written task file, no model involved
+torra check task.yaml       # classify a task file without running it
+torra doctor                # environment check
+torra evidence              # what torra has recorded about itself
+torra label                 # label recorded traffic
 ```
 
 Exit codes: **0** ok, **1** usage, **2** stopped by a gate or unapproved, **3** failed.
 
 ```bash
-harness ask "restart ollama" || echo "stopped with $?"
+torra ask "restart ollama" || echo "stopped with $?"
 ```
 
 `run` and `check` deliberately never touch the model. When it is down, or wrong,
@@ -208,7 +208,7 @@ or you already know exactly what you want, the gates stay available without it.
 ## `ask --verify`: a bounded coding/refactor loop
 
 ```bash
-harness ask "add input validation to the login handler" \
+torra ask "add input validation to the login handler" \
     --verify "run pytest tests/test_login.py" \
     --max-iterations 3
 ```
@@ -221,7 +221,7 @@ the same conversation, exactly what a human retyping "that failed, fix it"
 after reading real output would produce. It stops the moment any round isn't
 COMPLETED (rejected, blocked, backend down, or the model asks a clarifying
 question) -- an automated loop cannot safely answer for you, only a human
-turn can. See `harness/iterate.py` for the implementation and
+turn can. See `torra/iterate.py` for the implementation and
 `CLAUDE_MIGRATION_ROADMAP.md` for why this is scoped the way it is.
 
 ---
@@ -265,7 +265,7 @@ shell commands should stop the run.
 step reads without modifying. Meaningful mainly for a model-generated
 plan, not a hand-written one: once such a step completes for real, its
 output enters the *model's own memory* of the conversation, tagged by
-that path -- `harness run`/`harness check` never touch the model at all,
+that path -- `torra run`/`torra check` never touch the model at all,
 so declaring it on a hand-written step validates cleanly but has nothing
 to feed.
 
@@ -286,7 +286,7 @@ decode of blobs piped to a shell, and `$IFS` field-splitting obfuscation.
 Regex over raw text missed five of twelve evasions in testing. This catches
 26 out of 26 with no false positives on 27 routine commands.
 
-**TRANSPARENCY.** Every branch the harness takes is recorded with its reasoning
+**TRANSPARENCY.** Every branch torra takes is recorded with its reasoning
 and lands in a JSON audit file. Reasoning is not optional; a decision logged
 without one is flagged as a violation.
 
@@ -320,7 +320,7 @@ it only in `ollama ps`, which nobody reads before typing a request.
 |---|---|---|
 | debug, crash, traceback, root cause | `gpt-oss:20b` | deepest local reasoning budget (replaces qwen3:32b, then muse-glimmer:30b; measured best of 4 models 2026-08-28) |
 | deploy, release, provision, systemd unit | `devstral:24b` | benchmarked best at tool/file-editing work |
-| refactor, implement, patch, migrate code | `devstral-small-2:24b` | 65.8% SWE-bench Verified (replaces qwen3-coder:30b, 2026-08-28; still not benchmarked against this harness) |
+| refactor, implement, patch, migrate code | `devstral-small-2:24b` | 65.8% SWE-bench Verified (replaces qwen3-coder:30b, 2026-08-28; still not benchmarked against this torra) |
 | plan, architect, design, trade-off | `gpt-oss:20b` | long-context reasoning (replaces qwen3:32b, then muse-glimmer:30b; measured best of 4 models 2026-08-28) |
 | analyze, summarize, review, audit | `gpt-oss:20b` | reasoning-bound, not tool-bound (replaces qwen3:32b, then muse-glimmer:30b; measured best of 4 models 2026-08-28) |
 | list, show, status, "what is" | `devstral:24b` | measured live: qwen3.5:latest gave a content-free non-answer on 1 of 5 real disk/status checks |
@@ -333,8 +333,8 @@ Every Qwen-origin model in the catalog was swapped for a non-Chinese equivalent 
 run showed muse-glimmer tied on accuracy but ~6x the latency with a hard timeout,
 `qwen3.5:latest` → `gpt-oss:20b` (the `OllamaClient` fallback default). `devstral:24b`
 was already non-Chinese and is untouched.
-See `harness/gates/router.py`'s `ROUTING_RULES` comment for the full reasoning and the
-"not yet benchmarked against this harness" caveat.
+See `torra/gates/router.py`'s `ROUTING_RULES` comment for the full reasoning and the
+"not yet benchmarked against this torra" caveat.
 
 Whatever gets picked still has to fit: if the free VRAM can't hold it, the router
 downgrades to the next model that does, and says so in the routing reason -- never
@@ -362,11 +362,11 @@ everything else here.
 
 ```bash
 export OPENROUTER_API_KEY=...          # never a CLI arg, never persisted to disk
-harness ask "..." --model openrouter/anthropic/claude-3.5-sonnet
+torra ask "..." --model openrouter/anthropic/claude-3.5-sonnet
 ```
 
 Or put `OPENROUTER_API_KEY=...` in a `.env` file at the repo root --
-`harness` loads it automatically on every command (`cli.py`'s
+`torra` loads it automatically on every command (`cli.py`'s
 `_load_env_file`), no shell config needed. `.env` is already in
 `.gitignore`; an explicit `export` in your shell always wins over
 whatever's in the file.
@@ -385,16 +385,16 @@ If you have a second, SSH-reachable machine, the model can see real facts
 about it -- hostname, kernel, uptime, disk, memory, GPU -- to reason about in
 its answers, and can edit a file there through a narrow, controlled
 mechanism. In both cases the model never authors an `ssh`/`scp` command
-itself; the harness constructs the real action.
+itself; torra constructs the real action.
 
 ```bash
-export HARNESS_EXECUTOR_HOST=10.0.0.44
-export HARNESS_EXECUTOR_USER=antoine
-export HARNESS_EXECUTOR_SSH_KEY=~/.ssh/id_ed25519_executor_link
+export TORRA_EXECUTOR_HOST=10.0.0.44
+export TORRA_EXECUTOR_USER=antoine
+export TORRA_EXECUTOR_SSH_KEY=~/.ssh/id_ed25519_executor_link
 ```
 
 Same `.env`/shell-export precedence as `OPENROUTER_API_KEY` above. Absent
-`HARNESS_EXECUTOR_HOST`, this is entirely off -- no SSH connection is ever
+`TORRA_EXECUTOR_HOST`, this is entirely off -- no SSH connection is ever
 attempted, and nothing about local-only behavior changes (`HANDOFF.md`
 §2.52).
 
@@ -403,7 +403,7 @@ model proposes exactly three steps: pull the file to a local path it
 chooses, an ordinary local edit step against that path (full undo/snapshot
 coverage, unchanged), then push it back. The push step always needs an
 explicit tick, regardless of what it looks like -- writing to a second,
-less-guarded machine is always treated as the harness's highest risk level,
+less-guarded machine is always treated as torra's highest risk level,
 unconditionally. Its undo is real: the file's prior content is snapshotted
 over SSH before the push runs, so a failure later in the same run genuinely
 restores it, the same provable bar local file undo already has
@@ -413,14 +413,14 @@ restores it, the same provable bar local file undo already has
 
 ## Site-knowledge library
 
-Point the harness at a directory of Markdown docs about this specific machine
+Point torra at a directory of Markdown docs about this specific machine
 (hardware, services, storage layout, past fixes, quirks) and the model gets a
 topic index of it on every turn -- so "where is the backup repo" gets answered
 from what you have already written down instead of a guess or a clarifying
 question:
 
 ```bash
-export HARNESS_KNOWLEDGE_DIR=/path/to/your/docs
+export TORRA_KNOWLEDGE_DIR=/path/to/your/docs
 ```
 
 This only gives the model *awareness* that the library exists, never a new
@@ -440,18 +440,18 @@ indexed.
 
 ## Telemetry
 
-Every request is recorded to `~/.harness/telemetry/tasks.jsonl`: the request
+Every request is recorded to `~/.torra/telemetry/tasks.jsonl`: the request
 text with secrets redacted, what each gate decided, the model, the outcome.
-`harness evidence` also reports a health summary aggregated from that same
+`torra evidence` also reports a health summary aggregated from that same
 file -- the full outcome breakdown (not just completions), local vs.
 OpenRouter split, mean turn time, rollback verification rate -- and a crash
-history from `~/.harness/telemetry/crashes.jsonl`: unhandled exceptions that
+history from `~/.torra/telemetry/crashes.jsonl`: unhandled exceptions that
 escaped every other guard, redacted the same way request text is, distinct
 from ordinary gated-task failures (those are outcomes, not crashes).
 
 ```bash
-harness label       # two minutes a week
-harness evidence    # what the harness has learned about itself
+torra label       # two minutes a week
+torra evidence    # what torra has learned about itself
 ```
 
 `drift()` and the loophole audit both refuse to report a rate below **30 labels**,
@@ -464,22 +464,24 @@ wearing a percentage sign.
 
 | Path | Holds |
 |------|-------|
-| `harness/core/` | steps, task specs, conflict detection, context, the Ollama client |
-| `harness/gates/` | the five guardrails, one submodule each |
-| `harness/agent.py` | the model loop |
-| `harness/pipeline.py` | the seven stages |
-| `harness/pipeline_types.py` | the data model `Harness` produces (`Stage`, `Outcome`, `Plan`, `RunResult`) |
-| `harness/telemetry/` | what it records about itself |
-| `harness/tui.py` | the interface: tabs, one session per tab |
-| `harness/core/session.py` | `SessionStore` -- one persisted transcript per conversation |
-| `harness/cli.py` | entry points |
-| `harness/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
+| `torra/core/` | steps, task specs, conflict detection, context, the Ollama client |
+| `torra/gates/` | the five guardrails, one submodule each |
+| `torra/agent.py` | the model loop |
+| `torra/pipeline.py` | the seven stages |
+| `torra/pipeline_types.py` | the data model `Torra` produces (`Stage`, `Outcome`, `Plan`, `RunResult`) |
+| `torra/telemetry/` | what it records about itself |
+| `torra/tui.py` | the interface: tabs, one session per tab |
+| `torra/core/session.py` | `SessionStore` -- one persisted transcript per conversation |
+| `torra/cli.py` | entry points |
+| `torra/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
 | `tests/` | 757 cases, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
 | `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
+| `AUDIT_LOG.md` | weekly append-only log from the `torra-doc-audit` opencode routine (systemd user timer, Mon 06:50) — greps doc citations, and a local-model agent judges any that don't resolve real-vs-false-positive. Runner: `~/.local/share/platform-routines/` (a sibling to Paramo's own `paramo-routines/`). |
+| `DEFENSIVE_SCORECARD_LOG.md` | monthly append-only log from the `torra-defensive-scorecard` opencode routine (systemd user timer, 1st, 07:35) — runs `scripts/dev/defensive_coding_report.py --enforce`, and only on a real regression has a local-model agent diagnose the likely commit from recent git history. |
 
 ---
 
@@ -508,15 +510,15 @@ isn't one, so those numbers are no longer claimed here at all.
 1. **Model judgement is measured now, and the first real finding is still
    open.** The gates are measured exhaustively; tests still use a scripted
    backend and prove nothing about judgement on their own. But real traffic
-   now flows through telemetry and gets hand-labeled (`harness label`), and
+   now flows through telemetry and gets hand-labeled (`torra label`), and
    that measurement found the model stops and asks for only ~18% of requests
    a human calls genuinely ambiguous (82% live false-negative rate against a
    0% synthetic baseline). Whether a routing fix already found along the way
    closes that gap isn't confirmed yet -- too little traffic has run since.
-   One related failure shape is fixed: a question the harness could answer
+   One related failure shape is fixed: a question torra could answer
    itself with a safe read-only command (`lsblk`, `systemctl --failed`, ...)
    used to get deflected back to "please run that yourself" instead of the
-   harness just running it -- live A/B tested against the real model before
+   torra just running it -- live A/B tested against the real model before
    shipping. See `HANDOFF.md` §6.1 and §2.40.
 2. **Real traffic exists, and it already found two real bugs.** No longer a
    gap to close -- 143 recorded tasks and counting, 91 hand-labeled, and that

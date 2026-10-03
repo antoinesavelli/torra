@@ -1,8 +1,8 @@
 # Local model benchmark: qwen3:8b vs qwen3:32b vs devstral
 
 Measured 2026-07-28 on this machine (RTX 4090, 24GB VRAM) against a locally
-running `ollama serve`, driving the *real* `harness.agent.Agent` and
-`harness.gates` (SafetyClassifier, Clarifier) — not a synthetic harness. See
+running `ollama serve`, driving the *real* `torra.agent.Agent` and
+`torra.gates` (SafetyClassifier, Clarifier) — not a synthetic torra. See
 `scripts/dev/model_bench/` for the runnable scripts and raw JSON results.
 
 ## Environment note
@@ -28,7 +28,7 @@ minutes per response.
 | qwen3:32b | 20 GB | 21-22 GB | **16384** (default 32768 spills to 9%/91% CPU/GPU) |
 | devstral | 14 GB | 18 GB | 32768 (default) |
 
-**Finding**: `harness.core.OllamaClient.chat()` has no way to set `num_ctx`.
+**Finding**: `torra.core.OllamaClient.chat()` has no way to set `num_ctx`.
 qwen3:32b needs it reduced to stay fully resident on a 24GB card, and
 `ModelRouter.fits()` only reasons about parameter count vs. VRAM, not
 context-length-driven KV-cache growth — so the router could route to 32b and
@@ -39,8 +39,8 @@ of code changes. Worth a follow-up: an optional `num_ctx` parameter on
 ## Task battery
 
 12 tasks in `scripts/dev/model_bench/tasks.py`, tiers 1 (trivial) through 8
-(numeric-fidelity stress test), using the harness's actual `SYSTEM_PROMPT` and
-`PLAN_SCHEMA` from `harness/agent.py` — not a generic chatbot benchmark. Each
+(numeric-fidelity stress test), using torra's actual `SYSTEM_PROMPT` and
+`PLAN_SCHEMA` from `torra/agent.py` — not a generic chatbot benchmark. Each
 task states an explicit rubric (acceptable intents, whether rollback/risk
 flagging is required) so grading is objective, not eyeballed.
 
@@ -82,7 +82,7 @@ depending on sampling; see "Caveats" below.
   quantity-dense task. Fine for genuinely trivial/quick lookups (its
   configured role), not reliable enough as a sole default.
 - **All three models unanimously refused** the "wipe /etc to fix a config
-  issue" task — the harness's safety framing in `SYSTEM_PROMPT` rule 8 is
+  issue" task — torra's safety framing in `SYSTEM_PROMPT` rule 8 is
   landing correctly across model sizes. This is the single most
   safety-relevant result in this benchmark and it was unanimous.
 
@@ -105,7 +105,7 @@ measurement validates rather than contradicts it. Two concrete follow-ups:
 
 Prototype in `scripts/dev/model_bench/planner_verifier.py`: devstral plans,
 qwen3:8b independently reviews the plan and the original request, asked to
-find problems (not to agree). The harness has no LLM-based verifier today —
+find problems (not to agree). Torra has no LLM-based verifier today —
 `SafetyClassifier`/`Clarifier` are pattern/structure-based, not semantic.
 
 **Result: 6/6 plans reviewed were vetoed.** That is itself a signal the
@@ -124,7 +124,7 @@ real categories:
     directories.
 - **False or debatable concerns:**
   - Objected that a service-restart rollback "lacks logic to determine if the
-    service was running before" — the harness's `UndoGenerator.capture_service`
+    service was running before" — torra's `UndoGenerator.capture_service`
     already does exactly this automatically; the verifier had no visibility
     into that downstream guarantee and flagged a non-issue.
   - Penalized a deliberately cautious, diagnostics-only response to the
@@ -136,7 +136,7 @@ real categories:
 **Conclusion**: real signal exists (two genuine script-logic bugs neither
 `SafetyClassifier` nor `Clarifier` can catch, since both are pattern/structure
 matchers rather than logic checkers), but a second-model verifier needs (a)
-context about what the harness's deterministic gates already guarantee, so it
+context about what torra's deterministic gates already guarantee, so it
 stops re-flagging solved problems, and (b) calibration against over-eager
 rejection, or it will bias the planner toward premature action instead of
 appropriate caution. Worth prototyping further with those two fixes; not
@@ -205,7 +205,7 @@ undermined every routing decision `CORE_RULES.yaml` makes for any model
 pulled without an explicit tag, including `ModelRouter.score()`'s own
 availability filter, which had the identical bug.
 
-Fixed in `harness/gates/router.py` (`model_available()`, a small tag-aware
+Fixed in `torra/gates/router.py` (`model_available()`, a small tag-aware
 matcher used in both `ModelRouter.score()` and `Agent.converse()`), with
 regression tests in `tests/test_gates.py::TestModelAvailable` and
 `tests/test_agent.py::test_an_untagged_pull_is_not_mistaken_for_absent`.
@@ -224,15 +224,15 @@ CRITICAL), and the redirect-overwrite check didn't special-case `/dev/null`
 before applying that prefix rule. Since `> /dev/null` and `2>/dev/null` are
 among the most common idioms in shell scripting, this would have forced
 manual confirmation on a large fraction of ordinary commands — exactly the
-"crying wolf" failure mode the harness's own design principle warns about
+"crying wolf" failure mode torra's own design principle warns about
 (training operators to tick without reading).
 
-Fixed in `harness/gates/safety.py` (`SAFE_REDIRECT_TARGETS` exemption for
+Fixed in `torra/gates/safety.py` (`SAFE_REDIRECT_TARGETS` exemption for
 `/dev/null`, `/dev/zero`, `/dev/full`, `/dev/stdout`, `/dev/stderr` — not all
 of `/dev`, so `dd ... of=/dev/sda` stays CRITICAL), with regression tests in
 `tests/test_gates.py::TestSafety`.
 
-## Would the harness figure out how to clean disk space?
+## Would torra figure out how to clean disk space?
 
 Tested against this machine's actual state: `/` genuinely at 92% full, 8.3GB
 free. Asked devstral the open-ended "I am running low on disk space, can you
@@ -246,7 +246,7 @@ files"), it proposed: `apt-get clean`, `journalctl --vacuum-time=3d`,
 `apt-get autoremove --purge`, and emptying the trash — a genuinely sensible,
 real cleanup plan. The trash-empty step (`rm -rf ~/.local/share/Trash/*`)
 was correctly flagged CRITICAL despite being fairly benign in this specific
-case, which is the harness's deliberate, conservative tradeoff working
+case, which is torra's deliberate, conservative tradeoff working
 exactly as designed.
 
 Two caveats surfaced: it correctly *inferred* that the locally-pulled Ollama
@@ -260,7 +260,7 @@ was never mentioned in the request — a hallucination in the rollback
 specifically, not the main plan.
 
 **Fixed.** `observe_machine()` now includes a dedicated probe
-(`OLLAMA_MODELS_DIR_PROBE` in `harness/core/machine.py`) that reads the
+(`OLLAMA_MODELS_DIR_PROBE` in `torra/core/machine.py`) that reads the
 *running* `ollama serve` process's actual `OLLAMA_MODELS` from
 `/proc/<pid>/environ`, not the calling shell's own environment -- the two
 commonly differ, exactly as they did on this machine, where the systemd
@@ -297,7 +297,7 @@ protected path.
 ## Adversarial and boundary-condition testing (devstral)
 
 Ten scenarios via `scripts/dev/model_bench/edge_cases.py`, chosen to probe
-specifically what could defeat the harness's safety story rather than its
+specifically what could defeat torra's safety story rather than its
 plan quality.
 
 **Result: 10/10 handled appropriately.** Notably:
@@ -372,7 +372,7 @@ independent classification and no operator confirmation, regardless of what
 the command actually does.
 
 **Fixed.** `TaskSpec.rollback_actions()` now returns the raw command
-alongside the callable, and `Harness.execute` classifies every rollback
+alongside the callable, and `Torra.execute` classifies every rollback
 command with the same `SafetyClassifier` regular steps use before pushing it
 onto the rollback stack: `effective_safe = declared_safe and not
 classifier_says_risky`. A declaration can only make a command *more*
@@ -417,7 +417,7 @@ summary per turn (message plus a one-line-per-step digest), so context grew
 by roughly 25-30 tokens per turn against a 24,000-token budget with a 90%
 trigger — at that rate it would take several hundred real turns in one
 session to ever engage the compression path tested in `tests/test_gates.py`.
-Not a bug (the harness's own `HANDOFF.md` already notes this component "sat
+Not a bug (torra's own `HANDOFF.md` already notes this component "sat
 unused for six phases" until the agent existed), but worth knowing: the
 degradation-ladder logic `HANDOFF.md` §5 flags as a live wire is exercised by
 its unit tests, not by anything resembling a typical real conversation.
@@ -446,7 +446,7 @@ sequence of actions for a GPU that was never actually down.
 The gates still provide a real safety net here: the purge and reboot steps
 were both correctly classified DANGEROUS, so a human reviewing the plan
 before approving would see two destructive steps and — if they read the
-plan, which is the entire premise the harness's checkbox design depends on —
+plan, which is the entire premise torra's checkbox design depends on —
 could catch the false premise themselves before anything ran. This is a
 narrower, different-shaped gap than the rollback-classification one above:
 that one bypasses the gates entirely with zero human review possible; this
@@ -455,10 +455,10 @@ reasoning doesn't reliably reconcile a user's claim against context it was
 specifically given to check claims against. Worth a follow-up prompt
 adjustment (e.g. an explicit instruction to flag when the request contradicts
 observed state) rather than a code change — this is a model-behavior finding,
-not a gate the harness is missing.
+not a gate torra is missing.
 
 **Attempted the prompt adjustment; the effect is real but not reliable.**
-Added `SYSTEM_PROMPT` rule 9 (`harness/agent.py`): check the request against
+Added `SYSTEM_PROMPT` rule 9 (`torra/agent.py`): check the request against
 observed state, use intent "ask" and name the discrepancy on a
 contradiction. Re-ran the identical GPU-failure request repeatedly against
 the live model rather than trusting a single before/after sample:
@@ -484,7 +484,7 @@ one more careful wording can push past.
 
 ## Found live: the router's own default fallback used the least reliable model
 
-Not from a test script -- a real user asked the running harness "exactly
+Not from a test script -- a real user asked the running torra "exactly
 what files take up lots of space" and hit `AgentError: proposed task is
 malformed: qwen3:8b proposal: step 3 has unknown field(s)
 ['estimated,seconds']`. Same exact defect this report already measured
@@ -501,7 +501,7 @@ nothing in the graded battery or the domain/edge-case exploration happened
 to produce an unmatched phrase) was still pointing at the model this same
 report calls out for having the only hard failure.
 
-**Fixed in two places**, both in `harness/gates/router.py`:
+**Fixed in two places**, both in `torra/gates/router.py`:
 
 1. `ModelRouter.default_model` now defaults to `"devstral"`, with the
    reasoning (this report, cited by name) recorded in the docstring so a
@@ -525,7 +525,7 @@ what the model *wasn't* to asserting what it correctly became, and why).
 
 ## Found live: a real disk-usage run, three separate bugs in one audit log
 
-A user asked the running harness "exactly what files are taking up large
+A user asked the running torra "exactly what files are taking up large
 amounts of space" and then asked what the audit actually contained -- the
 audit JSON (`disk-usage-analysis.audit.json`) turned out to hold three
 independent, previously-unseen defects, none caught by the graded battery
@@ -534,14 +534,14 @@ session against real sudo, real VRAM pressure, or a real double-click.
 
 **1. `sudo` failing inside a pipe was silently swallowed.** The proposed
 step was `sudo du -ah / | sort -rh | head -n 20`. This machine has no
-passwordless sudo and the harness runs with no TTY, so `sudo` failed
+passwordless sudo and torra runs with no TTY, so `sudo` failed
 immediately with "a password is required" -- but the step still reported
-`"ok": true, "output": ""`. Root cause: `harness/core/tasks.py`'s `shell()`
+`"ok": true, "output": ""`. Root cause: `torra/core/tasks.py`'s `shell()`
 ran commands via `subprocess.run(command, shell=True, ...)`, which on this
 (and most Debian-derived) systems means `/bin/sh` -> `dash`. Dash's
 pipeline exit status is only the **last** command's; `head` on empty stdin
 exits 0 regardless of what upstream failed. `sort` and `head` never saw an
-error, so neither did the harness. Fixed by running pipelines through bash
+error, so neither did torra. Fixed by running pipelines through bash
 with `pipefail` explicitly enabled instead of relying on the shell default:
 
 ```python
@@ -563,7 +563,7 @@ failed.** The same request's `routing_reason` read `"downgraded from
 devstral because only 5660 MB VRAM free"` while `"model": "devstral"` was
 still the final choice -- a downgrade that produces the thing it was
 downgrading away from. Root cause, in `ModelRouter._downgrade()`
-(`harness/gates/router.py`): when no model in `available` passes the
+(`torra/gates/router.py`): when no model in `available` passes the
 `runnable()` fit check, the fallback was `self.default_model`, which the
 fix above (the previous section) had just changed to `"devstral"` -- the
 same model this call was already trying to replace. Fixed by falling back
@@ -584,8 +584,8 @@ elif self.available:
 `[..., "execute", "report", "execute"]`, and its top-level `results` held
 **two** entries for the single `du-analyze` step, 0.17s apart on the
 decision timestamps -- too fast to be two deliberate runs. Root cause: the
-TUI's Run/Dry-run buttons (`harness/tui.py`) were never disabled while a
-plan executed, and `Harness.execute()` had no guard against being called
+TUI's Run/Dry-run buttons (`torra/tui.py`) were never disabled while a
+plan executed, and `Torra.execute()` had no guard against being called
 twice on a `RunResult` that had already finished -- a `_finish()`-level
 guard already existed to stop `"report"` being appended twice, but nothing
 equivalent existed one level up for `"execute"` itself or for re-running
@@ -595,12 +595,12 @@ against a live shell -- wasteful for a read-only `du`, but a genuine
 double-execution risk for anything that mutates state. Fixed in two
 places:
 
-- `Harness.execute()` now refuses outright when a real (non-dry-run)
+- `Torra.execute()` now refuses outright when a real (non-dry-run)
   attempt has already begun, logging a `"refused: already executed"`
   decision instead of re-running the plan. This is the binding fix -- it
   protects every caller (TUI, CLI, direct API use), not just the one UI
   path that happened to trigger it.
-- `HarnessApp._set_busy()` now also disables the Run/Dry-run buttons for
+- `TorraApp._set_busy()` now also disables the Run/Dry-run buttons for
   the duration of a run, so the wasted second execution never gets
   dispatched in the first place.
 
@@ -651,7 +651,7 @@ attached, then on a later attempt appeared to hang entirely.
 Root cause was routing's model-size guessing, and it was worse than the
 earlier devstral-default bug this same report already documents. Every
 size check in the router (`ModelRouter._params_b`) and in hardware
-fit-checking (`Accelerator.fits`, `harness/core/machine.py`) worked by
+fit-checking (`Accelerator.fits`, `torra/core/machine.py`) worked by
 regexing a digit out of the model's own name, falling back to a small
 hardcoded table for names that carry none. Two names in the new catalog
 had no digit at all -- `qwen3.5` and `deepseek-r1-heavy` -- and both
@@ -669,7 +669,7 @@ correctly read in the first place, and didn't actually fit at all.
 **Fixed by grounding both checks in the daemon's own metadata instead of
 guessing from the name:**
 
-- `OllamaClient.model_info(model)` (`harness/core/ollama.py`) calls
+- `OllamaClient.model_info(model)` (`torra/core/ollama.py`) calls
   `/api/show` and returns real `params_b` (parsed from `parameter_size`,
   e.g. `"14.8B"` or `"137M"`) and `chat_capable` (`"completion" in
   capabilities`).
@@ -701,7 +701,7 @@ tests in `TestRouting` (`test_a_downgrade_never_lands_on_an_embedding_model`,
 models the day this was found -- `qwen3:32b`, `qwen3-coder:30b`,
 `devstral:24b`, `qwen3.5:latest` -- deleting the other twelve, including
 the embedding model that triggered this investigation. `ROUTING_RULES`
-and `default_model` (`harness/gates/router.py`) were updated to match:
+and `default_model` (`torra/gates/router.py`) were updated to match:
 the tag itself changed for the default and the "deploy" rule (bare
 `"devstral"` never matched the real pulled tag `"devstral:24b"` once
 anything else was pulled under a different tag -- the exact class of bug
@@ -714,12 +714,12 @@ see `ROUTING_RULES`' own docstring note before trusting them the same way.
 
 ## Requested audit loop: find an issue, fix it, repeat until none are left
 
-Not a benchmark run -- a systematic read of every file in `harness/`,
+Not a benchmark run -- a systematic read of every file in `torra/`,
 fixing each real defect found and adding a regression test before moving
 to the next file, until a full pass turned up nothing new. Eight
 behavioral fixes and one documentation-honesty fix, in the order found:
 
-1. **`Harness.execute()`'s replay guard fired on a plan that never ran
+1. **`Torra.execute()`'s replay guard fired on a plan that never ran
    anything.** `result.executed` was set unconditionally right before the
    step loop, not inside it -- so a plan `BLOCKED` by a precondition or
    file-conflict check on step one (before a single command ran) was
@@ -747,13 +747,13 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    -- `-s`/`-n`/`--signal` consume the next token as their argument, not a
    PID, which matters: a naive fix risked flagging `kill -s 1 12345`
    (signal 1 to PID 12345, nowhere near PID 1) as if it targeted PID 1.
-5. **`TaskLogger.record()` had no caller anywhere.** `harness
-   label`/`harness evidence` only ever *read* `tasks.jsonl`; nothing in
+5. **`TaskLogger.record()` had no caller anywhere.** `torra
+   label`/`torra evidence` only ever *read* `tasks.jsonl`; nothing in
    `pipeline.py`, `agent.py`, or `tui.py` ever wrote to it. Both commands
-   could only ever report zero tasks, no matter how much the harness was
+   could only ever report zero tasks, no matter how much torra was
    actually used -- and this is the file this report's own §6.1 (in
    `HANDOFF.md`) names as the path to closing the project's only P0 gap.
-   Wired `Harness._finish()` to call `self.telemetry.record(...)` for
+   Wired `Torra._finish()` to call `self.telemetry.record(...)` for
    every turn, the same choke point the audit-JSON write already uses.
 6. **`OllamaClient.fallback_model` still defaulted to `"qwen3:8b"`** --
    deleted in the same catalog pruning that produced the router-default
@@ -763,7 +763,7 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    different constant nobody had re-checked against the pruned catalog.
    Changed to `qwen3.5:latest`.
 7. **`LoopholeAudit` was fully built, tested nowhere, wired nowhere.** A
-   complete, carefully-designed measurement class (`harness/telemetry/audit.py`)
+   complete, carefully-designed measurement class (`torra/telemetry/audit.py`)
    for the "anchored but goalless" clarifier gap, exported from the
    package, with no caller anywhere in `cli.py` -- unlike its sibling
    `CorpusExporter.drift()`, which `cmd_evidence` already prints. Wired it
@@ -774,7 +774,7 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    Couldn't simply route it through `execute(result, {})`: a step's
    `approved` defaults to `True` when it doesn't need confirmation, so an
    all-safe plan would *run* on "reject" rather than being declined.
-   Added `Harness.reject()`, which refuses unconditionally regardless of
+   Added `Torra.reject()`, which refuses unconditionally regardless of
    what would have needed a tick, and wired the button to call it.
 9. **(Documentation, not behavior.)** `ResumePoint`'s docstring claimed
    "a crash doesn't mean starting over"; `ResumePoint.load()` has no
@@ -786,7 +786,7 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    saved sequence, deciding whether a skipped step's undos still get
    pushed onto the rollback stack).
 
-10. **`Harness._gate()` walked `watch_roots` twice for no possible
+10. **`Torra._gate()` walked `watch_roots` twice for no possible
     benefit.** `plan.conflicts = self.conflicts.detect()` ran immediately
     after `self.conflicts.baseline(...)` on the same object -- `detect()`
     re-reads exactly the state `baseline()` just captured, so it always
@@ -807,7 +807,7 @@ behavioral fixes and one documentation-honesty fix, in the order found:
     `raw.get("timeout")`, matching `to_steps()` exactly.
 
 **Not fixed, documented instead:** `detect_accelerator()`'s ROCm branch
-(`harness/core/machine.py`) detects an AMD GPU's *presence* but never
+(`torra/core/machine.py`) detects an AMD GPU's *presence* but never
 populates `vram_mb`/`free_vram_mb`, so `Accelerator.gpu` is always
 `False` on a ROCm system and the router treats it as CPU-only regardless
 of actual free VRAM. Real `rocm-smi --showmeminfo vram --csv` column
@@ -841,7 +841,7 @@ The model catalog on this machine had drifted since the original probe run:
 `qwen3:8b`/`qwen3:32b`/original `devstral` were gone, replaced by
 `qwen3.5:latest`/`qwen3-coder:30b`/`devstral:24b`, and `qwen3:32b` itself was
 missing entirely from `ollama list` even though `ROUTING_RULES` in
-`harness/gates/router.py` routes debug/plan/analyze to it by name — every
+`torra/gates/router.py` routes debug/plan/analyze to it by name — every
 request on that path was silently downgrading. Re-pulled `qwen3:32b` (20GB)
 and updated `popos_probe.py`'s `MODELS` to the four models `ROUTING_RULES`
 actually names: `qwen3:32b`, `qwen3.5:latest`, `qwen3-coder:30b`,
@@ -902,7 +902,7 @@ anything in the pruned four-model catalog (same staleness class as
 `popos_probe.py`'s `MODELS` list, fixed earlier the same day) — updated to
 `devstral:24b` and `qwen3.5:latest`.
 
-**Fix 1** (context about what the harness already guarantees): added an
+**Fix 1** (context about what torra already guarantees): added an
 explicit list of what `UndoGenerator`/`SafetyClassifier` do automatically —
 prior-state capture for files/services/packages/mkdir, independent risk
 re-classification — so the verifier stops re-flagging solved problems.
@@ -931,7 +931,7 @@ it.
 request, a `journalctl`-only plan, told explicitly not to flag "no fix") --
 mirrors this project's own established view that closed-vocabulary/general
 instructions undershoot compared to specific, measured cases (see
-`Clarifier`'s own docstring in `harness/gates/clarifier.py`).
+`Clarifier`'s own docstring in `torra/gates/clarifier.py`).
 
 **Second full-battery re-run was inconclusive for t5 specifically** --
 sampling variance meant the planner call for `t5` timed out before
@@ -992,9 +992,9 @@ concluding anything from one sample per model.
 ## 2026-08-23 — Site-knowledge library instruction wording, measured live
 
 Motivated by a real request ("when was the last borg backup made") that the
-harness answered by asking a clarifying question, when `/mnt/ParamoStorage/system-library/`
-already documented the exact backup setup on this machine and the harness
-had zero code path to it. Built `HARNESS_KNOWLEDGE_DIR` (see `HANDOFF.md`
+torra answered by asking a clarifying question, when `/mnt/ParamoStorage/system-library/`
+already documented the exact backup setup on this machine and torra
+had zero code path to it. Built `TORRA_KNOWLEDGE_DIR` (see `HANDOFF.md`
 §5's new "Site-knowledge library" entry) and iterated the instruction text
 in `MachineState.render()` three times, measuring live each time rather than
 guessing wording would work:

@@ -16,10 +16,10 @@ import pytest
 import yaml
 from conftest import plan_replies_with_summaries, plan_reply, scripted
 
-import harness.cli as cli
-from harness.core import OllamaClient, TaskSpec
-from harness.pipeline import Harness
-from harness.telemetry import CrashReporter, LabelStore, TaskLogger, TaskRecord
+import torra.cli as cli
+from torra.core import OllamaClient, TaskSpec
+from torra.pipeline import Torra
+from torra.telemetry import CrashReporter, LabelStore, TaskLogger, TaskRecord
 
 # --------------------------------------------------------------------------- #
 # Shared plumbing
@@ -29,7 +29,7 @@ from harness.telemetry import CrashReporter, LabelStore, TaskLogger, TaskRecord
 def patch_ollama(monkeypatch, transport) -> None:
     """Route every OllamaClient cli.py constructs through a scripted transport.
 
-    build_harness()/cmd_doctor() call the real OllamaClient() with no
+    build_torra()/cmd_doctor() call the real OllamaClient() with no
     injected transport, which would otherwise hit the real network. Patches
     the name cli.py imported, not the class itself, so other modules are
     unaffected.
@@ -42,8 +42,8 @@ def patch_ollama(monkeypatch, transport) -> None:
 def patch_observe(monkeypatch, hostname: str = "pop-os") -> None:
     """Keep Agent.observe() off the real machine -- see agent.py's default
     observer, which calls this name at call time from its own module."""
-    from harness.core import MachineState
-    monkeypatch.setattr("harness.agent.observe_machine",
+    from torra.core import MachineState
+    monkeypatch.setattr("torra.agent.observe_machine",
                         lambda **kwargs: MachineState(hostname=hostname))
 
 
@@ -59,22 +59,22 @@ def write_task_file(path: Path, task_id: str, request: str,
 
 
 # --------------------------------------------------------------------------- #
-# build_harness (OpenRouter registration)
+# build_torra (OpenRouter registration)
 # --------------------------------------------------------------------------- #
 
 
-def test_build_harness_registers_openrouter_when_the_env_var_is_set(
+def test_build_torra_registers_openrouter_when_the_env_var_is_set(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     patch_ollama(monkeypatch, scripted({}))
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
 
-    harness = cli.build_harness(tmp_path)
+    torra = cli.build_torra(tmp_path)
 
-    assert "openrouter" in harness.agent.backends
-    assert harness.agent.backends["openrouter"].api_key == "k"
+    assert "openrouter" in torra.agent.backends
+    assert torra.agent.backends["openrouter"].api_key == "k"
 
 
-def test_build_harness_registers_openrouter_even_without_the_env_var(
+def test_build_torra_registers_openrouter_even_without_the_env_var(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Found live by manual testing: registering it only when the env var
     was set meant an unconfigured `--model openrouter/...` request matched
@@ -87,22 +87,22 @@ def test_build_harness_registers_openrouter_even_without_the_env_var(
     patch_ollama(monkeypatch, scripted({}))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
-    harness = cli.build_harness(tmp_path)
+    torra = cli.build_torra(tmp_path)
 
-    assert "openrouter" in harness.agent.backends
-    assert harness.agent.backends["openrouter"].api_key == ""
+    assert "openrouter" in torra.agent.backends
+    assert torra.agent.backends["openrouter"].api_key == ""
 
 
-def test_build_harness_registers_openrouter_even_when_offline(
+def test_build_torra_registers_openrouter_even_when_offline(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """offline is for `harness run` -- a hand-written task file that never
+    """offline is for `torra run` -- a hand-written task file that never
     calls the model at all, so this is harmless either way: constructing
     OpenRouterClient makes no network call, only chat() would."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
 
-    harness = cli.build_harness(tmp_path, offline=True)
+    torra = cli.build_torra(tmp_path, offline=True)
 
-    assert "openrouter" in harness.agent.backends
+    assert "openrouter" in torra.agent.backends
 
 
 # --------------------------------------------------------------------------- #
@@ -126,9 +126,9 @@ def test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again(
             {"id": "rm1", "run": f"rm -f {victim1}", "touches": [str(victim1)]},
             {"id": "rm2", "run": f"rm -f {victim2}", "touches": [str(victim2)]},
         ]}, source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
     assert len(plan.needs_confirmation) == 2, "both rm steps must need confirmation"
 
     calls = {"n": 0}
@@ -159,9 +159,9 @@ def test_approve_at_prompt_records_a_real_yes_and_no(
             {"id": "no-undo", "run": "rm -f /nonexistent-path-xyz"},
             {"id": "has-undo", "run": f"rm -f {victim}", "touches": [str(victim)]},
         ]}, source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
     assert len(plan.needs_confirmation) == 2
 
     answers = iter(["y", "n"])
@@ -185,9 +185,9 @@ def test_approve_at_prompt_shows_the_steps_description(
         "steps": [{"id": "rm", "run": "rm -rf /tmp/build-cache",
                   "description": "clears the cache confirmed stale by "
                                  "the earlier du check"}]}, source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
 
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     cli.approve_at_prompt(plan)
@@ -202,9 +202,9 @@ def test_approve_at_prompt_does_not_print_a_description_that_only_repeats_run(
         "task_id": "t", "request": "delete a file",
         "steps": [{"id": "rm", "run": "rm -f /tmp/x",
                   "description": "rm -f /tmp/x"}]}, source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
 
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     cli.approve_at_prompt(plan)
@@ -225,9 +225,9 @@ def test_print_plan_shows_a_steps_description(
         "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage",
                   "description": "confirms free space before the larger "
                                  "copy in the next step"}]}, source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
 
     cli.print_plan(plan)
 
@@ -240,9 +240,9 @@ def test_print_plan_does_not_repeat_the_command_as_a_description(
         "task_id": "t", "request": "check disk usage",
         "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage"}]},
         source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
 
     cli.print_plan(plan)
 
@@ -267,9 +267,9 @@ def test_print_dependency_warnings_shows_a_real_hit_before_execute_would_run(
              "touches": ["/tmp/scratch-dir/data.txt"]},
             {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"},
         ]}, source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
 
     cli.print_dependency_warnings(plan, {"rm-declined": False, "use-it": True})
 
@@ -283,9 +283,9 @@ def test_print_dependency_warnings_prints_nothing_when_there_is_nothing_to_flag(
         "task_id": "t", "request": "two unrelated safe steps",
         "steps": [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}]},
         source="test")
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
 
     cli.print_dependency_warnings(plan, {})
 
@@ -320,7 +320,7 @@ def test_evidence_intent_breakdown_does_not_silently_drop_answer_and_refuse(
 
 def test_evidence_prints_the_loophole_audit_alongside_drift(
         tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Found in a full-file audit: LoopholeAudit (harness/telemetry/audit.py)
+    """Found in a full-file audit: LoopholeAudit (torra/telemetry/audit.py)
     was fully implemented and exported but had no caller anywhere -- unlike
     its sibling CorpusExporter.drift(), which cmd_evidence already printed.
     A well-designed, working measurement with zero way to actually see its
@@ -459,7 +459,7 @@ def test_ask_verify_fixes_a_failing_check_and_reports_success(
     # The placeholder request text below reads as underspecified to
     # Clarifier.detect(), which would otherwise spend a scripted reply on
     # a repair round -- see test_iterate.py's _no_repairs for why.
-    monkeypatch.setattr("harness.agent.Agent.MAX_REPAIRS", 0)
+    monkeypatch.setattr("torra.agent.Agent.MAX_REPAIRS", 0)
     marker = tmp_path / "fixed"
     patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
         plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
@@ -484,7 +484,7 @@ def test_ask_verify_fixes_a_failing_check_and_reports_success(
 def test_ask_verify_reports_failure_once_iterations_are_exhausted(
         tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
     patch_observe(monkeypatch)
-    monkeypatch.setattr("harness.agent.Agent.MAX_REPAIRS", 0)
+    monkeypatch.setattr("torra.agent.Agent.MAX_REPAIRS", 0)
     patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
         plan_reply("edit", "add x", [{"id": "edit", "run": "true"}]),
         plan_reply("verify1", "check", [{"id": "verify", "run": "false"}]),
@@ -671,7 +671,7 @@ def test_run_reports_per_step_results_and_the_audit_path(
         tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     """`cmd_run` used to hand-roll its own post-execution print instead of
     reusing `_print_execution_report` -- it showed only the bare outcome,
-    with no per-step ok/FAIL breakdown and no audit path, unlike `harness
+    with no per-step ok/FAIL breakdown and no audit path, unlike `torra
     ask`. A failed or partially-run task file gave no way to tell which
     step failed without opening the audit JSON by hand."""
     marker = tmp_path / "marker"
@@ -715,11 +715,11 @@ def test_run_still_writes_an_audit_record_when_preconditions_fail(
         capsys: pytest.CaptureFixture[str]) -> None:
     """`cmd_run` used to print "preconditions failed: ..." and return
     directly, never calling `_finish()` -- the same choke point
-    `Harness.plan()` uses for the identical case. The full decision trail
+    `Torra.plan()` uses for the identical case. The full decision trail
     `_gate()` already built (every per-step classification, the precondition
     failure itself) was silently discarded: no audit JSON, no telemetry
     record, for every precondition-blocked run file."""
-    from harness.gates import StateVerifier
+    from torra.gates import StateVerifier
 
     monkeypatch.setattr(StateVerifier, "disk_free_gb", staticmethod(lambda path="/": 0.0))
     marker = tmp_path / "marker"
@@ -888,7 +888,7 @@ def test_doctor_reports_a_failing_reflink_probe(
     def broken_run(*args, **kwargs):
         raise FileNotFoundError("cp not found")
 
-    monkeypatch.setattr("harness.cli.subprocess.run", broken_run)
+    monkeypatch.setattr("torra.cli.subprocess.run", broken_run)
     args = argparse.Namespace(workdir=str(tmp_path / "wd"))
 
     exit_code = cli.cmd_doctor(args)
@@ -1029,7 +1029,7 @@ def test_label_eof_on_the_why_prompt_stops_without_losing_prior_labels(
 
 def test_tui_launches_when_textual_is_importable(tmp_path, monkeypatch) -> None:
     called: dict[str, object] = {}
-    monkeypatch.setattr("harness.tui.run_tui", lambda workdir=None, harness=None:
+    monkeypatch.setattr("torra.tui.run_tui", lambda workdir=None, torra=None:
                         called.setdefault("workdir", workdir))
 
     exit_code = cli.cmd_tui(argparse.Namespace(workdir=str(tmp_path)))
@@ -1038,27 +1038,27 @@ def test_tui_launches_when_textual_is_importable(tmp_path, monkeypatch) -> None:
     assert called["workdir"] == tmp_path
 
 
-def test_cmd_tui_builds_the_harness_through_build_harness(tmp_path, monkeypatch) -> None:
-    """`harness tui` used to build its own bare Harness(), a second,
-    independent construction path from build_harness() -- silently skipping
+def test_cmd_tui_builds_the_torra_through_build_torra(tmp_path, monkeypatch) -> None:
+    """`torra tui` used to build its own bare Torra(), a second,
+    independent construction path from build_torra() -- silently skipping
     both the disk-free precondition and OpenRouter registration
     (HANDOFF.md §2.27). Proven here by checking for the precondition only
-    build_harness() attaches, not by re-asserting build_harness()'s own
+    build_torra() attaches, not by re-asserting build_torra()'s own
     internals."""
     captured: dict[str, object] = {}
-    monkeypatch.setattr("harness.tui.run_tui", lambda workdir=None, harness=None:
-                        captured.setdefault("harness", harness))
+    monkeypatch.setattr("torra.tui.run_tui", lambda workdir=None, torra=None:
+                        captured.setdefault("torra", torra))
 
     cli.cmd_tui(argparse.Namespace(workdir=str(tmp_path)))
 
-    harness = captured["harness"]
-    assert isinstance(harness, Harness)
-    assert any(p.name == "disk:/" for p in harness.verifier.preconditions)
+    torra = captured["torra"]
+    assert isinstance(torra, Torra)
+    assert any(p.name == "disk:/" for p in torra.verifier.preconditions)
 
 
 def test_tui_reports_usage_error_when_textual_is_missing(tmp_path, monkeypatch,
                                                           capsys) -> None:
-    monkeypatch.setitem(__import__("sys").modules, "harness.tui", None)
+    monkeypatch.setitem(__import__("sys").modules, "torra.tui", None)
 
     exit_code = cli.cmd_tui(argparse.Namespace(workdir=str(tmp_path)))
 
@@ -1119,7 +1119,7 @@ def test_main_catches_a_task_spec_error_that_escapes_a_command(
     catches it internally and never lets it reach here. Monkeypatches a
     command to raise directly, the same way the unhandled-exception test
     below does for a bare Exception."""
-    from harness.core import TaskSpecError
+    from torra.core import TaskSpecError
 
     def boom(args):
         raise TaskSpecError("simulated: escaped a command's own catch")
@@ -1138,7 +1138,7 @@ def test_main_converts_an_unhandled_exception_to_a_failed_exit(
     """Explicit --workdir, not the bare ["doctor"] this test used to pass --
     once main()'s except block unconditionally constructs a CrashReporter
     against args.workdir, omitting it here would write a real file under
-    this machine's actual ~/.harness/telemetry/crashes.jsonl on every run."""
+    this machine's actual ~/.torra/telemetry/crashes.jsonl on every run."""
     def boom(args):
         raise RuntimeError("something broke")
 

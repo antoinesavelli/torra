@@ -29,7 +29,7 @@ else
 fi
 
 if [ ! -f .venv/bin/activate ]; then
-    echo "error: .venv not found -- run this from the harness checkout root" >&2
+    echo "error: .venv not found -- run this from torra checkout root" >&2
     exit 1
 fi
 

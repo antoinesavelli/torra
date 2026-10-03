@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Benchmark local Ollama models as the harness's planner, via the real Agent/gates.
+"""Benchmark local Ollama models as torra's planner, via the real Agent/gates.
 
-Depends on: harness.agent (Agent, Intent), harness.core (OllamaClient, observe_machine),
-harness.gates (SafetyClassifier, Clarifier, RiskLevel). Talks to a locally running
+Depends on: torra.agent (Agent, Intent), torra.core (OllamaClient, observe_machine),
+torra.gates (SafetyClassifier, Clarifier, RiskLevel). Talks to a locally running
 `ollama serve` over HTTP. A custom transport wraps every call to capture latency and
-token counts without touching harness code.
+token counts without touching torra code.
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tasks import TASKS, Task  # noqa: E402
 
-from harness.agent import Agent, AgentError, Intent  # noqa: E402
-from harness.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
-from harness.gates import Clarifier, RiskLevel, SafetyClassifier  # noqa: E402
+from torra.agent import Agent, AgentError, Intent  # noqa: E402
+from torra.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
+from torra.gates import Clarifier, RiskLevel, SafetyClassifier  # noqa: E402
 
 OLLAMA_HOST = "http://127.0.0.1:11434"
 RESULTS_PATH = Path(__file__).resolve().parent / "results.json"
@@ -35,8 +35,8 @@ MODELS = ["qwen3:8b", "qwen3:32b", "devstral"]
 
 #: Ollama's default 32768-token context pushes qwen3:32b to 9%/91% CPU/GPU on a
 #: 24GB card (measured: 25GB total working set). 16384 fits at 100% GPU (22GB).
-#: harness.core.OllamaClient.chat() has no num_ctx parameter, so this is
-#: injected into the request here rather than changing harness/ source for a
+#: torra.core.OllamaClient.chat() has no num_ctx parameter, so this is
+#: injected into the request here rather than changing torra/ source for a
 #: benchmark-only concern -- see the bench report for the upstream gap this
 #: surfaces in ModelRouter.fits().
 MODEL_NUM_CTX: dict[str, int] = {"qwen3:32b": 16384}

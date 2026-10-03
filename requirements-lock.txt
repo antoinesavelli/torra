@@ -7,7 +7,7 @@
 # tests against between one run and the next.
 #
 # Regenerate after deliberately upgrading a dependency (not as a reflex):
-#   .venv/bin/pip list --format=freeze | grep -v '^terminal-agent-harness==' | sort > requirements-lock.txt
+#   .venv/bin/pip list --format=freeze | grep -v '^torra==' | sort > requirements-lock.txt
 # Check the diff before committing -- a fresh venv can pick up stray
 # system-leaked packages (found live: dbus-python, present in the venv
 # with no project dependency requiring it) that don't belong here.

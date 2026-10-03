@@ -4,7 +4,7 @@ For whoever or whatever picks this up next.
 
 This document assumes you are an agent or an engineer with no memory of how this
 got built. It tells you what is load-bearing, what will bite you, and what has
-already been tried and failed. Read it before changing anything in `harness/`.
+already been tried and failed. Read it before changing anything in `torra/`.
 
 ---
 
@@ -14,25 +14,25 @@ already been tried and failed. Read it before changing anything in `harness/`.
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
 python3 -m pytest tests/ -q          # must print 774 passed
-harness doctor
+torra doctor
 ```
 
 Eight modules, ~6,900 lines shipped. `core.py`, `gates.py` and `telemetry.py` were later
 each split into a same-named package of single-concern submodules (see
 `DEFENSIVE_CODING_STANDARDS.md` §1.2 for why); every name still imports from the same
-top-level path, e.g. `from harness.gates import SafetyClassifier`. Read in this order:
+top-level path, e.g. `from torra.gates import SafetyClassifier`. Read in this order:
 
-1. `harness/core/` — `Step`, `TaskSpec` (`tasks.py`), `OllamaClient` (`ollama.py`),
-   conflict detection (`conflict.py`) — see `harness/core/README.md`
-2. `harness/gates/` — the five guardrails (`rollback.py`+`undo.py` is one
+1. `torra/core/` — `Step`, `TaskSpec` (`tasks.py`), `OllamaClient` (`ollama.py`),
+   conflict detection (`conflict.py`) — see `torra/core/README.md`
+2. `torra/gates/` — the five guardrails (`rollback.py`+`undo.py` is one
    guardrail, ROLLBACK_ON_FAIL, split across two files past the LOC cap) —
-   see `harness/gates/README.md`
-3. `harness/agent.py` — the model loop
-4. `harness/pipeline.py` — `Harness`, the seven stages, the only orchestrator
-   (`harness/pipeline_types.py` holds the `Stage`/`Outcome`/`Plan`/`RunResult`
+   see `torra/gates/README.md`
+3. `torra/agent.py` — the model loop
+4. `torra/pipeline.py` — `Torra`, the seven stages, the only orchestrator
+   (`torra/pipeline_types.py` holds the `Stage`/`Outcome`/`Plan`/`RunResult`
    data model it produces, re-exported from `pipeline.py` unchanged)
 
-`tui.py`, `cli.py` and `harness/telemetry/` are leaves. Nothing depends on them.
+`tui.py`, `cli.py` and `torra/telemetry/` are leaves. Nothing depends on them.
 
 ---
 
@@ -62,11 +62,11 @@ require every gate reimplemented on a second code path, and the second path is
 the one nobody tests.
 
 > Guarded by `tests/test_pipeline.py::test_a_hand_written_file_still_works_without_a_model`,
-> which asserts `harness.ollama.calls == 0` on the manual path
+> which asserts `torra.ollama.calls == 0` on the manual path
 
 ### 2.3 Unapproved means refused, never defaulted
 
-`Harness.execute` treats a step that needs confirmation and is absent from the
+`Torra.execute` treats a step that needs confirmation and is absent from the
 approvals map as **refused**. Do not "helpfully" default it to True for
 convenience, unattended runs, or anything else.
 
@@ -112,7 +112,7 @@ confirms it was restored.
 
 A `rollback:` entry's `safe` flag (from a hand-written task or a model's own
 proposal) can only make a command *more* cautious than `SafetyClassifier`
-would, never less. `Harness.execute` classifies every rollback command
+would, never less. `Torra.execute` classifies every rollback command
 alongside the declaration and requires both to agree it's safe;
 disagreement is logged as a decision and the command is treated as unsafe
 regardless of what was declared.
@@ -142,7 +142,7 @@ the same strict "unknown field or missing `run` is a hard error" discipline
 
 ### 2.8 `execute()` cannot be replayed on a result that already ran for real
 
-`Harness.execute` refuses immediately if `result.executed` is already
+`Torra.execute` refuses immediately if `result.executed` is already
 `True` -- it logs a `"refused: already executed"` decision and returns
 the result unchanged instead of re-running `plan.steps`. `executed` is a
 dedicated `RunResult` field, set only once a non-dry-run step is actually
@@ -194,7 +194,7 @@ the real output in the same list.
 `ModelRouter._params_b` and `_chat_capable` consult `model_params_b` /
 `model_chat_capable` (real `/api/show` data, `OllamaClient.model_info`)
 before falling back to guessing from the model's name. `Accelerator.fits`
-(`harness/core/machine.py`) does the same via its own `model_params_b`
+(`torra/core/machine.py`) does the same via its own `model_params_b`
 field. Both guesses exist only for when `/api/show` data is missing
 (daemon unreachable, or a model that failed a lookup) -- if it's present,
 it wins, unconditionally.
@@ -224,7 +224,7 @@ this invariant not holding.
 
 ### 2.10 Every way to decline a plan goes through the pipeline, and only once
 
-`Harness.reject(result)` exists specifically because `execute(result,
+`Torra.reject(result)` exists specifically because `execute(result,
 {})` is **not** a safe way to implement "decline this plan": a step's
 `approved` defaults to `True` whenever it doesn't need confirmation, so
 calling `execute` with empty approvals on an all-safe plan does not
@@ -236,7 +236,7 @@ recorded (§6.1), decision logged.
 Found in a full-file audit: the TUI's Reject button used to bypass all
 of that -- `self.current = None` and nothing else, leaving the single
 most direct expression of a decline with no trace anywhere. If you add
-another way to decline a plan, route it through `Harness.reject()`, not
+another way to decline a plan, route it through `Torra.reject()`, not
 through `execute()` with an empty approvals dict and not through UI
 state alone.
 
@@ -260,7 +260,7 @@ after the fact.
 
 ### 2.11 The post-execution summary call can report, never act
 
-`Harness._summarize()` (called once from `_finish()`, after a model-authored
+`Torra._summarize()` (called once from `_finish()`, after a model-authored
 plan has actually executed) is the only place execution results are ever fed
 back to the model. It exists to close a real gap -- `_print_execution_report`
 never showed step output, so "read the docs and tell me" completed with
@@ -331,9 +331,9 @@ Same underlying principle as §2.3 ("unapproved means refused, never
 defaulted to True"), recurring in the telemetry read path instead of the
 execution path. `TaskLogger._apply_plan_fields()` computed `approved = all(sp.approved
 is not False for sp in plan.steps)` -- `StepPlan.approved` is `None` until
-`Harness._apply_approvals()` actually runs, which only happens inside
+`Torra._apply_approvals()` actually runs, which only happens inside
 `execute()`. A plan blocked by a failed precondition never reaches
-`execute()` at all (`Harness.plan()` calls `_finish()` directly), so every
+`execute()` at all (`Torra.plan()` calls `_finish()` directly), so every
 step's `approved` stays `None` -- and `None is not False` is `True`, so a
 `BLOCKED` task nobody ever saw was persisted with `approved: true`.
 `_apply_approvals()` always resolves every step to a real `True`/`False`
@@ -342,7 +342,7 @@ once it runs (a step needing no confirmation is auto-`True`), so requiring
 and correctly `False` for anything that never reached approval. No
 downstream reader consumes this field today, so this was a silent
 data-quality bug rather than a live break -- but it is exactly the kind of
-thing `harness evidence`/model-quality analysis (§6.1) would eventually
+thing `torra evidence`/model-quality analysis (§6.1) would eventually
 rely on, and it would already have been wrong.
 
 > Guarded by `tests/test_pipeline.py::test_a_precondition_blocked_plan_is_not_recorded_as_approved`,
@@ -367,7 +367,7 @@ model's JSON) and a `TaskSpec` that drives root shell commands:
    since the (garbage) list was non-empty.
 2. **`estimated_seconds` accepted anything.** `to_steps()`'s unguarded
    `float(value)` raised a bare `ValueError` at plan-time -- past
-   `Harness.plan()`'s narrow `except OllamaError | AgentError` clause,
+   `Torra.plan()`'s narrow `except OllamaError | AgentError` clause,
    skipping every decision-log/audit/telemetry call that catch normally
    reaches on the way to a proper `Outcome`. Only caught by `cli.py`'s or
    `tui.py`'s top-level catch-all, several layers removed from where the
@@ -390,12 +390,12 @@ it is gone.
 Found by an independent security audit, reproduced live: `ConflictDetector.hash_file()`
 opened whatever `Path.open("rb")` was pointed at with no check on what kind
 of filesystem entry it actually was. Opening a FIFO for reading with no
-writer blocks **forever** -- and `baseline()` runs during `Harness`'s GATE
+writer blocks **forever** -- and `baseline()` runs during `Torra`'s GATE
 stage, before any operator ever sees the plan (`pipeline.py`'s `_gate()`
 baselines every `touches` path a model's own JSON proposal declares). A
 single stray FIFO at a model-declared `touches` path -- no malice required,
 any real FIFO already present at that path works -- wedged the entire
-harness with no timeout anywhere in the call chain. `_scan_knowledge_dir()`
+torra with no timeout anywhere in the call chain. `_scan_knowledge_dir()`
 (`machine.py`) had the identical flaw for a FIFO named `*.md` in a
 configured knowledge directory, and since `Agent.observe()` runs it on
 essentially every conversation turn, one stray FIFO there wedged every
@@ -428,7 +428,7 @@ int). That's exactly the kind of input a misbehaving daemon can return --
 `OllamaClient`'s own docstring already frames "Ollama" as something that
 can be pointed elsewhere, not necessarily trustworthy by construction.
 Confirmed live end-to-end: a scripted `/api/show` returning
-`{"capabilities": 42}` made `Harness.plan()` raise a raw uncaught
+`{"capabilities": 42}` made `Torra.plan()` raise a raw uncaught
 `TypeError` instead of returning `Outcome.BACKEND_DOWN` with
 `recovery_options` -- `plan()`'s own `except OllamaError | AgentError`
 clause (§2.2's home) never saw it, because the exception wasn't an
@@ -544,7 +544,7 @@ metadata is missing.
 
 ### 2.21 `TestConflictDetectorFastPath` was not testing the fast path
 
-Found while raising `harness/core/conflict.py`'s test coverage (59% -> 74%,
+Found while raising `torra/core/conflict.py`'s test coverage (59% -> 74%,
 the single worst-covered file in the tree), not by reading the test in
 isolation: its shared `_detector()` fixture built the detector with
 `use_inotify=False`. `_detect_tree()`'s own guard --
@@ -612,24 +612,24 @@ os.system(...)` both classify as needing confirmation.
 > Guarded by `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`
 > (now 26/26), `test_su_c_wrapping_a_nested_interpreter_call_is_still_caught`
 
-### 2.23 Multiple `Harness` instances sharing a `workdir` need session-scoped `undo=` and `task_id_prefix`
+### 2.23 Multiple `Torra` instances sharing a `workdir` need session-scoped `undo=` and `task_id_prefix`
 
 Found during design review for multi-tab TUI sessions, before any tab code
 existed -- these are latent collisions that only matter once more than one
-`Harness` can share a `workdir` in one process, which nothing did before
+`Torra` can share a `workdir` in one process, which nothing did before
 this feature.
 
 1. **Shadow-dir collision.** `UndoGenerator`'s default shadow_dir
    (`pipeline.py`'s `self.undo = undo or UndoGenerator(shadow_dir=self.workdir
-   / f"harness-shadow-{os.getpid()}")`) is keyed only by `(workdir, pid)` --
-   two `Harness` instances built with the same `workdir` in the same process
+   / f"torra-shadow-{os.getpid()}")`) is keyed only by `(workdir, pid)` --
+   two `Torra` instances built with the same `workdir` in the same process
    collide on it. Confirmed live (not just reasoned about): one session's
    `UndoGenerator.cleanup()` really does `shutil.rmtree` the other session's
    shadow copies out from under it, breaking that session's rollback
-   guarantee mid-run. Fix: every caller building more than one `Harness`
+   guarantee mid-run. Fix: every caller building more than one `Torra`
    against the same `workdir` must pass an explicit, session-derived
-   `undo=UndoGenerator(shadow_dir=workdir / f"harness-shadow-{session_id}")`
-   -- `Harness.__init__` needed no change, `undo` was already injectable.
+   `undo=UndoGenerator(shadow_dir=workdir / f"torra-shadow-{session_id}")`
+   -- `Torra.__init__` needed no change, `undo` was already injectable.
 2. **`task_id` collision.** `Agent`'s fallback `task_id`
    (`f"agent-{self._turn_counter}"`) restarts at 0 per `Agent` instance, so
    two sessions' first turns both default to `task_id="agent-1"` --
@@ -639,21 +639,21 @@ this feature.
    line, never to a model-chosen `task_id` (a model choosing the same id
    across two tabs remains a low-probability residual risk, not meaningfully
    worse than today's single-session behavior, and deliberately out of
-   scope). Every caller building more than one `Agent`/`Harness` against the
+   scope). Every caller building more than one `Agent`/`Torra` against the
    same `workdir` should pass a distinct `task_id_prefix` per session.
 
 Telemetry and the `audit`/`resume` directories deliberately stay **unscoped**
-(shared across every session on one `workdir`) -- that's what keeps `harness
-evidence`/`harness label` seeing everything across every tab instead of
+(shared across every session on one `workdir`) -- that's what keeps `torra
+evidence`/`torra label` seeing everything across every tab instead of
 fragmenting per-session. Only the two collisions above needed fixing; do not
 over-scope by giving every session its own subtree of `workdir`.
 
-> Guarded by `tests/test_pipeline.py::test_two_harnesses_sharing_a_workdir_do_not_collide_on_shadow_files`,
+> Guarded by `tests/test_pipeline.py::test_two_torras_sharing_a_workdir_do_not_collide_on_shadow_files`,
 > `tests/test_agent.py::test_task_id_prefix_reaches_the_default_task_id`
 
 ### 2.24 A tab's plan/execute worker must capture its `session_id` at dispatch time, not read "active" at completion time
 
-The TUI's tabs each run their own `Harness.plan()`/`.execute()` in a
+The TUI's tabs each run their own `Torra.plan()`/`.execute()` in a
 background thread (`tui.py`'s `plan_request`/`execute_plan`, via
 `self.run_worker(..., group=f"session-{session_id}")`). The easy mistake --
 not made here, but worth naming so nobody reintroduces it -- is reading
@@ -701,15 +701,15 @@ call sites: `_build_tab_pane`'s initial `TabPane(Content(title), ...)` and
 
 > Guarded by `tests/test_tui.py::test_the_first_request_names_the_session`
 
-### 2.26 A `Harness`/`Agent` reused across many turns needs per-turn scoping it never needed before
+### 2.26 A `Torra`/`Agent` reused across many turns needs per-turn scoping it never needed before
 
 Found by a full-codebase audit run immediately after §2.23-2.25 shipped,
 specifically because that feature is the first place in the codebase where
-a single `Harness`/`Agent` either lives across many turns in one process
+a single `Torra`/`Agent` either lives across many turns in one process
 (a TUI tab, previously impossible -- every CLI invocation built a fresh
 one) or gets torn down and rebuilt against the *same* persisted session
 identity (a reopen). Both are genuinely new capabilities, and both exposed
-state that had always been implicitly scoped to "one `Harness` instance =
+state that had always been implicitly scoped to "one `Torra` instance =
 one task" -- true by construction before this feature, false now. All
 three were reproduced directly against real objects before being fixed,
 not just reasoned about.
@@ -733,7 +733,7 @@ not just reasoned about.
    under-count and reopen the exact collision this closes).
 2. **`DecisionLog` leaked every prior turn's decisions into each new
    turn's audit record.** `self.decisions` is constructed once per
-   `Harness` and only ever grows (`DecisionLog.records`, nothing cleared
+   `Torra` and only ever grows (`DecisionLog.records`, nothing cleared
    it); `_finish()` snapshots all of it into `result.decisions`. A
    long-lived tab's audit file for turn *N* silently included turns
    `1..N-1` too, growing without bound for the tab's life -- directly
@@ -779,11 +779,11 @@ leaving a real gap for a fast second click or Ctrl+D to land in).
 > `tests/test_tui.py::test_execute_plan_sets_busy_synchronously_before_the_worker_starts`,
 > `test_plan_request_sets_busy_synchronously_before_the_worker_starts`
 
-### 2.27 An alternate model backend must be strictly opt-in, and `harness tui` had its own, separate `Harness` construction path
+### 2.27 An alternate model backend must be strictly opt-in, and `torra tui` had its own, separate `Torra` construction path
 
-`Agent.resolve_backend()` (`harness/agent.py`) is the only place a request's
+`Agent.resolve_backend()` (`torra/agent.py`) is the only place a request's
 model string can route to something other than `self.ollama` --
-`harness/gates/router.py`'s `ModelRouter` has no reference to `self.backends`
+`torra/gates/router.py`'s `ModelRouter` has no reference to `self.backends`
 at all and cannot select one even by accident, so "OpenRouter is never
 auto-selected" is structural, not just discipline. Every alt backend only
 activates when the operator explicitly names it (`openrouter/<real-model-id>`,
@@ -797,24 +797,24 @@ prefix only exists to pick the backend, not to travel to the API -- the full
 `openrouter/...` string stays as `turn.model`/`Plan.model` for audit
 transparency.
 
-Found during design review, before shipping: `cli.py`'s `build_harness()` is
-not the only place a `Harness` gets constructed. `cmd_tui` called
-`run_tui(workdir=...)` with no `harness=` argument, and `HarnessApp.__init__`
-built a bare `Harness(workdir=...)` directly -- bypassing `build_harness()`
+Found during design review, before shipping: `cli.py`'s `build_torra()` is
+not the only place a `Torra` gets constructed. `cmd_tui` called
+`run_tui(workdir=...)` with no `torra=` argument, and `TorraApp.__init__`
+built a bare `Torra(workdir=...)` directly -- bypassing `build_torra()`
 (and, incidentally, its disk-free precondition too) entirely. Fixed by having
-`cmd_tui` call `build_harness()` and pass its result into
-`run_tui(harness=...)`, and by threading `self.backends` (captured off the
-initial `Harness` the same way `self.ollama` already is) into every
-subsequent tab's `Harness(...)` call in `_build_session_harness()` -- a new
+`cmd_tui` call `build_torra()` and pass its result into
+`run_tui(torra=...)`, and by threading `self.backends` (captured off the
+initial `Torra` the same way `self.ollama` already is) into every
+subsequent tab's `Torra(...)` call in `_build_session_torra()` -- a new
 tab that doesn't inherit `backends` would silently lose OpenRouter access
 after the first tab, the same shape of bug §2.23-§2.26 already catalog for
 other per-tab state.
 
 **Found live by manual testing after that fix shipped, not by a test:**
-`build_harness()`'s first version registered `"openrouter"` only when
+`build_torra()`'s first version registered `"openrouter"` only when
 `OPENROUTER_API_KEY` was actually set -- reasoning that constructing a
 client doomed to fail every call wasn't worth it. That reasoning was wrong.
-`harness ask "..." --model openrouter/anthropic/claude-3.5-sonnet` with no
+`torra ask "..." --model openrouter/anthropic/claude-3.5-sonnet` with no
 key set produced no error at all: since `"openrouter"` was never registered,
 `Agent.resolve_backend` found no matching prefix in `self.backends` and fell
 through to `self.ollama` with the *literal string*
@@ -843,7 +843,7 @@ is not called for this check directly (it would also compute the stripped
 model, which isn't needed yet) -- instead a cheap prefix scan gates the block
 before `chosen` can be swapped, and `resolve_backend` runs once afterward.
 
-`SessionTab.model_override` (`harness/tui.py`) is runtime-only, deliberately
+`SessionTab.model_override` (`torra/tui.py`) is runtime-only, deliberately
 never persisted through `SessionStore`/`meta.json` -- reopening a session
 drops back to local-only routing, the conservative failure mode (defaults
 *away* from paid remote calls, not toward silently continuing them). Don't
@@ -855,8 +855,8 @@ drops back to local-only routing, the conservative failure mode (defaults
 > fallthrough, prefix stripping, degraded-fallback guard not firing for an
 > alt-backend model), `tests/test_pipeline.py::` recovery-options-come-from-
 > the-backend-that-failed, `tests/test_cli.py::
-> test_build_harness_registers_openrouter_even_without_the_env_var` /
-> `test_cmd_tui_builds_the_harness_through_build_harness`,
+> test_build_torra_registers_openrouter_even_without_the_env_var` /
+> `test_cmd_tui_builds_the_torra_through_build_torra`,
 > `tests/test_tui.py::` `/model` sets/clears the override, a new tab
 > inherits `self.backends`,
 > `test_an_unconfigured_openrouter_override_fails_clearly_not_silently`
@@ -929,7 +929,7 @@ synchronization point.
 > not a code invariant) -- `tests/test_tui.py`'s own CI-run history is the
 > evidence, not a local assertion.
 
-### 2.29 `HarnessApp._handle_exception` is the only hook that ever sees a TUI-side crash, and `App.run()` never re-raises past it
+### 2.29 `TorraApp._handle_exception` is the only hook that ever sees a TUI-side crash, and `App.run()` never re-raises past it
 
 Confirmed by reading Textual's own `app.py`, not inferred: `App._handle_exception()`
 (its own docstring: "Always results in the app exiting") is the sole place
@@ -943,7 +943,7 @@ the exception which caused panic so test frameworks are aware"). This means
 see a TUI-side crash -- `cmd_tui()` calls `run_tui(...).run()` and control
 only returns after Textual has already handled and swallowed the exception.
 Wrapping the `run_tui()` call site or `cmd_tui()` itself would silently
-never fire; overriding `HarnessApp._handle_exception()` is the only correct
+never fire; overriding `TorraApp._handle_exception()` is the only correct
 integration point. Also confirmed single-threaded: a thread-worker's
 failure is caught back on the main event-loop thread (inside `Worker._run`)
 before `_handle_exception` ever runs, so there is no concurrency concern for
@@ -951,14 +951,14 @@ before `_handle_exception` ever runs, so there is no concurrency concern for
 
 Also confirmed by reading `tui.py`'s own worker bodies: `_plan_request_body`/
 `_execute_plan_body` each have their own internal `try/except Exception`
-around `Harness.plan()`/`.execute()` that displays the error inline and
+around `Torra.plan()`/`.execute()` that displays the error inline and
 clears `busy` (`tests/test_tui.py::test_plan_request_reports_an_unexpected_exception`,
 `test_execute_plan_reports_an_unexpected_exception`) -- those exceptions
 never reach `_handle_exception` at all, so `CrashReporter`
-(`harness/telemetry/crash.py`) records only genuinely-unhandled TUI bugs
+(`torra/telemetry/crash.py`) records only genuinely-unhandled TUI bugs
 (the same class of thing §2.13/§2.25 found by hand before any hook existed),
 never routine plan/execute failures, which `TaskLogger` already records
-with `status: failed`/`backend_down`. A crash count in `harness evidence`'s
+with `status: failed`/`backend_down`. A crash count in `torra evidence`'s
 new health summary should not be read as including ordinary task failures.
 
 `CrashReporter.record()` redacts `message`/`traceback` through the same
@@ -970,7 +970,7 @@ already renders locals via `rich.traceback.Traceback(show_locals=True,
 of the same information indefinitely would be strictly worse than what's
 already shown transiently on screen).
 
-`HarnessApp._handle_exception`'s override calls `self._crash_reporter.record(...)`
+`TorraApp._handle_exception`'s override calls `self._crash_reporter.record(...)`
 inside its own bare `try/except`, then unconditionally calls
 `super()._handle_exception(error)` -- a crash reporter that itself fails
 must never prevent the one hook responsible for the app actually exiting
@@ -997,7 +997,7 @@ exercising it (`app.run_test()`), not by inference.
    ("tab-")` is a no-op on a non-matching string, so this silently produces
    `session_id == "sidebar-plan"` -- which is never a real key in
    `self.sessions`, so every click of Run/Reject/Dry-run raises `KeyError`
-   unconditionally. Per §2.29, `HarnessApp._handle_exception` is the only
+   unconditionally. Per §2.29, `TorraApp._handle_exception` is the only
    hook that ever sees this, and `App.run()` never re-raises past it -- the
    effect is not degraded click-handling, it's the whole app exiting on
    the first click of any plan-action button. Fixed by matching
@@ -1017,7 +1017,7 @@ exercising it (`app.run_test()`), not by inference.
    calls internally -- unlike that `with` form (which requires an active
    `self.app` and so can't run inside a plain `@staticmethod` invoked
    before mount), `compose_add_child()` has no such dependency and works
-   standalone (`HarnessApp._build_sidebar`).
+   standalone (`TorraApp._build_sidebar`).
 3. **Six call sites assumed exactly one `TabbedContent`/`Tabs` exists in
    the whole app.** `_name_session`, `_mount_session_tab`,
    `_open_or_switch_to`, `action_close_tab` (all
@@ -1037,14 +1037,14 @@ exercising it (`app.run_test()`), not by inference.
    `self.query_one("#sessions > Tabs", Tabs)`.
 
 Separately: `_evidence_health_summary`/`_evidence_crash_summary` moved out
-of `cli.py` into `harness/telemetry/summary.py` (`health_summary`/
+of `cli.py` into `torra/telemetry/summary.py` (`health_summary`/
 `crash_summary`, no longer CLI-private) so the TUI's new Evidence tab could
 reuse them without `tui.py` importing from `cli.py` -- the codebase's two
 leaf/entry-point modules had never depended on each other before, and
 having one do so would have been the first such coupling. The move alone
 regressed the defensive-coding scorecard's Complexity dimension:
 `health_summary` had always had a CCN of 20, but `cli.py` is peripheral
-tier (not scorecard-enforced) while `harness/telemetry/` is core tier, so
+tier (not scorecard-enforced) while `torra/telemetry/` is core tier, so
 moving it into a graded package surfaced pre-existing complexity that had
 simply never been counted before. Fixed the same day, same change, via the
 `DEFENSIVE_CODING_STANDARDS.md` §2 extraction pattern (four independent
@@ -1126,7 +1126,7 @@ after the fact -- `_executed()` only ever prints `ok`/`fail` + seconds +
 not an optional nicety.
 
 The design constraint that shaped the fix: `TaskSpec.to_steps()` builds
-every step's `run` closure exactly once, in `Harness._gate()`, at **plan**
+every step's `run` closure exactly once, in `Torra._gate()`, at **plan**
 time -- before the operator has even seen the plan, let alone approved it,
 let alone before any live UI consumer exists to hand it a callback. `Plan.
 steps` keeps those exact `Step` objects (`StepPlan.step`) all the way
@@ -1150,9 +1150,9 @@ the one that shipped:
   to a different OS thread unless the context is explicitly copied at
   spawn time. It would have silently never worked.
 
-What shipped: `harness/core/tasks.py`'s `shell_output_sink(on_output)`, a
+What shipped: `torra/core/tasks.py`'s `shell_output_sink(on_output)`, a
 context manager wrapping a plain `threading.local()`. `shell()` checks it
-on every call; `Harness._run_one_step()` enters it only around the real
+on every call; `Torra._run_one_step()` enters it only around the real
 (non-dry-run) `sp.step.run()` call, bound to that one step's id via a
 closure built at *execute* time, not baked into the `Step` itself. Zero
 change to `Step.run`'s call convention -- every existing `Step(run=...)`
@@ -1207,8 +1207,8 @@ run's already-finalized one.
 ### 2.33 A resume point must be cleared on *any* terminal outcome, not just success, or a retry can skip steps a rollback just undid
 
 `ResumePoint.load()` had no caller anywhere in the codebase until this
-entry (§6.4's "fixed" pointer) -- `harness/core/resume.py`'s own
-`resolve_resume()` is what changed that: `Harness.execute()` calls it
+entry (§6.4's "fixed" pointer) -- `torra/core/resume.py`'s own
+`resolve_resume()` is what changed that: `Torra.execute()` calls it
 before the step loop, and a validated resume point's `completed` steps
 are skipped rather than re-run.
 
@@ -1240,7 +1240,7 @@ loop":
    plan_step_ids[:len(existing.completed)] == existing.completed` before
    trusting a single entry; anything else is logged and ignored, same as
    a genuinely missing or corrupt (`ResumePoint.load()` raises
-   `HarnessError` on that) file.
+   `TorraError` on that) file.
 2. **The resume file must be deleted on a failed/rolled-back run too, not
    only `_finish_success()`'s clean-success path.** Before this, only
    success deleted it -- a step that failed after an earlier step
@@ -1299,14 +1299,14 @@ explicitly rather than inherit it from this one.
 ### 2.34 `CorpusExporter.drift()` was scoring the clarifier's isolated verdict, not what actually happened to the operator -- 72% "false positives" were really ~17%, and that same fix exposed an 84% false-negative rate the old measurement had no way to see
 
 First real-traffic labeling pass this project has ever done (2026-08-26,
-57 of 100 logged requests, `harness label`): `drift()` reported a 72%
+57 of 100 logged requests, `torra label`): `drift()` reported a 72%
 live false-positive rate against a 10% synthetic baseline -- "DRIFT: the
 clarifier is interrupting real work." Investigated before touching
 anything, per this file's own §7 discipline (measure before you build):
 `drift()`'s `_false_positives`/`_false_negatives` called
 `clarifier.detect(request)` fresh on the labeled text and compared that
 in isolation to the human's label. But `Agent._messages()`'s own prompt
-(`harness/agent.py`) tells the model exactly the opposite of "a flagged
+(`torra/agent.py`) tells the model exactly the opposite of "a flagged
 gap means ask": *"if any of them genuinely blocks you, use intent ask.
 If you can proceed anyway, say why in `message`."* The clarifier is
 `Agent`'s own docstring's words, "*a tool the model consults, not a wall
@@ -1443,7 +1443,7 @@ the most room"* → failed, *"reprint in gb"* → failed, *"failed"*
 (literally typed that alone), *"figure out the isse with du home
 step"* → failed again, same error every time. Reproduced directly:
 `du -ah /home | sort -rh | head -20` -- an entirely ordinary, correct
-command -- fails under this harness's `pipefail` wrapper with exit 141.
+command -- fails under this torra's `pipefail` wrapper with exit 141.
 
 The mechanism: `head` closes its input after 20 lines; `sort`/`du`
 upstream, still trying to write more, get killed by `SIGPIPE` (exit
@@ -1512,16 +1512,16 @@ Added so `OPENROUTER_API_KEY` (and anything else) can live in a `.env`
 file at the repo root instead of shell config -- `cli.py`'s
 `_load_env_file()`, called first thing in `main()`, before argument
 parsing even, so it runs ahead of every command that could construct an
-`OpenRouterClient()` (`build_harness()`, HANDOFF.md §2.27).
+`OpenRouterClient()` (`build_torra()`, HANDOFF.md §2.27).
 
 Two choices worth stating so a future edit doesn't quietly undo them:
 
 - **Explicit path (`Path(__file__).resolve().parent.parent / ".env"`),
   not `load_dotenv()`'s bare default call.** The default searches
   upward from the current working directory -- fine for a project you
-  always run from inside, wrong for this one: `harness` is meant to be
+  always run from inside, wrong for this one: `torra` is meant to be
   run from wherever the operator happens to be (README's own `alias
-  harness=...` example), so the default search could just as easily
+  torra=...` example), so the default search could just as easily
   load an unrelated `.env` belonging to whatever *other* project's
   directory the operator's shell happens to be sitting in at the time.
 - **Never overrides a variable already set in the real environment**
@@ -1545,9 +1545,9 @@ OpenRouter section for the expected key), never a real value committed anywhere.
 unfiltered comma list -- including embedding-only models like
 `nomic-embed-text` (the exact model §"OS-Engineering Guardrails" already
 names as a real routing bug once it was mistaken for a chat target,
-`harness/gates/router.py`'s `ROUTING_RULES` fix). The new `ModelPicker`
+`torra/gates/router.py`'s `ROUTING_RULES` fix). The new `ModelPicker`
 (mirrors `SessionPicker`'s `ModalScreen[str | None]` shape) filters through
-`tab.harness.agent.router._chat_capable()` before listing anything, so the
+`tab.torra.agent.router._chat_capable()` before listing anything, so the
 picker can never surface a model routing itself wouldn't choose.
 
 Two return values that look similar but must stay distinct:
@@ -1565,14 +1565,14 @@ Two return values that look similar but must stay distinct:
   unlike a mounted Widget's `id`, which does reject some strings (an
   earlier, unrelated `StepCard` bug already found that distinction).
 
-Beyond that, `harness/tui.py`'s `VERIFIED_OPENROUTER_MODELS` adds a small,
+Beyond that, `torra/tui.py`'s `VERIFIED_OPENROUTER_MODELS` adds a small,
 hand-maintained list of `openrouter/...` slugs to the picker -- not a live
 catalog fetch. `OpenRouterClient` has no `models()` call at all (unlike
 `OllamaClient.models()`, which the local half of the picker actually
 calls), and OpenRouter's real catalog is hundreds of entries deep -- not
 something a picker meant for a handful of taps should try to enumerate or
 filter live even if it could. Each entry in the list is only added after
-a real live slug lookup plus an actual `harness plan`/`ask` call through
+a real live slug lookup plus an actual `torra plan`/`ask` call through
 it succeeded (`x-ai/grok-4.6` and `deepseek/deepseek-v4-pro`, both
 confirmed this way) -- the same "measure, don't guess" discipline this file
 applies to `docs/*.md` and routing rules elsewhere. Remote entries are
@@ -1615,7 +1615,7 @@ invisible") -- except here the guard (`pilot.press`) was never wrong to
 use, it just answers a narrower question than "does this work for a real
 operator" and nothing before this flagged that gap.
 
-Fixed by rebinding to `f2` (`harness/tui.py`'s `HarnessApp.BINDINGS`) --
+Fixed by rebinding to `f2` (`torra/tui.py`'s `TorraApp.BINDINGS`) --
 function keys use their own multi-byte escape sequences, entirely outside
 the C0-control-code aliasing class `KEY_ALIASES` documents, and `f2` isn't
 claimed by `Input`'s own `BINDINGS` either (unlike `ctrl+d`/`ctrl+w`,
@@ -1627,7 +1627,7 @@ the user reported broken).
 
 `tests/test_tui.py::
 test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias` now
-checks `HarnessApp.BINDINGS` itself against `textual.keys.KEY_ALIASES`,
+checks `TorraApp.BINDINGS` itself against `textual.keys.KEY_ALIASES`,
 via `Binding.make_bindings()` (the same normalizer Textual's own
 `BindingsMap` uses, so it handles the full `str | tuple | Binding` union
 `BINDINGS` entries are allowed to be) -- so the next binding added to this
@@ -1639,7 +1639,7 @@ different, wider fix than this section covers.
 > Guarded by `tests/test_tui.py::
 > test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias`
 
-### 2.40 Attempting to close §6.1's 82% live-ask gap: one approach measured worse and was reverted, one measured real and shipped -- rule 6's "Do not plan a task" was quietly forbidding the harness from doing its own job
+### 2.40 Attempting to close §6.1's 82% live-ask gap: one approach measured worse and was reverted, one measured real and shipped -- rule 6's "Do not plan a task" was quietly forbidding torra from doing its own job
 
 Two different-shaped attempts at the §6.1 finding (the model asks for only
 ~18% of requests a human calls genuinely ambiguous), in order:
@@ -1659,14 +1659,14 @@ non-empty` is not a proxy for "genuinely ambiguous"; it is close to the
 default state for ordinary English. Firing on it unconditionally would
 have taxed the majority of ordinary turns with an extra local-model
 round-trip, not just the override cases it targeted. Reverted
-(`git checkout -- harness/agent.py`) before it reached a commit. The
+(`git checkout -- torra/agent.py`) before it reached a commit. The
 obvious next move -- fire only for some subset of gap *codes* that
 "really" mean it -- was rejected without trying: picking which codes
 deserve enforcement is the same closed-vocabulary bet §3's table already
 measured failing twice elsewhere in this file.
 
 **Attempt 2, shipped: rule 6 was telling the model not to do the one
-thing this harness exists for.** Investigating why real traffic showed
+thing this torra exists for.** Investigating why real traffic showed
 `"is there anything wrong with my disks"` producing *"Please check the
 output of 'lsblk' and 'df -h' for more details"* instead of an answer
 found the mechanism directly: rule 6 said *"If the request is a question
@@ -1734,7 +1734,7 @@ turned up two separate gaps, not one:
   step's own description there.
 - **Even a well-written description had nowhere to go.** `cli.py`'s
   `print_plan()` and `approve_at_prompt()` never printed `step.description`
-  at all -- confirmed live across every `harness plan` run earlier in
+  at all -- confirmed live across every `torra plan` run earlier in
   this session, description text never once appeared. `tui.py`'s
   `StepCard` already had the display logic (skip when empty or identical
   to `run`); the CLI had no such logic because it had no logic for this
@@ -1789,11 +1789,11 @@ is untouched and still passes unmodified):
   -- staging one for a step that's never going to run would let a later
   rollback sweep try to "restore" a file that was never touched.
 
-**The one risk this can't engineer away:** the harness has no model of
+**The one risk this can't engineer away:** torra has no model of
 dependencies *between* steps. Declining step 2 while approving step 3
 might make step 3 fail or behave surprisingly, and nothing here can
 detect that in general -- it's on the operator to judge when ticking
-boxes. `Harness.dependency_warnings(plan, approvals)` (a separate,
+boxes. `Torra.dependency_warnings(plan, approvals)` (a separate,
 public, side-effect-free static method, meant to be called by the
 caller *after* collecting approvals and *before* calling `execute()`, so
 the warning lands while the operator can still change their mind) covers
@@ -1806,9 +1806,9 @@ dependency on a file's *contents* rather than its path, and cannot rule
 out a coincidental match; both CLI entry points and the TUI print/show
 its output but never block on it.
 
-Both `harness.dependency_warnings` and `PLAN_SCHEMA`/`SYSTEM_PROMPT`
+Both `torra.dependency_warnings` and `PLAN_SCHEMA`/`SYSTEM_PROMPT`
 (§2.41 above) were split into their own top-level modules
-(`harness/dependency_warnings.py`, `harness/prompts.py`) in the same
+(`torra/dependency_warnings.py`, `torra/prompts.py`) in the same
 change -- not a style preference, a measured one: `pipeline.py` and
 `agent.py` both crossed the defensive-coding scorecard's 500-functional-LOC
 Modularity threshold once these additions landed (GPA 3.83 -> 3.67),
@@ -1816,7 +1816,7 @@ and `scripts/dev/defensive_coding_report.py`'s Definition of Done
 requires fixing that in the same change, not deferring it. Same
 precedent as `resolve_resume()` moving into `core/resume.py` (§2.33):
 a real, measured reason, not LOC-shuffling for its own sake. Neither
-module lives under `harness/gates/` despite being safety-adjacent --
+module lives under `torra/gates/` despite being safety-adjacent --
 unlike the five real gates, `dependency_warnings` never blocks anything,
 so filing it there would misrepresent what it does.
 
@@ -1877,7 +1877,7 @@ schedule.
 
 Direct feedback: even an all-SAFE/CAUTION plan (already auto-approved by
 `Verdict.needs_confirmation`, no checkbox rendered at all) still required
-a manual Run click in the TUI -- the CLI's `harness ask` never had this
+a manual Run click in the TUI -- the CLI's `torra ask` never had this
 friction, since `approve_at_prompt()`'s loop over `plan.needs_confirmation`
 is simply empty for such a plan and `execute()` proceeds with no prompt at
 all. `SessionTab.auto_run` (default `False`, runtime-only and not
@@ -1967,7 +1967,7 @@ that turned out not to matter." The gap found first: execution output
 never re-entered `Agent.context` at all. `Agent._remember()` only ever
 stored the operator's request text and the *proposed step commands*
 (`turn.spec.steps[i]['run']`) -- real `StepResult.output` from
-`Harness.execute()` is a separate call, entirely disconnected from
+`Torra.execute()` is a separate call, entirely disconnected from
 `Agent.converse()`, and nothing threaded it back. Ask a follow-up in the
 same conversation about what a `grep`/`cat` step actually found, and the
 model had no memory of it -- only that it once proposed running the
@@ -1981,7 +1981,7 @@ an arbitrary shell command is exactly the kind of regex-guessing this
 project's own evasion-detection work already measured missing 5 of 12
 cases (`SafetyClassifier.resolve`'s whole reason for existing). Once a
 step declaring `reads` actually completes (real run, not dry, not
-failed, not skipped-as-declined), `Harness._finish_success()` feeds its
+failed, not skipped-as-declined), `Torra._finish_success()` feeds its
 real output into the model's context, tagged by every declared path.
 `PLAN_SCHEMA` also gained a top-level `forget: list[str]` the model can
 name in any later reply -- a path whose remembered content no longer
@@ -2003,13 +2003,13 @@ False`) -- it was testing a scenario the classifier makes unreachable,
 not a real gap.
 
 `ReadMemory` (the mechanism itself: `remember`/`forget`/`reset`, plus
-the free function `remember_step_reads` that `Harness` calls) was split
-into its own module, `harness/read_memory.py`, in the same change --
+the free function `remember_step_reads` that `Torra` calls) was split
+into its own module, `torra/read_memory.py`, in the same change --
 `agent.py` and `pipeline.py` both crossed the 500-functional-LOC
 Modularity threshold the moment this landed inline (GPA 3.83 -> 3.67),
 same real, measured reason `dependency_warnings.py`/`prompts.py` were
 split out earlier (§2.41/§2.42). One real wrinkle in doing that split:
-`harness.pipeline_types` already imports `Turn` from `harness.agent`, so
+`torra.pipeline_types` already imports `Turn` from `torra.agent`, so
 an unconditional `from .pipeline_types import RunResult` inside
 `read_memory.py` -- needed only for `remember_step_reads`'s type hint --
 would have completed a real import cycle (`agent -> read_memory ->
@@ -2034,14 +2034,14 @@ future import.
 
 ### 2.47 Run stayed clickable (and green) after a real run completed -- a second click never re-ran anything for real, but it did reprint the whole prior transcript, reading as "the run repeated"
 
-`Harness.execute()` already refused to actually replay commands on an
+`Torra.execute()` already refused to actually replay commands on an
 already-executed `RunResult` (`_refuse_replay`, keyed on
 `result.executed`, §2.8) -- that part was never broken. What was broken:
 `_set_busy` only disables Run/Dry-run/Reject *while* `busy=True`, then
 re-enables them the moment a run finishes, so Run stayed clickable
 (still green, `variant="success"`) after a completed real run. A second
 click dispatched `execute_plan()` again, which called
-`tab.harness.execute()` again, which hit `_refuse_replay` and handed
+`tab.torra.execute()` again, which hit `_refuse_replay` and handed
 back the *same* `RunResult` with its `results` list untouched --
 `_executed()` then iterated that list and re-said every step's
 "ok/fail ... Ns" line, the completed/failed message, the agent summary,
@@ -2049,9 +2049,9 @@ and the rollback report a second time. No command actually ran twice,
 but the operator watching the chat pane could not tell that from "the
 chat repeating."
 
-Fixed in the TUI layer only -- `Harness.execute()`/`_refuse_replay`
+Fixed in the TUI layer only -- `Torra.execute()`/`_refuse_replay`
 itself is untouched, per this file's own "ask first" rule for that
-method. Three pieces, all in `harness/tui.py`:
+method. Three pieces, all in `torra/tui.py`:
 
 1. `pressed_run` now checks `tab.current.executed` before dispatching at
    all. If a real run already completed on this exact plan, it pushes a
@@ -2061,7 +2061,7 @@ method. Three pieces, all in `harness/tui.py`:
    approved outcome and for a BLOCKED-before-any-step-ran outcome (see
    §2.8's fix) -- both stay retryable with no prompt, unchanged.
 2. `_execute_plan_body` now checks `not dry_run and result.executed`
-   *before* calling `tab.harness.execute()` at all, and short-circuits
+   *before* calling `tab.torra.execute()` at all, and short-circuits
    with one dim "Nothing to run -- this plan's commands already ran."
    line rather than letting the call reach `_refuse_replay` and then
    reprinting the untouched `results` list a second time. Reaching this
@@ -2077,7 +2077,7 @@ method. Three pieces, all in `harness/tui.py`:
 
 > Guarded by `tests/test_tui.py::
 > test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript`
-> -- spies on `Harness.execute` to assert it is called exactly once
+> -- spies on `Torra.execute` to assert it is called exactly once
 > total (never a second time, not even a refused one, since the TUI now
 > short-circuits before reaching it), asserts the confirmation dialog
 > appears before anything runs, that cancelling adds zero chat lines,
@@ -2097,10 +2097,10 @@ side by side in this pane, and it says which is which rather than
 blurring them together. `Agent.stats()`'s `context_tokens`/
 `context_usage`/`compressions`/`turns`/`repairs` are real per-session
 numbers -- one `Agent`, one `ContextCompressor` per tab. But
-`HarnessApp.ollama` and `HarnessApp.backends` are **single instances
-shared across every tab** (`HarnessApp.__init__` takes both from the
-first tab's `Harness` and hands the same objects to every later
-`_new_harness()` call, confirmed by reading that constructor, not
+`TorraApp.ollama` and `TorraApp.backends` are **single instances
+shared across every tab** (`TorraApp.__init__` takes both from the
+first tab's `Torra` and hands the same objects to every later
+`_new_torra()` call, confirmed by reading that constructor, not
 assumed) -- so `OllamaClient.prompt_tokens`/`completion_tokens`/`calls`
 and `OpenRouterClient.cost_usd` are cumulative **since the app
 started**, across every tab, not this session's own spend. The pane
@@ -2156,7 +2156,7 @@ for anything that isn't a guess:
 
 | Role | Old (retired) | New | Why this one |
 |---|---|---|---|
-| debug/plan/analyze, `AMBIGUOUS_FALLBACK_MODEL` | `qwen3:32b` → `muse-glimmer:30b` (see correction below) | `gpt-oss:20b` (OpenAI, Apache 2.0) | measured best intent accuracy (11/13) and speed (171 tok/s) of 4 models on this harness's own battery |
+| debug/plan/analyze, `AMBIGUOUS_FALLBACK_MODEL` | `qwen3:32b` → `muse-glimmer:30b` (see correction below) | `gpt-oss:20b` (OpenAI, Apache 2.0) | measured best intent accuracy (11/13) and speed (171 tok/s) of 4 models on torra's own battery |
 | code | `qwen3-coder:30b` | `devstral-small-2:24b` (Mistral AI, Apache 2.0) | 65.8% SWE-bench Verified vs. the un-benchmarked model it replaces |
 | `OllamaClient.fallback_model` default | `qwen3.5:latest` | `gpt-oss:20b` (OpenAI, Apache 2.0) | smallest of the new catalog, same role |
 
@@ -2165,7 +2165,7 @@ for anything that isn't a guess:
 deliberately not done, since nothing measured that combination and it
 wasn't what was asked. Same honest caveat this file already applies to
 `qwen3-coder:30b`'s original "obvious fit by name" status now applies
-to both replacements: public benchmark numbers are not this harness's
+to both replacements: public benchmark numbers are not this torra's
 own 12-task JSON-planning battery in `scripts/dev/model_bench/
 REPORT.md`, and neither has been run through it. Every historical §2
 entry above that names `qwen3:32b`/`qwen3-coder:30b`/`qwen3.5:latest`
@@ -2199,7 +2199,7 @@ part of the original ask:**
    replacing it -- both drop-ins apply, base unit last.
 
 **Correction, same day: `muse-glimmer:30b` did not survive contact with
-this harness's own benchmark.** The table above already reflects the
+torra's own benchmark.** The table above already reflects the
 final state; this is the measurement that produced it. Once all three
 replacements were pulled, `scripts/dev/model_bench/bench.py` was
 actually run against the new catalog (`devstral-small-2:24b`,
@@ -2225,7 +2225,7 @@ in Ollama (muse-glimmer needed the just-upgraded 0.32.8+ runtime) rather
 than a defect specific to muse-glimmer's reasoning quality. `gpt-oss:20b`
 separately measured the best intent accuracy of all four (11/13) at the
 fastest generation speed (171 tok/s), with zero errors -- a real win on
-this harness's own battery, not a name-based guess. `harness/gates/
+torra's own battery, not a name-based guess. `torra/gates/
 router.py`'s `AMBIGUOUS_FALLBACK_MODEL` and the debug/plan/analyze
 `ROUTING_RULES` entries were updated to `gpt-oss:20b` accordingly.
 `muse-glimmer:30b` was removed from the local catalog (`ollama rm`)
@@ -2284,7 +2284,7 @@ operator gave up on it and discard it silently, while the UI frees up
 immediately. Deliberately scoped to the planning phase only --
 `execute_plan()`'s busy state never responds to Escape, since
 interrupting a real, approved shell step mid-write is a safety hazard,
-not a UI convenience, and nothing about `Harness.execute()`/`reject()`
+not a UI convenience, and nothing about `Torra.execute()`/`reject()`
 changed to make that possible.
 
 > Guarded by `tests/test_tui.py::
@@ -2327,7 +2327,7 @@ odfpy, plain `open()`) is doing the overwriting.
 
 ### 2.52 Read-only observation of a second, real machine ("executor") over SSH -- explicitly not remote execution
 
-Operator asked whether harness could "reach across to executor if needed."
+Operator asked whether torra could "reach across to executor if needed."
 Two ways to do that exist, with very different risk: read-only observability
 (feed real facts about a second machine into the model's context) vs. actual
 remote execution (let a step really run there). The second would need
@@ -2342,9 +2342,9 @@ new way for the model to cause anything to run on executor. No new
 `Step.kind`. `TaskSpec.to_steps()`/`SafetyClassifier` never see an
 executor-bound command. The only caller of the new SSH-runner machinery is
 `Agent.__init__`'s own default observer, via `_observe_with_executor()`.
-`grep -rn "build_ssh_runner\|observe_executor" harness/` shows exactly two
-files: the definitions in `harness/core/machine.py` and the one call site in
-`harness/agent.py`. Don't let that grow past two without re-reading this
+`grep -rn "build_ssh_runner\|observe_executor" torra/` shows exactly two
+files: the definitions in `torra/core/machine.py` and the one call site in
+`torra/agent.py`. Don't let that grow past two without re-reading this
 entry first. Also: don't ever call `observe_executor()` with its own nested
 executor config (no chained third machine) -- `MachineState.render()` has no
 cycle guard, and would recurse forever on a self-referential or circular
@@ -2357,10 +2357,10 @@ raise-on-nonzero/return-stripped-stdout) that wraps each command in a
 non-interactive SSH call instead of running it locally. `BatchMode=yes` plus
 a closed stdin guarantees ssh can never sit waiting on a prompt nobody is
 watching -- that would otherwise hang an unrelated, local-only turn.
-`resolve_executor_config()` reads `HARNESS_EXECUTOR_HOST`/`_USER`/`_SSH_KEY`
+`resolve_executor_config()` reads `TORRA_EXECUTOR_HOST`/`_USER`/`_SSH_KEY`
 from the environment (same explicit-overrides-env, `.env`/`load_dotenv()`
 precedent as `OPENROUTER_API_KEY`) -- `None` (feature entirely absent, zero
-SSH ever attempted) when `HARNESS_EXECUTOR_HOST` is unset, which is the
+SSH ever attempted) when `TORRA_EXECUTOR_HOST` is unset, which is the
 default for anyone without it configured. `MachineState.executor` is
 attached inside `Agent.__init__`'s default observer closure, so it's
 refetched on exactly the same cache/refresh cadence
@@ -2371,7 +2371,7 @@ present, is informational only -- confirmed live it holds: asked to
 question about the service name rather than either restarting the *local*
 service by mistake or proposing an `ssh` step.
 
-Confirmed live against the real executor box (`10.0.0.44`): `harness ask
+Confirmed live against the real executor box (`10.0.0.44`): `torra ask
 --non-interactive "what does executor look like right now"` correctly
 reported its real hostname, kernel, GPU (RTX 2070 SUPER, real free VRAM),
 disk, and memory, answered directly from observed state with zero steps
@@ -2396,7 +2396,7 @@ proposed.
 Follow-up to §2.52's read-only observation: the operator asked for actual
 edits, not just visibility. Two designs exist, with very different risk --
 raw SSH command passthrough (the model writes `ssh host "..."` text
-directly) vs. pull-edit-push (harness pulls the file locally, an ordinary
+directly) vs. pull-edit-push (torra pulls the file locally, an ordinary
 step edits the local copy, a single always-escalated step pushes it back).
 Operator chose pull-edit-push. **The model never authors ssh/scp text
 anywhere in this mechanism** -- `SafetyClassifier` needed zero new evasion
@@ -2404,20 +2404,20 @@ surface, because it never has to resolve a remote command at all.
 
 **The anti-goal, worth re-reading before extending this:** no new way for
 the model to cause anything to run on `executor` outside this one, narrow,
-harness-controlled mechanism. `grep -rn "build_remote_pull_action\|
-build_remote_push_action\|escalate_remote_push" harness/` shows exactly
-three files: the definitions in `harness/core/remote_edit.py`, the call
-site in `harness/core/tasks.py`'s `to_steps()` (pull/push actions) and
+torra-controlled mechanism. `grep -rn "build_remote_pull_action\|
+build_remote_push_action\|escalate_remote_push" torra/` shows exactly
+three files: the definitions in `torra/core/remote_edit.py`, the call
+site in `torra/core/tasks.py`'s `to_steps()` (pull/push actions) and
 `_validate_step` (field requirements), and the call site in
-`harness/pipeline.py`'s `_gate()` (the escalation). Nothing under
-`harness/gates/safety.py` changed at all.
+`torra/pipeline.py`'s `_gate()` (the escalation). Nothing under
+`torra/gates/safety.py` changed at all.
 
 **Two new `Step.kind` values, real meaning for the first time.**
-`Step.kind` (`harness/core/tasks.py`) was already a real field, already in
+`Step.kind` (`torra/core/tasks.py`) was already a real field, already in
 `STEP_FIELDS`, already settable by the model -- confirmed by grepping the
 whole tree before this change that *nothing* branched on it anywhere.
 `remote_pull`/`remote_push` are the first values that do. For these two
-kinds only, `Step.command`/`Step.run` are **harness-authored, deterministic
+kinds only, `Step.command`/`Step.run` are **torra-authored, deterministic
 text** (`f"pull {remote_path} from executor"` / `f"push local edit back to
 {remote_path} on executor"`), not the model's own `run` field -- the model
 still writes a `run` value (required by `_validate_step`, unchanged for
@@ -2425,15 +2425,15 @@ every other kind), but it's ignored for what actually executes and what
 gets classified on these two kinds specifically. This is the one deliberate,
 narrow exception to `Step`'s own docstring invariant ("command is both what
 executes and what gets classified... the single most important invariant in
-the harness") -- the invariant's *spirit* still holds exactly, it's just
-harness code authoring that text instead of the model, precisely so the
+torra") -- the invariant's *spirit* still holds exactly, it's just
+torra code authoring that text instead of the model, precisely so the
 model can never smuggle arbitrary command text into a remote-write path.
 **Never extend this exception to any other kind.**
 
 **How a step actually moves a file.** `remote_pull` declares `remote_path`
 (source, on executor) and `touches: [<local path the model chooses>]`
 (destination); its real action fetches the remote content over the
-executor's SSH runner (`harness.core.machine.build_ssh_runner`, §2.52,
+executor's SSH runner (`torra.core.machine.build_ssh_runner`, §2.52,
 reused unchanged) and writes it to that local path -- an ordinary local
 file after that, editable by a completely normal local step with the
 existing, unchanged pipeline. `remote_push` declares the same `remote_path`
@@ -2444,9 +2444,9 @@ the runner requires, without the model ever having to construct that
 encoding itself).
 
 **The CRITICAL floor is unconditional, not content-based.**
-`Harness._gate()` calls `escalate_remote_push(verdict, step.kind)`
-(`harness/core/remote_edit.py`) right after `SafetyClassifier.classify()`.
-The harness-authored command text for a push step names no real program
+`Torra._gate()` calls `escalate_remote_push(verdict, step.kind)`
+(`torra/core/remote_edit.py`) right after `SafetyClassifier.classify()`.
+Torra-authored command text for a push step names no real program
 `SafetyClassifier` recognizes, so it classifies SAFE on its own almost every
 time -- irrelevant, because the floor applies regardless. **CRITICAL, not
 DANGEROUS**: unlike a local DANGEROUS step, a remote write has no local
@@ -2456,7 +2456,7 @@ pre-push snapshot itself failed -- CRITICAL guarantees this always surfaces
 with the strongest visual weight the UI has, never blending in with a
 routine step.
 
-**Undo: `UndoGenerator.capture_remote_file()`** (`harness/gates/undo.py`) is
+**Undo: `UndoGenerator.capture_remote_file()`** (`torra/gates/undo.py`) is
 the direct remote mirror of `capture_file()`, same real, provable bar (a
 `verify` that re-checks actual state, not "the call didn't raise"). Snapshot
 happens at gate time (`for_step()`, before the push ever runs), stored in
@@ -2497,7 +2497,7 @@ back to its original content. Both runs used a real, disposable
 `/tmp/...` file on executor, cleaned up afterward.
 
 > Guarded by `tests/test_core.py::TestRemoteEditSteps` (6 cases:
-> `to_steps()` builds harness-authored pull/push actions and ignores the
+> `to_steps()` builds torra-authored pull/push actions and ignores the
 > model's own `run` text, real content flows through correctly including
 > base64 round-trip, clean failure with no executor configured, and the
 > three new `_validate_step` field requirements), `tests/test_gates.py::
@@ -2508,7 +2508,7 @@ back to its original content. Both runs used a real, disposable
 > SAFE verdict on the same text, no escalation for `remote_pull`, a full
 > pull-edit-push run with a real captured undo, an uncovered push still
 > requiring approval, and a failing push triggering the normal rollback
-> sweep with zero new recovery logic). `harness/core/remote_edit.py` is a
+> sweep with zero new recovery logic). `torra/core/remote_edit.py` is a
 > new module, split out of `tasks.py`/`pipeline.py` immediately -- both
 > crossed this project's 500-functional-LOC modularity threshold the
 > moment this landed inline (same real, measured reason
@@ -2767,7 +2767,7 @@ independently reproducible from what's here now:
   (distinct from the tuning corpora) — `tests/test_gates.py::TestClarifier`
   still asserts 0% FN today, but against its own corpus, not that blind one.
 - 5,143x faster tree watching, checkpoint bytes 15.3MB→786KB, 516 bytes/logged
-  task — these had no equivalent in the shipped `harness/` test suite and
+  task — these had no equivalent in the shipped `torra/` test suite and
   cannot currently be re-measured at all.
 
 Treat those specific numbers as historical claims about the prototype, not as
@@ -2844,7 +2844,7 @@ it reaches `_classify`, which correctly returns `None` for "no longer
 different" -- but the loop only ever did `if conflict: self._known[...] =
 conflict`, never anything for the `None` case. A conflict recorded on an
 earlier fast check stuck around across every later `detect()` call,
-feeding `Harness._run_steps()` a false "external conflict" and blocking a
+feeding `Torra._run_steps()` a false "external conflict" and blocking a
 real run on nothing, until the next scheduled full walk happened to
 rebuild `_known` from scratch (up to `reconcile_every` calls later,
 default 20). The loop now does `self._known.pop(path, None)` in the
@@ -2920,7 +2920,7 @@ happens to open with "Checking the logs, ..." followed by an actual fact.
 > Guarded by `tests/test_agent.py::test_an_answer_that_only_promises_to_check_is_repaired`,
 > `test_a_short_answer_that_happens_to_open_with_checking_is_not_flagged`
 
-**`HarnessApp.BINDINGS` must never claim `ctrl+c`.** Textual's own default
+**`TorraApp.BINDINGS` must never claim `ctrl+c`.** Textual's own default
 for that key is deliberately not "quit" -- `App.action_help_quit`'s
 docstring says so outright: "Ctrl+C is now bound to copy if an input /
 textarea is focused... this makes it possible, even likely, that a user
@@ -2930,7 +2930,7 @@ An earlier version of this file bound `ctrl+c` to `"quit"` directly,
 silently re-breaking exactly what Textual's maintainers fixed: found live,
 any attempt to copy selected chat/plan text via ctrl+c closed the whole
 app instead of copying anything. Quit now lives on `ctrl+q`; do not move
-it back onto `ctrl+c`, even though that used to be the harness's own
+it back onto `ctrl+c`, even though that used to be torra's own
 convention.
 
 > Guarded by `tests/test_tui.py::test_ctrl_c_copies_rather_than_quitting`
@@ -2940,7 +2940,7 @@ list open and writes no audit record, because the run has not happened yet. An
 earlier version appended the report stage during `plan()` and produced
 `present -> report -> execute` in the stage list.
 
-**The TUI status line's spinner.** `HarnessApp._set_busy(True, ...)` starts a
+**The TUI status line's spinner.** `TorraApp._set_busy(True, ...)` starts a
 `set_interval(0.1, self._tick_spinner)` timer that redraws `#status` with a
 cycling frame and elapsed seconds; `_set_busy(False, ...)` stops and clears
 it. Requested live: a static "thinking..." label looks identical whether the
@@ -2962,9 +2962,9 @@ launches a genuinely concurrent second thread. The Run/Dry-run buttons get
 widget to disable at all, so the guard doing the real work is the `busy`
 check itself. Found live: pressing Ctrl+D ~50ms after clicking Run, while
 the first call's step was still sleeping, dispatched a second
-`Harness.execute()` call on the *same* mutable `RunResult` -- two calls
+`Torra.execute()` call on the *same* mutable `RunResult` -- two calls
 113ms apart, genuinely concurrent, confirmed by instrumenting
-`harness.execute`. It happened to land harmlessly that run (one call
+`torra.execute`. It happened to land harmlessly that run (one call
 bailed on a state the other had already changed), but that was the luck of
 the interleaving, not a guarantee. First fix: `execute_plan()` checked
 `busy` as its first line, before touching `tab.current` or anything else.
@@ -3039,7 +3039,7 @@ VRAM). If you find yourself reaching for `qwen3.5:latest` as an obvious
 **`UndoGenerator.cleanup()` recreates `shadow_dir` after deleting it.**
 Simplifying it to just `shutil.rmtree(self.shadow_dir, ignore_errors=True)`
 looks harmless -- it isn't, because one `UndoGenerator` is built once per
-`Harness` and reused across every `plan()` call for the rest of the
+`Torra` and reused across every `plan()` call for the rest of the
 session (`_gate()` snapshots at propose time, before `execute()` even
 knows whether the run will be dry or real). Deleting the directory without
 recreating it would silently degrade every subsequent `capture_file` to a
@@ -3061,8 +3061,8 @@ silently targeting the wrong systemd instance. See `AUDIT_FINDINGS.md`
 MED-2.
 
 **Site-knowledge library gives the model awareness, never a new capability.**
-`HARNESS_KNOWLEDGE_DIR` (read once in `Harness.__init__`, via
-`Harness._resolve_knowledge_dir`) points `observe_machine()` at an optional
+`TORRA_KNOWLEDGE_DIR` (read once in `Torra.__init__`, via
+`Torra._resolve_knowledge_dir`) points `observe_machine()` at an optional
 local directory of site-specific docs (this machine's hardware, services,
 storage layout, past fixes, quirks). `_scan_knowledge_dir` only ever reads
 first-headings for a topic index -- it does not feed file contents into the
@@ -3095,7 +3095,7 @@ directory's own top level, on the reasoning that subdirectories are
 implementation detail (`fixes/`, `raw/`, `lists/`-style capture data) --
 true for the library that motivated the mechanism above, but not for the
 one actually in use: `system-library` (this project's own
-`$HARNESS_KNOWLEDGE_DIR`, set by the operator's `harness` shell alias)
+`$TORRA_KNOWLEDGE_DIR`, set by the operator's `torra` shell alias)
 puts its *primary* content one level down, in
 `machines/<hostname>/{quirks,hardware,services,storage,...}.md`, per its
 own README ("Each machine gets a folder"). Verified live against the real
@@ -3166,7 +3166,7 @@ same as "False" (§2.3), so no explicit refusal is needed.
 
 **Secret redaction: a multi-word value, and `Label.why`, both used to go
 to disk in the clear.** Found by an independent audit, two related gaps in
-`harness/telemetry/`: (1) the `password=`/`token:`/etc. redaction pattern
+`torra/telemetry/`: (1) the `password=`/`token:`/etc. redaction pattern
 matched only one whitespace-free token (`\S+`) after the separator, so
 `"password = super secret phrase"` redacted just `"password = super"`,
 leaving `"secret phrase"` written in the clear -- changed to match to end
@@ -3194,15 +3194,15 @@ plumbing and nothing about whether a local model writes good plans on
 its own -- that part of this entry hasn't changed. What has changed:
 until a full-file audit found it, none of the "what to measure" list
 below was actually collectible. `TaskLogger.record()` had no caller
-anywhere in `pipeline.py`, `agent.py`, or `tui.py`; `harness label`/
-`harness evidence` only ever *read* `tasks.jsonl`, so both could only
-ever report zero tasks no matter how much real use the harness saw. This
+anywhere in `pipeline.py`, `agent.py`, or `tui.py`; `torra label`/
+`torra evidence` only ever *read* `tasks.jsonl`, so both could only
+ever report zero tasks no matter how much real use torra saw. This
 was measurement-blocked, not just data-poor: the tool to close it did
 not just lack data, it structurally could not have collected any.
-`Harness._finish()` now calls `self.telemetry.record(...)` for every
+`Torra._finish()` now calls `self.telemetry.record(...)` for every
 turn, and real traffic has been running against it since (§6.2). Each
 "what to measure" question below now has a real, if still small-sample,
-answer as of this snapshot (`harness evidence`, 143 recorded tasks, 29
+answer as of this snapshot (`torra evidence`, 143 recorded tasks, 29
 of them `plan`-intent):
 
 - **`repairs == 0` on the first proposal:** 12 of 29 plan turns (41%).
@@ -3226,8 +3226,8 @@ occurrences behind that number were logged *before* the fix landed
 (2026-08-27 10:30); exactly one ambiguous-labeled request has been
 recorded since, and it was correctly blocked -- not a contradiction of
 the fix helping, but n=1 proves nothing either way. The honest next step
-is **more real post-fix traffic, then re-run `harness evidence` against
-it specifically** (`harness label` first, same as always) -- not a
+is **more real post-fix traffic, then re-run `torra evidence` against
+it specifically** (`torra label` first, same as always) -- not a
 guess at a further clarifier change, which this file's own §3/§7
 discipline already rules out without a fresh measurement behind it.
 
@@ -3251,10 +3251,10 @@ itself. Read §2.40 before attempting a third approach here.
 ### 6.2 Real traffic now exists, and it has already paid for itself twice
 
 This used to say every number in `README.md` came from synthetic data
-and nobody had fed the harness a real week. Since then: 143 real tasks
-recorded (`~/.harness/telemetry/tasks.jsonl`, spanning about a month of
+and nobody had fed torra a real week. Since then: 143 real tasks
+recorded (`~/.torra/telemetry/tasks.jsonl`, spanning about a month of
 actual use across CLI/TUI/OpenRouter), 91 of them hand-labeled
-(`harness label`) for the ambiguous/specific measurement §6.1 and §2.34
+(`torra label`) for the ambiguous/specific measurement §6.1 and §2.34
 depend on. This is no longer a gap to close -- it's a loop that's
 running and has already found two real, unrelated bugs neither could
 have been found by reading code alone: the pipefail/SIGPIPE-forgiveness
@@ -3280,7 +3280,7 @@ different things:
   (not just read): a `dd if=/dev/zero of=<file> ...` step with the file
   declared in `touches` gets a real `UndoAction`, and running it actually
   restores the original bytes. `agent.py`'s `SYSTEM_PROMPT` rule 7 used
-  to say the opposite -- "the harness derives undos for files, services,
+  to say the opposite -- "torra derives undos for files, services,
   packages and mkdir automatically, nothing else" -- which told the model
   `dd`/`mkfs` never get automatic coverage even when writing to a
   perfectly ordinary file, and could have pushed it toward an
@@ -3355,7 +3355,7 @@ finding shrinks rather than accumulates.
   shows up.
 - One blind-corpus clarifier false positive (`run nvidia-smi and report the free
   VRAM in MB`), left unfixed deliberately so one unoptimised measurement survives
-- `detect_accelerator()`'s ROCm branch (`harness/core/machine.py`) detects
+- `detect_accelerator()`'s ROCm branch (`torra/core/machine.py`) detects
   *presence* only -- `Accelerator("rocm", "amd", detail="rocm-smi responded")`
   never sets `vram_mb`/`free_vram_mb`, so `Accelerator.gpu` (which requires
   `free_vram_mb > 0`) is always `False` on a ROCm system, and the router
@@ -3397,17 +3397,17 @@ separate "stage contract holds" tests.
 For an agent that needs the machine-readable version.
 
 ```
-entry points     harness.cli:main, harness.tui:run_tui, harness.pipeline:Harness
-core object      Harness(workdir, ollama=, agent=, safety=, verifier=, undo=,
+entry points     torra.cli:main, torra.tui:run_tui, torra.pipeline:Torra
+core object      Torra(workdir, ollama=, agent=, safety=, verifier=, undo=,
                          rollback=, conflicts=, clarifier=, router=, decisions=,
                          telemetry=, recheck_between_steps=True, knowledge_dir=None)
-plan             Harness.plan(request, model=None) -> RunResult
-execute          Harness.execute(result, approvals: Dict[str, bool], dry_run=False)
+plan             Torra.plan(request, model=None) -> RunResult
+execute          Torra.execute(result, approvals: Dict[str, bool], dry_run=False)
                  -- a declined step is skipped, not a whole-plan reject,
                  unless *zero* steps end up approved (§2.42)
-dep. warnings    Harness.dependency_warnings(plan, approvals) -> list[str]
+dep. warnings    Torra.dependency_warnings(plan, approvals) -> list[str]
                  -- best-effort, call before execute(), never blocks (§2.42)
-one shot         Harness.run(request, approve: Callable[[Plan], Dict[str,bool]])
+one shot         Torra.run(request, approve: Callable[[Plan], Dict[str,bool]])
 
 outcomes         answered | needs_answer | refused | awaiting_approval |
                  rejected | blocked | completed | failed | backend_down
@@ -3415,16 +3415,16 @@ stages           converse observe propose gate present execute report
 risk levels      safe caution dangerous critical
 exit codes       0 ok, 1 usage, 2 gate-stopped or unapproved, 3 failed
 
-model contract   JSON only, schema in harness.prompts.PLAN_SCHEMA
-                 (re-exported from harness.agent for existing importers)
+model contract   JSON only, schema in torra.prompts.PLAN_SCHEMA
+                 (re-exported from torra.agent for existing importers)
                  intent: plan | ask | answer | refuse
                  the model NEVER executes; it returns a TaskSpec
 
 audit            <workdir>/audit/<task_id>.audit.json, every decision with reasoning
 telemetry        <workdir>/telemetry/tasks.jsonl, append-only, secrets redacted
 resume           <workdir>/resume/<task_id>.json, written after each completed step
-shadow copies    <workdir>/harness-shadow-<pid>/ (CLI/one-shot) or
-                 <workdir>/harness-shadow-<session_id>/ (TUI, one per tab, see §2.23)
+shadow copies    <workdir>/torra-shadow-<pid>/ (CLI/one-shot) or
+                 <workdir>/torra-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
 test command     python3 -m pytest tests/ -q     # 774

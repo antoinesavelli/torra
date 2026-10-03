@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compute the six-dimension defensive-coding scorecard for harness/.
+"""Compute the six-dimension defensive-coding scorecard for torra/.
 
 Depends on: radon (complexity), ruff (lint, invoked as a subprocess), stdlib
 ast (docstrings/type hints/test-import scanning). Read-only: never edits code.
@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_ROOT = REPO_ROOT / "harness"
+TORRA_ROOT = REPO_ROOT / "torra"
 TESTS_ROOT = REPO_ROOT / "tests"
 
 #: Last-known-good grades, recorded from the first clean run against this
@@ -51,7 +51,7 @@ PERIPHERAL_SUFFIXES = ("cli.py", "tui.py", "__init__.py")
 
 def tier_of(path: Path) -> str:
     """Classify one file as critical, core, or peripheral (see standards doc §0)."""
-    rel = path.relative_to(HARNESS_ROOT).as_posix()
+    rel = path.relative_to(TORRA_ROOT).as_posix()
     if path.name in PERIPHERAL_SUFFIXES:
         return "peripheral"
     if rel.startswith("gates/") or rel in ("core/tasks.py", "pipeline.py"):
@@ -60,8 +60,8 @@ def tier_of(path: Path) -> str:
 
 
 def source_files() -> list[Path]:
-    """Every harness/*.py file, caches excluded."""
-    return sorted(p for p in HARNESS_ROOT.rglob("*.py")
+    """Every torra/*.py file, caches excluded."""
+    return sorted(p for p in TORRA_ROOT.rglob("*.py")
                   if "__pycache__" not in p.parts)
 
 
@@ -286,7 +286,7 @@ def grade_typing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
 
 
 def module_name_of(path: Path) -> str:
-    """Dotted module name relative to the repo root, e.g. harness.gates.safety."""
+    """Dotted module name relative to the repo root, e.g. torra.gates.safety."""
     rel = path.relative_to(REPO_ROOT).with_suffix("")
     parts = list(rel.parts)
     if parts[-1] == "__init__":
@@ -295,7 +295,7 @@ def module_name_of(path: Path) -> str:
 
 
 def test_imported_modules() -> set[str]:
-    """Every harness.* dotted path referenced by an import/from-import in tests/."""
+    """Every torra.* dotted path referenced by an import/from-import in tests/."""
     imported: set[str] = set()
     for path in TESTS_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -392,9 +392,9 @@ def gpa_to_grade(gpa: float) -> str:
 def main() -> int:
     """Compute the scorecard, print it, and enforce floors if asked."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--area", default="harness",
+    parser.add_argument("--area", default="torra",
                         help="Subpackage to grade, relative to the repo root "
-                             "(default: harness, the whole package)")
+                             "(default: torra, the whole package)")
     parser.add_argument("--enforce", action="store_true",
                         help="Exit non-zero if any dimension or the overall "
                              "GPA drops below its recorded floor")

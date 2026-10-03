@@ -1,12 +1,12 @@
 """
 The interface.
 
-Textual's test harness drives the real app headless, so these assert what an
+Textual's test torra drives the real app headless, so these assert what an
 operator would actually see rather than what the widgets contain in principle.
 
-Depends on: harness.gates (Precondition, StateVerifier, RollbackReport,
+Depends on: torra.gates (Precondition, StateVerifier, RollbackReport,
 RollbackResult) for the blocked-plan and rollback-report coverage below, and
-harness.pipeline (Outcome, RunResult) for the outcome-dispatch coverage that
+torra.pipeline (Outcome, RunResult) for the outcome-dispatch coverage that
 constructs a RunResult directly rather than round-tripping the whole pipeline.
 """
 
@@ -21,24 +21,24 @@ import pytest
 from conftest import plan_reply, scripted
 from textual.widgets import Button, Checkbox, Input, OptionList, Static, Tab, TabbedContent
 
-from harness.agent import Intent, Turn
-from harness.core import MachineState, OllamaClient
-from harness.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
-from harness.pipeline import Harness, Outcome, RunResult
-from harness.tui import (
+from torra.agent import Intent, Turn
+from torra.core import MachineState, OllamaClient
+from torra.gates import Precondition, RollbackReport, RollbackResult, StateVerifier
+from torra.pipeline import Outcome, RunResult, Torra
+from torra.tui import (
     SPINNER_FRAMES,
     VERIFIED_OPENROUTER_MODELS,
     ChatLine,
     ConfirmDialog,
-    HarnessApp,
     ModelPicker,
     SessionPicker,
     StepCard,
+    TorraApp,
     run_tui,
 )
 
 
-def screen_text(app: HarnessApp) -> str:
+def screen_text(app: TorraApp) -> str:
     """Every bit of text currently on screen.
 
     Widgets differ in where they keep their content, and Header in particular
@@ -54,7 +54,7 @@ def screen_text(app: HarnessApp) -> str:
     return " ".join(parts)
 
 
-def status_text(app: HarnessApp) -> str:
+def status_text(app: TorraApp) -> str:
     """The status line's current text, however this Textual version stores it."""
     status = app.query_one("#status", Static)
     for attribute in ("content", "renderable", "_content"):
@@ -64,7 +64,7 @@ def status_text(app: HarnessApp) -> str:
     return ""
 
 
-def busy_line_text(app: HarnessApp, session_id: str) -> str:
+def busy_line_text(app: TorraApp, session_id: str) -> str:
     """One tab's #busy-line text, same attribute-hunting as status_text --
     empty (not just falsy) is a real, distinct state here (idle), so this
     returns "" rather than None when nothing is set."""
@@ -76,13 +76,13 @@ def busy_line_text(app: HarnessApp, session_id: str) -> str:
     return ""
 
 
-def build(tmp_path: Path, transport, **harness_kwargs: Any) -> HarnessApp:
-    """A HarnessApp wired to a scripted backend."""
-    harness = Harness(workdir=tmp_path / "wd",
+def build(tmp_path: Path, transport, **torra_kwargs: Any) -> TorraApp:
+    """A TorraApp wired to a scripted backend."""
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=transport, probe_timeout=0.1),
-                      **harness_kwargs)
-    harness.agent._observe = lambda: MachineState(hostname="pop-os")
-    return HarnessApp(harness=harness)
+                      **torra_kwargs)
+    torra.agent._observe = lambda: MachineState(hostname="pop-os")
+    return TorraApp(torra=torra)
 
 
 def slow_scripted(delay: float, *replies: dict[str, Any]):
@@ -431,7 +431,7 @@ async def test_reject_records_the_decision(tmp_path: Path) -> None:
 
         assert app.current is None
         assert target.exists(), "reject must not run anything"
-        records = app.harness.telemetry.read()
+        records = app.torra.telemetry.read()
         assert records and records[-1].status == "rejected"
 
 
@@ -489,7 +489,7 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
     action_dry_run() (Ctrl+D) had no widget to gate it, so pressing it while
     a real run's step was still in flight dispatched a second execute_plan()
     worker. Textual's "exclusive" thread worker does not preempt an
-    already-running thread, so both ran Harness.execute() concurrently
+    already-running thread, so both ran Torra.execute() concurrently
     against the same mutable RunResult -- observed live as two overlapping
     calls, 113ms apart, one of them landing on a state neither caller
     intended. execute_plan() now refuses to start a second run while busy,
@@ -510,14 +510,14 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
           "touches": [str(marker)]}])))
 
     calls: list[str] = []
-    orig_execute = app.harness.execute
+    orig_execute = app.torra.execute
 
     def spy(result: RunResult, approvals: dict[str, bool] | None = None,
             dry_run: bool = False, on_output: Any | None = None) -> RunResult:
         calls.append("enter")
         return orig_execute(result, approvals, dry_run, on_output=on_output)
 
-    app.harness.execute = spy  # type: ignore[method-assign]
+    app.torra.execute = spy  # type: ignore[method-assign]
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"append to {marker}"
@@ -545,7 +545,7 @@ async def test_step_output_streams_live_and_survives_after_completion(
         tmp_path: Path) -> None:
     """The TUI counterpart to test_core.py's TestShellOutputSink and
     test_pipeline.py's on_output tests -- this one drives the real worker
-    thread end to end (real Harness, real shell()) and checks the actual
+    thread end to end (real Torra, real shell()) and checks the actual
     widget content, not just that a callback fired. Unlike the reasoning
     line, this one must NOT be cleared once the run finishes -- StepResult's
     captured output is never shown anywhere else in the TUI."""
@@ -617,7 +617,7 @@ async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> 
     after a run completed (unlike Run/Dry-run), and clicking it on an
     already-executed plan used to unconditionally say "Plan rejected.
     Nothing ran." and clear self.current -- even though something real
-    had already happened. Harness.reject() now refuses to overwrite that
+    had already happened. Torra.reject() now refuses to overwrite that
     outcome; this checks the button's own message stops lying about it
     too, and that the completed result is not discarded."""
     marker = tmp_path / "marker"
@@ -654,7 +654,7 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
         tmp_path: Path) -> None:
     """Found live: Run stayed clickable (and green) after a real run
     completed, and clicking it again -- while never actually re-running
-    anything for real, Harness.execute()'s own `_refuse_replay` guard
+    anything for real, Torra.execute()'s own `_refuse_replay` guard
     already saw to that -- still called execute() again and reprinted the
     whole prior transcript into the chat, reading as if the run itself had
     repeated. Run now greys out after one real use; a second click asks
@@ -666,14 +666,14 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
         [{"id": "bump", "run": f"echo x >> {marker}"}])))
 
     calls: list[str] = []
-    orig_execute = app.harness.execute
+    orig_execute = app.torra.execute
 
     def spy(result: RunResult, approvals: dict[str, bool] | None = None,
             dry_run: bool = False, on_output: Any | None = None) -> RunResult:
         calls.append("enter")
         return orig_execute(result, approvals, dry_run, on_output=on_output)
 
-    app.harness.execute = spy  # type: ignore[method-assign]
+    app.torra.execute = spy  # type: ignore[method-assign]
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"append to {marker}"
@@ -711,7 +711,7 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
         assert len(app.query(ChatLine)) == lines_after_first_run, \
             "cancelling must not add any chat output"
 
-        # Confirming still can't force a real replay (Harness.execute()'s
+        # Confirming still can't force a real replay (Torra.execute()'s
         # own guard would refuse it even if reached) -- but it must not
         # even call execute() again, and must add exactly one short line,
         # not the whole prior transcript a second time.
@@ -788,12 +788,12 @@ async def test_blank_and_busy_submissions_are_ignored(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_plan_request_reports_an_unexpected_exception(tmp_path: Path) -> None:
-    """harness.plan() already narrows OllamaError/AgentError into
+    """torra.plan() already narrows OllamaError/AgentError into
     BACKEND_DOWN/FAILED outcomes -- this covers what happens when something
     else entirely goes wrong, which plan_request()'s own try/except guards
     against so the worker thread doesn't just die silently."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
-    app.harness.plan = lambda request, model=None, on_thinking=None: (  # type: ignore[method-assign]
+    app.torra.plan = lambda request, model=None, on_thinking=None: (  # type: ignore[method-assign]
         _ for _ in ()).throw(ValueError("boom"))
 
     async with app.run_test() as pilot:
@@ -895,7 +895,7 @@ async def test_reasoning_text_survives_until_the_next_question_is_asked(
         return RunResult(request=request, outcome=Outcome.ANSWERED,
                          turn=Turn(request=request, intent=Intent.ANSWER, message="done"))
 
-    app.harness.plan = fake_plan  # type: ignore[method-assign]
+    app.torra.plan = fake_plan  # type: ignore[method-assign]
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "what is the disk usage"
@@ -1090,7 +1090,7 @@ async def test_execute_plan_ignores_a_second_call_while_busy(tmp_path: Path) -> 
     def fake_execute(*a: object, **k: object) -> Any:
         calls.append("called")
 
-    app.harness.execute = fake_execute  # type: ignore[method-assign]
+    app.torra.execute = fake_execute  # type: ignore[method-assign]
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1109,12 +1109,12 @@ async def test_execute_plan_sets_busy_synchronously_before_the_worker_starts(
     round trip after fetching approvals), leaving a real window where a
     fast second dispatch (a double-click, or Ctrl+D right after a click)
     still read busy=False and started a second, genuinely concurrent
-    Harness.execute(). It must now be True the instant execute_plan()
+    Torra.execute(). It must now be True the instant execute_plan()
     returns, with no pilot.pause() at all -- proving there is no worker
     round trip in between."""
     app = build(tmp_path, scripted(plan_reply(
         "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))
-    app.harness.execute = lambda *a, **k: RunResult(  # type: ignore[method-assign]
+    app.torra.execute = lambda *a, **k: RunResult(  # type: ignore[method-assign]
         request="r", outcome=Outcome.COMPLETED)
 
     async with app.run_test() as pilot:
@@ -1165,7 +1165,7 @@ async def test_plan_request_sets_busy_synchronously_before_the_worker_starts(
 async def test_execute_plan_reports_an_unexpected_exception(tmp_path: Path) -> None:
     app = build(tmp_path, scripted(plan_reply(
         "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))
-    app.harness.execute = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
+    app.torra.execute = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
         RuntimeError("disk exploded"))
 
     async with app.run_test(size=(120, 50)) as pilot:
@@ -1291,7 +1291,7 @@ async def test_ctrl_l_clears_the_chat(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
-    """A new tab gets its own Harness/Agent, not a shared one."""
+    """A new tab gets its own Torra/Agent, not a shared one."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1304,9 +1304,9 @@ async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
 
         assert second_id != first_id
         assert len(app.sessions) == 2
-        assert app.sessions[first_id].harness is not app.sessions[second_id].harness
-        assert (app.sessions[first_id].harness.undo.shadow_dir
-                != app.sessions[second_id].harness.undo.shadow_dir)
+        assert app.sessions[first_id].torra is not app.sessions[second_id].torra
+        assert (app.sessions[first_id].torra.undo.shadow_dir
+                != app.sessions[second_id].torra.undo.shadow_dir)
 
 
 @pytest.mark.asyncio
@@ -1580,7 +1580,7 @@ class _FakeBackend:
 
 @pytest.mark.asyncio
 async def test_a_new_tab_inherits_the_apps_registered_backends(tmp_path: Path) -> None:
-    """Found by design review before shipping: a per-tab Harness that
+    """Found by design review before shipping: a per-tab Torra that
     doesn't inherit `backends` would silently lose OpenRouter access after
     the first tab (HANDOFF.md §2.27)."""
     fake = _FakeBackend()
@@ -1593,7 +1593,7 @@ async def test_a_new_tab_inherits_the_apps_registered_backends(tmp_path: Path) -
         await app.workers.wait_for_complete()
         second_id = app.active_session_id
 
-        assert app.sessions[second_id].harness.agent.backends["openrouter"] is fake
+        assert app.sessions[second_id].torra.agent.backends["openrouter"] is fake
 
 
 @pytest.mark.asyncio
@@ -1744,10 +1744,10 @@ async def test_an_unconfigured_openrouter_override_fails_clearly_not_silently(
     """Found live by manual testing: an unconfigured openrouter/... request
     used to silently fall through to a real local model with no error at
     all, if "openrouter" wasn't registered as a backend. A real
-    OpenRouterClient with no key IS registered (matching build_harness()'s
+    OpenRouterClient with no key IS registered (matching build_torra()'s
     corrected behavior, HANDOFF.md §2.27), so submitting through it must
     surface OpenRouterClient's own clear error, not a local model's answer."""
-    from harness.core import OpenRouterClient
+    from torra.core import OpenRouterClient
 
     app = build(tmp_path, scripted({"intent": "answer", "message": "should not be reached"}),
                backends={"openrouter": OpenRouterClient(api_key="")})
@@ -1768,7 +1768,7 @@ async def test_model_override_reaches_the_plan_call(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
                backends={"openrouter": _FakeBackend()})
     seen: dict[str, object] = {}
-    real_plan = app.harness.plan
+    real_plan = app.torra.plan
 
     def spy_plan(request: str, model: str | None = None,
                 on_thinking: Any | None = None) -> RunResult:
@@ -1778,7 +1778,7 @@ async def test_model_override_reaches_the_plan_call(tmp_path: Path) -> None:
     async with app.run_test() as pilot:
         session_id = app.active_session_id
         app.sessions[session_id].model_override = "openrouter/anthropic/claude-3.5-sonnet"
-        app.sessions[session_id].harness.plan = spy_plan  # type: ignore[method-assign]
+        app.sessions[session_id].torra.plan = spy_plan  # type: ignore[method-assign]
 
         app.query_one("#prompt", Input).value = "hello"
         await pilot.press("enter")
@@ -1973,7 +1973,7 @@ async def test_reopening_a_session_that_no_longer_exists_shows_an_error(
 async def test_reopening_a_past_session_after_a_restart_replays_its_history(
         tmp_path: Path) -> None:
     """The point of persistence: kill the process, come back, and the
-    conversation is still there -- simulated here as a second HarnessApp
+    conversation is still there -- simulated here as a second TorraApp
     sharing the first one's workdir, the same way a real restart would."""
     app1 = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app1.run_test() as pilot:
@@ -2198,7 +2198,7 @@ def test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias() -> Non
     from textual.keys import KEY_ALIASES
 
     aliased_away = {alias for aliases in KEY_ALIASES.values() for alias in aliases}
-    bound_keys = {binding.key for binding in Binding.make_bindings(HarnessApp.BINDINGS)}
+    bound_keys = {binding.key for binding in Binding.make_bindings(TorraApp.BINDINGS)}
     collisions = bound_keys & aliased_away
     assert not collisions, \
         f"{collisions} can never reach the app as typed -- a real terminal collapses it"
@@ -2269,13 +2269,13 @@ def test_run_tui_builds_and_runs_the_app(tmp_path: Path, monkeypatch) -> None:
     (App.run(), which takes over the terminal) -- genuinely impractical to
     drive headlessly, so this checks it builds the right app and hands off
     to run() exactly once, with App.run() itself replaced."""
-    calls: list[HarnessApp] = []
-    monkeypatch.setattr(HarnessApp, "run", lambda self: calls.append(self))
+    calls: list[TorraApp] = []
+    monkeypatch.setattr(TorraApp, "run", lambda self: calls.append(self))
 
-    harness = Harness(workdir=tmp_path / "wd",
+    torra = Torra(workdir=tmp_path / "wd",
                       ollama=OllamaClient(transport=scripted(
                           {"intent": "answer", "message": "ok"}), probe_timeout=0.1))
-    run_tui(harness=harness)
+    run_tui(torra=torra)
 
     assert len(calls) == 1
-    assert calls[0].harness is harness
+    assert calls[0].torra is torra

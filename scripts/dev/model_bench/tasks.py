@@ -1,4 +1,4 @@
-"""The graduated difficulty test battery for scoring local models as the harness's planner.
+"""The graduated difficulty test battery for scoring local models as torra's planner.
 
 Depends on: nothing (plain data). Each task states what a *correct* response
 looks like so bench.py can grade objectively rather than eyeballing output.
@@ -181,7 +181,7 @@ TASKS: list[Task] = [
         acceptable_intents=("plan",),
         good_looks_like="Declares an explicit `rollback` entry for the migration step "
                         "specifically (the system prompt calls out migrations as something "
-                        "the harness cannot auto-derive an undo for).",
+                        "torra cannot auto-derive an undo for).",
         requires_rollback=True,
     ),
 

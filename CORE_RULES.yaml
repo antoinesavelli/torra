@@ -1,19 +1,19 @@
 # CORE_RULES.yaml
 #
-# NOT LOADED BY ANY CURRENT CODE. `grep -rn CORE_RULES harness/` returns
+# NOT LOADED BY ANY CURRENT CODE. `grep -rn CORE_RULES torra/` returns
 # nothing -- there is no ModelSelector.from_yaml and no
 # phase1_integrated_executor.py in this repo; both belonged to the six-phase
 # prototype (`legacy/`) this package was consolidated from and have been
-# removed. This file survives as a human-readable snapshot of the harness's
+# removed. This file survives as a human-readable snapshot of torra's
 # *default* configuration values, for someone auditing or tuning the system
 # without reading Python -- not as a second source of truth.
 #
 # The real, authoritative values live in the code that actually runs:
-#   core_behaviors.*        harness/pipeline.py Harness.__init__ defaults,
-#                            harness/gates/{state,rollback,clarifier}.py
-#   risk_mitigations.*      harness/core/{conflict,context}.py,
-#                            harness/core/ollama.py
-#   model_routing.*         harness/gates/router.py (ROUTING_RULES, RULE_WEIGHTS)
+#   core_behaviors.*        torra/pipeline.py Torra.__init__ defaults,
+#                            torra/gates/{state,rollback,clarifier}.py
+#   risk_mitigations.*      torra/core/{conflict,context}.py,
+#                            torra/core/ollama.py
+#   model_routing.*         torra/gates/router.py (ROUTING_RULES, RULE_WEIGHTS)
 #
 # Nothing enforces agreement between this file and those defaults, so it can
 # and does drift -- e.g. `keep_recent` below says 3, but
@@ -78,7 +78,7 @@ model_routing:
   # devstral:24b, qwen3.5:latest. Everything below reflects that -- ignore
   # any surviving qwen3:8b/bare-devstral reference elsewhere in this repo's
   # history as pre-pruning. Sizes and chat capability now come from the
-  # daemon's own /api/show at runtime (harness/gates/router.py's
+  # daemon's own /api/show at runtime (torra/gates/router.py's
   # model_params_b/model_chat_capable), not from these names -- see
   # HANDOFF.md §2.9 for why the name alone stopped being trustworthy the
   # moment the catalog grew past three known models.
@@ -90,8 +90,8 @@ model_routing:
   # benchmarking the new catalog -- see router.py's own comment for why),
   # qwen3.5:latest -> gpt-oss:20b (OllamaClient's own fallback_model
   # default). devstral:24b (already non-Chinese) is untouched. See
-  # harness/gates/router.py's own ROUTING_RULES comment for the full
-  # reasoning, including the "not yet benchmarked against this harness"
+  # torra/gates/router.py's own ROUTING_RULES comment for the full
+  # reasoning, including the "not yet benchmarked against this torra"
   # caveat that now applies to the two replacements the same way it always
   # applied to qwen3-coder:30b.
   default: devstral:24b   # unmatched requests: measured most reliable of the four, not cheapest
@@ -121,7 +121,7 @@ model_routing:
     - name: code
       pattern: '\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|migrate\s+code)\b'
       model: devstral-small-2:24b
-      reason: 65.8% SWE-bench Verified (Mistral AI, Apache 2.0); replaces qwen3-coder:30b, 2026-08-28 -- still not benchmarked against this harness
+      reason: 65.8% SWE-bench Verified (Mistral AI, Apache 2.0); replaces qwen3-coder:30b, 2026-08-28 -- still not benchmarked against this torra
     - name: plan
       pattern: '\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b'
       model: gpt-oss:20b

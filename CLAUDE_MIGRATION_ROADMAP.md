@@ -2,13 +2,13 @@
 
 Written 2026-09-03. The operator's goal: stop leaning on Claude Code (or any
 paid hosted model) as the day-to-day driver across these machines, using
-harness instead. The gap breaks into four buckets. One is built (this
+torra instead. The gap breaks into four buckets. One is built (this
 change); the other three are scoped here for whoever picks them up next --
 this is a roadmap, not an implementation.
 
 ## Why a phased approach, not a big-bang expansion
 
-harness's own AGENTS.md already has a rule for this ("before adding any
+torra's own AGENTS.md already has a rule for this ("before adding any
 feature," and "fix the cause, not the check"'s sibling: don't relax scope to
 get somewhere faster). Bolting on "everything Claude does" at once would
 mean skipping the four-question gate (does an existing gate cover this, does
@@ -18,23 +18,23 @@ bucket below gets that gate applied on its own, when it's actually built.
 
 ## Bucket 1 -- general coding/refactor loop (BUILT this change)
 
-**Gap:** harness's pipeline is single-shot plan-then-execute. Claude Code's
+**Gap:** torra's pipeline is single-shot plan-then-execute. Claude Code's
 edit loop is iterative: edit, run tests, read the failure, edit again. That
 loop didn't exist here before this change.
 
-**What shipped:** `harness/iterate.py`'s `iterate()`, wired into
-`harness ask --verify "<check>" [--max-iterations N]` (default 3). See
+**What shipped:** `torra/iterate.py`'s `iterate()`, wired into
+`torra ask --verify "<check>" [--max-iterations N]` (default 3). See
 README.md's "`ask --verify`" section for usage.
 
-**Design constraint that shaped it:** harness's AGENTS.md gates
-`Harness.execute`, the five gates, and `Step.command`/`Step.run`
+**Design constraint that shaped it:** torra's AGENTS.md gates
+`Torra.execute`, the five gates, and `Step.command`/`Step.run`
 construction as ask-first, safety-critical path. A naive implementation
 (one plan with an edit step followed by a test step) would also fight
 ROLLBACK_ON_FAIL: a failing test step in the *same* plan triggers
 `_sweep_rollback`, which would undo the edit you actually want to keep and
 iterate on. The actual design avoids both problems by never touching that
-path: `iterate()` composes ordinary, already-public `Harness.plan()` /
-`Harness.execute()` calls into a bounded loop of separate rounds --
+path: `iterate()` composes ordinary, already-public `Torra.plan()` /
+`Torra.execute()` calls into a bounded loop of separate rounds --
 edit round, verify round, (fix round, verify round)* -- exactly the
 sequence of turns a human retyping "that failed, fix it" after reading the
 real output would produce by hand. Nothing here is a second way to run a
@@ -54,20 +54,20 @@ in practice, with a real example in hand, not speculatively.
 
 ## Bucket 2 -- OS/ops tasks (no build needed, habit change only)
 
-**Gap:** none, in principle. harness already owns this: shell commands,
+**Gap:** none, in principle. torra already owns this: shell commands,
 file edits (with real snapshot/undo), service/package management, deploys,
-even a second-machine SSH link (`harness/core/machine.py`'s
-`observe_executor`, `harness/core/remote_edit.py`'s pull-edit-push). This is
+even a second-machine SSH link (`torra/core/machine.py`'s
+`observe_executor`, `torra/core/remote_edit.py`'s pull-edit-push). This is
 explicitly its stated scope -- "an OS-engineering agent first, a chat UI
 second" (`AGENTS.md`).
 
 **What's actually needed:** switching habit, not code. When the operator
 finds themselves asking Claude Code to run a deploy, restart a service,
 edit a systemd unit, or touch anything package/filesystem-level on this
-box, that's a `harness ask "..."` call instead. Nothing here needs a
+box, that's a `torra ask "..."` call instead. Nothing here needs a
 `CLAUDE_MIGRATION_ROADMAP.md` action item beyond naming it -- if a *specific*
-task type keeps getting routed to Claude Code instead of harness because
-harness genuinely can't do it, that's a concrete, measurable gap worth its
+task type keeps getting routed to Claude Code instead of torra because
+torra genuinely can't do it, that's a concrete, measurable gap worth its
 own entry the next time this doc is revisited (see the four-question gate:
 measure before building).
 
@@ -76,7 +76,7 @@ measure before building).
 **Gap:** Claude Code carries cross-session project memory (this repo's own
 `~/.claude/projects/<path>/memory/`: `user`/`feedback`/`project`/`reference`
 typed files plus an `MEMORY.md` index) that persists decisions, dead ends,
-and project context across sessions. harness has an analogous but narrower
+and project context across sessions. torra has an analogous but narrower
 mechanism -- the "site-knowledge library" (`docs/*.md`, a topic index fed to
 the planning model every turn, see README.md's "Site-knowledge library"
 section) -- but that's OS/machine domain knowledge, gated on a measured
@@ -104,12 +104,12 @@ starting point, not a stub implementation.
 **Gap:** subagents (parallel delegated work), Skills (packaged procedures),
 Artifacts (published interactive pages), MCP connectors (Gmail/Drive/
 Calendar-style external tool access), and scheduling (cron-driven recurring
-agent runs) are all Claude-Code-specific abstractions with no harness
+agent runs) are all Claude-Code-specific abstractions with no torra
 equivalent.
 
 **Why lowest priority:** none of these are core to "operator" function --
 they're conveniences layered on top of a coding/ops agent, not things an
-OS-engineering agent inherently needs. harness's TUI already has an
+OS-engineering agent inherently needs. torra's TUI already has an
 analogous primitive for one of them (`ctrl+t`'s independent tabs are closer
 to parallel sessions than Claude Code's subagents, though without a
 supervising/aggregating layer). If a *specific* convenience turns out to be

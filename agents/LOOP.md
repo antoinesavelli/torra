@@ -4,7 +4,7 @@ Detail behind the short Definition of Done in `AGENTS.md`.
 
 ## Execution Architecture
 
-Every task follows this loop — no shortcuts. Notice it's the same shape the harness enforces
+Every task follows this loop — no shortcuts. Notice it's the same shape torra enforces
 on its own planning model (`converse → observe → propose → gate → present → execute →
 report`): don't hold the code to a lower discipline than the code holds its model to.
 
@@ -62,7 +62,7 @@ Not complete until all hold, in the *same* change:
    snapshot is optional cleanup, never a stand-in for documenting the real change.
 8. **No version bumps, tags, or a `CHANGELOG.md` entry.** This is a solo, private tool with
    no external consumers of the package as an API — `pyproject.toml`'s `version` stays fixed
-   at `0.0.0` (present only because PEP 621 requires the field), there is no `harness --version`
+   at `0.0.0` (present only because PEP 621 requires the field), there is no `torra --version`
    flag, and there are no git tags to keep current. `git log`/GitHub's own commit and compare
    views are the record of what changed and when; `HANDOFF.md` §2 is the record of why. Don't
    reintroduce any of this without the user asking for it back explicitly.

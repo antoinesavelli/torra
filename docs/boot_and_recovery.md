@@ -14,7 +14,7 @@ there, the two options are:
 
 Not a measured gap — all three benchmarked models
 (`scripts/dev/model_bench/REPORT.md`) described roughly this shape correctly.
-Kept here for completeness, since the harness's own `SYSTEM_PROMPT` treats
+Kept here for completeness, since torra's own `SYSTEM_PROMPT` treats
 "wipe and reinstall" requests as something to refuse or push back on hard
 (see the t6 task in the benchmark's task battery) — knowing the *actual*,
 much less destructive recovery path is what a good alternative proposal

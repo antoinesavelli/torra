@@ -1,4 +1,4 @@
-# Build, dependency, and tool config for the harness package. `[tool.ruff]` and
+# Build, dependency, and tool config for torra package. `[tool.ruff]` and
 # `[tool.mypy]` here are what `scripts/dev/defensive_coding_report.py` and CI
 # both run against -- see DEFENSIVE_CODING_STANDARDS.md for why these specific
 # rules and thresholds.
@@ -8,11 +8,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "terminal-agent-harness"
+name = "torra"
 # Not maintained -- this is a solo, private tool with no external
 # consumers of the package as an API. `git log`/GitHub's own commit and
 # compare views are the record of what changed and when; there is no
-# CHANGELOG.md, no tags, and no `harness --version` flag to keep in sync
+# CHANGELOG.md, no tags, and no `torra --version` flag to keep in sync
 # with a number here. Required by the packaging spec (PEP 621: `version`
 # is mandatory unless declared `dynamic`), so it stays present and fixed.
 version = "0.0.0"
@@ -26,10 +26,10 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 lint = ["ruff>=0.6", "mypy>=1.10", "radon>=6.0", "coverage>=7.0"]
 
 [project.scripts]
-harness = "harness.cli:main"
+torra = "torra.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["harness*"]
+include = ["torra*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

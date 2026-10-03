@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Explore devstral (the recommended default) across domains the graded battery doesn't cover.
 
-Depends on: bench.py (transport/metrics), harness.agent, harness.core, harness.gates. Unlike
+Depends on: bench.py (transport/metrics), torra.agent, torra.core, torra.gates. Unlike
 tasks.py/bench.py, these scenarios have no single objectively-correct answer to grade against
 -- this prints full detail (message, steps, risk levels, rollback) for manual review rather
 than an automatic pass/fail, the same way the disk-cleanup scenario in
@@ -19,9 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench import OLLAMA_HOST, make_metrics_transport  # noqa: E402
 
-from harness.agent import Agent, AgentError, Intent  # noqa: E402
-from harness.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
-from harness.gates import Clarifier, SafetyClassifier  # noqa: E402
+from torra.agent import Agent, AgentError, Intent  # noqa: E402
+from torra.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
+from torra.gates import Clarifier, SafetyClassifier  # noqa: E402
 
 MODEL = "devstral:24b"
 

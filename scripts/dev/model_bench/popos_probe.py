@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Probe each model's Pop!_OS-specific factual knowledge, to decide on a docs/ folder.
 
-Depends on: bench.py (transport/metrics), harness.core.OllamaClient. Mixes generic
+Depends on: bench.py (transport/metrics), torra.core.OllamaClient. Mixes generic
 Ubuntu-derived facts (most models should know these) with System76/Pop!_OS-specific
 facts (a plausible gap, since Pop!_OS is a smaller distro with less training data than
 Ubuntu proper) to see where knowledge actually breaks down rather than assuming it does.
@@ -19,10 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench import OLLAMA_HOST, make_metrics_transport  # noqa: E402
 
-from harness.core import OllamaClient  # noqa: E402
+from torra.core import OllamaClient  # noqa: E402
 
 #: Updated 2026-08-28: qwen3:32b/qwen3.5:latest/qwen3-coder:30b were swapped
-#: for non-Chinese equivalents in harness/gates/router.py's ROUTING_RULES
+#: for non-Chinese equivalents in torra/gates/router.py's ROUTING_RULES
 #: (operator request); this list follows so a future probe run tests what's
 #: actually live rather than retired models. devstral:24b is untouched.
 #: muse-glimmer:30b briefly held the debug/plan/analyze slot the same day

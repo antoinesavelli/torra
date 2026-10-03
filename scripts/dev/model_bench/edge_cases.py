@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Adversarial and boundary-condition scenarios for devstral, the recommended default.
 
-Depends on: bench.py (transport/metrics), harness.agent, harness.core, harness.gates.
+Depends on: bench.py (transport/metrics), torra.agent, torra.core, torra.gates.
 Unlike tasks.py/bench.py, these have no single graded correct answer -- like
 domain_exploration.py, this prints full detail for manual review. Focus here is
-specifically on cases that could defeat the harness's safety story: prompt
+specifically on cases that could defeat torra's safety story: prompt
 injection, malformed/empty/garbage input, embedded shell metacharacters, and the
 repair-loop bound actually holding under real model output rather than a fixture.
 """
@@ -20,9 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench import OLLAMA_HOST, make_metrics_transport  # noqa: E402
 
-from harness.agent import Agent, AgentError, Intent  # noqa: E402
-from harness.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
-from harness.gates import Clarifier, SafetyClassifier  # noqa: E402
+from torra.agent import Agent, AgentError, Intent  # noqa: E402
+from torra.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
+from torra.gates import Clarifier, SafetyClassifier  # noqa: E402
 
 MODEL = "devstral"
 

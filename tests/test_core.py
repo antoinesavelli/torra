@@ -1,8 +1,8 @@
 """observe_machine and shell(): the facts the model plans from, and how its
 commands actually run. Also ConflictDetector's fast (inotify) path.
 
-Depends on: harness.core (observe_machine, OllamaClient, ConflictDetector),
-harness.core.tasks (shell).
+Depends on: torra.core (observe_machine, OllamaClient, ConflictDetector),
+torra.core.tasks (shell).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from harness.core import (
+from torra.core import (
     ConflictDetector,
     ConflictKind,
     ContextCompressor,
@@ -32,8 +32,8 @@ from harness.core import (
     observe_machine,
     resolve_executor_config,
 )
-from harness.core.conflict import Conflict
-from harness.core.machine import (
+from torra.core.conflict import Conflict
+from torra.core.machine import (
     OLLAMA_MAX_LOADED_MODELS_PROBE,
     OLLAMA_MODELS_DIR_PROBE,
     Accelerator,
@@ -41,11 +41,11 @@ from harness.core.machine import (
     _scan_knowledge_dir,
     detect_accelerator,
 )
-from harness.core.tasks import (
+from torra.core.tasks import (
     ContextBudgetError,
-    HarnessError,
     TaskSpec,
     TaskSpecError,
+    TorraError,
     shell,
     shell_output_sink,
 )
@@ -158,7 +158,7 @@ def test_observe_machine_records_a_genuine_accelerator_bug_not_raises(
     detect_accelerator itself, not a misbehaving runner -- forced here by
     replacing the function outright, the same way the module's own tests
     scope every other monkeypatch to a specific target."""
-    import harness.core.machine as machine_module
+    import torra.core.machine as machine_module
 
     def broken_detect_accelerator(runner=None):
         raise RuntimeError("simulated internal bug")
@@ -213,19 +213,19 @@ class TestExecutorObservation:
 
     def test_resolve_executor_config_returns_none_when_host_unset(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("HARNESS_EXECUTOR_HOST", raising=False)
+        monkeypatch.delenv("TORRA_EXECUTOR_HOST", raising=False)
         assert resolve_executor_config() is None
 
     def test_resolve_executor_config_reads_from_environment(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HARNESS_EXECUTOR_HOST", "10.0.0.44")
-        monkeypatch.setenv("HARNESS_EXECUTOR_USER", "antoine")
-        monkeypatch.setenv("HARNESS_EXECUTOR_SSH_KEY", "/some/key")
+        monkeypatch.setenv("TORRA_EXECUTOR_HOST", "10.0.0.44")
+        monkeypatch.setenv("TORRA_EXECUTOR_USER", "antoine")
+        monkeypatch.setenv("TORRA_EXECUTOR_SSH_KEY", "/some/key")
         assert resolve_executor_config() == ("10.0.0.44", "antoine", "/some/key")
 
     def test_resolve_executor_config_explicit_args_override_environment(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HARNESS_EXECUTOR_HOST", "env-host")
+        monkeypatch.setenv("TORRA_EXECUTOR_HOST", "env-host")
         assert resolve_executor_config(host="explicit-host", user="u", key_path="k") == (
             "explicit-host", "u", "k")
 
@@ -317,7 +317,7 @@ class TestExecutorObservation:
 
 class TestRemoteEditSteps:
     """Pull-edit-push: a `remote_pull`/`remote_push` step's `command`/`run`
-    are harness-authored, never the model's own `run` text -- HANDOFF.md
+    are torra-authored, never the model's own `run` text -- HANDOFF.md
     §2.53. No test here touches a live network; `executor_runner` is
     always a fake dict-backed callable."""
 
@@ -389,7 +389,7 @@ class TestRemoteEditSteps:
         for spec in (pull_spec, push_spec):
             step = spec.to_steps(executor_runner=None)[0]
             assert step.run is not None
-            with pytest.raises(HarnessError, match="executor"):
+            with pytest.raises(TorraError, match="executor"):
                 step.run()
 
     def test_validate_requires_remote_path_for_remote_pull_and_push(self) -> None:
@@ -547,7 +547,7 @@ class TestKnowledgeLibrary:
         hostname yet at this point in the function (the `hostname`
         OBSERVE_COMMANDS probe hasn't run), so it must ask socket directly
         rather than silently indexing no machine folder at all."""
-        import harness.core.machine as machine_module
+        import torra.core.machine as machine_module
 
         monkeypatch.setattr(machine_module.socket, "gethostname", lambda: "workstation")
         machine_dir = tmp_path / "machines" / "workstation"
@@ -580,7 +580,7 @@ class TestKnowledgeLibrary:
     def test_a_bad_knowledge_dir_probe_does_not_abort_observation(self, monkeypatch) -> None:
         """Matches every other probe in observe_machine: a failure here is
         recorded, not raised."""
-        import harness.core.machine as machine_module
+        import torra.core.machine as machine_module
 
         def broken_scan(path, hostname=""):
             raise RuntimeError("scan failed")
@@ -679,7 +679,7 @@ class TestModelInfo:
         (a list instead of a mapping, or "capabilities" as something
         non-iterable) used to raise an uncaught TypeError/AttributeError
         here, past this method's own "returns {} on any failure" contract
-        and past Harness.plan()'s narrow except clause -- the operator got
+        and past Torra.plan()'s narrow except clause -- the operator got
         a raw traceback instead of the intended backend-down handling."""
         assert self._client(["not", "a", "mapping"]).model_info("x") == {}
         assert self._client({"details": {"parameter_size": "8B"},
@@ -867,7 +867,7 @@ class TestHttpErrorDetail:
         import urllib.error
         import urllib.request
 
-        from harness.core.tasks import OllamaError
+        from torra.core.tasks import OllamaError
 
         error = urllib.error.HTTPError(
             "http://localhost:11434/api/chat", 404, "Not Found",
@@ -891,7 +891,7 @@ class TestHttpErrorDetail:
         import urllib.error
         import urllib.request
 
-        from harness.core.tasks import OllamaError
+        from torra.core.tasks import OllamaError
 
         error = urllib.error.HTTPError(
             "http://localhost:11434/api/chat", 502, "Bad Gateway",
@@ -1206,7 +1206,7 @@ class TestTaskSpecStepValidation:
     character -- so `touches: /etc/hosts` (a plausible missing-brackets
     slip) silently became `['/', 'e', 't', 'c', ...]`, and `to_steps()`'s
     unguarded `float(...)` on `estimated_seconds` raised well past
-    Harness.plan()'s narrow except clause instead of here, skipping every
+    Torra.plan()'s narrow except clause instead of here, skipping every
     decision-log/audit/telemetry call that clause's catch normally reaches.
     """
 
@@ -1257,10 +1257,10 @@ class TestTaskSpecStepValidation:
 
     def test_a_dry_run_step_describes_instead_of_running(self) -> None:
         """`to_steps(dry_run=True)`'s own closure branch -- distinct from
-        Harness._run_one_step's separate runtime dry-run short-circuit,
+        Torra._run_one_step's separate runtime dry-run short-circuit,
         which never calls Step.run at all and so never reaches this. The
         only way to exercise it is calling .run() directly on a step
-        built this way, the way `harness plan`/`check` never currently do
+        built this way, the way `torra plan`/`check` never currently do
         (Agent._prescreen builds with dry_run=True but only classifies
         step.command, never calls .run())."""
         spec = TaskSpec.validate(self._base())
@@ -1515,9 +1515,9 @@ class TestDetectAccelerator:
 class TestHashFileSkipsNonRegularFiles:
     """ConflictDetector.hash_file(): found by an independent audit,
     reproduced live -- opening a FIFO for reading with no writer blocks
-    forever. `baseline()` runs during Harness's GATE stage, before any
+    forever. `baseline()` runs during Torra's GATE stage, before any
     operator ever sees the plan, so a single stray FIFO at a model-declared
-    `touches` path used to wedge the whole harness, with no timeout
+    `touches` path used to wedge the whole torra, with no timeout
     anywhere in the call chain."""
 
     def test_a_fifo_returns_none_instead_of_hanging(self, tmp_path) -> None:
@@ -1553,7 +1553,7 @@ class TestHashFileSkipsNonRegularFiles:
 
 class TestConflictDetection:
     """ConflictDetector's core classification logic -- feeds
-    Harness._run_steps()'s external-conflict check directly, which decides
+    Torra._run_steps()'s external-conflict check directly, which decides
     whether a real run gets BLOCKED, but had no dedicated test coverage for
     almost any of its branches beyond the inotify fast path's stale-conflict
     fix (TestConflictDetectorFastPath, below)."""
@@ -1773,13 +1773,13 @@ class TestConflictDetection:
         assert detector._walk(tmp_path / "does-not-exist") == {}
         assert detector.errors == []
 
-    def test_refresh_re_baselines_so_the_harnesss_own_write_is_not_a_conflict(
+    def test_refresh_re_baselines_so_the_torras_own_write_is_not_a_conflict(
             self, tmp_path) -> None:
         target = tmp_path / "app.conf"
         target.write_text("v1", encoding="utf-8")
         detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
         detector.baseline([str(target)], roots=[tmp_path])
-        target.write_text("v2, written by the harness itself", encoding="utf-8")
+        target.write_text("v2, written by torra itself", encoding="utf-8")
 
         detector.refresh([str(target)])
 
@@ -1803,7 +1803,7 @@ class TestConflictDetection:
 
         # Simulate a step that legitimately writes `mine` while, concurrently,
         # something external edits `other` -- a file this step never declared.
-        mine.write_text("v2, written by the harness itself", encoding="utf-8")
+        mine.write_text("v2, written by torra itself", encoding="utf-8")
         other.write_text("edited by something else entirely", encoding="utf-8")
 
         found_before_refresh = detector.detect()
@@ -2033,7 +2033,7 @@ class TestConflictDetectorFastPath:
     to the same bytes, a plausible editor-autosave or no-op-write pattern).
     A conflict recorded on one fast check stuck around across every later
     detect() call until the next scheduled full walk rebuilt `_known` from
-    scratch -- long enough to feed Harness._run_steps() a false "external
+    scratch -- long enough to feed Torra._run_steps() a false "external
     conflict" and block a real run on nothing."""
 
     def _detector(self, tmp_path):
@@ -2120,7 +2120,7 @@ class TestShellSigpipeForgiveness:
     early on a benign, working pipeline" apart from "something upstream
     genuinely failed" -- see `_pipefail_wrapped`'s own docstring for the
     real bug this closes: an operator hit `du -ah /home | sort -rh | head
-    -N`-shaped failures four times in a row, including asking the harness
+    -N`-shaped failures four times in a row, including asking torra
     to diagnose its own bug, and got the identical exit-141 failure every
     time on an entirely ordinary command. `yes | head` is the
     deterministic, fast way to trigger a SIGPIPE reliably in a test; the
@@ -2175,7 +2175,7 @@ class TestShellSigpipeForgiveness:
 class TestShellOutputSink:
     """`shell_output_sink`/`shell()`'s live-streaming path: real subprocess
     tests throughout, same discipline as TestShellPipefail above -- this is
-    the actual mechanism `Harness.execute()` uses to give the TUI live step
+    the actual mechanism `Torra.execute()` uses to give the TUI live step
     output, so its pipefail/timeout/exit-code contract has to match the
     default path exactly, not just "look similar"."""
 
@@ -2282,7 +2282,7 @@ class TestContextCompressor:
     the only place it was ever exercised was one incidental assertion in
     test_agent.py (`agent.context.compressions >= 1`). It shows up as
     "covered" in the defensive-coding scorecard's Testing dimension only
-    because some test imports the `harness.core` package for something
+    because some test imports the `torra.core` package for something
     else entirely -- that check is file-level, not behavioral. Nothing
     anywhere actually verified the net-saving guarantee, the terser-fallback
     degradation, `keep_recent`, or `ContextBudgetError`, despite

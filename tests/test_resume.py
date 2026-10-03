@@ -1,7 +1,7 @@
 """ResumePoint: a durable, forensic record of how far a task got.
 
 No caller anywhere in this codebase reads one back to resume automatically
-(see ResumePoint's own docstring) -- but Harness.execute() still writes one
+(see ResumePoint's own docstring) -- but Torra.execute() still writes one
 after every completed step, so its correctness on disk matters even with
 zero downstream readers today.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.core import HarnessError, ResumePoint
+from torra.core import ResumePoint, TorraError
 
 
 def test_load_of_an_absent_file_returns_none(tmp_path: Path) -> None:
@@ -39,7 +39,7 @@ def test_a_corrupt_file_raises_rather_than_returning_garbage(tmp_path: Path) -> 
     target = tmp_path / "corrupt.json"
     target.write_text("{not valid json", encoding="utf-8")
 
-    with pytest.raises(HarnessError, match="corrupt resume point"):
+    with pytest.raises(TorraError, match="corrupt resume point"):
         ResumePoint.load(target)
 
 
@@ -55,7 +55,7 @@ def test_save_is_atomic_no_partial_file_left_on_a_write_failure(
 
     monkeypatch.setattr("os.replace", broken_replace)
 
-    with pytest.raises(HarnessError, match="resume point write failed"):
+    with pytest.raises(TorraError, match="resume point write failed"):
         ResumePoint(task_id="t").save(target)
 
     assert not target.exists()
@@ -83,7 +83,7 @@ def test_save_swallows_a_cleanup_failure_after_a_write_failure(
     monkeypatch.setattr("os.replace", broken_replace)
     monkeypatch.setattr(Path, "unlink", broken_unlink)
 
-    with pytest.raises(HarnessError, match="resume point write failed"):
+    with pytest.raises(TorraError, match="resume point write failed"):
         ResumePoint(task_id="t").save(target)
 
     assert tmp.exists(), "the unlink failure means the stray .tmp file survives"

@@ -12,8 +12,8 @@ from typing import Any
 import pytest
 from conftest import plan_reply, scripted
 
-from harness.agent import SYSTEM_PROMPT, Agent, AgentError, Intent, Turn
-from harness.core import (
+from torra.agent import SYSTEM_PROMPT, Agent, AgentError, Intent, Turn
+from torra.core import (
     MachineState,
     OllamaClient,
     OllamaError,
@@ -398,11 +398,11 @@ def test_rule_6_no_longer_flatly_forbids_planning_for_a_question() -> None:
     """Found live, real traffic: rule 6 used to say "Do not plan a task"
     for any question about the machine -- which pushed the model toward
     telling the operator to run a safe read-only command themselves
-    ('please run lsblk/df -h yourself') instead of the harness just
+    ('please run lsblk/df -h yourself') instead of torra just
     running it, even though nothing in the *code* ever forbade intent
     "plan" for a question -- this was a pure prompt-wording gap, not a
     capability one. Live A/B tested against the real model before
-    shipping (harness/agent.py's own history, not a scripted fake, since
+    shipping (torra/agent.py's own history, not a scripted fake, since
     a scripted transport can't show whether prompt wording changes real
     model behavior): 3 of 4 real diagnostic-deflection phrases moved from
     "ask"/deflect to a real read-only plan, arithmetic and greetings
@@ -414,20 +414,20 @@ def test_rule_6_no_longer_flatly_forbids_planning_for_a_question() -> None:
 
 
 def test_prompts_module_keeps_the_schema_the_model_sees_in_sync_with_the_prompt() -> None:
-    """harness.prompts holds PLAN_SCHEMA and SYSTEM_PROMPT (split out of
+    """torra.prompts holds PLAN_SCHEMA and SYSTEM_PROMPT (split out of
     agent.py, which mixes prompt copy with conversation/repair-loop logic
     -- see prompts.py's own docstring for the real, measured LOC reason).
-    Imported directly here, not just via harness.agent's re-export, so
+    Imported directly here, not just via torra.agent's re-export, so
     this module is exercised on its own. Pins the actual coupling PLAN_SCHEMA's
     own comment promises: SYSTEM_PROMPT is built by appending it verbatim,
     so the schema the model is told about and the schema TaskSpec.validate
     enforces can't drift apart."""
-    from harness.prompts import PLAN_SCHEMA
-    from harness.prompts import SYSTEM_PROMPT as prompts_system_prompt
+    from torra.prompts import PLAN_SCHEMA
+    from torra.prompts import SYSTEM_PROMPT as prompts_system_prompt
 
     assert prompts_system_prompt.endswith(PLAN_SCHEMA)
     assert prompts_system_prompt is SYSTEM_PROMPT, \
-        "harness.agent's SYSTEM_PROMPT must be the same object, not a copy"
+        "torra.agent's SYSTEM_PROMPT must be the same object, not a copy"
 
 
 # --------------------------------------------------------------------------- #
@@ -1015,7 +1015,7 @@ def test_knowledge_dir_reaches_the_default_observer(monkeypatch: pytest.MonkeyPa
     """Agent's default observer is a closure built at construction time --
     this confirms knowledge_dir actually reaches observe_machine() through
     it, not just that the parameter exists."""
-    import harness.agent as agent_module
+    import torra.agent as agent_module
 
     seen: dict[str, object] = {}
 
@@ -1038,7 +1038,7 @@ def test_executor_config_reaches_the_default_observer_when_configured(
     the executor sub-observation actually happens through Agent's default
     observer closure when configured, and that build_ssh_runner's output
     is what observe_executor is called with (HANDOFF.md §2.52)."""
-    import harness.agent as agent_module
+    import torra.agent as agent_module
 
     seen: dict[str, object] = {}
     sentinel_runner = object()
@@ -1071,8 +1071,8 @@ def test_no_executor_config_means_the_default_observer_never_touches_ssh(
     """The concrete regression guard for "the no-config default path is
     behaviorally identical to today" -- build_ssh_runner/observe_executor
     must not even be called, not just "called and no-op", when
-    HARNESS_EXECUTOR_HOST isn't set."""
-    import harness.agent as agent_module
+    TORRA_EXECUTOR_HOST isn't set."""
+    import torra.agent as agent_module
 
     monkeypatch.setattr(agent_module, "resolve_executor_config", lambda: None)
 

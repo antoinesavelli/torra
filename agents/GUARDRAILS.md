@@ -29,7 +29,7 @@ wrong command runs against a real filesystem, package manager, or init system.
   like something a Pop!_OS agent should know." A docs file written from guesswork is the same
   failure mode as an untested gate: it looks like coverage and isn't. Add a themed file only
   behind a benchmark result, and update `docs/README.md`'s table in the same change. Wiring
-  any of `docs/` into `harness.agent.SYSTEM_PROMPT` is its own reviewed change with its own
+  any of `docs/` into `torra.agent.SYSTEM_PROMPT` is its own reviewed change with its own
   test — never bundle it into "just adding a docs file."
 - **Model routing consults the live daemon before it guesses.** `ModelRouter` and
   `Accelerator.fits` use real `/api/show` data (params, `capabilities`) when available; the
@@ -41,7 +41,7 @@ wrong command runs against a real filesystem, package manager, or init system.
   how this broke the first time.
 - **A destructive/irreversible action never runs without an explicit human tick, on every
   path that can decline or execute a plan** — TUI, CLI, and direct API use all go through the
-  same `Harness.execute`/`Harness.reject` choke point. A new UI affordance or entry point that
+  same `Torra.execute`/`Torra.reject` choke point. A new UI affordance or entry point that
   bypasses either is a second, untested code path for the exact thing the gates exist to
   cover — see HANDOFF.md §2.8/§2.10 for two real bugs of exactly this shape found in a
   full-file audit.

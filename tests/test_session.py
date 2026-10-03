@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from harness.core import HarnessError
-from harness.core.context import ContextCompressor
-from harness.core.session import SessionMeta, SessionRecord, SessionStore
+from torra.core import TorraError
+from torra.core.context import ContextCompressor
+from torra.core.session import SessionMeta, SessionRecord, SessionStore
 
 
 def test_create_returns_a_fresh_session_with_matching_timestamps(tmp_path: Path) -> None:
@@ -120,7 +120,7 @@ def test_save_meta_swallows_a_cleanup_failure_after_a_write_failure(
     monkeypatch.setattr("os.replace", broken_replace)
     monkeypatch.setattr(Path, "unlink", broken_unlink)
 
-    with pytest.raises(HarnessError, match="session meta write failed"):
+    with pytest.raises(TorraError, match="session meta write failed"):
         store._save_meta(meta)
 
     assert tmp_path_file.exists(), "the unlink failure means the stray .tmp file survives"
@@ -175,7 +175,7 @@ def test_load_meta_raises_loudly_on_a_specifically_requested_corrupt_session(
     (tmp_path / "sessions" / meta.session_id / "meta.json").write_text(
         "{not json", encoding="utf-8")
 
-    with pytest.raises(HarnessError, match="corrupt session meta"):
+    with pytest.raises(TorraError, match="corrupt session meta"):
         store.load_meta(meta.session_id)
 
 

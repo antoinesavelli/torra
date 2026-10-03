@@ -1,4 +1,4 @@
-# harness — Agent Instructions
+# torra — Agent Instructions
 
 This file holds the content; `CLAUDE.md` only imports it (`@AGENTS.md`). Auto-loaded by OpenCode via the `AGENTS.md` convention.
 If something you need isn't here, say so instead of guessing. Topic files live in `agents/` (not `docs/`: that folder is OS
@@ -6,11 +6,11 @@ knowledge fed to the planning model).
 
 A local model proposes an operating-system change. Five gates decide whether it runs. The
 operator approves. This file is instructions for an agent **editing this codebase** — not
-instructions the harness itself sends to its planning model (that's `harness/agent.py`'s
+instructions torra itself sends to its planning model (that's `torra/agent.py`'s
 `SYSTEM_PROMPT` and `docs/`, a different audience entirely; don't conflate the two).
 
-Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `harness.cli:main`,
-`harness.pipeline:Harness` (the only orchestrator). Tests: **788, must stay 788 passed**
+Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `torra.cli:main`,
+`torra.pipeline:Torra` (the only orchestrator). Tests: **788, must stay 788 passed**
 (`python3 -m pytest tests/ -q`) — nothing in `tests/` touches a live Ollama, systemd, or
 network; every external dependency is an injected callable (see `tests/conftest.py`).
 
@@ -92,14 +92,14 @@ Read the map for the area you're touching before grepping the source tree.
 
 | Area | Map |
 |---|---|
-| Package overview (read after the subpackages below) | `harness/README.md` |
-| The five gates (`safety`, `state`, `rollback`, `clarifier`, `router`, `decisions`) | `harness/gates/README.md` |
-| Task/step primitives, conflict detection, context, Ollama client, machine observation | `harness/core/README.md` |
-| Task logging, human labels, drift/loophole audits | `harness/telemetry/README.md` |
+| Package overview (read after the subpackages below) | `torra/README.md` |
+| The five gates (`safety`, `state`, `rollback`, `clarifier`, `router`, `decisions`) | `torra/gates/README.md` |
+| Task/step primitives, conflict detection, context, Ollama client, machine observation | `torra/core/README.md` |
+| Task logging, human labels, drift/loophole audits | `torra/telemetry/README.md` |
 | Tests (organised by subsystem) | `tests/README.md` |
 | Runnable example task files | `examples/README.md` |
 | OS domain knowledge fed to the planning model (measured gaps only) | `docs/README.md` |
-| Model-quality benchmark harness | `scripts/dev/model_bench/README.md` |
+| Model-quality benchmark torra | `scripts/dev/model_bench/README.md` |
 | Agent topic files (targets of the read-first triggers above) | `agents/README.md` |
 | **Invariants that must never break, with the story behind each** | `HANDOFF.md` §2 |
 | Known live-wire bugs from the last full-codebase audit | `AUDIT_FINDINGS.md` |
@@ -125,7 +125,7 @@ replacement. If any of these is unclear before you act, read the full entry, the
 | **A declared `rollback:` command is still classified** — a step's own `safe: true` can only make `SafetyClassifier` more cautious, never override it | `test_pipeline.py::test_a_declared_safe_rollback_is_still_classified` |
 | **`execute()` cannot replay an already-executed result** — `executed` is set only immediately before a real `step.run()`, never for merely entering the loop | `test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it` + 3 more |
 | **Model size/chat-capability come from the daemon (`/api/show`), never guessed from the name** | `test_core.py::TestModelInfo`, `test_gates.py::TestModelParamsAndChatCapable` |
-| **Every way to decline a plan goes through `Harness.reject()`** — never `execute()` with empty approvals, never bare UI state | `test_pipeline.py::test_reject_never_runs_an_all_safe_plan` + 4 more |
+| **Every way to decline a plan goes through `Torra.reject()`** — never `execute()` with empty approvals, never bare UI state | `test_pipeline.py::test_reject_never_runs_an_all_safe_plan` + 4 more |
 
 ## OS-engineering guardrails (short form; full text and reasons in `agents/GUARDRAILS.md`)
 
@@ -152,7 +152,7 @@ a suggested command like `RecoveryOption.action`. To check a var is set, show pr
 
 **Ask first:**
 - Anything on the safety-critical path: the five gates, `SafetyClassifier`, `Step.command`/
-  `Step.run` construction, `Harness.execute`/`Harness.reject`.
+  `Step.run` construction, `Torra.execute`/`Torra.reject`.
 - Schema/format changes to persisted state (`resume/*.json`, `telemetry/tasks.jsonl`,
   `audit/*.audit.json`).
 - Deleting files or branches.
@@ -170,7 +170,7 @@ a suggested command like `RecoveryOption.action`. To check a var is set, show pr
 
 Line length 100 (ruff `E501` ignored). No comments unless WHY. One-line docstrings + a
 `Depends on:` line per touched module. CCN<15 ceiling (named exceptions: `SafetyClassifier
-._judge`, `Clarifier.detect`, `Harness.execute` — don't split those to move a number).
+._judge`, `Clarifier.detect`, `Torra.execute` — don't split those to move a number).
 Full param + return type hints on new/edited code.
 
 ## Definition of done (short form; full in `agents/LOOP.md`)
@@ -184,7 +184,7 @@ Full param + return type hints on new/edited code.
 
 ## Key Entry Points
 
-Run from `/mnt/ParamoStorage/harness` and use `.venv/bin/python` wherever a command says `python3`: system Python lacks the
+Run from `/mnt/ParamoStorage/torra` and use `.venv/bin/python` wherever a command says `python3`: system Python lacks the
 dependencies, so `tests/` fails at collection without the venv.
 
 | Task | Command |
@@ -193,12 +193,12 @@ dependencies, so `tests/` fails at collection without the venv.
 | Tests (one file/case) | `python3 -m pytest tests/test_gates.py -k <name>` |
 | Lint | `ruff check .` |
 | Format | `ruff format .` |
-| Type check | `mypy harness/` |
+| Type check | `mypy torra/` |
 | Defensive-coding scorecard | `python3 scripts/dev/defensive_coding_report.py` (`--area <pkg>` · `--coverage` · `--verbose`) |
-| Environment check | `harness doctor` |
-| One-shot request | `harness ask "..."` |
-| Plan only, run nothing | `harness plan "..."` |
-| Run a hand-written task file (no model) | `harness run task.yaml` |
-| Classify a task file without running it | `harness check task.yaml` |
-| What the harness has recorded about itself | `harness evidence` |
+| Environment check | `torra doctor` |
+| One-shot request | `torra ask "..."` |
+| Plan only, run nothing | `torra plan "..."` |
+| Run a hand-written task file (no model) | `torra run task.yaml` |
+| Classify a task file without running it | `torra check task.yaml` |
+| What torra has recorded about itself | `torra evidence` |
 | Model-quality benchmark | `scripts/dev/model_bench/bench.py` (see its `README.md`) |

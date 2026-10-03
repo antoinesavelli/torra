@@ -6,26 +6,26 @@ task_id: deploy-api-2026-07-27
 request: deploy commit a1b2c3d to staging
 
 watch_roots:
-  - /tmp/harness-example
+  - /tmp/torra-example
 
 steps:
   - id: prepare
     kind: shell
-    run: mkdir -p /tmp/harness-example
+    run: mkdir -p /tmp/torra-example
     description: ensure the working directory exists
     estimated_seconds: 2
 
   - id: write-config
     kind: write
-    run: printf 'workers = 4\n' > /tmp/harness-example/app.conf
+    run: printf 'workers = 4\n' > /tmp/torra-example/app.conf
     description: set the worker count
     estimated_seconds: 5
     touches:
-      - /tmp/harness-example/app.conf
+      - /tmp/torra-example/app.conf
 
   - id: verify
     kind: shell
-    run: grep -q 'workers = 4' /tmp/harness-example/app.conf
+    run: grep -q 'workers = 4' /tmp/torra-example/app.conf
     description: confirm the config landed
     estimated_seconds: 2
 

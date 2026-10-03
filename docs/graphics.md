@@ -27,7 +27,7 @@ This was the single most-missed fact in the benchmark
   nothing to do with graphics.
 - qwen3:32b was the only model to name `system76-power` correctly.
 
-If a harness request mentions switching graphics modes, hybrid GPU behavior,
+If a request to torra mentions switching graphics modes, hybrid GPU behavior,
 or "nvidia mode" on System76 hardware, a generated plan naming `nvidia-prime`
 or `prime-select` should be treated as a likely miss worth double-checking
 against this file before approval.

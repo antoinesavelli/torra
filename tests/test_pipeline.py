@@ -1,8 +1,8 @@
 """
 The seven stages end to end, and the TUI's contract with them.
 
-These are the tests that would have caught "the harness has no LLM": every one
-drives a real Harness with a real Agent against a scripted backend, so a model
+These are the tests that would have caught "torra has no LLM": every one
+drives a real Torra with a real Agent against a scripted backend, so a model
 that is never called shows up as a failure rather than as six phases of work.
 """
 
@@ -14,11 +14,11 @@ from pathlib import Path
 import pytest
 from conftest import plan_reply, scripted
 
-from harness.core import ConflictDetector, OllamaClient, OllamaError, RecoveryOption, Step, TaskSpec
-from harness.core.resume import ResumePoint
-from harness.gates import Precondition, RiskLevel, StateVerifier, UndoGenerator, Verdict
-from harness.pipeline import Harness
-from harness.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
+from torra.core import ConflictDetector, OllamaClient, OllamaError, RecoveryOption, Step, TaskSpec
+from torra.core.resume import ResumePoint
+from torra.gates import Precondition, RiskLevel, StateVerifier, UndoGenerator, Verdict
+from torra.pipeline import Torra
+from torra.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 
 SAFE_PLAN = plan_reply(
     "write-config", "set workers to 4 in /tmp/h7/app.conf",
@@ -33,19 +33,19 @@ SAFE_PLAN = plan_reply(
 # --------------------------------------------------------------------------- #
 
 
-def test_all_seven_stages_in_order(make_harness, tmp_path: Path) -> None:
+def test_all_seven_stages_in_order(make_torra, tmp_path: Path) -> None:
     """The stage contract, which the TUI and the CLI both depend on."""
     target = tmp_path / "app.conf"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"write the worker count to {target}",
         [{"id": "w", "kind": "write", "run": f"printf 'workers = 4\\n' > {target}",
           "touches": [str(target)]}])))
 
-    planned = harness.plan(f"set the worker count to 4 in {target}")
+    planned = torra.plan(f"set the worker count to 4 in {target}")
     assert planned.outcome is Outcome.AWAITING_APPROVAL
     assert planned.stages == ["converse", "observe", "propose", "gate", "present"]
 
-    done = harness.execute(planned, approvals={})
+    done = torra.execute(planned, approvals={})
 
     assert done.outcome is Outcome.COMPLETED
     assert done.stages == [s.value for s in Stage]
@@ -53,15 +53,15 @@ def test_all_seven_stages_in_order(make_harness, tmp_path: Path) -> None:
     assert Path(done.audit_path).exists()
 
 
-def test_the_audit_records_the_model_and_the_gates(make_harness,
+def test_the_audit_records_the_model_and_the_gates(make_torra,
                                                    tmp_path: Path) -> None:
     """An audit that omits which model proposed what is not an audit."""
     target = tmp_path / "a.conf"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"write a marker into {target}",
         [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
 
-    done = harness.execute(harness.plan(f"create {target}"), {})
+    done = torra.execute(torra.plan(f"create {target}"), {})
     payload = json.loads(Path(done.audit_path).read_text(encoding="utf-8"))
 
     assert payload["outcome"] == "completed"
@@ -74,26 +74,26 @@ def test_the_audit_records_the_model_and_the_gates(make_harness,
     assert {"converse", "gate", "execute"} <= stages
 
 
-def test_every_finished_turn_is_recorded_to_telemetry(make_harness,
+def test_every_finished_turn_is_recorded_to_telemetry(make_torra,
                                                        tmp_path: Path) -> None:
-    """Found in a full-file audit: `harness.telemetry.records.TaskLogger`
+    """Found in a full-file audit: `torra.telemetry.records.TaskLogger`
     had a working `record()` and no caller anywhere in pipeline.py,
-    agent.py, or tui.py -- `harness label`/`harness evidence` (cli.py)
+    agent.py, or tui.py -- `torra label`/`torra evidence` (cli.py)
     only ever read tasks.jsonl, and nothing ever wrote to it. Every
     `_finish()` call that writes an audit record must also log one here,
     including turns that never reach execute() at all."""
     target = tmp_path / "marker"
-    harness = make_harness(scripted(
+    torra = make_torra(scripted(
         {"intent": "answer", "message": "just a question"},
         plan_reply("t", f"touch {target}",
                   [{"id": "touch", "run": f"touch {target}"}])))
 
-    answered = harness.plan("what is this machine")
+    answered = torra.plan("what is this machine")
     assert answered.outcome is Outcome.ANSWERED
-    planned = harness.plan(f"create {target}")
-    harness.execute(planned, {})
+    planned = torra.plan(f"create {target}")
+    torra.execute(planned, {})
 
-    records = harness.telemetry.read()
+    records = torra.telemetry.read()
     assert len(records) == 2
     assert records[0].status == "answered"
     assert records[1].status == "completed"
@@ -101,7 +101,7 @@ def test_every_finished_turn_is_recorded_to_telemetry(make_harness,
 
 
 def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: TaskRecord.clarifier_anchors was
     declared but from_result() never assigned it, so every persisted
     record carried an empty list. LoopholeAudit only worked because it
@@ -109,13 +109,13 @@ def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
     checks the field itself is now populated, so the log is
     self-contained without needing that fallback."""
     target = tmp_path / "app.conf"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"write to {target}",
         [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
 
-    harness.execute(harness.plan(f"write to {target}"), {})
+    torra.execute(torra.plan(f"write to {target}"), {})
 
-    records = harness.telemetry.read()
+    records = torra.telemetry.read()
     assert records[-1].clarifier_anchors, (
         f"an absolute path in {target!r} should have registered as an anchor"
     )
@@ -123,7 +123,7 @@ def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
 
 
 def test_a_precondition_blocked_plan_is_not_recorded_as_approved(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """Found by an independent audit: `_apply_plan_fields` recorded
     `approved = all(sp.approved is not False for sp in plan.steps)`. A
     plan blocked by a failed precondition never reaches execute(), so
@@ -135,27 +135,27 @@ def test_a_precondition_blocked_plan_is_not_recorded_as_approved(
     marker = tmp_path / "nope"
     verifier = StateVerifier()
     verifier.add(Precondition("impossible", lambda: False, "never passes"))
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])),
         verifier=verifier)
 
-    result = harness.plan(f"create {marker}")
+    result = torra.plan(f"create {marker}")
 
     assert result.outcome is Outcome.BLOCKED
-    records = harness.telemetry.read()
+    records = torra.telemetry.read()
     assert records[-1].approved is False
 
 
 def test_a_normally_completed_plan_is_still_recorded_as_approved(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     target = tmp_path / "app.conf"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"write to {target}",
         [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
 
-    harness.execute(harness.plan(f"write to {target}"), {})
+    torra.execute(torra.plan(f"write to {target}"), {})
 
-    assert harness.telemetry.read()[-1].approved is True
+    assert torra.telemetry.read()[-1].approved is True
 
 
 # --------------------------------------------------------------------------- #
@@ -163,43 +163,43 @@ def test_a_normally_completed_plan_is_still_recorded_as_approved(
 # --------------------------------------------------------------------------- #
 
 
-def test_a_dangerous_step_does_not_run_unapproved(make_harness,
+def test_a_dangerous_step_does_not_run_unapproved(make_torra,
                                                   tmp_path: Path) -> None:
     """The whole point. An unapproved dangerous command is refused, not defaulted."""
     victim = tmp_path / "victim.txt"
     victim.write_text("still here", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"remove {victim}",
         [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
 
-    planned = harness.plan(f"delete {victim}")
+    planned = torra.plan(f"delete {victim}")
     assert planned.plan is not None
     assert planned.plan.needs_confirmation, "rm should require confirmation"
 
-    done = harness.execute(planned, approvals={})
+    done = torra.execute(planned, approvals={})
 
     assert done.outcome is Outcome.REJECTED
     assert victim.exists(), "an unapproved command ran"
     assert done.results == []
 
 
-def test_an_approved_step_runs(make_harness, tmp_path: Path) -> None:
+def test_an_approved_step_runs(make_torra, tmp_path: Path) -> None:
     """Approval is per step id, and it is honoured."""
     victim = tmp_path / "victim.txt"
     victim.write_text("goodbye", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"remove {victim}",
         [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
 
-    planned = harness.plan(f"delete {victim}")
-    done = harness.execute(planned, approvals={"rm": True})
+    planned = torra.plan(f"delete {victim}")
+    done = torra.execute(planned, approvals={"rm": True})
 
     assert done.outcome is Outcome.COMPLETED
     assert not victim.exists()
 
 
 def test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """The point of partial execution: one declined step used to reject
     the whole plan, including a sibling step that was already approved.
     Now the approved one runs and the declined one is skipped, not run."""
@@ -207,13 +207,13 @@ def test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one(
     delete = tmp_path / "delete.txt"
     keep.write_text("stay", encoding="utf-8")
     delete.write_text("go", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "delete two files",
         [{"id": "rm-keep", "run": f"rm -f {keep}", "touches": [str(keep)]},
          {"id": "rm-delete", "run": f"rm -f {delete}", "touches": [str(delete)]}])))
 
-    planned = harness.plan("delete two files")
-    done = harness.execute(planned, approvals={"rm-keep": False, "rm-delete": True})
+    planned = torra.plan("delete two files")
+    done = torra.execute(planned, approvals={"rm-keep": False, "rm-delete": True})
 
     assert done.outcome is Outcome.COMPLETED
     assert keep.exists(), "the declined step must not have run"
@@ -225,20 +225,20 @@ def test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one(
 
 
 def test_declining_every_step_in_a_multi_step_plan_still_rejects_all_of_it(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """Generalizes test_a_dangerous_step_does_not_run_unapproved to more
     than one step: REJECTED, with empty results, is only for the case
     where *nothing* ends up approved -- not just any single refusal."""
     v1, v2 = tmp_path / "v1.txt", tmp_path / "v2.txt"
     v1.write_text("a", encoding="utf-8")
     v2.write_text("b", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "delete two files",
         [{"id": "rm1", "run": f"rm -f {v1}", "touches": [str(v1)]},
          {"id": "rm2", "run": f"rm -f {v2}", "touches": [str(v2)]}])))
 
-    planned = harness.plan("delete two files")
-    done = harness.execute(planned, approvals={})
+    planned = torra.plan("delete two files")
+    done = torra.execute(planned, approvals={})
 
     assert done.outcome is Outcome.REJECTED
     assert done.results == []
@@ -246,7 +246,7 @@ def test_declining_every_step_in_a_multi_step_plan_still_rejects_all_of_it(
 
 
 def test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """_stage_rollback used to push every step's undo unconditionally --
     including a declined step that never ran. If an approved step further
     along then failed and triggered a rollback sweep, it would try to
@@ -258,7 +258,7 @@ def test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep(
     written.write_text("original", encoding="utf-8")
     declined_victim = tmp_path / "declined.txt"
     declined_victim.write_text("never touched", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "write, a declined delete, then a step that fails",
         [{"id": "write", "kind": "write",
           "run": f"printf 'changed\\n' > {written}", "touches": [str(written)]},
@@ -266,8 +266,8 @@ def test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep(
           "touches": [str(declined_victim)]},
          {"id": "will-fail", "run": "exit 1"}])))
 
-    planned = harness.plan("mixed run")
-    done = harness.execute(
+    planned = torra.plan("mixed run")
+    done = torra.execute(
         planned, approvals={"rm-declined": False, "will-fail": True})
 
     assert done.outcome is Outcome.FAILED
@@ -280,23 +280,23 @@ def test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep(
 
 
 def test_dependency_warnings_flags_an_approved_step_using_a_declined_paths_output(
-        make_harness) -> None:
+        make_torra) -> None:
     """Best-effort, not a guarantee -- a plain substring check against
     `touches`, computed before execute() so the caller can show it while
     the operator can still change their mind. The declined step must
     genuinely need confirmation, or it is never "declined" at all --
     `dependency_warnings` treats a safe step as approved regardless of
     what the approvals dict says, same as `_apply_approvals` itself."""
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "remove then reference it",
         [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
           "touches": ["/tmp/scratch-dir/data.txt"]},
          {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"}])))
 
-    planned = harness.plan("remove then reference it")
+    planned = torra.plan("remove then reference it")
     assert planned.plan is not None and planned.plan.needs_confirmation, \
         "rm must actually need confirmation for this test to mean anything"
-    warnings = Harness.dependency_warnings(
+    warnings = Torra.dependency_warnings(
         planned.plan, approvals={"rm-declined": False, "use-it": True})
 
     assert len(warnings) == 1
@@ -306,47 +306,47 @@ def test_dependency_warnings_flags_an_approved_step_using_a_declined_paths_outpu
 
 
 def test_dependency_warnings_is_empty_when_nothing_was_declined(
-        make_harness) -> None:
-    harness = make_harness(scripted(plan_reply(
+        make_torra) -> None:
+    torra = make_torra(scripted(plan_reply(
         "t", "two safe steps",
         [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}])))
 
-    planned = harness.plan("two safe steps")
+    planned = torra.plan("two safe steps")
 
-    assert Harness.dependency_warnings(planned.plan, approvals={}) == []
+    assert Torra.dependency_warnings(planned.plan, approvals={}) == []
 
 
 def test_dependency_warnings_is_empty_when_no_approved_step_references_the_path(
-        make_harness) -> None:
-    harness = make_harness(scripted(plan_reply(
+        make_torra) -> None:
+    torra = make_torra(scripted(plan_reply(
         "t", "unrelated steps",
         [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/x.txt",
           "touches": ["/tmp/scratch-dir/x.txt"]},
          {"id": "unrelated", "run": "echo hello"}])))
 
-    planned = harness.plan("unrelated steps")
+    planned = torra.plan("unrelated steps")
     assert planned.plan is not None and planned.plan.needs_confirmation
-    warnings = Harness.dependency_warnings(
+    warnings = Torra.dependency_warnings(
         planned.plan, approvals={"rm-declined": False, "unrelated": True})
 
     assert warnings == []
 
 
-def test_dependency_warnings_module_works_standalone_not_just_via_harness(
-        make_harness) -> None:
-    """`Harness.dependency_warnings` is `staticmethod(_dependency_warnings)`
-    from harness.dependency_warnings -- imported and called directly here
+def test_dependency_warnings_module_works_standalone_not_just_via_torra(
+        make_torra) -> None:
+    """`Torra.dependency_warnings` is `staticmethod(_dependency_warnings)`
+    from torra.dependency_warnings -- imported and called directly here
     so the split-out module is exercised on its own, not only through the
-    Harness re-export every other test in this file goes through."""
-    from harness.dependency_warnings import dependency_warnings
+    Torra re-export every other test in this file goes through."""
+    from torra.dependency_warnings import dependency_warnings
 
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "remove then reference it",
         [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
           "touches": ["/tmp/scratch-dir/data.txt"]},
          {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"}])))
 
-    planned = harness.plan("remove then reference it")
+    planned = torra.plan("remove then reference it")
     warnings = dependency_warnings(
         planned.plan, approvals={"rm-declined": False, "use-it": True})
 
@@ -355,98 +355,98 @@ def test_dependency_warnings_module_works_standalone_not_just_via_harness(
 
 
 def test_on_output_receives_live_chunks_tagged_with_the_step_id(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """The mechanism behind the TUI's live step-output view -- see
     HANDOFF.md's entry on shell_output_sink for why this has to be an
     execute()-time callback rather than something baked into the step at
     plan time."""
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "say hello",
         [{"id": "greet", "run": "echo hello; echo world"}])))
 
-    planned = harness.plan("say hello")
+    planned = torra.plan("say hello")
     seen: list[tuple[str, str]] = []
-    done = harness.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    done = torra.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
 
     assert done.outcome is Outcome.COMPLETED
     assert all(step_id == "greet" for step_id, _ in seen)
     assert "".join(chunk for _, chunk in seen) == "hello\nworld\n"
 
 
-def test_on_output_tags_each_step_with_its_own_id(make_harness, tmp_path: Path) -> None:
-    harness = make_harness(scripted(plan_reply(
+def test_on_output_tags_each_step_with_its_own_id(make_torra, tmp_path: Path) -> None:
+    torra = make_torra(scripted(plan_reply(
         "t", "two steps",
         [{"id": "first", "run": "echo one"},
          {"id": "second", "run": "echo two"}])))
 
-    planned = harness.plan("two steps")
+    planned = torra.plan("two steps")
     seen: list[tuple[str, str]] = []
-    done = harness.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    done = torra.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
 
     assert done.outcome is Outcome.COMPLETED
     assert seen == [("first", "one\n"), ("second", "two\n")]
 
 
-def test_on_output_is_never_called_for_a_dry_run(make_harness, tmp_path: Path) -> None:
+def test_on_output_is_never_called_for_a_dry_run(make_torra, tmp_path: Path) -> None:
     """Dry-run steps never call shell() at all -- they return a
     "[dry-run] ..." placeholder directly, so there is nothing for
     shell_output_sink to intercept."""
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "say hello", [{"id": "greet", "run": "echo hello"}])))
 
-    planned = harness.plan("say hello")
+    planned = torra.plan("say hello")
     seen: list[tuple[str, str]] = []
-    harness.execute(planned, {}, dry_run=True, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    torra.execute(planned, {}, dry_run=True, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
 
     assert seen == []
 
 
 def test_a_failing_step_still_streams_its_output_before_raising(
-        make_harness, tmp_path: Path) -> None:
-    harness = make_harness(scripted(plan_reply(
+        make_torra, tmp_path: Path) -> None:
+    torra = make_torra(scripted(plan_reply(
         "t", "fail loudly", [{"id": "boom", "run": "echo trying; exit 1"}])))
 
-    planned = harness.plan("fail loudly")
+    planned = torra.plan("fail loudly")
     seen: list[tuple[str, str]] = []
-    done = harness.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    done = torra.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
 
     assert done.outcome is Outcome.FAILED
     assert seen == [("boom", "trying\n")]
 
 
-def test_a_safe_step_needs_no_tick(make_harness, tmp_path: Path) -> None:
+def test_a_safe_step_needs_no_tick(make_torra, tmp_path: Path) -> None:
     """Asking for approval on `df -h` trains people to tick without reading."""
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "report disk usage on /",
         [{"id": "df", "run": "df -h /"}])))
 
-    planned = harness.plan("report disk usage on /")
+    planned = torra.plan("report disk usage on /")
     assert planned.plan is not None
     assert planned.plan.needs_confirmation == []
-    assert harness.execute(planned, {}).outcome is Outcome.COMPLETED
+    assert torra.execute(planned, {}).outcome is Outcome.COMPLETED
 
 
-def test_reject_never_runs_an_all_safe_plan(make_harness, tmp_path: Path) -> None:
+def test_reject_never_runs_an_all_safe_plan(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: the TUI's Reject button used to bypass
     the pipeline entirely (self.current = None, no audit, no telemetry).
     Routing it through execute(result, {}) instead would have been wrong
     in a different way -- a safe step's `approved` defaults to True
     regardless of the approvals dict, so an all-safe plan would actually
-    *run* on "reject" rather than being declined. Harness.reject() must
+    *run* on "reject" rather than being declined. Torra.reject() must
     refuse unconditionally, independent of what would have needed a tick."""
     marker = tmp_path / "marker"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
 
-    planned = harness.plan(f"create {marker}")
+    planned = torra.plan(f"create {marker}")
     assert planned.plan is not None and planned.plan.needs_confirmation == []
 
-    done = harness.reject(planned)
+    done = torra.reject(planned)
 
     assert done.outcome is Outcome.REJECTED
     assert not marker.exists(), "reject() ran an all-safe plan instead of declining it"
     assert done.audit_path
-    records = harness.telemetry.read()
+    records = torra.telemetry.read()
     assert records and records[-1].status == "rejected"
 
 
@@ -455,18 +455,18 @@ def test_reject_never_runs_an_all_safe_plan(make_harness, tmp_path: Path) -> Non
 # --------------------------------------------------------------------------- #
 
 
-def test_a_failed_step_reverts_a_file_nobody_registered(make_harness,
+def test_a_failed_step_reverts_a_file_nobody_registered(make_torra,
                                                         tmp_path: Path) -> None:
     """No caller-supplied undo anywhere, and the file still comes back."""
     conf = tmp_path / "app.conf"
     conf.write_text("ORIGINAL\n", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"rewrite {conf} then verify the service",
         [{"id": "write", "kind": "write", "run": f"printf 'NEW\\n' > {conf}",
           "touches": [str(conf)]},
          {"id": "boom", "run": "exit 7"}])))
 
-    done = harness.execute(harness.plan(f"rewrite {conf} and verify"), {})
+    done = torra.execute(torra.plan(f"rewrite {conf} and verify"), {})
 
     assert done.outcome is Outcome.FAILED
     assert conf.read_text(encoding="utf-8") == "ORIGINAL\n"
@@ -474,64 +474,64 @@ def test_a_failed_step_reverts_a_file_nobody_registered(make_harness,
     assert all(r.verified is not False for r in done.rollback.results)
 
 
-def test_a_successful_run_cleans_up_its_shadow_copies(make_harness,
+def test_a_successful_run_cleans_up_its_shadow_copies(make_torra,
                                                        tmp_path: Path) -> None:
     """Found in a full-file audit: UndoGenerator.cleanup() had no caller
     anywhere, so every run that snapshotted a file left its shadow
     directory on disk forever (14 accumulated on one real machine)."""
     conf = tmp_path / "app.conf"
     conf.write_text("original\n", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"rewrite {conf}",
         [{"id": "write", "kind": "write", "run": f"printf 'new\\n' > {conf}",
           "touches": [str(conf)]}])))
 
-    done = harness.execute(harness.plan(f"rewrite {conf}"), {})
+    done = torra.execute(torra.plan(f"rewrite {conf}"), {})
 
     assert done.outcome is Outcome.COMPLETED
-    assert not any(harness.undo.shadow_dir.iterdir()), (
+    assert not any(torra.undo.shadow_dir.iterdir()), (
         "a completed run left its shadow copies behind")
 
 
-def test_a_dry_run_keeps_its_shadow_copies(make_harness, tmp_path: Path) -> None:
+def test_a_dry_run_keeps_its_shadow_copies(make_torra, tmp_path: Path) -> None:
     """A dry run's own snapshots (taken at propose time, before dry_run is
     even known) must survive it -- clicking Run right after still needs
     them for real rollback."""
     conf = tmp_path / "app.conf"
     conf.write_text("original\n", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"rewrite {conf}",
         [{"id": "write", "kind": "write", "run": f"printf 'new\\n' > {conf}",
           "touches": [str(conf)]}])))
 
-    done = harness.execute(harness.plan(f"rewrite {conf}"), {}, dry_run=True)
+    done = torra.execute(torra.plan(f"rewrite {conf}"), {}, dry_run=True)
 
     assert done.outcome is Outcome.COMPLETED
-    assert any(harness.undo.shadow_dir.iterdir()), (
+    assert any(torra.undo.shadow_dir.iterdir()), (
         "a dry run deleted the snapshots the real run would need"
     )
 
 
 def test_a_completed_read_steps_output_feeds_back_into_agent_context(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """§2.46: a step declaring `reads` gets its real output remembered,
     tagged by the path -- so a later turn can act on what it found
     instead of only remembering that the step was proposed."""
     target = tmp_path / "quirks.md"
     target.write_text("quirk #12: something specific", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "read the quirks file",
         [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}])))
 
-    done = harness.execute(harness.plan("read the quirks file"), {})
+    done = torra.execute(torra.plan("read the quirks file"), {})
 
     assert done.outcome is Outcome.COMPLETED
     assert any(str(target) in e.content and "quirk #12" in e.content
-              for e in harness.agent.context.entries)
+              for e in torra.agent.context.entries)
 
 
 def test_a_dry_run_never_feeds_read_output_into_context(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """A dry run's output is a `[dry-run] ...` placeholder, not real
     content -- feeding that into the model's memory as if it were the
     file's real content would be actively wrong, not just unhelpful.
@@ -541,34 +541,34 @@ def test_a_dry_run_never_feeds_read_output_into_context(
     correctly never fired."""
     target = tmp_path / "quirks.md"
     target.write_text("quirk #12: something specific", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "read the quirks file",
         [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}])))
 
-    done = harness.execute(harness.plan("read the quirks file"), {}, dry_run=True)
+    done = torra.execute(torra.plan("read the quirks file"), {}, dry_run=True)
 
     assert done.outcome is Outcome.COMPLETED
-    assert not any(f"[read {target}]" in e.content for e in harness.agent.context.entries)
+    assert not any(f"[read {target}]" in e.content for e in torra.agent.context.entries)
 
 
 def test_a_failed_read_steps_output_never_feeds_into_context(
-        make_harness) -> None:
+        make_torra) -> None:
     """Checks for the distinctive `remember_read` tag, not a bare path
     substring -- the path also legitimately appears in _remember()'s own
     "Proposed: read: cat /no/such/file" summary line regardless of
     whether the step ever ran, which would make a bare substring check
     pass even when remember_read() correctly never fired."""
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "read a file that fails",
         [{"id": "read", "run": "cat /no/such/file", "reads": ["/no/such/file"]}])))
 
-    done = harness.execute(harness.plan("read a file that fails"), {})
+    done = torra.execute(torra.plan("read a file that fails"), {})
 
     assert done.outcome is Outcome.FAILED
-    assert not any("[read /no/such/file]" in e.content for e in harness.agent.context.entries)
+    assert not any("[read /no/such/file]" in e.content for e in torra.agent.context.entries)
 
 
-def test_a_declared_safe_rollback_is_still_classified(make_harness,
+def test_a_declared_safe_rollback_is_still_classified(make_torra,
                                                        tmp_path: Path) -> None:
     """A declared `safe: true` cannot suppress a real CRITICAL classification.
 
@@ -579,13 +579,13 @@ def test_a_declared_safe_rollback_is_still_classified(make_harness,
     """
     target = tmp_path / "should-survive"
     target.mkdir()
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "provision then fail",
         [{"id": "boom", "run": "exit 7"}],
         rollback=[{"run": f"rm -rf {target}", "description": "cleanup",
                   "safe": True}])))
 
-    done = harness.execute(harness.plan("provision then fail"), {})
+    done = torra.execute(torra.plan("provision then fail"), {})
 
     assert done.outcome is Outcome.FAILED
     assert done.rollback is not None
@@ -607,20 +607,20 @@ class TestResume:
         return tmp_path / "wd" / "resume" / f"{task_id}.json"
 
     def test_a_resumed_run_skips_already_completed_steps(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         counter = tmp_path / "counter"
         counter.write_text("x", encoding="utf-8")  # the crashed attempt's real effect
         done = tmp_path / "done"
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "two steps",
             [{"id": "first", "run": f"printf x >> {counter}"},
              {"id": "second", "run": f"touch {done}"}])))
-        planned = harness.plan("two steps")
+        planned = torra.plan("two steps")
 
         resume_path = self._resume_path(tmp_path, "t")
         ResumePoint(task_id="t", completed=["first"], total=2).save(resume_path)
 
-        result = harness.execute(planned, {})
+        result = torra.execute(planned, {})
 
         assert result.outcome is Outcome.COMPLETED
         assert counter.read_text(encoding="utf-8") == "x", \
@@ -632,120 +632,120 @@ class TestResume:
         assert second.output.strip() == ""  # touch prints nothing -- ran for real
 
     def test_a_mismatched_step_sequence_is_not_trusted(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         """The saved resume point claims a step id this plan doesn't even
         have at that position -- evidence of an edited task file or an
         unrelated plan reusing the id, not a genuine retry."""
         marker = tmp_path / "marker"
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "one step", [{"id": "real-step", "run": f"touch {marker}"}])))
-        planned = harness.plan("one step")
+        planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
         ResumePoint(task_id="t", completed=["a-different-step-id"], total=1).save(resume_path)
 
-        result = harness.execute(planned, {})
+        result = torra.execute(planned, {})
 
         assert result.outcome is Outcome.COMPLETED
         assert marker.exists(), "the mismatched resume point must be ignored, not trusted"
         assert result.results[0].output != "[resumed] " + result.results[0].output
 
     def test_a_mismatched_total_is_not_trusted(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         marker = tmp_path / "marker"
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
-        planned = harness.plan("one step")
+        planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
         # Same first step id, but claims a 3-step plan -- a differently
         # shaped attempt, not this one, even though "s" happens to match.
         ResumePoint(task_id="t", completed=["s"], total=3).save(resume_path)
 
-        result = harness.execute(planned, {})
+        result = torra.execute(planned, {})
 
         assert result.outcome is Outcome.COMPLETED
         assert not result.results[0].output.startswith("[resumed]")
 
     def test_a_corrupt_resume_point_is_ignored_not_fatal(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         marker = tmp_path / "marker"
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
-        planned = harness.plan("one step")
+        planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
         resume_path.parent.mkdir(parents=True, exist_ok=True)
         resume_path.write_text("not json at all", encoding="utf-8")
 
-        result = harness.execute(planned, {})
+        result = torra.execute(planned, {})
 
         assert result.outcome is Outcome.COMPLETED
         assert marker.exists()
 
     def test_a_dry_run_never_writes_a_resume_point(
-            self, make_harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+            self, make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         calls = []
         monkeypatch.setattr(ResumePoint, "save",
                             lambda self, path: calls.append(path))
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "two steps",
             [{"id": "a", "run": "true"}, {"id": "b", "run": "true"}])))
-        planned = harness.plan("two steps")
+        planned = torra.plan("two steps")
 
-        harness.execute(planned, {}, dry_run=True)
+        torra.execute(planned, {}, dry_run=True)
 
         assert calls == [], \
             "a dry run must never persist a resume point -- a crash mid-preview " \
             "must not later look like steps that genuinely ran"
 
     def test_a_dry_run_ignores_an_existing_resume_point(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         """A dry run previews every step regardless of what a resume point
         claims -- silently skipping some would defeat the point of asking
         "what would this plan do"."""
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "one step", [{"id": "s", "run": "echo hi"}])))
-        planned = harness.plan("one step")
+        planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
         ResumePoint(task_id="t", completed=["s"], total=1).save(resume_path)
 
-        result = harness.execute(planned, {}, dry_run=True)
+        result = torra.execute(planned, {}, dry_run=True)
 
         assert result.results[0].output == "[dry-run] echo hi"
 
     def test_a_failed_run_with_rollback_deletes_the_resume_point(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         """A resume point surviving a rollback would let a later retry skip
         steps whose effects were just undone -- worse than not resuming at
         all. `_sweep_rollback` clears it the same as a clean success does."""
         target = tmp_path / "f.txt"
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "one step",
             [{"id": "write", "kind": "write", "run": f"printf x > {target}",
               "touches": [str(target)]},
              {"id": "fail", "run": "false"}])))
-        planned = harness.plan("one step")
+        planned = torra.plan("one step")
 
-        result = harness.execute(planned, {})
+        result = torra.execute(planned, {})
 
         assert result.outcome is Outcome.FAILED
         assert not self._resume_path(tmp_path, "t").exists()
 
     def test_a_completed_run_leaves_no_resume_point_for_a_future_retry_to_find(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         marker = tmp_path / "marker"
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
-        planned = harness.plan("one step")
+        planned = torra.plan("one step")
 
-        harness.execute(planned, {})
+        torra.execute(planned, {})
 
         assert not self._resume_path(tmp_path, "t").exists()
 
 
-def test_execute_twice_on_the_same_result_does_not_replay_it(make_harness,
+def test_execute_twice_on_the_same_result_does_not_replay_it(make_torra,
                                                               tmp_path: Path) -> None:
     """Found live in an audit log: stages [...,"execute","report","execute"]
     and two result entries for one step. The TUI's Run button stays
@@ -754,16 +754,16 @@ def test_execute_twice_on_the_same_result_does_not_replay_it(make_harness,
     second time. A read-only `du` is merely wasteful to repeat; anything
     that mutates state would not be."""
     marker = tmp_path / "marker"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"touch {marker}",
         [{"id": "touch", "run": f"touch {marker}"}])))
 
-    planned = harness.plan(f"create {marker}")
-    once = harness.execute(planned, {})
+    planned = torra.plan(f"create {marker}")
+    once = torra.execute(planned, {})
     assert once.outcome is Outcome.COMPLETED
     assert len(once.results) == 1
 
-    twice = harness.execute(once, {})
+    twice = torra.execute(once, {})
 
     assert twice.outcome is Outcome.COMPLETED
     assert len(twice.results) == 1, "the step ran a second time"
@@ -772,7 +772,7 @@ def test_execute_twice_on_the_same_result_does_not_replay_it(make_harness,
     assert len(refusals) == 1
 
 
-def test_ticking_the_box_after_a_rejection_still_runs(make_harness,
+def test_ticking_the_box_after_a_rejection_still_runs(make_torra,
                                                        tmp_path: Path) -> None:
     """Found live right after the guard above shipped: a plan clicked Run
     before its checkbox was ticked gets REJECTED (nothing ran, by design --
@@ -782,40 +782,40 @@ def test_ticking_the_box_after_a_rejection_still_runs(make_harness,
     REJECTED is a terminal outcome too even though zero commands ran."""
     victim = tmp_path / "victim.txt"
     victim.write_text("still here", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"remove {victim}",
         [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
 
-    planned = harness.plan(f"delete {victim}")
-    rejected = harness.execute(planned, approvals={})
+    planned = torra.plan(f"delete {victim}")
+    rejected = torra.execute(planned, approvals={})
     assert rejected.outcome is Outcome.REJECTED
     assert victim.exists()
 
-    approved = harness.execute(rejected, approvals={"rm": True})
+    approved = torra.execute(rejected, approvals={"rm": True})
 
     assert approved.outcome is Outcome.COMPLETED
     assert not victim.exists()
 
 
-def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_harness,
+def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_torra,
                                                               tmp_path: Path) -> None:
     """Found in a full-file audit of the TUI's own presentation layer: the
     Reject button was never disabled after a run completed (unlike
-    Run/Dry-run), and Harness.reject() had no guard against being called
+    Run/Dry-run), and Torra.reject() had no guard against being called
     on an already-executed result. A stray click on Reject after a real
     run would have silently overwritten a COMPLETED outcome with
     REJECTED and written a fresh audit record claiming "nothing ran" --
     actively misrepresenting a run that may have had real, destructive
     side effects."""
     marker = tmp_path / "marker"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
 
-    done = harness.execute(harness.plan(f"touch {marker}"), {})
+    done = torra.execute(torra.plan(f"touch {marker}"), {})
     assert done.outcome is Outcome.COMPLETED
     assert marker.exists()
 
-    still_done = harness.reject(done)
+    still_done = torra.reject(done)
 
     assert still_done.outcome is Outcome.COMPLETED, (
         "a completed run's outcome was overwritten by a late Reject"
@@ -825,43 +825,43 @@ def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_harness,
     assert len(refusals) == 1
 
 
-def test_reject_still_works_on_a_plan_that_never_ran(make_harness,
+def test_reject_still_works_on_a_plan_that_never_ran(make_torra,
                                                       tmp_path: Path) -> None:
     """The ordinary case must keep working: nothing executed yet, so
     Reject is free to actually reject."""
     marker = tmp_path / "marker"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
 
-    planned = harness.plan(f"touch {marker}")
-    rejected = harness.reject(planned)
+    planned = torra.plan(f"touch {marker}")
+    rejected = torra.reject(planned)
 
     assert rejected.outcome is Outcome.REJECTED
     assert not marker.exists()
 
 
-def test_a_dry_run_does_not_block_the_real_run_that_follows(make_harness,
+def test_a_dry_run_does_not_block_the_real_run_that_follows(make_torra,
                                                              tmp_path: Path) -> None:
     """Previewing a plan with Dry run must not count as "already executed"
     -- that would block the real Run a dry run is meant to precede."""
     marker = tmp_path / "marker"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"touch {marker}",
         [{"id": "touch", "run": f"touch {marker}"}])))
 
-    planned = harness.plan(f"create {marker}")
-    dry = harness.execute(planned, {}, dry_run=True)
+    planned = torra.plan(f"create {marker}")
+    dry = torra.execute(planned, {}, dry_run=True)
     assert dry.outcome is Outcome.COMPLETED
     assert not marker.exists(), "a dry run touched the filesystem"
 
-    real = harness.execute(dry, {})
+    real = torra.execute(dry, {})
 
     assert real.outcome is Outcome.COMPLETED
     assert marker.exists()
     assert len(real.results) == 1
 
 
-def test_gate_does_not_redundantly_walk_watch_roots(make_harness,
+def test_gate_does_not_redundantly_walk_watch_roots(make_torra,
                                                     tmp_path: Path) -> None:
     """Found in a full-file audit: _gate() called conflicts.detect() right
     after conflicts.baseline() on the same object -- detect() re-reads
@@ -874,16 +874,16 @@ def test_gate_does_not_redundantly_walk_watch_roots(make_harness,
     watched = tmp_path / "watched"
     watched.mkdir()
     detector = ConflictDetector(use_inotify=False)
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "touch a file", [{"id": "w", "run": "true"}],
         watch_roots=[str(watched)])), conflicts=detector)
 
-    harness.plan("touch a file")
+    torra.plan("touch a file")
 
     assert detector.full_walks == 0, "baseline() alone must not trigger a _reconcile() walk"
 
 
-def test_a_precondition_flip_stops_execution(make_harness,
+def test_a_precondition_flip_stops_execution(make_torra,
                                              tmp_path: Path) -> None:
     """The probe-12 scenario: a service dies at step one, step two must not run."""
     marker = tmp_path / "should-not-exist"
@@ -892,21 +892,21 @@ def test_a_precondition_flip_stops_execution(make_harness,
     verifier.add(Precondition("svc", lambda: state["up"], "must stay up",
                               ttl_seconds=0))
 
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", "restart the api and then write a marker",
         [{"id": "kill", "run": "true"},
          {"id": "second", "run": f"touch {marker}"}])), verifier=verifier)
 
-    planned = harness.plan("restart ollama.service on popos-01 and verify")
+    planned = torra.plan("restart ollama.service on popos-01 and verify")
     state["up"] = False
-    done = harness.execute(planned, {})
+    done = torra.execute(planned, {})
 
     assert done.outcome is Outcome.BLOCKED
     assert "precondition went false mid-run" in done.abort_reason
     assert not marker.exists()
 
 
-def test_a_block_before_any_step_ran_is_still_retryable(make_harness,
+def test_a_block_before_any_step_ran_is_still_retryable(make_torra,
                                                          tmp_path: Path) -> None:
     """Found in a full-file audit, not live: `executed` used to be set
     unconditionally before the step loop, so a plan BLOCKED by a
@@ -921,50 +921,50 @@ def test_a_block_before_any_step_ran_is_still_retryable(make_harness,
     verifier = StateVerifier()
     verifier.add(Precondition("svc", lambda: state["up"], "must stay up",
                               ttl_seconds=0))
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"touch {marker}",
         [{"id": "touch", "run": f"touch {marker}"}])), verifier=verifier)
 
-    planned = harness.plan(f"create {marker}")
+    planned = torra.plan(f"create {marker}")
     state["up"] = False
-    blocked = harness.execute(planned, {})
+    blocked = torra.execute(planned, {})
     assert blocked.outcome is Outcome.BLOCKED
     assert blocked.results == []
 
     state["up"] = True
-    retried = harness.execute(blocked, {})
+    retried = torra.execute(blocked, {})
 
     assert retried.outcome is Outcome.COMPLETED
     assert marker.exists()
 
 
-def test_an_external_edit_stops_the_run(make_harness, tmp_path: Path) -> None:
+def test_an_external_edit_stops_the_run(make_torra, tmp_path: Path) -> None:
     """Something moved under us. Continuing would clobber a human's work."""
     conf = tmp_path / "shared.conf"
     conf.write_text("original", encoding="utf-8")
     marker = tmp_path / "second-ran"
 
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"touch {conf} then write a marker",
         [{"id": "first", "run": "true", "touches": [str(conf)]},
          {"id": "second", "run": f"touch {marker}", "touches": [str(conf)]}])))
 
-    planned = harness.plan(f"update {conf} in two steps")
+    planned = torra.plan(f"update {conf} in two steps")
     conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
-    done = harness.execute(planned, {})
+    done = torra.execute(planned, {})
 
     assert done.outcome is Outcome.BLOCKED
     assert "external file change" in done.abort_reason
     assert not marker.exists()
 
 
-def test_a_dry_run_executes_nothing_but_gates_everything(make_harness,
+def test_a_dry_run_executes_nothing_but_gates_everything(make_torra,
                                                          tmp_path: Path) -> None:
     marker = tmp_path / "nope"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])))
 
-    done = harness.execute(harness.plan(f"create {marker}"), {}, dry_run=True)
+    done = torra.execute(torra.plan(f"create {marker}"), {}, dry_run=True)
 
     assert done.outcome is Outcome.COMPLETED
     assert not marker.exists()
@@ -978,7 +978,7 @@ def test_a_dry_run_executes_nothing_but_gates_everything(make_harness,
 
 
 def test_an_audit_write_failure_is_logged_not_raised(
-        make_harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Telemetry can never break a run (invariant §2.5) -- the audit
     write is the same principle applied to the file it writes, not just
     the JSONL log."""
@@ -986,8 +986,8 @@ def test_an_audit_write_failure_is_logged_not_raised(
     spec = TaskSpec.validate({
         "task_id": "audit-blocked", "request": f"create {marker}",
         "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
-    harness = make_harness(scripted({}))
-    audit_path = harness.audit_dir / "audit-blocked.audit.json"
+    torra = make_torra(scripted({}))
+    audit_path = torra.audit_dir / "audit-blocked.audit.json"
     real_write_text = Path.write_text
 
     def selective_broken_write_text(self, *args, **kwargs):
@@ -996,68 +996,68 @@ def test_an_audit_write_failure_is_logged_not_raised(
         return real_write_text(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", selective_broken_write_text)
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
     result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL, plan=plan)
 
-    done = harness.execute(result, {})
+    done = torra.execute(result, {})
 
     assert done.outcome is Outcome.COMPLETED, "the run itself must still succeed"
     assert done.audit_path == ""
     # Not done.decisions: result.decisions is snapshotted from the log
     # before this failure is logged (the same "_finish() snapshots too
     # early" shape as the summary-failure case in another test above),
-    # so the record only shows up on the harness's own live log.
-    assert any(d.decision == "audit write failed" for d in harness.decisions.records)
+    # so the record only shows up on torra's own live log.
+    assert any(d.decision == "audit write failed" for d in torra.decisions.records)
 
 
-def test_stats_reports_every_subsystem(make_harness) -> None:
-    harness = make_harness(scripted({}))
-    stats = harness.stats()
+def test_stats_reports_every_subsystem(make_torra) -> None:
+    torra = make_torra(scripted({}))
+    stats = torra.stats()
     assert set(stats) == {"agent", "conflicts", "verifier", "undo", "decisions"}
 
 
-def test_close_releases_watches_without_raising(make_harness) -> None:
-    harness = make_harness(scripted({}))
-    harness.close()  # must not raise
+def test_close_releases_watches_without_raising(make_torra) -> None:
+    torra = make_torra(scripted({}))
+    torra.close()  # must not raise
 
 
-def test_a_question_is_answered_not_planned(make_harness) -> None:
-    harness = make_harness(scripted(
+def test_a_question_is_answered_not_planned(make_torra) -> None:
+    torra = make_torra(scripted(
         {"intent": "answer", "message": "40 GB free on /, 60% used."}))
-    result = harness.plan("how much disk is free")
+    result = torra.plan("how much disk is free")
 
     assert result.outcome is Outcome.ANSWERED
     assert result.plan is None
     assert "40 GB" in result.message
 
 
-def test_run_returns_a_non_awaiting_outcome_without_calling_approve(make_harness) -> None:
+def test_run_returns_a_non_awaiting_outcome_without_calling_approve(make_torra) -> None:
     """The convenience run() wrapper's early exit -- nothing to gate means
     nothing to approve, so `approve` must never even be called."""
-    harness = make_harness(scripted(
+    torra = make_torra(scripted(
         {"intent": "answer", "message": "40 GB free on /, 60% used."}))
     calls = []
 
-    result = harness.run("how much disk is free", approve=lambda plan: calls.append(plan))
+    result = torra.run("how much disk is free", approve=lambda plan: calls.append(plan))
 
     assert result.outcome is Outcome.ANSWERED
     assert calls == []
 
 
-def test_answer_on_a_result_with_no_turn_is_a_no_op(make_harness) -> None:
+def test_answer_on_a_result_with_no_turn_is_a_no_op(make_torra) -> None:
     """`answer()` re-plans by reading the original turn's questions --
     a result built without ever going through the model (a hand-written
     task file's RunResult) has no turn to answer against."""
-    harness = make_harness(scripted({}))
+    torra = make_torra(scripted({}))
     result = RunResult(request="r", outcome=Outcome.NEEDS_ANSWER)
 
-    same = harness.answer(result, ["some answer"])
+    same = torra.answer(result, ["some answer"])
 
     assert same is result
 
 
 def test_a_resume_point_that_cannot_be_written_does_not_stop_the_run(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """A resume point is a nicety, not a reason to stop -- both the
     mid-run save() failure and _finish_success's own best-effort cleanup
     of the (never successfully written) resume file must be swallowed.
@@ -1068,19 +1068,19 @@ def test_a_resume_point_that_cannot_be_written_does_not_stop_the_run(
     spec = TaskSpec.validate({
         "task_id": "resume-blocked", "request": f"create {marker}",
         "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
-    harness = make_harness(scripted({}))
-    resume_dir = harness.workdir / "resume" / "resume-blocked.json"
+    torra = make_torra(scripted({}))
+    resume_dir = torra.workdir / "resume" / "resume-blocked.json"
     resume_dir.mkdir(parents=True)
 
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
     result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL, plan=plan)
-    done = harness.execute(result, {})
+    done = torra.execute(result, {})
 
     assert done.outcome is Outcome.COMPLETED
     assert marker.exists(), "the real step still ran despite the resume-point failure"
 
 
-def test_a_step_with_no_run_action_fails_instead_of_crashing(make_harness) -> None:
+def test_a_step_with_no_run_action_fails_instead_of_crashing(make_torra) -> None:
     """`TaskSpec.to_steps()` always attaches a real closure -- this guards
     a `Step` built some other way (a `Plan` assembled by hand, as this
     test does, rather than through `_gate()`)."""
@@ -1090,10 +1090,10 @@ def test_a_step_with_no_run_action_fails_instead_of_crashing(make_harness) -> No
     step = Step(step_id="s1", command="true", run=None)
     sp = StepPlan(step=step, verdict=Verdict("true", RiskLevel.SAFE))
     plan = Plan(spec=spec, steps=[sp])
-    harness = make_harness(scripted({}))
+    torra = make_torra(scripted({}))
     result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL, plan=plan)
 
-    done = harness.execute(result, {})
+    done = torra.execute(result, {})
 
     assert done.outcome is Outcome.FAILED
     assert "has no run action attached" in done.results[0].error
@@ -1105,40 +1105,40 @@ class TestRemotePushEscalation:
     runner is always a fake dict-backed callable."""
 
     def test_remote_push_is_critical_even_though_its_own_text_classifies_safe(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         spec = TaskSpec.validate({
             "task_id": "t", "request": "r",
             "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
                       "remote_path": "/etc/nginx/nginx.conf",
                       "reads": [str(tmp_path / "local.conf")]}]}, source="test")
-        harness = make_harness(scripted({}))
-        harness._executor_runner = None  # unconfigured -- irrelevant to classification
+        torra = make_torra(scripted({}))
+        torra._executor_runner = None  # unconfigured -- irrelevant to classification
 
-        plan = harness._gate(spec)
+        plan = torra._gate(spec)
 
         sp = plan.steps[0]
         assert sp.verdict.level is RiskLevel.CRITICAL
         assert any("less-guarded machine" in r for r in sp.verdict.reasons)
-        # Confirms this is a floor, not a fluke: the harness-authored
+        # Confirms this is a floor, not a fluke: torra-authored
         # command text alone matches nothing in SafetyClassifier.
-        from harness.gates import SafetyClassifier
+        from torra.gates import SafetyClassifier
         assert SafetyClassifier().classify(sp.step.command).level is RiskLevel.SAFE
 
-    def test_remote_pull_gets_no_escalation(self, make_harness, tmp_path: Path) -> None:
+    def test_remote_pull_gets_no_escalation(self, make_torra, tmp_path: Path) -> None:
         spec = TaskSpec.validate({
             "task_id": "t", "request": "r",
             "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
                       "remote_path": "/etc/nginx/nginx.conf",
                       "touches": [str(tmp_path / "local.conf")]}]}, source="test")
-        harness = make_harness(scripted({}))
-        harness._executor_runner = None
+        torra = make_torra(scripted({}))
+        torra._executor_runner = None
 
-        plan = harness._gate(spec)
+        plan = torra._gate(spec)
 
         assert plan.steps[0].verdict.level is RiskLevel.SAFE
 
     def test_end_to_end_pull_edit_push_with_a_real_snapshot_based_undo(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         remote = {"/etc/nginx/nginx.conf": "listen 80;\n"}
         local_path = tmp_path / "nginx.conf"
 
@@ -1154,7 +1154,7 @@ class TestRemotePushEscalation:
                 return ""
             raise AssertionError(f"unexpected command: {command}")
 
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "edit nginx on executor",
             [{"id": "pull", "kind": "remote_pull",
               "run": "ignored", "remote_path": "/etc/nginx/nginx.conf",
@@ -1166,21 +1166,21 @@ class TestRemotePushEscalation:
               "run": "ignored", "remote_path": "/etc/nginx/nginx.conf",
               "reads": [str(local_path)]}])),
             undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner))
-        harness._executor_runner = fake_runner
-        planned = harness.plan("edit nginx on executor")
+        torra._executor_runner = fake_runner
+        planned = torra.plan("edit nginx on executor")
 
         push_step = next(sp for sp in planned.plan.steps if sp.step.kind == "remote_push")
         assert push_step.verdict.level is RiskLevel.CRITICAL
         assert len(push_step.undos) == 1, "a real snapshot must be captured before execute()"
 
-        done = harness.execute(planned, {
+        done = torra.execute(planned, {
             sp.step.step_id: True for sp in planned.plan.steps})
 
         assert done.outcome is Outcome.COMPLETED
         assert remote["/etc/nginx/nginx.conf"] == "listen 8080;\n"
 
     def test_a_push_with_a_failed_snapshot_is_uncovered_and_still_needs_approval(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         def always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
             raise RuntimeError("executor unreachable")
 
@@ -1189,12 +1189,12 @@ class TestRemotePushEscalation:
             "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
                       "remote_path": "/etc/nginx/nginx.conf",
                       "reads": [str(tmp_path / "local.conf")]}]}, source="test")
-        harness = make_harness(
+        torra = make_torra(
             scripted({}),
             undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=always_fails))
-        harness._executor_runner = always_fails
+        torra._executor_runner = always_fails
 
-        plan = harness._gate(spec)
+        plan = torra._gate(spec)
 
         sp = plan.steps[0]
         assert sp.undos == [], "a failed snapshot must mean genuinely no undo"
@@ -1203,7 +1203,7 @@ class TestRemotePushEscalation:
         assert plan.coverage.get("coverage_ratio", 1.0) < 1.0
 
     def test_a_failing_push_step_triggers_the_normal_rollback_sweep(
-            self, make_harness, tmp_path: Path) -> None:
+            self, make_torra, tmp_path: Path) -> None:
         """No new mid-run recovery path needed -- a step whose run() raises
         already sweeps every already-run step's undo in reverse, and that
         composes correctly here with zero changes."""
@@ -1213,17 +1213,17 @@ class TestRemotePushEscalation:
         def push_always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
             raise RuntimeError("connection reset")
 
-        harness = make_harness(scripted(plan_reply(
+        torra = make_torra(scripted(plan_reply(
             "t", "push a change",
             [{"id": "edit", "kind": "shell",
               "run": f"echo changed > {local_path}", "touches": [str(local_path)]},
              {"id": "push", "kind": "remote_push", "run": "ignored",
               "remote_path": "/etc/nginx/nginx.conf", "reads": [str(local_path)]}])),
             undo=UndoGenerator(shadow_dir=tmp_path / "shadow"))
-        harness._executor_runner = push_always_fails
-        planned = harness.plan("push a change")
+        torra._executor_runner = push_always_fails
+        planned = torra.plan("push a change")
 
-        done = harness.execute(planned, {
+        done = torra.execute(planned, {
             sp.step.step_id: True for sp in planned.plan.steps})
 
         assert done.outcome is Outcome.FAILED
@@ -1232,27 +1232,27 @@ class TestRemotePushEscalation:
             "the local edit must have been rolled back by the normal sweep"
 
 
-def test_execute_on_a_result_with_no_plan_fails_rather_than_crashing(make_harness) -> None:
+def test_execute_on_a_result_with_no_plan_fails_rather_than_crashing(make_torra) -> None:
     """execute() is only ever called on an AWAITING_APPROVAL result with a
     plan attached in normal use -- this is the defensive guard for a
     caller that skips straight to execute() on something else, e.g. an
     ANSWERED result."""
-    harness = make_harness(scripted(
+    torra = make_torra(scripted(
         {"intent": "answer", "message": "40 GB free on /, 60% used."}))
-    answered = harness.plan("how much disk is free")
+    answered = torra.plan("how much disk is free")
 
-    done = harness.execute(answered, {})
+    done = torra.execute(answered, {})
 
     assert done.outcome is Outcome.FAILED
     assert done.abort_reason == "nothing to execute"
 
 
-def test_a_vague_request_becomes_a_question(make_harness) -> None:
+def test_a_vague_request_becomes_a_question(make_torra) -> None:
     """The model asks, informed by what the clarifier found missing."""
-    harness = make_harness(scripted(
+    torra = make_torra(scripted(
         {"intent": "ask", "message": "Which host?",
          "questions": ["Which host do you mean?"]}))
-    result = harness.plan("tidy up the box")
+    result = torra.plan("tidy up the box")
 
     assert result.outcome is Outcome.NEEDS_ANSWER
     assert result.turn is not None
@@ -1260,22 +1260,22 @@ def test_a_vague_request_becomes_a_question(make_harness) -> None:
     assert result.turn.clarifier_gaps, "the clarifier fed the model its gaps"
 
 
-def test_a_refusal_is_reported(make_harness) -> None:
-    harness = make_harness(scripted(
+def test_a_refusal_is_reported(make_torra) -> None:
+    torra = make_torra(scripted(
         {"intent": "refuse", "message": "That would destroy the boot partition."}))
-    assert harness.plan("wipe /boot").outcome is Outcome.REFUSED
+    assert torra.plan("wipe /boot").outcome is Outcome.REFUSED
 
 
-def test_a_dead_backend_is_reported_with_recovery(make_harness) -> None:
+def test_a_dead_backend_is_reported_with_recovery(make_torra) -> None:
     def dead(path, payload, timeout):
         raise ConnectionRefusedError("connection refused")
 
-    harness = make_harness(dead)
-    result = harness.plan("do anything")
+    torra = make_torra(dead)
+    result = torra.plan("do anything")
 
     assert result.outcome is Outcome.BACKEND_DOWN
     assert "generation failed" in result.abort_reason
-    assert len(harness.ollama.recovery_options()) == 3
+    assert len(torra.ollama.recovery_options()) == 3
 
 
 class _DeadAltBackend:
@@ -1292,13 +1292,13 @@ class _DeadAltBackend:
         return {}
 
 
-def test_recovery_options_come_from_the_backend_that_actually_failed(make_harness) -> None:
+def test_recovery_options_come_from_the_backend_that_actually_failed(make_torra) -> None:
     """"Restart Ollama" is exactly the wrong advice for a failed
     openrouter/... request -- the logged recovery options must come from
     the backend that was actually attempted, not always self.ollama."""
-    harness = make_harness(scripted({}), backends={"openrouter": _DeadAltBackend()})
+    torra = make_torra(scripted({}), backends={"openrouter": _DeadAltBackend()})
 
-    result = harness.plan("do anything", model="openrouter/some-model")
+    result = torra.plan("do anything", model="openrouter/some-model")
 
     assert result.outcome is Outcome.BACKEND_DOWN
     logged = result.decisions[-1]["evidence"]["recovery"]
@@ -1306,22 +1306,22 @@ def test_recovery_options_come_from_the_backend_that_actually_failed(make_harnes
     assert not any("Ollama" in o["title"] for o in logged)
 
 
-def test_harness_backends_reach_the_agent(make_harness) -> None:
+def test_torra_backends_reach_the_agent(make_torra) -> None:
     fake = _DeadAltBackend()
-    harness = make_harness(scripted({}), backends={"openrouter": fake})
-    assert harness.agent.backends["openrouter"] is fake
+    torra = make_torra(scripted({}), backends={"openrouter": fake})
+    assert torra.agent.backends["openrouter"] is fake
 
 
-def test_a_failed_precondition_blocks_before_anything_runs(make_harness,
+def test_a_failed_precondition_blocks_before_anything_runs(make_torra,
                                                            tmp_path: Path) -> None:
     marker = tmp_path / "nope"
     verifier = StateVerifier()
     verifier.add(Precondition("impossible", lambda: False, "never passes"))
 
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])),
         verifier=verifier)
-    result = harness.plan(f"create {marker}")
+    result = torra.plan(f"create {marker}")
 
     assert result.outcome is Outcome.BLOCKED
     assert "preconditions failed" in result.abort_reason
@@ -1333,11 +1333,11 @@ def test_a_failed_precondition_blocks_before_anything_runs(make_harness,
 # --------------------------------------------------------------------------- #
 
 
-def test_run_approves_through_a_callback(make_harness, tmp_path: Path) -> None:
+def test_run_approves_through_a_callback(make_torra, tmp_path: Path) -> None:
     """What the CLI and the TUI both use."""
     victim = tmp_path / "v.txt"
     victim.write_text("x", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"remove {victim}",
         [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
 
@@ -1348,7 +1348,7 @@ def test_run_approves_through_a_callback(make_harness, tmp_path: Path) -> None:
         seen["needs"] = [sp.step.step_id for sp in plan.needs_confirmation]
         return {sp.step.step_id: True for sp in plan.needs_confirmation}
 
-    done = harness.run(f"delete {victim}", approve=approve)
+    done = torra.run(f"delete {victim}", approve=approve)
 
     assert done.outcome is Outcome.COMPLETED
     assert seen["needs"] == ["rm"]
@@ -1356,20 +1356,20 @@ def test_run_approves_through_a_callback(make_harness, tmp_path: Path) -> None:
     assert not victim.exists()
 
 
-def test_run_refuses_when_no_approver_is_given(make_harness,
+def test_run_refuses_when_no_approver_is_given(make_torra,
                                                tmp_path: Path) -> None:
     """Unattended defaults to refusing, which is the safe direction."""
     victim = tmp_path / "v.txt"
     victim.write_text("x", encoding="utf-8")
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"remove {victim}",
         [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
 
-    assert harness.run(f"delete {victim}").outcome is Outcome.REJECTED
+    assert torra.run(f"delete {victim}").outcome is Outcome.REJECTED
     assert victim.exists()
 
 
-def test_a_hand_written_file_still_works_without_a_model(make_harness,
+def test_a_hand_written_file_still_works_without_a_model(make_torra,
                                                          tmp_path: Path) -> None:
     """When the model is down or wrong, the gates must still be reachable."""
     marker = tmp_path / "made"
@@ -1377,21 +1377,21 @@ def test_a_hand_written_file_still_works_without_a_model(make_harness,
         "task_id": "manual", "request": f"create {marker}",
         "steps": [{"id": "t", "run": f"touch {marker}"}]}, source="test")
 
-    harness = make_harness(scripted({}))
-    plan = harness._gate(spec)
+    torra = make_torra(scripted({}))
+    plan = torra._gate(spec)
 
-    from harness.pipeline import RunResult
+    from torra.pipeline import RunResult
     result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
                        stages=["gate", "present"], plan=plan)
-    done = harness.execute(result, {})
+    done = torra.execute(result, {})
 
     assert done.outcome is Outcome.COMPLETED
     assert marker.exists()
-    assert harness.ollama.calls == 0, "no model should have been consulted"
+    assert torra.ollama.calls == 0, "no model should have been consulted"
 
 
 def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
-        make_harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Found live: the resume-file path was built straight from
     `plan.spec.task_id` with no sanitizing at all -- unlike the audit path
     built in the very same function, which already sanitized. A task_id of
@@ -1407,7 +1407,7 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
     terminal outcome including this test's own induced failure (a rollback
     means the file's "these steps are done" claim is no longer true), so
     post-hoc existence is no longer the right thing to assert on."""
-    from harness.core.resume import ResumePoint
+    from torra.core.resume import ResumePoint
 
     seen_paths: list[Path] = []
     real_save = ResumePoint.save
@@ -1419,16 +1419,16 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
     monkeypatch.setattr(ResumePoint, "save", spy_save)
 
     evil_id = "../../evil-poc"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         evil_id, "do something",
         [{"id": "ok", "run": "true"}, {"id": "bad", "run": "false"}])))
 
-    planned = harness.plan("do something")
-    done = harness.execute(planned, {})
+    planned = torra.plan("do something")
+    done = torra.execute(planned, {})
 
     assert done.outcome is Outcome.FAILED
     escaped = tmp_path / "evil-poc.json"
-    assert not escaped.exists(), "resume file escaped the harness's own workdir"
+    assert not escaped.exists(), "resume file escaped torra's own workdir"
     resume_dir = tmp_path / "wd" / "resume"
     assert seen_paths, "the ok step should have written a resume point before bad failed"
     assert all(p.parent == resume_dir for p in seen_paths), \
@@ -1437,33 +1437,33 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
 
 def test_knowledge_dir_defaults_from_the_environment(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """cli.py/tui.py construct Harness() with no knowledge_dir argument at
-    all -- this is the only place that has to read HARNESS_KNOWLEDGE_DIR,
+    """cli.py/tui.py construct Torra() with no knowledge_dir argument at
+    all -- this is the only place that has to read TORRA_KNOWLEDGE_DIR,
     so they need no changes to pick up a configured library."""
-    monkeypatch.setenv("HARNESS_KNOWLEDGE_DIR", str(tmp_path))
-    harness = Harness(workdir=tmp_path / "wd")
-    assert harness.knowledge_dir == str(tmp_path)
+    monkeypatch.setenv("TORRA_KNOWLEDGE_DIR", str(tmp_path))
+    torra = Torra(workdir=tmp_path / "wd")
+    assert torra.knowledge_dir == str(tmp_path)
 
 
 def test_an_explicit_knowledge_dir_overrides_the_environment(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HARNESS_KNOWLEDGE_DIR", "/from/env")
-    harness = Harness(workdir=tmp_path / "wd", knowledge_dir=str(tmp_path))
-    assert harness.knowledge_dir == str(tmp_path)
+    monkeypatch.setenv("TORRA_KNOWLEDGE_DIR", "/from/env")
+    torra = Torra(workdir=tmp_path / "wd", knowledge_dir=str(tmp_path))
+    assert torra.knowledge_dir == str(tmp_path)
 
 
 def test_an_explicit_empty_knowledge_dir_disables_it_even_with_env_set(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HARNESS_KNOWLEDGE_DIR", "/from/env")
-    harness = Harness(workdir=tmp_path / "wd", knowledge_dir="")
-    assert harness.knowledge_dir is None
+    monkeypatch.setenv("TORRA_KNOWLEDGE_DIR", "/from/env")
+    torra = Torra(workdir=tmp_path / "wd", knowledge_dir="")
+    assert torra.knowledge_dir is None
 
 
 def test_knowledge_dir_is_none_by_default_with_nothing_configured(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("HARNESS_KNOWLEDGE_DIR", raising=False)
-    harness = Harness(workdir=tmp_path / "wd")
-    assert harness.knowledge_dir is None
+    monkeypatch.delenv("TORRA_KNOWLEDGE_DIR", raising=False)
+    torra = Torra(workdir=tmp_path / "wd")
+    assert torra.knowledge_dir is None
 
 
 # --------------------------------------------------------------------------- #
@@ -1488,8 +1488,8 @@ def _chat_transport(plan_content: dict, summary_text: str):
     return transport
 
 
-def test_a_completed_run_gets_a_synthesized_summary(make_harness, tmp_path: Path) -> None:
-    """The gap this closes: `harness ask` used to print only ok/fail per
+def test_a_completed_run_gets_a_synthesized_summary(make_torra, tmp_path: Path) -> None:
+    """The gap this closes: `torra ask` used to print only ok/fail per
     step, never what a read step actually found."""
     target = tmp_path / "data.txt"
     target.write_text("one\ntwo\nthree\n", encoding="utf-8")
@@ -1497,19 +1497,19 @@ def test_a_completed_run_gets_a_synthesized_summary(make_harness, tmp_path: Path
         "read-file", f"read {target}",
         [{"id": "read", "kind": "read", "run": f"cat {target}"}])
 
-    harness = make_harness(_chat_transport(
+    torra = make_torra(_chat_transport(
         plan_content, "The file has three lines: one, two, three."))
-    planned = harness.plan(f"how many lines are in {target}")
+    planned = torra.plan(f"how many lines are in {target}")
     assert planned.outcome is Outcome.AWAITING_APPROVAL
 
-    done = harness.execute(planned, {})
+    done = torra.execute(planned, {})
 
     assert done.outcome is Outcome.COMPLETED
     assert done.summary == "The file has three lines: one, two, three."
     assert done.message == done.summary
 
 
-def test_a_dry_run_never_gets_a_summary(make_harness, tmp_path: Path) -> None:
+def test_a_dry_run_never_gets_a_summary(make_torra, tmp_path: Path) -> None:
     """Found by an independent audit: _run_one_step() fabricates
     "[dry-run] <command>" as every step's "output" under a dry run --
     nothing was actually checked. Summarizing that fabricated text got a
@@ -1523,11 +1523,11 @@ def test_a_dry_run_never_gets_a_summary(make_harness, tmp_path: Path) -> None:
         "read-file", f"read {target}",
         [{"id": "read", "kind": "read", "run": f"cat {target}"}])
 
-    harness = make_harness(_chat_transport(
+    torra = make_torra(_chat_transport(
         plan_content, "The file has three lines: one, two, three."))
-    planned = harness.plan(f"how many lines are in {target}")
+    planned = torra.plan(f"how many lines are in {target}")
 
-    done = harness.execute(planned, {}, dry_run=True)
+    done = torra.execute(planned, {}, dry_run=True)
 
     assert done.outcome is Outcome.COMPLETED
     assert done.results[0].output == f"[dry-run] cat {target}"
@@ -1535,7 +1535,7 @@ def test_a_dry_run_never_gets_a_summary(make_harness, tmp_path: Path) -> None:
 
 
 def test_a_hand_written_plan_gets_no_summary_and_consults_no_model(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """The same invariant `test_a_hand_written_file_still_works_without_a_model`
     guards, checked from the summary field's own side: a plan nobody's
     model wrote must not become the trigger for the first model call."""
@@ -1544,20 +1544,20 @@ def test_a_hand_written_plan_gets_no_summary_and_consults_no_model(
         "task_id": "manual", "request": f"create {marker}",
         "steps": [{"id": "t", "run": f"touch {marker}"}]}, source="test")
 
-    harness = make_harness(scripted({}))
-    plan = harness._gate(spec)
+    torra = make_torra(scripted({}))
+    plan = torra._gate(spec)
     result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
                        stages=["gate", "present"], plan=plan)
-    done = harness.execute(result, {})
+    done = torra.execute(result, {})
 
     assert done.summary == ""
-    assert harness.ollama.calls == 0
+    assert torra.ollama.calls == 0
 
 
 def test_a_failed_summarize_call_does_not_break_the_run(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """Same rule as telemetry: a reporting step that can fail a real run
-    would make the harness less reliable than not reporting at all."""
+    would make torra less reliable than not reporting at all."""
     target = tmp_path / "data.txt"
     target.write_text("hello\n", encoding="utf-8")
     plan_content = plan_reply(
@@ -1573,9 +1573,9 @@ def test_a_failed_summarize_call_does_not_break_the_run(
             return {"message": {"content": json.dumps(plan_content)}}
         raise RuntimeError("daemon unreachable")
 
-    harness = make_harness(transport)
-    planned = harness.plan(f"what is in {target}")
-    done = harness.execute(planned, {})
+    torra = make_torra(transport)
+    planned = torra.plan(f"what is in {target}")
+    done = torra.execute(planned, {})
 
     assert done.outcome is Outcome.COMPLETED
     assert done.summary == ""
@@ -1594,31 +1594,31 @@ def test_a_failed_summarize_call_does_not_break_the_run(
 
 
 def test_step_plan_has_undo_reflects_whether_any_undo_was_derived(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     marker = tmp_path / "touched"
     spec = TaskSpec.validate({
         "task_id": "t", "request": f"create {marker}",
         "steps": [{"id": "touch", "run": f"touch {marker}", "touches": [str(marker)]},
                  {"id": "no-undo", "run": "true"}]}, source="test")
-    harness = make_harness(scripted({}))
+    torra = make_torra(scripted({}))
 
-    plan = harness._gate(spec)
+    plan = torra._gate(spec)
 
     by_id = {sp.step.step_id: sp for sp in plan.steps}
     assert by_id["touch"].has_undo is True
     assert by_id["no-undo"].has_undo is False
 
 
-def test_run_result_ok_is_true_only_when_completed(make_harness, tmp_path: Path) -> None:
+def test_run_result_ok_is_true_only_when_completed(make_torra, tmp_path: Path) -> None:
     marker = tmp_path / "made"
     spec = TaskSpec.validate({
         "task_id": "t", "request": f"create {marker}",
         "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
-    harness = make_harness(scripted({}))
+    torra = make_torra(scripted({}))
     planned = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
-                        plan=harness._gate(spec))
+                        plan=torra._gate(spec))
 
-    done = harness.execute(planned, {})
+    done = torra.execute(planned, {})
 
     assert done.outcome is Outcome.COMPLETED
     assert done.ok is True
@@ -1637,26 +1637,26 @@ def test_run_result_message_falls_back_to_the_outcome_when_nothing_else_is_set()
 # --------------------------------------------------------------------------- #
 
 
-def test_two_harnesses_sharing_a_workdir_do_not_collide_on_shadow_files(
+def test_two_torras_sharing_a_workdir_do_not_collide_on_shadow_files(
         tmp_path: Path) -> None:
     """`UndoGenerator`'s default shadow_dir is keyed only by (workdir, pid)
-    -- two Harness instances sharing a workdir in one process (exactly
+    -- two Torra instances sharing a workdir in one process (exactly
     what tabs are) would collide on it, and one session's cleanup() could
     wipe another session's shadow copies mid-run. The fix is session-scoped:
-    each tab's Harness gets an explicit undo=UndoGenerator(shadow_dir=...)
+    each tab's Torra gets an explicit undo=UndoGenerator(shadow_dir=...)
     keyed by session id instead of the shared default. This proves the
     pattern actually prevents the collision, not just that construction
     succeeds."""
     session_a_file = tmp_path / "a.conf"
     session_a_file.write_text("session a content", encoding="utf-8")
-    harness_a = Harness(
+    torra_a = Torra(
         workdir=tmp_path, ollama=OllamaClient(transport=lambda p, pay, t: {}),
-        undo=UndoGenerator(shadow_dir=tmp_path / "harness-shadow-session-a"))
-    harness_b = Harness(
+        undo=UndoGenerator(shadow_dir=tmp_path / "torra-shadow-session-a"))
+    torra_b = Torra(
         workdir=tmp_path, ollama=OllamaClient(transport=lambda p, pay, t: {}),
-        undo=UndoGenerator(shadow_dir=tmp_path / "harness-shadow-session-b"))
+        undo=UndoGenerator(shadow_dir=tmp_path / "torra-shadow-session-b"))
 
-    assert harness_a.undo.shadow_dir != harness_b.undo.shadow_dir
+    assert torra_a.undo.shadow_dir != torra_b.undo.shadow_dir
 
     spec_a = TaskSpec.validate({
         "task_id": "t", "request": f"edit {session_a_file}",
@@ -1666,14 +1666,14 @@ def test_two_harnesses_sharing_a_workdir_do_not_collide_on_shadow_files(
     # regardless of dry-run/real, matching how the real pipeline works
     # (see pipeline.py's own comment on why cleanup() only fires on a
     # successful real execute(), not here).
-    harness_a._gate(spec_a)
-    assert harness_a.undo.shadow_dir.exists()
-    shadow_files_before = list(harness_a.undo.shadow_dir.iterdir())
+    torra_a._gate(spec_a)
+    assert torra_a.undo.shadow_dir.exists()
+    shadow_files_before = list(torra_a.undo.shadow_dir.iterdir())
     assert shadow_files_before, "session a should have a real shadow copy on disk"
 
-    harness_b.undo.cleanup()
+    torra_b.undo.cleanup()
 
-    assert list(harness_a.undo.shadow_dir.iterdir()) == shadow_files_before, (
+    assert list(torra_a.undo.shadow_dir.iterdir()) == shadow_files_before, (
         "session b's cleanup must never touch session a's shadow directory"
     )
 
@@ -1685,18 +1685,18 @@ def test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file(
     Two tabs' first such turn both landed on "turn-1", one silently
     overwriting the other's audit record. Found by a full-codebase audit
     right after the multi-tab feature shipped, reproduced directly against
-    two live Harness instances before this test was written."""
-    harness_a = Harness(
+    two live Torra instances before this test was written."""
+    torra_a = Torra(
         workdir=tmp_path, ollama=OllamaClient(transport=scripted(
             {"intent": "answer", "message": "reply for a"})))
-    harness_b = Harness(
+    torra_b = Torra(
         workdir=tmp_path, ollama=OllamaClient(transport=scripted(
             {"intent": "answer", "message": "reply for b"})))
-    harness_a.agent.task_id_prefix = "session-a-"
-    harness_b.agent.task_id_prefix = "session-b-"
+    torra_a.agent.task_id_prefix = "session-a-"
+    torra_b.agent.task_id_prefix = "session-b-"
 
-    result_a = harness_a.plan("what is the disk usage")
-    result_b = harness_b.plan("what is the memory usage")
+    result_a = torra_a.plan("what is the disk usage")
+    result_b = torra_b.plan("what is the memory usage")
 
     assert result_a.audit_path != result_b.audit_path
     on_disk = json.loads(Path(result_a.audit_path).read_text(encoding="utf-8"))
@@ -1704,37 +1704,37 @@ def test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file(
 
 
 def test_a_new_plan_call_starts_a_fresh_decision_trail(tmp_path: Path) -> None:
-    """A `Harness` reused across many turns (a long-lived TUI tab) used to
+    """A `Torra` reused across many turns (a long-lived TUI tab) used to
     accumulate every prior turn's decisions into each new turn's audit
     record and result.decisions, growing without bound for the tab's whole
     life. plan() now clears the trail as its first act; execute() of the
     *same* task must still see that task's own plan-stage decisions."""
-    harness = Harness(
+    torra = Torra(
         workdir=tmp_path, ollama=OllamaClient(transport=scripted(
             {"intent": "answer", "message": "first"},
             {"intent": "answer", "message": "second"})))
 
-    result1 = harness.plan("first request")
+    result1 = torra.plan("first request")
     assert len(result1.decisions) == 1
 
-    result2 = harness.plan("second request")
+    result2 = torra.plan("second request")
     assert len(result2.decisions) == 1, \
         "turn 2's decisions must not include turn 1's"
 
 
 def test_plan_then_execute_of_the_same_task_still_share_one_decision_trail(
-        make_harness, tmp_path: Path) -> None:
+        make_torra, tmp_path: Path) -> None:
     """plan()'s fresh-trail clear() must not also wipe out plan-stage
     decisions by the time the *same* task reaches execute() -- only a new
     plan() call is a new task boundary, not execute() continuing one."""
     marker = tmp_path / "made"
-    harness = make_harness(scripted(plan_reply(
+    torra = make_torra(scripted(plan_reply(
         "t", f"create {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
 
-    planned = harness.plan(f"create {marker}")
+    planned = torra.plan(f"create {marker}")
     assert len(planned.decisions) >= 1, "plan-stage decisions must be recorded"
     plan_stage_count = len(planned.decisions)
 
-    done = harness.execute(planned, {})
+    done = torra.execute(planned, {})
     assert len(done.decisions) >= plan_stage_count, \
         "execute() must build on plan()'s trail for the same task, not replace it"

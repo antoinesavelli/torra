@@ -3,7 +3,7 @@
 The fuller form of the short conventions in `AGENTS.md`, plus the source-of-truth registry.
 
 **`CORE_RULES.yaml` is not a source of truth.** It's a human-readable snapshot of default
-values, loaded by nothing (`grep -rn CORE_RULES harness/` returns nothing) — it already
+values, loaded by nothing (`grep -rn CORE_RULES torra/` returns nothing) — it already
 disagrees with the code it describes (`keep_recent: 3` there, `4` in
 `ContextCompressor.__init__`) and nothing catches new drift. Never point someone at it to
 answer "what does this actually do" — point at the module cited in its own header comment.
@@ -11,7 +11,7 @@ If you find yourself tempted to "fix" a behavior by editing this file, stop: you
 a description, not the system.
 
 `HANDOFF.md` is this repo's Domain Invariants table and its Task Playbooks section at once —
-read it before changing anything under `harness/`, the same way you'd read a nested
+read it before changing anything under `torra/`, the same way you'd read a nested
 `AGENTS.md` before touching a Paramo area. It is intentionally not duplicated below; this
 file condenses it and adds what HANDOFF doesn't cover (Definition of Done, code conventions,
 ask-vs-act), rather than restating it.
@@ -20,30 +20,30 @@ ask-vs-act), rather than restating it.
 
 (Full rationale: `DEFENSIVE_CODING_STANDARDS.md` §1. Base rules — no comments unless WHY,
 one-line docstrings, module `Depends on:` line, CCN<15 ceiling/aim≤10, one test per new module —
-are AGENT_DOCTRINE.md's; this section is the harness-specific rest.)
+are AGENT_DOCTRINE.md's; this section is torra-specific rest.)
 
 - Line length: 100 (ruff `E501` ignored — don't fight it manually).
 - **Named, deliberate CCN exceptions:** `SafetyClassifier._judge` (CCN 46), `Clarifier.detect`
-  (CCN 26), and `Harness.execute` (CCN 29) — flat dispatch/guard-clause/orchestration functions
+  (CCN 26), and `Torra.execute` (CCN 29) — flat dispatch/guard-clause/orchestration functions
   that read *worse* fragmented. Don't split those to move a number; do split anything that's
   actually tangled.
 - Typing: full param + return hints on new/edited code; `Any` for genuinely untyped externals,
   never as a shortcut around a knowable type; `X | None` whenever a real caller can pass `None`.
-- Imports: ruff isort, first-party = `harness`.
+- Imports: ruff isort, first-party = `torra`.
 
 ## Source-of-Truth Registry
 
 | Fact class | Canonical owner | Verified by |
 |---|---|---|
 | Safety/execution invariants | `HANDOFF.md` §2 | the specific test(s) each entry names |
-| Files Claude Code must ask before editing (the five gates, `Harness.execute`/`reject`, `Step` construction) | `.claude/settings.json` `permissions.ask` | *(trust-based: a new gate file under `harness/gates/` is covered by the glob; a renamed `pipeline.py`/`core/tasks.py` is not)* |
+| Files Claude Code must ask before editing (the five gates, `Torra.execute`/`reject`, `Step` construction) | `.claude/settings.json` `permissions.ask` | *(trust-based: a new gate file under `torra/gates/` is covered by the glob; a renamed `pipeline.py`/`core/tasks.py` is not)* |
 | Default config *values* (informational only) | `CORE_RULES.yaml` | **nothing — known to drift, don't trust it** |
 | Default config *behavior* (what actually runs) | the module `CORE_RULES.yaml`'s header points to (`pipeline.py`, `gates/*.py`, `core/*.py`) | the test suite for that module |
 | What each package/file does | that directory's `README.md` | *(trust-based — no doc-audit test yet; keep honest by hand)* |
 | Code quality grades | `DEFENSIVE_CODING_STANDARDS.md` §2.1 baseline | `scripts/dev/defensive_coding_report.py --enforce` in CI |
 | Known live-wire bugs / unfinished work | `AUDIT_FINDINGS.md`, `HANDOFF.md` §6 | *(trust-based; update when fixed, don't leave it stale)* |
 | OS domain knowledge for the planning model | `docs/*.md` | `scripts/dev/model_bench/` benchmark results (`REPORT.md`) |
-| Model catalog / routing rules | `harness/gates/router.py` (`ROUTING_RULES`), not `CORE_RULES.yaml` | `tests/test_gates.py::TestRouting` |
+| Model catalog / routing rules | `torra/gates/router.py` (`ROUTING_RULES`), not `CORE_RULES.yaml` | `tests/test_gates.py::TestRouting` |
 | Contract summary (entry points, outcomes, stages, exit codes) | `HANDOFF.md` §8 | manual — cross-check against `pipeline.py`/`cli.py` if it looks stale |
 
 ## Tool Use Patterns
@@ -72,5 +72,5 @@ are AGENT_DOCTRINE.md's; this section is the harness-specific rest.)
 ## Memory
 
 See AGENT_DOCTRINE.md. Project memory lives in
-`~/.claude/projects/-mnt-ParamoStorage-harness/memory/` — the same rule this file applies to
+`~/.claude/projects/-mnt-ParamoStorage-torra/memory/` — the same rule this file applies to
 `CORE_RULES.yaml` applies to memory: a description can drift from the system it describes.

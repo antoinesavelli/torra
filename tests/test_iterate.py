@@ -1,6 +1,6 @@
 """iterate.py: the bounded edit -> verify -> fix cycle.
 
-Depends on: conftest (make_harness, scripted, plan_reply).
+Depends on: conftest (make_torra, scripted, plan_reply).
 """
 
 from __future__ import annotations
@@ -9,11 +9,11 @@ from pathlib import Path
 
 from conftest import plan_replies_with_summaries, plan_reply, scripted
 
-from harness.iterate import iterate
-from harness.pipeline import Harness, Plan
+from torra.iterate import iterate
+from torra.pipeline import Plan, Torra
 
 
-def _no_repairs(h: Harness) -> Harness:
+def _no_repairs(h: Torra) -> Torra:
     """Every request text below is a short placeholder, not a real one --
     Clarifier.detect() reads that as underspecified and Agent.converse()
     would spend an extra scripted reply on a repair round for it. These
@@ -27,9 +27,9 @@ def _approve_everything(plan: Plan) -> dict[str, bool]:
     return {sp.step.step_id: True for sp in plan.steps}
 
 
-def test_iterate_succeeds_without_a_fix_round(make_harness) -> None:
+def test_iterate_succeeds_without_a_fix_round(make_torra) -> None:
     h = _no_repairs(
-        make_harness(
+        make_torra(
             scripted(
                 *plan_replies_with_summaries(
                     plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
@@ -47,10 +47,10 @@ def test_iterate_succeeds_without_a_fix_round(make_harness) -> None:
     assert report.last is report.rounds[-1].result
 
 
-def test_iterate_fixes_after_one_failed_verification(tmp_path: Path, make_harness) -> None:
+def test_iterate_fixes_after_one_failed_verification(tmp_path: Path, make_torra) -> None:
     marker = tmp_path / "fixed"
     h = _no_repairs(
-        make_harness(
+        make_torra(
             scripted(
                 *plan_replies_with_summaries(
                     plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
@@ -74,9 +74,9 @@ def test_iterate_fixes_after_one_failed_verification(tmp_path: Path, make_harnes
     assert marker.exists()
 
 
-def test_iterate_gives_up_after_max_iterations(make_harness) -> None:
+def test_iterate_gives_up_after_max_iterations(make_torra) -> None:
     h = _no_repairs(
-        make_harness(
+        make_torra(
             scripted(
                 *plan_replies_with_summaries(
                     plan_reply("edit", "add x", [{"id": "edit", "run": "true"}]),
@@ -96,9 +96,9 @@ def test_iterate_gives_up_after_max_iterations(make_harness) -> None:
     assert len(report.rounds) == 4
 
 
-def test_iterate_stops_when_the_initial_change_is_declined(make_harness) -> None:
+def test_iterate_stops_when_the_initial_change_is_declined(make_torra) -> None:
     h = _no_repairs(
-        make_harness(
+        make_torra(
             scripted(
                 plan_reply("edit", "wipe it", [{"id": "edit", "run": "rm -rf /var/lib/x"}]),
             )
@@ -112,12 +112,12 @@ def test_iterate_stops_when_the_initial_change_is_declined(make_harness) -> None
     assert len(report.rounds) == 1
 
 
-def test_iterate_never_authors_a_step_itself(make_harness) -> None:
+def test_iterate_never_authors_a_step_itself(make_torra) -> None:
     """Every round goes through the same plan()/gate()/execute() a human
     turn would -- a DANGEROUS fix step still needs an explicit approval,
     even mid-loop, same as any other step."""
     h = _no_repairs(
-        make_harness(
+        make_torra(
             scripted(
                 *plan_replies_with_summaries(
                     plan_reply("edit", "add x", [{"id": "edit", "run": "true"}]),
@@ -136,11 +136,11 @@ def test_iterate_never_authors_a_step_itself(make_harness) -> None:
 
 
 def test_iterate_respects_dry_run_and_never_touches_the_filesystem(
-    tmp_path: Path, make_harness
+    tmp_path: Path, make_torra
 ) -> None:
     marker = tmp_path / "should-not-exist"
     h = _no_repairs(
-        make_harness(
+        make_torra(
             scripted(
                 plan_reply("edit", "add x", [{"id": "edit", "run": f"touch {marker}"}]),
                 plan_reply("verify", "check", [{"id": "verify", "run": "true"}]),

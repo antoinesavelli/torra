@@ -5,7 +5,7 @@ was brought from an ungraded state to a measured **Overall A, GPA 3.83** and has
 line under continuous development since. It is not a style guide — it is the architecture
 that makes a codebase *stout*: hard to silently regress, cheap to navigate, and safe for an
 agent with no memory of the codebase to work in without an experienced human re-reviewing
-every line. The goal here is to bring that same defensive posture to this harness project.
+every line. The goal here is to bring that same defensive posture to this torra project.
 
 The core idea: **quality is not a vibe, it's a number, and the number is enforced.** Every
 dimension below is measured by a script, given a letter grade, rolled into one GPA, and
@@ -24,7 +24,7 @@ Fix: **tier every file by actual blast radius** before grading anything.
 
 | Tier | What lives here | Graded? |
 |---|---|---|
-| **critical** | the decision path — where a wrong value causes real-world harm (for a trading system: sizing, execution, screening; for this harness: the gates, the classifier, anything between "model proposes" and "shell executes") | Yes — heaviest weight |
+| **critical** | the decision path — where a wrong value causes real-world harm (for a trading system: sizing, execution, screening; for this torra: the gates, the classifier, anything between "model proposes" and "shell executes") | Yes — heaviest weight |
 | **core** | everything else load-bearing (orchestration, config, persistence, the model-facing loop) | Yes |
 | **peripheral** | one-shot scripts, CLI/TUI glue, dashboards — not on the safety-relevant path | Listed for visibility, but **excluded from the grade** |
 
@@ -32,11 +32,11 @@ Classify with a simple prefix/suffix rule and encode it once in the scoring scri
 design choice is what lets the rest of this document hold a *consistent* A instead of
 oscillating with every new script.
 
-**Implemented for this harness** in `scripts/dev/defensive_coding_report.py::tier_of`: a file
-under `harness/gates/`, or `harness/core/tasks.py` (the `Step`/`TaskSpec` primitives the safety
-gate classifies), or `harness/pipeline.py` (`Harness.execute`, the actual invocation point) is
-**critical**. Everything else under `harness/` except `cli.py`/`tui.py`/`__init__.py` — the rest
-of `harness/core/`, all of `harness/telemetry/`, `harness/agent.py` — is **core**. The three
+**Implemented for this torra** in `scripts/dev/defensive_coding_report.py::tier_of`: a file
+under `torra/gates/`, or `torra/core/tasks.py` (the `Step`/`TaskSpec` primitives the safety
+gate classifies), or `torra/pipeline.py` (`Torra.execute`, the actual invocation point) is
+**critical**. Everything else under `torra/` except `cli.py`/`tui.py`/`__init__.py` — the rest
+of `torra/core/`, all of `torra/telemetry/`, `torra/agent.py` — is **core**. The three
 named files are **peripheral**.
 
 ---
@@ -73,11 +73,11 @@ two signals:
      engine). Name them explicitly in this doc so nobody "fixes" them by accident. New
      functionality that isn't intrinsically theirs goes in a new collaborator module instead —
      never grown into an existing big file just because it's already there.
-   - **For this harness, no file is currently named as an exception.** The original guess here
+   - **For this torra, no file is currently named as an exception.** The original guess here
      was `pipeline.py`/`agent.py`; measurement showed the real offenders were the flat
      `gates.py` (1651 lines), `core.py` (1229), and `telemetry.py` (698) — each split into a
      same-named package (`gates/`, `core/`, `telemetry/`) of single-concern submodules, none
-     over ~330 functional LOC. `pipeline.py` (`Harness`, the seven-stage orchestrator) stayed a
+     over ~330 functional LOC. `pipeline.py` (`Torra`, the seven-stage orchestrator) stayed a
      single file at 437 functional LOC, under the cap without needing an exception. If a future
      change pushes any file over 500, extract before naming an exception — see the next bullet.
    - When a file *does* cross the line because of a real feature addition, the fix is
@@ -202,7 +202,7 @@ Implementation notes that matter more than they look like they should:
 - Print **named offenders**, not just percentages — a grade with no drill-down gets ignored the
   first time it's inconvenient. Show file:line, the tier, and the actual metric for the worst
   N offenders per dimension.
-- Support scoping to a subpackage (`--area harness/gates`) so a reviewer of one PR isn't
+- Support scoping to a subpackage (`--area torra/gates`) so a reviewer of one PR isn't
   wading through repo-wide output.
 - **CI enforcement**: encode last-known-good grades as floors and fail the build if a new
   commit drops below them.
@@ -224,9 +224,9 @@ Implementation notes that matter more than they look like they should:
   in the commit — a silent threshold relaxation is indistinguishable from cheating the check,
   and six months later nobody will remember which one it was.
 
-### 2.1 This harness's actual first-run baseline
+### 2.1 This torra's actual first-run baseline
 
-The example above is Paramo's. This is `harness/`'s, measured with
+The example above is Paramo's. This is `torra/`'s, measured with
 `python3 scripts/dev/defensive_coding_report.py --verbose` right after the `gates.py`/
 `core.py`/`telemetry.py` → package split (§1.2.1) and the docstring/typing pass:
 
@@ -243,7 +243,7 @@ OVERALL         [A]  GPA 3.50 (decision-path weighted)
 `ENFORCE_FLOORS` in the script is set to this run, **not** an all-`A` aspiration, because the
 Complexity and Modularity offenders are exactly the case §1.1 warns against reflexively
 splitting: `SafetyClassifier._judge` (CCN 46, one flat `if` per shell program it recognizes),
-`Clarifier.detect` (CCN 26, one flat `if` per ambiguity check), and `Harness.execute` (CCN 29,
+`Clarifier.detect` (CCN 26, one flat `if` per ambiguity check), and `Torra.execute` (CCN 29,
 the seven-stage step loop) are dispatch/guard-clause/orchestration functions that read *worse*
 fragmented than flat. `telemetry/` sits at 82% test coverage rather than 100% because no test
 file imports it directly yet (a pre-existing gap this split surfaced, not introduced by it).
@@ -269,7 +269,7 @@ an explicit decision to accept that cost, not a quick refactor, to move Complexi
 Beyond the generic six dimensions, every real system has a handful of rules that are worth
 more than all the others combined — the ones where a violation doesn't just look bad, it
 *breaks the product's core promise*. For a trading system that's "no look-ahead bias" and
-"the position cap can only shrink a size, never expand it." For this harness, the obvious
+"the position cap can only shrink a size, never expand it." For this torra, the obvious
 candidates are things like:
 
 - The command the safety gate classified **is** the command that executes (no path where a
@@ -348,7 +348,7 @@ work or rushes dangerous work. Draw an explicit boundary once, in writing:
 **Act freely**: reading any file, editing tests, fixing lint/type errors, adding config that's
 additive and gated behind a flag/default that preserves old behavior.
 
-**Ask first**: anything touching the safety-critical decision path itself (for this harness:
+**Ask first**: anything touching the safety-critical decision path itself (for this torra:
 the gates, the classifier, anything that decides what's allowed to execute), schema/format
 changes to persisted state, deleting files or branches, anything that changes what happens
 without an explicit human approval step.
@@ -382,7 +382,7 @@ before it ships, not filed as follow-up debt.
 
 ## 9. Minimal bootstrap for a fresh repo
 
-If this harness project doesn't have these yet, the fastest path to the same posture:
+If this torra project doesn't have these yet, the fastest path to the same posture:
 
 ```bash
 pip install ruff mypy pytest pytest-cov radon coverage
@@ -404,16 +404,16 @@ pip install ruff mypy pytest pytest-cov radon coverage
 
 ### 9.1 Done for this repo
 
-All six steps above are complete for `harness/`:
+All six steps above are complete for `torra/`:
 
-1. `[tool.ruff]` and `[tool.mypy]` live in `pyproject.toml`; `ruff check harness/ tests/` and
-   `mypy harness/` are both clean.
+1. `[tool.ruff]` and `[tool.mypy]` live in `pyproject.toml`; `ruff check torra/ tests/` and
+   `mypy torra/` are both clean.
 2. `scripts/dev/defensive_coding_report.py` implements all six dimensions, not just three.
-3. Tiering is implemented in `tier_of()` in that script; see §0's "Implemented for this harness".
+3. Tiering is implemented in `tier_of()` in that script; see §0's "Implemented for this torra".
 4. `ENFORCE_FLOORS`/`MIN_GPA` in that script are the real baseline from §2.1, and
    `.github/workflows/ci.yml` runs `pytest`, `mypy`, and the scorecard with `--enforce` on every
    push and pull request.
-5. Every package (`harness/`, `harness/gates/`, `harness/core/`, `harness/telemetry/`) plus
+5. Every package (`torra/`, `torra/gates/`, `torra/core/`, `torra/telemetry/`) plus
    `tests/`, `examples/`, and `docs/` has an area-map `README.md`.
 6. Next: if a future change clears a floor (Complexity/Modularity's file-size signal already
    did, see §2.1's update), raise that dimension's floor in the same change — don't leave it

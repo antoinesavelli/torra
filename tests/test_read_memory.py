@@ -2,7 +2,7 @@
 ReadMemory: a read-only step's real output entering the model's own
 context, tagged by path, and the model later saying it no longer helps.
 
-Depends on: harness.core (ContextCompressor), harness.pipeline_types (RunResult,
+Depends on: torra.core (ContextCompressor), torra.pipeline_types (RunResult,
 StepPlan, Plan -- only to build real objects for remember_step_reads, not to
 exercise pipeline_types' own behavior).
 """
@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from harness.core import ContextCompressor, Step, StepResult
-from harness.core.tasks import TaskSpec
-from harness.gates import RiskLevel, Verdict
-from harness.pipeline_types import Outcome, Plan, RunResult, StepPlan
-from harness.read_memory import ReadMemory, remember_step_reads
+from torra.core import ContextCompressor, Step, StepResult
+from torra.core.tasks import TaskSpec
+from torra.gates import RiskLevel, Verdict
+from torra.pipeline_types import Outcome, Plan, RunResult, StepPlan
+from torra.read_memory import ReadMemory, remember_step_reads
 
 
 def test_remember_adds_content_tagged_by_path() -> None:

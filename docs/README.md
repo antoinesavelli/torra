@@ -1,6 +1,6 @@
 # docs/
 
-Reference material for the harness's planning model, split by theme. Scoped
+Reference material for torra's planning model, split by theme. Scoped
 to *measured* knowledge gaps, not a general Pop!_OS/System76 manual —
 `scripts/dev/model_bench/` is what measures those gaps, and
 `scripts/dev/model_bench/REPORT.md` is the evidence trail for every fact
@@ -9,7 +9,7 @@ already got right unprompted; these files exist for the specific things they
 got wrong, vague, or hallucinated. (The original benchmark ran against
 qwen3:8b, qwen3:32b, and bare `devstral` -- the model catalog was pruned to
 four on 2026-07-28, so those exact names are pre-pruning history, not the
-current routed-to set; see `harness/gates/router.py` for what's live today.)
+current routed-to set; see `torra/gates/router.py` for what's live today.)
 
 | File | Covers | Measured gap? |
 |---|---|---|
@@ -18,8 +18,8 @@ current routed-to set; see `harness/gates/router.py` for what's live today.)
 | `desktop_environment.md` | Pop Shell vs. COSMIC, COSMIC/Rust | yes — wrong or vague in 2 of 3 models |
 | `boot_and_recovery.md` | Recovery partition, boot menu | no, kept for completeness |
 
-**Not yet wired into `harness.agent.SYSTEM_PROMPT`.** Injecting this content
-into the live model-facing prompt is a change to the harness's core loop and
+**Not yet wired into `torra.agent.SYSTEM_PROMPT`.** Injecting this content
+into the live model-facing prompt is a change to torra's core loop and
 belongs in its own reviewed change with its own test, not silently bundled
 into adding a docs file.
 

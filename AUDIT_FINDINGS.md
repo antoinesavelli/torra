@@ -1,6 +1,6 @@
 # Audit findings — closed
 
-**Date:** 2026-07-29. **Scope:** every module under `harness/` (23 files), plus
+**Date:** 2026-07-29. **Scope:** every module under `torra/` (23 files), plus
 `cli.py`, `tui.py`, `pipeline.py`, `agent.py`, `pyproject.toml`,
 `.github/workflows/ci.yml`. **Method:** read every file end to end, verified
 each suspected issue against the live system before recording it, then
@@ -24,7 +24,7 @@ once it's actually fixed.
 | **MED-2** — service handling hardcoded `--user` systemd scope; wrong for `ollama.service`, a system unit on this machine | Added `systemctl_scope()` (state.py + rollback.py), autodetects via `LoadState` instead of assuming; `capture_service`'s undo and `recovery_options()` now scope-aware | `tests/test_gates.py::TestSystemctlScope` (5 cases), `test_service_undo_uses_the_same_scope_it_was_captured_under` |
 | **LOW-3** — `Agent.observe(refresh=True)` never actually refreshed the model catalog or sizes | Guard changed from `if not router.available` to `if refresh or not router.available` | `tests/test_agent.py::test_observe_refresh_repopulates_stale_model_metadata` |
 | **LOW-4** — `TaskRecord.clarifier_anchors` declared but never persisted | `Turn.anchors` threaded through `_parse()`/`repair()`, `TaskLogger.from_result()` now sets it | `tests/test_pipeline.py::test_the_telemetry_record_carries_the_anchors_the_clarifier_found` |
-| **LOW-5** — `Plan.conflicts` never populated; the TUI's "changed outside the harness" banner was dead | Removed the field and the dead banner branch; real conflict detection is `execute()`'s per-step `Outcome.BLOCKED`, documented on `Plan`'s own docstring | full suite green with the dead code gone |
+| **LOW-5** — `Plan.conflicts` never populated; the TUI's "changed outside torra" banner was dead | Removed the field and the dead banner branch; real conflict detection is `execute()`'s per-step `Outcome.BLOCKED`, documented on `Plan`'s own docstring | full suite green with the dead code gone |
 | **LOW-6** — stale hardcoded test counts in CI comment and a docstring | Reworded to not need updating as the suite grows | — |
 | **LOW-7** — append redirect (`>>`) worded as "overwrites" in the safety reason text | Regex now captures the operator; wording says "appends to" vs "overwrites"; classification (CRITICAL) was already correct in both cases | `tests/test_gates.py::TestSafety::test_an_append_redirect_is_worded_as_an_append_not_an_overwrite` |
 

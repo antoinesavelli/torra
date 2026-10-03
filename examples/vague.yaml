@@ -1,6 +1,6 @@
 # A deliberately underspecified `request`, to see the clarifier flag it:
-#   harness check examples/vague.yaml
-# `harness run` skips the clarifier entirely (see README.md's "Commands"
+#   torra check examples/vague.yaml
+# `torra run` skips the clarifier entirely (see README.md's "Commands"
 # section) and would execute this file's steps without ever looking at
 # how vague `request` is.
 task_id: vague-example

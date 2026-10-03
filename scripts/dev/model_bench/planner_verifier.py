@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Prototype: does a second, fast model catch anything the deterministic gates miss?
 
-Depends on: bench.py (MetricsTransport, task battery), harness.agent, harness.core,
-harness.gates. The existing harness has no LLM-based verifier -- SafetyClassifier and
+Depends on: bench.py (MetricsTransport, task battery), torra.agent, torra.core,
+torra.gates. The existing torra has no LLM-based verifier -- SafetyClassifier and
 Clarifier are pattern/structure based, not semantic. This asks whether a cheap second
 opinion (qwen3:8b) reviewing a larger planner's (devstral's) output adds real signal:
 catching a plan that is schema-valid and gate-clean but semantically wrong (wrong
@@ -23,13 +23,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bench import OLLAMA_HOST, make_metrics_transport  # noqa: E402
 from tasks import TASKS  # noqa: E402
 
-from harness.agent import Agent, AgentError, Intent  # noqa: E402
-from harness.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
-from harness.gates import Clarifier, SafetyClassifier  # noqa: E402
+from torra.agent import Agent, AgentError, Intent  # noqa: E402
+from torra.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
+from torra.gates import Clarifier, SafetyClassifier  # noqa: E402
 
-#: Model targets were pruned to four on 2026-07-28 (see harness/gates/router.py's
+#: Model targets were pruned to four on 2026-07-28 (see torra/gates/router.py's
 #: ROUTING_RULES comment) -- bare "devstral" and "qwen3:8b" no longer match anything
-#: pulled. devstral:24b is the harness's own measured-reliable default (REPORT.md);
+#: pulled. devstral:24b is torra's own measured-reliable default (REPORT.md);
 #: qwen3.5:latest is the smallest currently-pulled model, filling the original
 #: "cheap second opinion" role qwen3:8b held.
 PLANNER_MODEL = "devstral:24b"
@@ -41,7 +41,7 @@ VERIFIER_MODEL = "qwen3.5:latest"
 VERIFIER_PROMPT = """You are a skeptical second reviewer for an infrastructure automation \
 plan. You did not write this plan; your job is to find problems in it, not to be agreeable.
 
-The harness this plan runs through already guarantees some things automatically, once a plan \
+Torra this plan runs through already guarantees some things automatically, once a plan \
 is approved -- these are not the plan author's job, and are not concerns:
 - Every step that declares `touches` gets that file's prior content snapshotted and restored \
 automatically if the run fails.

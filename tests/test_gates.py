@@ -14,8 +14,8 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from harness.core import Step, TaskSpec
-from harness.gates import (
+from torra.core import Step, TaskSpec
+from torra.gates import (
     Clarifier,
     DecisionLog,
     ModelRouter,
@@ -132,7 +132,7 @@ class TestSafety:
         """`> /dev/null` is the single most common output-suppression idiom in
         shell scripting. It was being misclassified CRITICAL because /dev is a
         protected prefix -- correct for `> /dev/sda`, wrong for a no-op sink
-        that can never lose data. Found via a real harness exploration run
+        that can never lose data. Found via a real torra exploration run
         that hit `systemctl status nginx > /dev/null` and got CRITICAL."""
         safety = SafetyClassifier()
         for suppressed in ("ls -la > /dev/null", "echo hi 2>/dev/null",
@@ -176,7 +176,7 @@ class TestSafety:
         human never sees this in a TUI checkbox before it clobbers the user's
         only copy of the file. `needs_confirmation` -- not just `level is not
         SAFE` -- is the real bar: CAUTION renders no checkbox either (see
-        `Harness`/`tui.py`'s `sp.needs_confirmation` gate), so this must reach
+        `Torra`/`tui.py`'s `sp.needs_confirmation` gate), so this must reach
         DANGEROUS or CRITICAL to actually stop and ask. Not yet fixed --
         `SafetyClassifier` has no such rule yet, so this currently fails."""
         safety = SafetyClassifier()
@@ -867,13 +867,13 @@ class TestUndoGeneration:
         dead_pid = 999999
         while UndoGenerator._pid_alive(dead_pid) and dead_pid > 2:
             dead_pid -= 1
-        stale = tmp_path / f"harness-shadow-{dead_pid}"
+        stale = tmp_path / f"torra-shadow-{dead_pid}"
         stale.mkdir()
         (stale / "leftover.txt").write_text("x", encoding="utf-8")
         old = time.time() - UndoGenerator.STALE_SHADOW_SECONDS - 3600
         os.utime(stale, (old, old))
 
-        UndoGenerator(shadow_dir=tmp_path / f"harness-shadow-{os.getpid()}")
+        UndoGenerator(shadow_dir=tmp_path / f"torra-shadow-{os.getpid()}")
 
         assert not stale.exists()
 
@@ -886,10 +886,10 @@ class TestUndoGeneration:
         dead_pid = 999999
         while UndoGenerator._pid_alive(dead_pid) and dead_pid > 2:
             dead_pid -= 1
-        fresh = tmp_path / f"harness-shadow-{dead_pid}"
+        fresh = tmp_path / f"torra-shadow-{dead_pid}"
         fresh.mkdir()
 
-        UndoGenerator(shadow_dir=tmp_path / f"harness-shadow-{os.getpid()}")
+        UndoGenerator(shadow_dir=tmp_path / f"torra-shadow-{os.getpid()}")
 
         assert fresh.exists()
 
@@ -898,12 +898,12 @@ class TestUndoGeneration:
         import os
         import time
 
-        live = tmp_path / f"harness-shadow-{os.getpid()}-other"
+        live = tmp_path / f"torra-shadow-{os.getpid()}-other"
         live.mkdir()
         old = time.time() - UndoGenerator.STALE_SHADOW_SECONDS - 3600
         os.utime(live, (old, old))
 
-        UndoGenerator(shadow_dir=tmp_path / f"harness-shadow-{os.getpid()}")
+        UndoGenerator(shadow_dir=tmp_path / f"torra-shadow-{os.getpid()}")
 
         assert live.exists()
 
@@ -1483,7 +1483,7 @@ class TestVerifiedRollback:
         which is exactly why HANDOFF.md §6.4's gap was possible: nothing
         downstream could classify a command it was never given. `command` is
         now part of the tuple so a caller can. This class only tests the raw
-        primitive; `Harness.execute` is where the command is actually
+        primitive; `Torra.execute` is where the command is actually
         classified and a declared `safe: true` gets overridden -- see
         `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`
         for that end-to-end coverage."""
@@ -1549,7 +1549,7 @@ class TestClarifier:
         "remove /tmp/build-cache-2024 and nothing else",
         "deploy commit a1b2c3d to staging",
         "list every container using more than 2 GB of memory",
-        "delete every file in /tmp/harness-shadow older than 7 days",
+        "delete every file in /tmp/torra-shadow older than 7 days",
         "install python3-pytest with apt",
         "set the ollama systemd unit to restart on failure",
         "remove docker images older than 30 days",
@@ -1956,18 +1956,18 @@ class TestHardwareAwareRouting:
     AVAILABLE = ["gpt-oss:20b", "qwen3:8b", "devstral:24b", "phi3"]
 
     def _router(self, accelerator):
-        from harness.gates import ModelRouter
+        from torra.gates import ModelRouter
         return ModelRouter(available=self.AVAILABLE, accelerator=accelerator)
 
     def test_a_big_gpu_gets_the_big_model(self) -> None:
-        from harness.core import Accelerator
+        from torra.core import Accelerator
         router = self._router(Accelerator("cuda", "RTX 4090", 24564, 23000))
         assert router.select("debug why nginx keeps crashing").model == "gpt-oss:20b"
         assert router.select("deploy the api to staging").model == "devstral:24b"
 
     def test_cpu_only_never_loads_a_32b_model(self) -> None:
         """The reported symptom: three times the thinking time, on CPU."""
-        from harness.core import Accelerator
+        from torra.core import Accelerator
         router = self._router(Accelerator(kind="cpu", detail="no nvidia-smi"))
         choice = router.select("debug why nginx keeps crashing")
 
@@ -1976,7 +1976,7 @@ class TestHardwareAwareRouting:
         assert router.downgrades == [("debug", "gpt-oss:20b", "qwen3:8b")]
 
     def test_a_small_card_gets_a_model_that_fits(self) -> None:
-        from harness.core import Accelerator
+        from torra.core import Accelerator
         router = self._router(Accelerator("cuda", "GTX 1650", 4096, 3500))
         assert router.select("debug why nginx keeps crashing").model == "phi3"
         assert router.select("deploy the api to staging").model == "phi3", (
@@ -1985,7 +1985,7 @@ class TestHardwareAwareRouting:
 
     def test_a_nameless_size_is_looked_up_not_assumed(self) -> None:
         """`devstral` parses as 0b and would look like it fits anywhere."""
-        from harness.core import Accelerator
+        from torra.core import Accelerator
         router = self._router(Accelerator("cuda", "GTX 1650", 4096, 3500))
         assert router._params_b("devstral") == 24.0
         assert router.runnable("devstral") is False
@@ -1993,7 +1993,7 @@ class TestHardwareAwareRouting:
 
     def test_no_accelerator_information_changes_nothing(self) -> None:
         """Routing must behave exactly as before when hardware is unknown."""
-        from harness.gates import ModelRouter
+        from torra.gates import ModelRouter
         plain = ModelRouter(available=self.AVAILABLE)
         assert plain.select("debug why nginx keeps crashing").model == "gpt-oss:20b"
         assert plain.downgrades == []

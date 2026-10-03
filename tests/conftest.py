@@ -11,8 +11,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.core import MachineState, OllamaClient
-from harness.pipeline import Harness
+from torra.core import MachineState, OllamaClient
+from torra.pipeline import Torra
 
 
 def scripted(*replies: dict[str, Any], models: list[str] | None = None
@@ -48,7 +48,7 @@ def plan_reply(task_id: str, request: str, steps: list[dict[str, Any]],
     return {"intent": "plan", "message": message, "task": task}
 
 
-#: Harness._finish() auto-summarizes any non-dry-run execute() that produced
+#: Torra._finish() auto-summarizes any non-dry-run execute() that produced
 #: at least one result (success or failure) -- a second, separate /api/chat
 #: call. plan_replies_with_summaries() interleaves a filler reply for it so
 #: a multi-round scripted() conversation doesn't drift out of alignment.
@@ -73,10 +73,10 @@ def fake_state() -> MachineState:
 
 
 @pytest.fixture()
-def make_harness(tmp_path: Path, fake_state: MachineState):
-    """Build a Harness wired to a scripted backend."""
-    def build(transport, **kwargs) -> Harness:
-        h = Harness(workdir=tmp_path / "wd",
+def make_torra(tmp_path: Path, fake_state: MachineState):
+    """Build a Torra wired to a scripted backend."""
+    def build(transport, **kwargs) -> Torra:
+        h = Torra(workdir=tmp_path / "wd",
                     ollama=OllamaClient(transport=transport, probe_timeout=0.1),
                     **kwargs)
         h.agent._observe = lambda: fake_state

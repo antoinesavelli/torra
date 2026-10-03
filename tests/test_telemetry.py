@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harness.telemetry import (
+from torra.telemetry import (
     CorpusExporter,
     CrashReporter,
     DriftReport,
@@ -594,7 +594,7 @@ class TestLoopholeAuditEdges:
 
 class TestSummary:
     """summary.health_summary()/crash_summary() -- moved here from cli.py
-    so tui.py's sidebar Evidence tab and cli.py's `harness evidence` share
+    so tui.py's sidebar Evidence tab and cli.py's `torra evidence` share
     one implementation instead of tui.py depending on a sibling entry
     point (HANDOFF.md §2.30)."""
 

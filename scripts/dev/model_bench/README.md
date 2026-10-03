@@ -1,6 +1,6 @@
 # scripts/dev/model_bench/
 
-Benchmarks local Ollama models as the harness's planner, using the real
+Benchmarks local Ollama models as torra's planner, using the real
 `Agent`/`SafetyClassifier`/`Clarifier`, not synthetic scoring. See
 [`REPORT.md`](REPORT.md) for the last measured results and recommendation.
 
