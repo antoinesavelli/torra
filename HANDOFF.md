@@ -2807,6 +2807,35 @@ tick. Four older assertions that pinned SAFE for `zip`, `dd of=file` and
 > Guarded by `tests/test_known_programs.py` (every list, `trust()`, the
 > resolver cases) and the unchanged `TestSafety.EVASIONS` and `ROUTINE` corpora.
 
+### 2.61 A step stops at its first real error, and a timeout stops everything the step started
+
+Three gaps in how a step's command ran (`torra/core/process.py`):
+
+1. **A masked failure passed.** The wrapper set `pipefail` but not errexit,
+   so `false; true` and a script whose last line succeeded reported success,
+   and no rollback fired. An `ERR` trap now exits with the rightmost non-zero
+   status of the failed pipeline, using the same rule as the closing check:
+   a SIGPIPE (141) upstream of a stage that exited 0 is still forgiven
+   (§2.36). Conditions (`|| true`, `if`, `&&` lists) do not trip it. The
+   closing check also reads the real `$?` first, so a step ending in a false
+   `if` no longer fails. This is visible: a step that relied on a hidden
+   failure (`grep -q x f; echo done`, `read x` at EOF) now fails and says so.
+2. **A timeout left children running.** `proc.kill()` stopped only bash, so a
+   timed-out `apt` kept running while rollback started, and Ctrl-C did not
+   reach it either. Steps now run in their own session; a timeout, Ctrl-C or
+   a failing output callback sends TERM to the group, then KILL.
+   `Torra._run_one_step` also catches `KeyboardInterrupt`, so an interrupt is
+   a failed step that reaches the rollback sweep instead of skipping it.
+3. **Stdin was inherited and output unbounded.** Stdin is now `/dev/null`, so
+   a prompt gets EOF instead of hanging a background process. Each stream
+   keeps its first and last 256 KiB with an omission marker, so `yes` cannot
+   fill memory. One implementation now serves both the plain and the live
+   output paths.
+
+> Guarded by `tests/test_core.py::TestShellStopsAtTheFirstRealError`,
+> `TestShellRunsInItsOwnGroup`, the unchanged SIGPIPE tests, and
+> `tests/test_pipeline.py::test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back`.
+
 ---
 
 ## 3. Things already tried that failed

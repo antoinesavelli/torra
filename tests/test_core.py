@@ -2118,7 +2118,7 @@ class TestShellPipefail:
 class TestShellSigpipeForgiveness:
     """`shell()`'s pipefail wrapper has to tell "head closed the pipe
     early on a benign, working pipeline" apart from "something upstream
-    genuinely failed" -- see `_pipefail_wrapped`'s own docstring for the
+    genuinely failed" -- see `pipefail_wrapped`'s own docstring for the
     real bug this closes: an operator hit `du -ah /home | sort -rh | head
     -N`-shaped failures four times in a row, including asking torra
     to diagnose its own bug, and got the identical exit-141 failure every
@@ -2424,3 +2424,64 @@ class TestContextCompressor:
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "hi there"},
         ]
+
+
+class TestShellStopsAtTheFirstRealError:
+    """HANDOFF.md §2.61: the wrapper's error trap makes a step fail where bash would carry on."""
+
+    @pytest.mark.parametrize("command", ["false; true", "false\ntrue", "true && false; true",
+                                         "f() { false; echo after; }; f; echo end", "(false; true)"])
+    def test_a_masked_failure_fails_the_step(self, command: str) -> None:
+        with pytest.raises(RuntimeError, match="exit 1"):
+            shell(command)
+
+    @pytest.mark.parametrize("command", ["grep -q zz /etc/hostname || true", "if false; then :; fi",
+                                         "yes | head -1; true", "echo a; echo b"])
+    def test_ordinary_conditions_and_truncated_pipes_still_succeed(self, command: str) -> None:
+        shell(command)
+
+    def test_the_exit_status_of_the_first_failure_is_reported(self) -> None:
+        with pytest.raises(RuntimeError, match="exit 7"):
+            shell("sh -c 'exit 7'; echo not reached")
+
+
+class TestShellRunsInItsOwnGroup:
+    def _gone(self, pid: int) -> bool:
+        import time
+        for _ in range(40):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            time.sleep(0.05)
+        return False
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    def test_a_timeout_stops_the_children_too(self, tmp_path: Path, streaming: bool) -> None:
+        pidfile = tmp_path / "pid"
+        command = f"sleep 300 & echo $! > {pidfile}; wait"
+        with contextlib.ExitStack() as stack:
+            if streaming:
+                stack.enter_context(shell_output_sink(lambda chunk: None))
+            with pytest.raises(subprocess.TimeoutExpired):
+                shell(command, timeout=1)
+        assert self._gone(int(pidfile.read_text()))
+
+    def test_a_failing_output_callback_stops_the_children_too(self, tmp_path: Path) -> None:
+        pidfile = tmp_path / "pid"
+
+        def boom(chunk: str) -> None:
+            raise KeyboardInterrupt
+
+        with shell_output_sink(boom), pytest.raises(KeyboardInterrupt):
+            shell(f"sleep 300 & echo $! > {pidfile}; echo started; wait", timeout=30)
+        assert self._gone(int(pidfile.read_text()))
+
+    def test_stdin_is_closed_so_a_prompt_gets_eof_instead_of_hanging(self) -> None:
+        with hang_guard(5.0):
+            assert shell("read answer || true; echo got:$answer") == "got:"
+
+    def test_runaway_output_is_kept_to_its_head_and_tail(self) -> None:
+        out = shell("yes abcdefghij | head -c 3000000")
+        assert len(out) < 600_000
+        assert "characters omitted" in out

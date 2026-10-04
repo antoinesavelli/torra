@@ -1938,3 +1938,25 @@ def test_plan_then_execute_of_the_same_task_still_share_one_decision_trail(
     done = torra.execute(planned, {})
     assert len(done.decisions) >= plan_stage_count, \
         "execute() must build on plan()'s trail for the same task, not replace it"
+
+
+def test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back(make_torra, tmp_path: Path) -> None:
+    """KeyboardInterrupt used to escape the broad except and skip the rollback sweep."""
+    target = tmp_path / "f.txt"
+    target.write_text("original", encoding="utf-8")
+    torra = make_torra(scripted(plan_reply(
+        "t", "write then get interrupted",
+        [{"id": "one", "kind": "write", "run": f"printf 'changed' > {target}",
+          "touches": [str(target)]},
+         {"id": "two", "run": "true"}])))
+    planned = torra.plan("write then get interrupted")
+
+    def interrupted() -> str:
+        raise KeyboardInterrupt
+
+    planned.plan.steps[1].step.run = interrupted  # type: ignore[union-attr]
+    done = torra.execute(planned, {})
+
+    assert done.outcome is Outcome.FAILED
+    assert "KeyboardInterrupt" in done.abort_reason
+    assert target.read_text(encoding="utf-8") == "original"

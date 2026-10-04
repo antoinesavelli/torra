@@ -499,11 +499,11 @@ class Torra:
                     output = sp.step.run()
             step_result = StepResult(sp.step.step_id, True, str(output or ""),
                                      seconds=time.perf_counter() - step_started)
-        except Exception as exc:
-            # Broad on purpose: whatever a step's `run` raises becomes a
-            # failed StepResult instead of propagating out of execute(), so
-            # the caller still reaches the rollback sweep. An uncaught
-            # exception here would skip rollback entirely.
+        except (Exception, KeyboardInterrupt) as exc:
+            # Broad on purpose: whatever a step's `run` raises, Ctrl-C included,
+            # becomes a failed StepResult instead of propagating out of
+            # execute(), so the caller still reaches the rollback sweep. An
+            # uncaught exception here would skip rollback entirely.
             step_result = StepResult(sp.step.step_id, False, "",
                                      f"{type(exc).__name__}: {exc}",
                                      time.perf_counter() - step_started)

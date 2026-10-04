@@ -139,14 +139,14 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
 ### Phase 2: reliability and OS-semantics majors
 
-- **P2.1 A step timeout kills only bash, and its children keep running.** Nothing in the repo uses
+- **P2.1 DONE 2026-10-04 (`HANDOFF.md` §2.61).** **A step timeout kills only bash, and its children keep running.** Nothing in the repo uses
   `start_new_session` or `killpg` (`torra/core/tasks.py:522-528`, `:582`). Run steps with
   `start_new_session=True` on both paths. On timeout, send SIGTERM to the group, wait 5 s, then SIGKILL. Treat
   Ctrl-C mid-step the same way: kill the group, mark the step failed with "interrupted by operator", and run
   the rollback sweep. Today `KeyboardInterrupt` escapes the broad `except Exception` with no rollback
   (`pipeline.py:507`, **verify first**). *Proof:* a step `sleep 60 & sleep 60` with a 1 s timeout leaves no
   process in its group. Ask-first.
-- **P2.2 A failing statement mid-step is masked.** The wrapper sets `pipefail` but not errexit
+- **P2.2 DONE 2026-10-04 (§2.61), also fixing a false `if` at the end of a step.** **A failing statement mid-step is masked.** The wrapper sets `pipefail` but not errexit
   (`tasks.py:480-497`), so `false; true` exits 0 and a broken step reports success with no rollback. Plain
   `set -e` would kill the SIGPIPE forgiveness, because a `head`-truncated pipe returns 141 before the
   forgiveness code runs. Use an ERR trap that reads `PIPESTATUS` and exits only on a non-141 failure. The
@@ -188,7 +188,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   today's numeric-name rule as the fallback. *Proof:* uuid-named dirs with a live and a dead owner.
 - **P2.6 TUI tabs after the first have no disk precondition.** `_build_session_torra` (`tui.py:1477-1479`)
   builds `Torra` without the verifier `cli.py:91-94` installs. Build the verifier in one factory both use.
-- **P2.7 Captured output is unbounded** (`tasks.py:523`, `:575-594`). Keep the head and tail of each stream up
+- **P2.7 DONE 2026-10-04 (§2.61).** **Captured output is unbounded** (`tasks.py:523`, `:575-594`). Keep the head and tail of each stream up
   to a cap, with a truncation marker; the live streaming callback is unaffected.
 - **P2.8 Minor, verify first:** undo `coverage()` counts a step whose snapshot was skipped (`undo.py:562`).
   The remote restore drops a trailing newline but still verifies (`torra/core/machine.py:554`,

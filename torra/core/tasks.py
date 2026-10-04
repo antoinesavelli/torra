@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .process import run_in_group
+
 __all__ = [
     "TorraError", "OllamaError", "ContextBudgetError",
     "Step", "StepResult", "TaskSpec", "TaskSpecError",
@@ -443,60 +445,6 @@ def shell_output_sink(on_output: Callable[[str], None] | None) -> Iterator[None]
         _execution_context.on_output = previous
 
 
-def _pipefail_wrapped(command: str) -> str:
-    """`command`, prefixed with `set -o pipefail` and suffixed with a check
-    that forgives a `SIGPIPE` (exit 128+13=141) on any non-final pipeline
-    stage when the final stage genuinely exited 0.
-
-    `pipefail` alone is exactly right for its original purpose (`sudo
-    something | sort | head` reporting success with empty output when
-    `sudo` alone fails, undetectable without it) -- but it is *also* right
-    for a case nobody wanted caught: `du -ah /home | sort -rh | head -20`,
-    an entirely ordinary, benign command, fails under plain `pipefail`
-    because `head` closes its input after 20 lines, `sort`/`du` upstream
-    get killed by `SIGPIPE` for writing to a closed pipe, and `pipefail`
-    reports that as the pipeline's own failure even though `head` already
-    produced exactly the right output. Found live: a real operator hit
-    this exact command shape four times in a row, including retrying with
-    a different phrasing and asking torra to diagnose its own bug,
-    getting the identical failure every time.
-
-    Distinguishing the two needs per-stage exit codes (`$PIPESTATUS`), not
-    just the pipeline's own overall `$?` -- and capturing `$PIPESTATUS`
-    has its own trap: bash resets it after *any* subsequent simple
-    command, including a bare variable assignment, so `ec=$?` immediately
-    destroys it before it can be read. The array capture below has to be
-    the first statement after `command` runs, with nothing (not even
-    reading `$?`) in between; `_ec` is then computed by hand from that
-    array using the identical rule `pipefail` itself uses (the rightmost
-    non-zero stage, or 0 if all stages succeeded), so this doesn't depend
-    on bash's own already-reset `$?` at all. `_ec` is only overridden back
-    to 0 when the final stage is 0 *and* every earlier non-zero stage is
-    specifically 141 -- a real failure anywhere in the pipe (auth failure,
-    missing command, wrong flag) is never forgiven, verified against the
-    exact `sudo | sort | head` scenario `pipefail` exists for in the first
-    place, not just the new benign case.
-    """
-    return (
-        "set -o pipefail\n"
-        + command + "\n"
-        "_ps=(\"${PIPESTATUS[@]}\")\n"
-        "_last=$((${#_ps[@]}-1))\n"
-        "_ec=0\n"
-        "for _i in \"${_ps[@]}\"; do\n"
-        "  if [ \"$_i\" -ne 0 ]; then _ec=$_i; fi\n"
-        "done\n"
-        "if [ \"$_ec\" -ne 0 ] && [ \"${_ps[$_last]}\" -eq 0 ]; then\n"
-        "  _ok=1\n"
-        "  for _i in \"${_ps[@]:0:$_last}\"; do\n"
-        "    if [ \"$_i\" -ne 0 ] && [ \"$_i\" -ne 141 ]; then _ok=0; fi\n"
-        "  done\n"
-        "  if [ \"$_ok\" -eq 1 ]; then _ec=0; fi\n"
-        "fi\n"
-        "exit \"$_ec\"\n"
-    )
-
-
 def shell(command: str, cwd: str | None = None,
           timeout: float | None = None) -> str:
     """Run one shell command, raising on a non-zero exit.
@@ -505,101 +453,4 @@ def shell(command: str, cwd: str | None = None,
     is what arms rollback. A step that swallowed a non-zero exit would report
     success and leave the system half changed.
     """
-    on_output = getattr(_execution_context, "on_output", None)
-    if on_output is not None:
-        return _shell_streaming(command, cwd, timeout, on_output)
-
-    import subprocess
-
-    # Explicit bash with pipefail, not shell=True's default /bin/sh (dash on
-    # this and most Debian-derived systems): dash's pipeline exit status is
-    # only the *last* command's, so `sudo something | sort | head` reports
-    # success with empty output when sudo alone fails (e.g. no password and
-    # no TTY) -- exactly the failure mode that let a `du` step "complete"
-    # having actually run nothing. Found live, not in a test. See
-    # _pipefail_wrapped's own docstring for the SIGPIPE-forgiveness this
-    # wrapping also does, and why plain `pipefail` alone isn't enough.
-    result = subprocess.run(["/bin/bash", "-c", _pipefail_wrapped(command)],
-                            capture_output=True, text=True,
-                            cwd=cwd, timeout=timeout or 3600)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"exit {result.returncode}: "
-            f"{(result.stderr or result.stdout).strip()[:400]}")
-    return (result.stdout or "").strip()
-
-
-def _shell_streaming(command: str, cwd: str | None, timeout: float | None,
-                     on_output: Callable[[str], None]) -> str:
-    """`shell()`'s live-output path: same pipefail/timeout/exit-code contract
-    as the default path above, calling `on_output` with each line of output
-    as it arrives instead of only returning the whole thing at the end.
-
-    stdout and stderr are captured into two separate pipes, exactly like
-    the default path's `capture_output=True` -- not merged into one stream
-    -- so the return value on success and the exception message on failure
-    mean the same thing regardless of whether a caller was watching live.
-    Reading two live pipes without deadlocking (a full stderr pipe while
-    blocked reading stdout, or vice versa) needs one reader thread per
-    pipe; both feed one queue so `on_output` still sees lines in something
-    close to real arrival order rather than "all of stdout, then all of
-    stderr". The timeout is enforced by the queue-read loop itself
-    (`subprocess.run`'s own `timeout=` has no equivalent when reading
-    incrementally), not by `Popen.wait`, so a process that never closes its
-    output pipes still gets killed on schedule.
-    """
-    import queue
-    import subprocess
-    import time as _time
-
-    proc = subprocess.Popen(
-        ["/bin/bash", "-c", _pipefail_wrapped(command)],
-        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    assert proc.stdout is not None and proc.stderr is not None
-
-    lines: queue.Queue[tuple[str, str] | None] = queue.Queue()
-
-    def pump(stream: Any, tag: str) -> None:
-        for line in iter(stream.readline, ""):
-            lines.put((tag, line))
-        stream.close()
-        lines.put(None)
-
-    readers = [
-        threading.Thread(target=pump, args=(proc.stdout, "out"), daemon=True),
-        threading.Thread(target=pump, args=(proc.stderr, "err"), daemon=True),
-    ]
-    for reader in readers:
-        reader.start()
-
-    stdout_parts: list[str] = []
-    stderr_parts: list[str] = []
-    deadline = _time.monotonic() + (timeout or 3600)
-    open_streams = len(readers)
-    while open_streams > 0:
-        remaining = deadline - _time.monotonic()
-        if remaining <= 0:
-            proc.kill()
-            for reader in readers:
-                reader.join(timeout=1)
-            raise subprocess.TimeoutExpired(command, timeout or 3600)
-        try:
-            item = lines.get(timeout=min(remaining, 0.5))
-        except queue.Empty:
-            continue
-        if item is None:
-            open_streams -= 1
-            continue
-        tag, line = item
-        (stdout_parts if tag == "out" else stderr_parts).append(line)
-        on_output(line)
-
-    for reader in readers:
-        reader.join()
-    returncode = proc.wait(timeout=5)  # both pipes closed -- already exited, just reaping
-
-    stdout = "".join(stdout_parts)
-    stderr = "".join(stderr_parts)
-    if returncode != 0:
-        raise RuntimeError(f"exit {returncode}: {(stderr or stdout).strip()[:400]}")
-    return stdout.strip()
+    return run_in_group(command, cwd, timeout, getattr(_execution_context, "on_output", None))

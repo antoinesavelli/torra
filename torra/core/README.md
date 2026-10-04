@@ -7,7 +7,8 @@ one file.
 
 | File | Holds |
 |---|---|
-| `tasks.py` | `Step`, `TaskSpec`, `shell()` -- the task/step primitives; `Step.command` is what the safety gate classifies. `shell_output_sink()` scopes `shell()`'s live-output callback to the calling thread, for `Torra.execute()`'s `on_output` (`HANDOFF.md` §2.32). `_pipefail_wrapped()` forgives a benign `SIGPIPE` from a `head`-truncated pipeline without weakening `pipefail`'s real protection (`HANDOFF.md` §2.36) |
+| `tasks.py` | `Step`, `TaskSpec`, `shell()` -- the task/step primitives; `Step.command` is what the safety gate classifies. `shell_output_sink()` scopes `shell()`'s live-output callback to the calling thread, for `Torra.execute()`'s `on_output` (`HANDOFF.md` §2.32). `shell()` hands the command to `process.py` (`HANDOFF.md` §2.36, §2.61) |
+| `process.py` | How a step runs: bash in its own process group, an error trap that stops at the first real failure while still forgiving a `head`-truncated pipe's `SIGPIPE`, group kill on timeout or Ctrl-C, closed stdin, output kept to head and tail (`HANDOFF.md` §2.36, §2.61) |
 | `resume.py` | `ResumePoint`, one atomically-written file per task; `resolve_resume()` validates one against the current plan and tells `Torra.execute()` which steps (if any) a crash-left attempt already completed for real (`HANDOFF.md` §2.33) |
 | `conflict.py` | `ConflictDetector`, two-layer detection: cheap fingerprints to shortlist, SHA256 to confirm |
 | `context.py` | `ContextCompressor`, keeps the conversation under a token budget |
