@@ -1,4 +1,5 @@
-# Runs on every push to main and every PR: the full test suite, mypy, and
+# Runs on every push to main and every PR: the full test suite under branch
+# coverage (with floors, below), mypy, and
 # the defensive-coding scorecard with --enforce (fails the build if any
 # dimension drops below the floor recorded in
 # scripts/dev/defensive_coding_report.py's ENFORCE_FLOORS).
@@ -32,8 +33,17 @@ jobs:
           pip install -r requirements-lock.txt
           pip install -e . --no-deps
 
-      - name: Run the test suite
-        run: python3 -m pytest tests/ -q
+      - name: Run the test suite under branch coverage
+        run: coverage run --branch --source=torra -m pytest tests/ -q
+
+      - name: Coverage floors
+        # Measured 2026-10-04: 98% overall and 98% on the safety path. Raise a floor when it
+        # is cleared; never lower one to turn a red build green. A bug once lived in fully
+        # covered code (HANDOFF.md §2.59), so this guards against losing tests, not against
+        # weak assertions.
+        run: |
+          coverage report --fail-under=96
+          coverage report --fail-under=97 --include="torra/gates/*,torra/pipeline.py,torra/pipeline_rollback.py,torra/core/tasks.py,torra/core/process.py,torra/core/resume.py"
 
       - name: Type check
         run: mypy torra/

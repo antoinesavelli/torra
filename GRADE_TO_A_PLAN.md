@@ -242,7 +242,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
 - **P4.1 CI gates. WITHDRAWN 2026-10-04.** No format check (see P0.1). An explicit `ruff check .` step would be
   redundant: the scorecard's Lint dimension already runs ruff and `--enforce` fails CI on any issue.
-- **P4.2 Lock coverage, then test the assertions.** Measured 2026-10-03 with branch coverage on: 98% overall.
+- **P4.2 DONE 2026-10-04 (`HANDOFF.md` §2.70).** **Lock coverage, then test the assertions.** Measured 2026-10-03 with branch coverage on: 98% overall.
   `safety.py` 99%, `pipeline.py` 99%, `tasks.py` 100%, `rollback.py` 100%, `undo.py` 95%. Coverage isn't the
   gap. The P1.1 bug lived in fully covered code whose test didn't assert the right thing.
   - Add a CI branch-coverage floor at today's numbers for `gates/`, `pipeline.py` and `core/tasks.py`. Never
@@ -258,7 +258,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 - **P4.6 DONE 2026-10-04.** `AGENTS.md`'s code-conventions block still named `_judge`, `detect` and `execute` as CCN
   exceptions not to split. They were split on 2026-08-11 (`_judge` is CCN 6; `Torra.execute` is 14, one below the
   ceiling, so P1.1 must not add branches to it). `agents/CONVENTIONS.md` carried the same claim and is fixed too.
-- **P4.7 HANDOFF.md.** Add the §2 invariants from P1.1, P1.2, P2.4 ("a step in flight at a crash never re-runs
+- **P4.7 DONE as each fix landed (§2.59 to §2.70).** **HANDOFF.md.** Add the §2 invariants from P1.1, P1.2, P2.4 ("a step in flight at a crash never re-runs
   by itself") and P3.3 ("untrusted content never carries instruction authority"), each with its test. Add §5
   entries per fix and update §6.
 - **P4.8** Carry out D6.

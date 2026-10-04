@@ -3003,6 +3003,33 @@ read-only probes on the next turn.
 
 > Guarded by `tests/test_pipeline.py::test_a_real_run_marks_the_observed_machine_state_stale`.
 
+### 2.70 The regex backstop no longer reads `--rm` as `rm`, and the new safety code was mutation-tested
+
+1. **`docker run --rm img` was DANGEROUS.** The backstop pattern `\brm\b`
+   matched inside the flag `--rm`, so one of the commonest container idioms
+   asked for a tick as "file deletion". The pattern is now `(?<![-\w])rm\b`,
+   which still matches `rm` as a command after a space, `;`, `|` or `&` and no
+   longer matches `-rm`/`--rm`. The argv-based rules, which judge the real
+   `rm`, are unchanged. Found by the mutation pass below, not by a user.
+2. **Mutation pass, 2026-10-04.** A throwaway harness mutated one site at a
+   time (comparison, and/or, `not`, boolean and integer constants, return
+   values) and ran the fast test subset. `gates/known_programs.py`: 238
+   mutants, 227 killed; `gates/safety.py`'s changed functions: 108, 95 killed;
+   plus `core/resume.py`, `gates/service_state.py`, `core/process.py` and
+   `pipeline_rollback.py`. Every real survivor became a test (the lists had
+   only spelled each option one way). The rest are equivalent: `return None` for
+   `return False` where the caller only tests truthiness, a split or slice
+   limit that selects the same element, `timeout=`/queue-size/thread-daemon
+   constants, and the per-program dispatch rows in `_judge` that the regex
+   backstop and `trust()` also cover by design. The harness is not kept in the
+   repo.
+3. **CI floors.** `ci.yml` now runs the suite under branch coverage and fails
+   below 96% overall or 97% on the safety path (measured 98% on both).
+
+> Guarded by `tests/test_known_programs.py::test_kill_docker_and_redirect_levels`
+> (`docker run --rm img` is CAUTION) and the new spelling, resolver and
+> service-state tests.
+
 ---
 
 ## 3. Things already tried that failed

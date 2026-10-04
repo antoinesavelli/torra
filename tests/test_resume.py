@@ -123,3 +123,17 @@ def test_end_step_counts_only_a_real_successful_step(tmp_path: Path) -> None:
 
     assert point.completed == ["a"] and point.in_progress == ""
     assert not (tmp_path / "never.json").exists()
+
+
+def test_begin_and_end_step_really_write_the_file_each_time(tmp_path: Path) -> None:
+    """`_save_quietly` swallows write errors, so only the file itself shows a failed save."""
+    target = tmp_path / "deep" / "t.json"
+    point = ResumePoint(task_id="t", total=2)
+
+    begin_step(point, target, "a")
+    assert ResumePoint.load(target).in_progress == "a"  # type: ignore[union-attr]
+    end_step(point, target, "a", "echo a", ok=True, dry_run=False)
+
+    loaded = ResumePoint.load(target)
+    assert loaded is not None and loaded.completed == ["a"] and loaded.in_progress == ""
+    assert loaded.digests == {"a": command_digest("echo a")}

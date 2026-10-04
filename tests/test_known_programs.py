@@ -176,3 +176,148 @@ def test_python_is_read_only_only_when_the_payload_cannot_reach_outside() -> Non
         assert trust(["python3", "-c", source], protected) is None, source
     assert trust(["python3", "script.py"], protected) is None
     assert trust(["python3", "-"], protected) is None
+
+
+#: Each pair is (argv, expected trust). Written after a mutation pass over known_programs.py showed
+#: the lists above only ever spelled these options one way, so changing the logic for the other
+#: spelling went unnoticed.
+SPELLINGS = [
+    (["python3", "-c", "from .json import loads"], None),
+    (["python3", "-c", "open('x', 'r', 1)"], None),
+    (["perl", "--version"], READ_ONLY), (["bash", "-v"], READ_ONLY), (["perl", "-e", "1"], None),
+    (["awk", "-f", "prog.awk", "file"], None), (["awk", "--file", "prog.awk"], None),
+    (["awk", "-i", "inplace", "{print}", "f"], None), (["awk", "--include", "x", "1"], None),
+    (["curl", "-s", "http://x", "-o", "/dev/null"], READ_ONLY),
+    (["curl", "-s", "http://x", "-o", "/tmp/f"], None),
+    (["tar"], None), (["tar", "-t", "-f", "a.tar"], READ_ONLY), (["tar", "tf", "a.tar"], READ_ONLY),
+    (["tar", "--list", "-f", "a.tar"], READ_ONLY), (["tar", "--create", "-f", "/tmp/a", "src"], BOUNDED_WRITE),
+    (["tar", "--extract", "-f", "a.tar"], BOUNDED_WRITE), (["tar", "--delete", "-f", "a.tar", "x"], None),
+    (["tar", "xf", "a.tar", "--directory=/etc"], PROTECTED_WRITE),
+    (["tar", "xf", "a.tar", "--directory", "/etc"], PROTECTED_WRITE),
+    (["tar", "-C", "/etc", "-xf", "a.tar"], PROTECTED_WRITE),
+    (["tar", "--create", "--file=/etc/a.tar", "src"], PROTECTED_WRITE),
+    (["tar", "--create", "--file", "/etc/a.tar", "src"], PROTECTED_WRITE),
+    (["git", "tag", "-l", "v*"], READ_ONLY), (["git", "branch", "--list", "feat*"], READ_ONLY),
+    (["git", "branch", "-a"], READ_ONLY), (["git", "branch", "newbranch"], BOUNDED_WRITE),
+    (["git", "branch", "-D", "old"], None), (["git", "tag", "v1"], BOUNDED_WRITE),
+    (["git", "remote"], READ_ONLY), (["git", "remote", "add", "o", "url"], None),
+    (["git", "config", "--get", "user.name"], READ_ONLY), (["git", "config", "--unset", "a"], None),
+    (["git", "stash", "list"], READ_ONLY), (["git", "stash"], BOUNDED_WRITE),
+    (["iptables", "--append", "INPUT", "-j", "DROP"], None), (["iptables", "-t", "nat"], None),
+    (["iptables", "--list", "-n"], READ_ONLY), (["iptables", "-L", "-F"], None),
+    (["sysctl", "vm.swappiness=1"], None), (["sysctl", "--write", "x=1"], None),
+    (["sysctl", "-a"], READ_ONLY),
+    (["ssh-keygen", "-f", "key"], None), (["ssh-keygen", "-l", "-f", "key.pub"], READ_ONLY),
+    (["find", "-delete"], None), (["find", ".", "-name", "x"], READ_ONLY),
+    (["dd", "of=/tmp/x", "if=/dev/zero"], BOUNDED_WRITE),
+    (["dd", "of=/etc/passwd", "if=/dev/zero"], PROTECTED_WRITE), (["dd", "if=/dev/sda"], READ_ONLY),
+    (["ip", "add"], None), (["ip", "addr", "show"], READ_ONLY),
+    (["rsync", "-a", "/home/user/src/", "/tmp/dst/"], BOUNDED_WRITE),
+    (["rsync", "-a", "src/", "/etc/dst/"], PROTECTED_WRITE),
+    (["ln", "-s", "/home/user/a", "/tmp/link"], BOUNDED_WRITE),
+    (["install", "/home/user/x", "/tmp/y"], BOUNDED_WRITE),
+    (["nmcli", "con", "show", "--active"], READ_ONLY), (["nmcli", "show", "up"], None),
+    (["dpkg", "-l"], READ_ONLY), (["dpkg", "-i", "x.deb"], None), (["dpkg"], None),
+    (["python3", "-c", "from json import loads; print(loads('1'))"], READ_ONLY),
+    (["python3", "-m", "json.tool", "data.json"], READ_ONLY),
+    (["curl", "-X", "GET", "http://x"], READ_ONLY), (["curl", "-X", "HEAD", "http://x"], READ_ONLY),
+    (["curl", "--request", "POST", "http://x"], None), (["curl", "http://x", "-X", "DELETE"], None),
+    (["tar", "tf"], READ_ONLY), (["tar", "czf", "/etc/a.tgz", "src"], PROTECTED_WRITE),
+    (["tar", "-czf", "/etc/a.tgz", "src"], PROTECTED_WRITE),
+    (["tar", "czf", "/tmp/a.tgz", "/home/user/src"], BOUNDED_WRITE),
+    (["nmcli", "show"], READ_ONLY),
+    (["tar", "czf", "/tmp/a.tgz", "file", "/etc"], BOUNDED_WRITE),
+    (["git", "-C", "/repo", "push", "origin", "main"], None),
+    (["git", "-C", "/repo", "pull"], BOUNDED_WRITE), (["git", "-c", "a=b", "log"], READ_ONLY),
+    (["git", "--git-dir", "/x/.git", "push"], None),
+]
+
+
+@pytest.mark.parametrize(("argv", "expected"), SPELLINGS, ids=[" ".join(a) for a, _ in SPELLINGS])
+def test_every_spelling_of_an_option_is_judged_the_same(argv: list[str], expected: str | None) -> None:
+    assert trust(argv, SafetyClassifier._protected) == expected
+
+
+def _argvs(command: str) -> list[list[str]]:
+    return [rc.argv for rc in SafetyClassifier().resolve(command)]
+
+
+def test_a_redirect_with_an_ampersand_stays_one_command_but_a_background_amp_splits() -> None:
+    assert _argvs("ls 2>&1") == [["ls", "2>&1"]]
+    assert _argvs("ls >&2") == [["ls", ">&2"]]
+    assert _argvs("ls <&3") == [["ls", "<&3"]]
+    assert _argvs("ls &>/tmp/o") == [["ls", "&>/tmp/o"]]
+    assert _argvs("sleep 1 & echo done") == [["sleep", "1"], ["echo", "done"]]
+    assert _argvs("a && b || c") == [["a"], ["b"], ["c"]]
+
+
+def test_leading_keywords_assignments_and_wrappers_peel_off_in_any_order() -> None:
+    assert _argvs("then A=1 sudo ls") == [["ls"]]
+    assert _argvs("do B=2 timeout 5 ls") == [["ls"]]
+    assert _argvs("if ! ls") == [["ls"]]
+    assert _argvs("while sudo -n ls") == [["ls"]]
+    assert _argvs("A=1 B=2 ls") == [["ls"]]
+    assert _argvs("for x in a b") == []
+    assert _argvs("done") == []
+
+
+def test_grouping_parentheses_are_dropped_but_a_substitution_is_not_a_group() -> None:
+    assert _argvs("(cd /tmp && ls)") == [["cd", "/tmp"], ["ls"]]
+    assert _argvs("(ls)") == [["ls"]]
+    assert _argvs("echo $(date)") == [["date"], ["echo", "SUBST"]]
+    assert _argvs("ls)") == [["ls"]]
+
+
+def test_a_substitution_is_judged_once_and_does_not_split_the_command_around_it() -> None:
+    assert _argvs("VERSION=$(git rev-parse HEAD)") == [["git", "rev-parse", "HEAD"]]
+    assert _argvs("echo $(ls | wc -l) done") == [["ls"], ["wc", "-l"], ["echo", "SUBST", "done"]]
+    assert _argvs("echo `date` `date`") == [["date"], ["date"], ["echo", "SUBST", "SUBST"]]
+
+
+def test_a_heredoc_body_is_data_unless_an_interpreter_will_run_it() -> None:
+    assert _argvs("cat <<EOF\nrm -rf /x\nEOF") == [["cat", "<<EOF"]]
+    assert _argvs("cat <<'EOF'\nhello\nEOF") == [["cat", "<<EOF"]]
+    assert _argvs("cat <<-END\n\thello\n\tEND") == [["cat", "<<END"]]
+    assert ["rm", "-rf", "/x"] in _argvs("bash <<EOF\nrm -rf /x\nEOF")
+    assert ["ls"] in _argvs("sudo sh <<EOF\nls\nEOF")
+    assert _argvs("cat <<< hello") == [["cat", "<<<", "hello"]]
+
+
+def test_a_nested_shell_payload_resolves_several_levels_down() -> None:
+    classifier = SafetyClassifier()
+    verdict = classifier.classify("sh -c \"sh -c \\\"sh -c 'ls'\\\"\"")
+    assert verdict.level is RiskLevel.SAFE and classifier.parse_failures == []
+    assert [rc.unwrapped_from for rc in classifier.resolve("sh -c 'ls'")] == ["sh -c"]
+    assert [rc.unwrapped_from for rc in classifier.resolve("python3 -c 'print(1)'")] == [
+        "python3 -c source"]
+    assert [rc.argv for rc in classifier.resolve("eval ls")] == [["ls"], ["eval", "ls"]]
+
+
+@pytest.mark.parametrize(("command", "level"), [
+    ("kill 1", RiskLevel.CRITICAL), ("kill -9 1234", RiskLevel.CAUTION),
+    ("kill -9 -1", RiskLevel.CRITICAL), ("kill -s KILL -1", RiskLevel.CRITICAL),
+    ("kill -1 1234", RiskLevel.CAUTION), ("kill 0", RiskLevel.CRITICAL),
+    ("kill -l", RiskLevel.SAFE), ("kill -TERM 1234 5678", RiskLevel.CAUTION),
+    ("docker rm web", RiskLevel.DANGEROUS), ("docker volume rm v", RiskLevel.DANGEROUS),
+    ("docker system prune -af", RiskLevel.DANGEROUS), ("docker rmi img", RiskLevel.DANGEROUS),
+    ("docker kill web", RiskLevel.DANGEROUS),
+    ("docker compose down -v", RiskLevel.DANGEROUS),
+    ("docker compose down --volumes", RiskLevel.DANGEROUS),
+    ("docker compose down", RiskLevel.CAUTION), ("docker run --rm img", RiskLevel.CAUTION),
+    ("docker ps", RiskLevel.CAUTION),
+    ("echo x > out.txt", RiskLevel.CAUTION), ("ls 2>&1", RiskLevel.SAFE),
+    ("ls > /dev/null 2>&1", RiskLevel.SAFE),
+])
+def test_kill_docker_and_redirect_levels(command: str, level: RiskLevel) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert verdict.level is level, (command, verdict.level, verdict.reasons)
+
+
+def test_a_stray_close_parenthesis_in_the_middle_is_left_alone() -> None:
+    assert _argvs("echo a ) b") == [["echo", "a", ")", "b"]]
+
+
+def test_eval_payloads_resolve_several_levels_down() -> None:
+    classifier = SafetyClassifier()
+    assert ["ls"] in [rc.argv for rc in classifier.resolve("eval eval eval ls")]
+    assert classifier.parse_failures == []

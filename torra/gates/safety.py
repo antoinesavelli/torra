@@ -200,7 +200,7 @@ BACKSTOP: list[tuple[str, RiskLevel, str]] = [
     (r"\bshutil\.rmtree\b", RiskLevel.CRITICAL, "python recursive tree delete"),
     (r"\b(reboot|poweroff|halt|shutdown)\b", RiskLevel.DANGEROUS, "host power state"),
     (r"\bsystemctl\s+(stop|disable|mask)\b", RiskLevel.DANGEROUS, "service interruption"),
-    (r"\brm\b", RiskLevel.DANGEROUS, "file deletion"),
+    (r"(?<![-\w])rm\b", RiskLevel.DANGEROUS, "file deletion"),  # not `docker run --rm`
     (r"\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|push\s+--force|checkout\s+--\s)",
      RiskLevel.DANGEROUS, "unrecoverable git operation"),
     (r"\|\s*(sudo\s+)?(ba|z|k)?sh\b", RiskLevel.DANGEROUS, "stdin piped into a shell"),

@@ -2198,3 +2198,31 @@ class TestHardwareAwareRouting:
         text = router.explain("debug why nginx keeps crashing")
         assert "debug" in text
         assert "gpt-oss:20b" in text
+
+
+class TestServiceStateHelpers:
+    """HANDOFF.md §2.63: the verbs that put a unit's enablement and running state back."""
+
+    def test_restore_verbs_cover_each_before_and_now_combination(self) -> None:
+        from torra.gates.service_state import restore_verbs
+        assert restore_verbs("disabled", "active", "enabled") == ["enable", "start"]
+        assert restore_verbs("enabled", "inactive", "disabled") == ["disable", "stop"]
+        assert restore_verbs("masked", "active", "enabled") == ["unmask", "enable", "start"]
+        assert restore_verbs("enabled", "inactive", "masked") == ["stop", "mask"]
+        assert restore_verbs("masked", "inactive", "masked") == ["stop"]
+        assert restore_verbs("static", "active", "static") == ["start"]
+        assert restore_verbs("enabled", "active", "enabled") == ["start"]
+
+    def test_the_query_runs_in_the_units_own_scope(self, monkeypatch) -> None:
+        from torra.gates.service_state import systemctl_query
+        seen: list[list[str]] = []
+
+        class Out:
+            stdout = "active\n"
+
+        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: (seen.append(cmd), Out())[1])
+
+        assert systemctl_query("is-active", "u.service", "user") == "active"
+        assert systemctl_query("is-enabled", "u.service", "system") == "active"
+        assert seen == [["systemctl", "--user", "is-active", "u.service"],
+                        ["systemctl", "is-enabled", "u.service"]]
