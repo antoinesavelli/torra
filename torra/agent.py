@@ -16,7 +16,6 @@ path, and the second path is always the one nobody tested.
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from collections.abc import Callable, Sequence
@@ -42,8 +41,9 @@ from .core import (
 from .core import (
     resolve_backend as _resolve_backend,
 )
+from .core.jsonreply import ReplyError, as_strings, extract_object
 from .gates import Clarifier, ModelRouter, SafetyClassifier, model_available
-from .prompts import PLAN_SCHEMA, SYSTEM_PROMPT
+from .prompts import PLAN_SCHEMA, SYSTEM_PROMPT, untrusted_block
 from .read_memory import ReadMemory
 
 __all__ = ["Intent", "Turn", "Agent", "AgentError", "PLAN_SCHEMA", "SYSTEM_PROMPT"]
@@ -257,7 +257,8 @@ class Agent:
         state = self.observe()
         preamble = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "system", "content": "Current machine state:\n" + state.render()},
+            {"role": "system", "content": "Current machine state:\n"
+             + untrusted_block("machine-state", state.render())},
         ]
         if gaps:
             preamble.append({
@@ -275,69 +276,10 @@ class Agent:
     @staticmethod
     def _extract_json(text: str) -> dict[str, Any]:
         """Pull a JSON object out of a model reply."""
-        # Models add markdown fences and preamble no matter what the prompt
-        # says, so this strips fences and falls back to the outermost brace pair.
-        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(),
-                         flags=re.MULTILINE).strip()
         try:
-            data = json.loads(cleaned)
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
-        candidate = Agent._find_json_object(cleaned)
-        if candidate is not None:
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError as exc:
-                raise AgentError(f"model did not return valid JSON: {exc}") from exc
-        raise AgentError("model returned no JSON object")
-
-    @staticmethod
-    def _find_json_object(text: str) -> str | None:
-        """The first brace-balanced substring that also parses as JSON --
-        found live: preamble like `${VAR}` before the real reply otherwise
-        fools a naive find-first/find-last pair into the wrong object."""
-        pos = 0
-        while True:
-            start = text.find("{", pos)
-            if start < 0:
-                return None
-            end = Agent._matching_brace(text, start)
-            if end is not None:
-                candidate = text[start:end + 1]
-                try:
-                    json.loads(candidate)
-                    return candidate
-                except json.JSONDecodeError:
-                    pass
-            pos = start + 1
-
-    @staticmethod
-    def _matching_brace(text: str, start: int) -> int | None:
-        """Index of the `}` closing the `{` at `start`, skipping braces inside string literals."""
-        depth = 0
-        in_string = False
-        escape = False
-        for i in range(start, len(text)):
-            ch = text[i]
-            if in_string:
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == '"':
-                    in_string = False
-                continue
-            if ch == '"':
-                in_string = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return i
-        return None
+            return extract_object(text)
+        except ReplyError as exc:
+            raise AgentError(str(exc)) from exc
 
     # -- generation -------------------------------------------------------- #
 
@@ -432,11 +374,11 @@ class Agent:
         turn = Turn(
             request=request, intent=intent,
             message=str(data.get("message") or ""),
-            questions=[str(q) for q in (data.get("questions") or [])],
+            questions=as_strings(data.get("questions")),
             model=model, routing_reason=routing_reason,
             clarifier_gaps=list(gaps), anchors=list(anchors),
             machine_observed=observed, raw=raw,
-            forget=[str(p) for p in (data.get("forget") or [])])
+            forget=as_strings(data.get("forget")))
 
         if intent is Intent.PLAN:
             task = data.get("task")
@@ -561,7 +503,8 @@ class Agent:
             if result is None:
                 continue
             outcome = result.output if result.ok else f"FAILED: {result.error}"
-            lines.append(f"- {step.step_id} (`{step.command}`): {outcome[:2000]}")
+            lines.append(f"- {step.step_id} (`{step.command}`):\n"
+                         + untrusted_block("command-output", outcome[:2000]))
         prompt = (
             f"The operator asked: {request}\n\n"
             "These steps already ran; here is exactly what each returned:\n"

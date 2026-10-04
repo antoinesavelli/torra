@@ -19,6 +19,8 @@ or network -- every external dependency is an injected callable (see
 | `test_iterate.py` | `iterate()`'s bounded edit, verify, fix loop: stop conditions, round count, dry-run behaviour |
 | `test_read_memory.py` | A completed read-only step's output entering the model's context, tagged by path, and the model dropping a path again |
 | `test_known_programs.py` | Fail-closed classification: the read-only, bounded-write, protected-write, asks and CRITICAL command lists, plus `trust()` and the resolver fixes |
+| `test_untrusted.py` | Data blocks that cannot be closed or forged, summaries, machine state and old transcripts at the right authority |
+| `test_remote_files.py` | Remote push and pull move exact bytes, name what they touch and judge the real destination |
 | `test_secrets.py` | Which secret-looking strings `redact_secrets` scrubs, and which credential files need a tick to read |
 | `test_instruction_files.py` | `CLAUDE.md` stays a one-line import stub, every read-first trigger target exists and is indexed, `AGENTS.md` stays under its byte budget |
 

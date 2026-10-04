@@ -260,6 +260,21 @@ class SessionStore:
         enforce, for exactly one turn, no matter how long the history.
         """
         records = self.load_transcript(session_id)
-        compressor.entries = [r.to_context_step() for r in records]
+        compressor.entries = [_trusted_view(r.to_context_step()) for r in records]
         compressor.maybe_compress()
         return len(records)
+
+
+def _trusted_view(step: ContextStep) -> ContextStep:
+    """A replayed entry, with what older versions stored put right: file contents were saved as
+    a system-role `[read path]` message, which would replay at system authority, and a bad
+    `tokens` value must not break the reopen."""
+    from torra.prompts import untrusted_block
+
+    tokens = step.tokens if isinstance(step.tokens, int) else max(1, len(str(step.content)) // 4)
+    if step.entry_id.startswith("read:") and step.role == "system" and not step.content.startswith("<file"):
+        path = step.entry_id[len("read:"):]
+        body = step.content.split("\n", 1)[1] if step.content.startswith("[read ") else step.content
+        content = untrusted_block("file", body, path=path, untrusted="true")
+        return ContextStep(step.entry_id, "user", content, tokens, step.compressed)
+    return ContextStep(step.entry_id, step.role, step.content, tokens, step.compressed)

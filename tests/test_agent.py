@@ -1256,3 +1256,35 @@ def test_a_json_reply_that_is_not_an_object_is_an_agent_error_not_a_crash(reply:
     """`json.loads("[]")` is a list, and `.get` on it was an uncaught AttributeError."""
     with pytest.raises(AgentError):
         Agent._extract_json(reply)
+
+
+@pytest.mark.parametrize("reply", ['{"a":' * 20000, "[" * 100000, "{" * 30000, '{"x": ' + "[" * 5000])
+def test_a_reply_nested_beyond_the_parser_is_an_agent_error_not_a_crash(reply: str) -> None:
+    with pytest.raises(AgentError):
+        Agent._extract_json(reply)
+
+
+def test_a_reply_built_to_make_the_scan_slow_stays_fast() -> None:
+    import time
+    started = time.perf_counter()
+    with pytest.raises(AgentError):
+        Agent._extract_json("{" * 60000 + '"\\"}' * 20000)
+    assert time.perf_counter() - started < 3.0
+
+
+@pytest.mark.parametrize("field", ["questions", "forget"])
+@pytest.mark.parametrize("value", ["5", "true", '"abc"', '{"a": 1}', "null"])
+def test_a_wrongly_typed_list_field_is_ignored_not_a_crash(field: str, value: str) -> None:
+    agent = build_agent(lambda p, pay, t: {"message": {"content": "{}"}})
+    raw = f'{{"intent": "answer", "message": "hi", "{field}": {value}}}'
+
+    turn = agent._parse("r", raw, "m", "why", [], [], False)
+
+    assert getattr(turn, field) == []
+
+
+def test_a_string_in_the_questions_list_still_survives_and_other_values_are_stringified() -> None:
+    agent = build_agent(lambda p, pay, t: {"message": {"content": "{}"}})
+    raw = '{"intent": "ask", "message": "?", "questions": ["a", 2]}'
+
+    assert agent._parse("r", raw, "m", "why", [], [], False).questions == ["a", "2"]

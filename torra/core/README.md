@@ -9,6 +9,7 @@ one file.
 |---|---|
 | `tasks.py` | `Step`, `TaskSpec`, `shell()` -- the task/step primitives; `Step.command` is what the safety gate classifies. `shell_output_sink()` scopes `shell()`'s live-output callback to the calling thread, for `Torra.execute()`'s `on_output` (`HANDOFF.md` §2.32). `shell()` hands the command to `process.py` (`HANDOFF.md` §2.36, §2.61) |
 | `process.py` | How a step runs: bash in its own process group, an error trap that stops at the first real failure while still forgiving a `head`-truncated pipe's `SIGPIPE`, group kill on timeout or Ctrl-C, closed stdin, output kept to head and tail (`HANDOFF.md` §2.36, §2.61) |
+| `jsonreply.py` | Pulling one JSON object out of a model reply with bounded work: size, candidate starts and a parser limit are all errors, never crashes (`HANDOFF.md` §2.73) |
 | `resume.py` | `ResumePoint`, one atomically-written file per task; `begin_step`/`end_step` mark a step in flight and finished (`HANDOFF.md` §2.64); `resolve_resume()` validates one against the current plan and each step's command digest and tells `Torra.execute()` which steps (if any) a crash-left attempt already completed for real (`HANDOFF.md` §2.33) |
 | `conflict.py` | `ConflictDetector`, two-layer detection: cheap fingerprints to shortlist, SHA256 to confirm |
 | `context.py` | `ContextCompressor`, keeps the conversation under a token budget |

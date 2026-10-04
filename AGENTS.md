@@ -6,7 +6,7 @@ knowledge fed to the planning model).
 
 A local model proposes an operating-system change. Five gates decide whether it runs. The
 operator approves. This file is instructions for an agent **editing this codebase** — not
-instructions torra itself sends to its planning model (that's `torra/agent.py`'s
+instructions torra itself sends to its planning model (that's `torra/prompts.py`'s
 `SYSTEM_PROMPT` and `docs/`, a different audience entirely; don't conflate the two).
 
 Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `torra.cli:main`,
@@ -117,7 +117,7 @@ replacement. If any of these is unclear before you act, read the full entry, the
 
 | Invariant | Guarded by |
 |---|---|
-| **The classified command IS the executed command** — `Step.command`/`Step.run` built from the same string | `test_agent.py::test_a_plan_becomes_a_validated_taskspec` |
+| **The classified command IS the executed command** — `Step.command`/`Step.run` built from the same string (`remote_pull`/`remote_push` are torra-built actions; their verdicts come from what they do) | `test_agent.py::test_a_plan_becomes_a_validated_taskspec` |
 | **The model never executes anything** — JSON proposal only, no shell/tool-call loop | `test_pipeline.py::test_a_hand_written_file_still_works_without_a_model` (`ollama.calls == 0`) |
 | **Unapproved means refused, never defaulted to True** | `test_pipeline.py::test_a_dangerous_step_does_not_run_unapproved` |
 | **Safe steps get no checkbox** — only DANGEROUS/CRITICAL render one in the TUI | `test_tui.py::test_a_safe_plan_gets_no_checkbox` |
@@ -170,8 +170,8 @@ a suggested command like `RecoveryOption.action`. To check a var is set, show pr
 ## Code conventions (short form; full in `agents/CONVENTIONS.md`)
 
 Line length 100 (ruff `E501` ignored). No comments unless WHY. One-line docstrings + a
-`Depends on:` line per touched module. CCN<15 ceiling (no function exceeds it today; `Torra.execute` is 14, so a new branch there
-means extracting a helper first).
+`Depends on:` line per touched module. CCN<15 ceiling (none in the graded tiers exceed it; `Torra.execute` is 14, so extract a helper
+before adding a branch).
 Full param + return type hints on new/edited code.
 
 ## Definition of done (short form; full in `agents/LOOP.md`)

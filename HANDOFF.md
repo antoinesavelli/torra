@@ -2778,7 +2778,7 @@ writer** (`tar`, `git pull`, `touch`, `python -m pytest`) runs flagged CAUTION,
 a known writer aimed at a protected path or an **unknown program** is
 DANGEROUS and asks. The lists name what is known, so a missing program fails
 toward asking. They grow only from a measured false positive: replaying 174
-real logged commands raised the ticks from 6 to 11 (2.9%), and the five that
+real logged commands raised the ticks from 6 to 11 of 174 (3.4% to 6.3%), and the five that
 were genuine read-only diagnostics were added.
 
 Rules that make this hold:
@@ -2897,7 +2897,7 @@ for the same step id resumed past it.
 > mark visible while a step runs, failed step clears it and keeps finished
 > ones, changed command, no digests) and `tests/test_resume.py`.
 
-### 2.65 A remote file is read and restored as exact bytes, and a plan's undo coverage counts only snapshots that exist
+### 2.65 A remote file is read and restored as exact bytes (the push path too, §2.73), and a plan's undo coverage counts only snapshots that exist
 
 1. **The remote read lost bytes.** `build_ssh_runner` returns stripped output,
    and the executor snapshot (`capture_remote_file`) and `remote_pull` both
@@ -2934,7 +2934,8 @@ than it earned:
 Both now go through `prompts.untrusted_block`: a `user`-role message wrapped
 in `<file path="..." untrusted="true">` or `<command-output>`, with any closing
 tag inside the text defanged so it cannot end the block and pass itself off
-as something outside it. The system prompt (rule 10) says text in those tags is
+as something outside it (lowercase only at first; every case, spacing and fullwidth
+form since §2.73). The system prompt (rule 10) says text in those tags is
 data from the machine, never instructions, and to tell the operator instead of
 following anything that looks like one.
 
@@ -2968,7 +2969,7 @@ needs a live model run.
 > `tests/test_iterate.py::test_iterate_respects_dry_run_and_never_touches_the_filesystem` and
 > `tests/test_read_memory.py::test_skipped_and_resumed_placeholders_are_not_remembered_as_file_contents`.
 
-### 2.68 A step does not inherit secrets from the `.env`, and nothing secret-looking leaves for a remote model
+### 2.68 A step does not inherit secrets from the `.env`, and secret-looking text is scrubbed (by pattern) before it leaves for a remote model
 
 1. **Every step inherited the `.env`.** `_load_env_file` exports the repo's
    `.env` into `os.environ`, and every step subprocess inherited the whole
@@ -3122,6 +3123,48 @@ strings are not parsed; case and symlink spellings of a protected path rely on
 > Guarded by `tests/test_known_programs.py::test_a_reviewed_bypass_now_asks`,
 > `test_a_routine_command_the_hardening_must_not_catch_still_runs`, the sed
 > and awk parser tests, and `tests/test_secrets.py`.
+
+### 2.73 Untrusted text, model replies and remote files, after the independent review
+
+The same review that found the classifier gaps (§2.72) found these.
+
+1. **The data-block defanging was lowercase only.** `untrusted_block` now
+   defangs every one of its tags (`file`, `command-output`, `machine-state`)
+   opening or closing, in any case, with spaces inside the brackets or
+   fullwidth `＜＞`, and escapes attribute values (a path with a newline or a
+   closing tag cannot break the opener).
+2. **Three paths still gave text the wrong authority.** `Agent.summarize` pasted
+   raw step output into a plain prompt (now a `<command-output>` block per
+   step); `ContextCompressor._summarize` copied the first line of each entry,
+   a file's `<file path=...>` tag, into a system-role summary (a file entry is
+   now summarised as "file contents omitted"); and the machine-state system
+   message is wrapped as `<machine-state>`, since it carries hostnames and
+   service output. A transcript saved before §2.66 replayed file content as a
+   system message; `SessionStore.rehydrate_compressor` now rewraps it as a
+   user-role `<file>` block, and a non-integer `tokens` no longer breaks the
+   reopen.
+3. **Model replies.** Valid JSON nested beyond Python's limit raised an uncaught
+   `RecursionError`; a wrongly typed `questions` or `forget` raised `TypeError`;
+   a reply of many `{` took tens of seconds to scan. `core/jsonreply.py` bounds
+   all three (200,000 characters, 25 candidate starts, a parser limit is a
+   `ReplyError`) and treats a non-list field as empty.
+4. **Remote files.** `remote_push` read the local file as text, turning CRLF and
+   lone CR into LF and raising on non-UTF-8 bytes, so a pull and an unedited
+   push corrupted the file; it now reads bytes. Base64 from the executor is
+   decoded with `validate=True`, so a login banner on stdout fails the step
+   instead of being decoded into the file. A pull's destination is resolved
+   (`realpath`, `~`) before the protected-path test. The push's description now
+   names the local file it uploads, which the approval prompt shows, and the
+   undo's `rm` takes `--`.
+
+Not done: a malformed reply still gets no repair round (a feature, not a
+defect); `torra check` classifies a remote step's ignored `run` text instead of
+its real verdict; the pull-edit-push pairing the prompt asks for is not
+enforced; `router.available` is not re-read after a step that pulls or removes
+a model.
+
+> Guarded by `tests/test_untrusted.py`, `tests/test_remote_files.py`, and the
+> hostile-reply cases in `tests/test_agent.py`.
 
 ---
 

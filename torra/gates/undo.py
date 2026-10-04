@@ -383,7 +383,8 @@ class UndoGenerator:
         """A remote file's exact bytes (the runner strips output, which `cat` lost newlines to)."""
         import base64
         import shlex
-        return base64.b64decode(runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0))
+        return base64.b64decode(runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0),
+                                validate=True)
 
     def capture_remote_file(self, remote_path: str, step_id: str = "") -> UndoAction | None:
         """Snapshot one file on executor (over `self._executor_runner`) and
@@ -412,7 +413,7 @@ class UndoGenerator:
         if not exists:
             def undo_absent() -> None:
                 """Delete whatever the push created on executor."""
-                runner(f"rm -f {shlex.quote(remote_path)}", None, 15.0)
+                runner(f"rm -f -- {shlex.quote(remote_path)}", None, 15.0)
 
             def verify_absent() -> bool:
                 try:

@@ -365,7 +365,7 @@ class TestRemoteEditSteps:
         steps = spec.to_steps(executor_runner=fake_runner)
         step = steps[0]
 
-        assert step.command == "push local edit back to /etc/nginx/nginx.conf on executor"
+        assert step.command == f"push {local_src} to /etc/nginx/nginx.conf on executor"
         output = step.run()
         assert "pushed" in output
         # Base64-encoded in transit -- the real content must not appear

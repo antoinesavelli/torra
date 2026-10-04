@@ -343,7 +343,7 @@ class TaskSpec:
                     action: Callable[[], Any] = build_remote_pull_action(
                         str(remote_path), touches, executor_runner, dry_run, command)
                 else:
-                    command = f"push local edit back to {remote_path} on executor"
+                    command = f"push {reads[0] if reads else 'a local file'} to {remote_path} on executor"
                     action = build_remote_push_action(
                         str(remote_path), reads, executor_runner, dry_run, command)
             else:

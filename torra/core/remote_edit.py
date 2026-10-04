@@ -17,6 +17,7 @@ the other direction, confirmed in torra/gates/router.py's own docstring).
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -77,7 +78,7 @@ def build_remote_pull_action(
         import base64
         import shlex
         content = base64.b64decode(
-            executor_runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0))
+            executor_runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0), validate=True)
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         Path(local_path).write_bytes(content)
         return f"pulled {remote_path} from executor to {local_path}"
@@ -111,8 +112,7 @@ def build_remote_push_action(
                 "(TORRA_EXECUTOR_HOST unset)")
         import base64
         import shlex
-        content = Path(local_path).read_text(encoding="utf-8")
-        encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        encoded = base64.b64encode(Path(local_path).read_bytes()).decode("ascii")
         executor_runner(
             f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}",
             None, 30.0)
@@ -149,5 +149,6 @@ def settle_remote_pull(verdict: Any, step: Any, protected: Callable[[str], bool]
     if step.kind != "remote_pull":
         return
     local = step.touches[0] if step.touches else ""
-    verdict.level = RiskLevel.DANGEROUS if protected(local) else RiskLevel.CAUTION
+    real = os.path.realpath(os.path.expanduser(local)) if local else ""  # `..`, `//`, `~`, symlinks
+    verdict.level = RiskLevel.DANGEROUS if protected(real) or protected(local) else RiskLevel.CAUTION
     verdict.reasons[:] = [f"writes {local or 'a local file'} with the executor's copy"]

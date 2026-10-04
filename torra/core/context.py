@@ -121,7 +121,10 @@ class ContextCompressor:
         lines = [f"[COMPRESSED: {len(chunk)} earlier entries]"]
         for e in chunk:
             head = e.content.strip().splitlines()
-            lines.append(f"- {e.role}: {(head[0] if head else '')[:80]}")
+            first = (head[0] if head else "")[:80]
+            if first.startswith(("<file", "<command-output", "<machine-state")):
+                first = "(file contents omitted)"  # a path or label is text nobody vouched for
+            lines.append(f"- {e.role}: {first}")
         return "\n".join(lines)
 
     def compress(self, force: bool = False) -> CompressionResult:
