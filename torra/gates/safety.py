@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
-from .known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY, trust
+from .known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY, reads_credentials, trust
 
 __all__ = ["RiskLevel", "ResolvedCommand", "Verdict", "SafetyClassifier"]
 
@@ -567,6 +567,9 @@ class SafetyClassifier:
         flags, operands, chars = self._argv_shape(argv)
         protected = any(self._protected(o) for o in operands)
         overwrites_a_document = any(self._looks_like_document_container(o) for o in operands)
+
+        if any(reads_credentials(o) for o in operands):
+            found.append((RiskLevel.DANGEROUS, "touches a file that holds credentials"))
 
         if program in PROGRAM_RISK:
             level, why = PROGRAM_RISK[program]

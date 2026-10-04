@@ -25,17 +25,23 @@ __all__ = ["TaskRecord", "TaskLogger", "redact_secrets"]
 REDACTIONS: list[tuple[str, str]] = [
     (r"\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\b", "<JWT>"),
     (r"\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}\b", "<GITHUB_TOKEN>"),
-    (r"\bsk-[A-Za-z0-9]{20,}\b", "<API_KEY>"),
+    (r"\bsk-[A-Za-z0-9_-]{20,}", "<API_KEY>"),
+    (r"\bxox[abprs]-[A-Za-z0-9-]{10,}", "<SLACK_TOKEN>"),
+    (r"\bAIza[0-9A-Za-z_-]{30,}", "<API_KEY>"),
+    (r"\bhf_[A-Za-z0-9]{30,}", "<API_KEY>"),
+    (r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}", "Bearer <TOKEN>"),
     (r"\bAKIA[0-9A-Z]{16}\b", "<AWS_KEY>"),
-    # \S.*$ (to end of line), not \S+ (one token): a multi-word secret
-    # like "password = super secret phrase" used to redact only
-    # "password = super", leaving "secret phrase" written in the clear.
-    # Most credentials are one token, but this runs over free-form text,
-    # not a config file -- over-redacting the rest of the line is far
-    # cheaper than under-redacting a secret.
-    (r"(?im)\b(password|passwd|secret|token|api[_-]?key)\s*[=:]\s*\S.*$",
-     r"\1=<REDACTED>"),
-    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+    (r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@", r"\1<REDACTED>@"),
+    # A JSON value under a secret-looking key, whatever else the key is called.
+    (r'(?i)("[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key'
+     r'|private[_-]?key)[A-Za-z0-9_.-]*"\s*:\s*)"[^"]*"', r'\1"<REDACTED>"'),
+    # \S.*$ (to end of line), not \S+ (one token): a multi-word secret like
+    # "password = super secret phrase" used to redact only "password = super".
+    # Over-redacting the rest of the line is far cheaper than under-redacting a
+    # secret. The name may carry a prefix or suffix (OPENROUTER_API_KEY, AUTH_TOKEN).
+    (r"(?im)(?<![A-Za-z0-9])([A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key"
+     r"|access[_-]?key|private[_-]?key)[A-Za-z0-9_.-]*)\s*[=:]\s*\S.*$", r"\1=<REDACTED>"),
+    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
      "<PRIVATE_KEY>"),
 ]
 

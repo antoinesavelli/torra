@@ -202,6 +202,7 @@ def _tar_paths(argv: Sequence[str]) -> list[str]:
 
 
 def _rsync(argv: Sequence[str]) -> str | None:
+    """A local sync is bounded; deleting, or any remote operand, needs a tick."""
     deleting = any(f.startswith(("--delete", "--remove-source-files")) for f in _long(argv))
     return None if deleting else BOUNDED_WRITE
 
@@ -375,6 +376,25 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
                                         "--list-delete", "--db", "--dbx", "--kek", "--pk",
                                         "--mokx", "--help", "--version"})),
 }
+
+
+_CREDENTIAL_NAME = re.compile(
+    r"^(?:\.env(?:\.(?!example$|sample$|template$|dist$)[\w.-]+)?|id_(?:rsa|dsa|ecdsa|ed25519)"
+    r"|credentials|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.pypirc|g?shadow"
+    r"|secrets?\.(?:ya?ml|json|toml)|ssh_host_\w+_key|.+\.(?:key|p12|pfx|kdbx)|secring\.gpg)$")
+_SSH_PUBLIC = re.compile(r"^(?:.+\.pub|known_hosts.*|config|authorized_keys.*)$")
+
+
+def reads_credentials(path: str) -> bool:
+    """True when `path` names a file that holds credentials: an env file, a private key, a cloud
+    or git credentials file, anything under ~/.aws or ~/.gnupg. Reading one puts the secret in
+    front of the model, and from there possibly a remote one, so it needs a tick."""
+    name = path.rstrip("/").rsplit("/", 1)[-1]
+    if "/.aws/" in path or "/.gnupg/" in path:
+        return True
+    if "/.ssh/" in path and not _SSH_PUBLIC.match(name):
+        return True
+    return bool(_CREDENTIAL_NAME.match(name))
 
 
 def _program(argv0: str) -> str | None:
