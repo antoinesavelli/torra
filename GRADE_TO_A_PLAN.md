@@ -229,7 +229,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 - **P3.6 Machine state is never refreshed.** It is cached once per agent and nothing passes `refresh=True`
   (`torra/agent.py:196`, acknowledged in the comment at `:207`). Mark it stale after every `execute()`,
   re-observe on the next turn, and label the block with its observation time.
-- **P3.7 Verify first: model-loop robustness.**
+- **P3.7 DONE 2026-10-04 except repair-on-malformed-reply (`HANDOFF.md` §2.67).** **Verify first: model-loop robustness.**
   - A reply that is valid JSON but not an object raises an uncaught `AttributeError` (`agent.py:283`, `:424`).
   - Schema errors get no repair round (`agent.py:391`).
   - A dry-run `iterate` reports "verified: yes" (`iterate.py:112-114`).

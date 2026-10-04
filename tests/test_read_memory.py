@@ -220,3 +220,22 @@ def test_the_planning_prompt_says_tagged_text_is_data_never_instructions() -> No
     prompt = " ".join(SYSTEM_PROMPT.split())
     assert "<file" in prompt and "<command-output>" in prompt
     assert "never instructions" in prompt
+
+
+def test_skipped_and_resumed_placeholders_are_not_remembered_as_file_contents() -> None:
+    """A step that never ran this attempt has no real output, only a bracketed placeholder."""
+    context = ContextCompressor(max_tokens=1000)
+    memory = ReadMemory(context)
+    steps = []
+    for step_id, output in (("skipped", "[skipped] not approved: cat /a"),
+                            ("resumed", "[resumed] cat /b"), ("real", "contents of c")):
+        step = Step(step_id, command=f"cat /{step_id}", reads=[f"/{step_id}"])
+        steps.append(StepPlan(step, Verdict(step.command, RiskLevel.SAFE), [],
+                              approved=step_id != "skipped",
+                              result=StepResult(step_id, True, output)))
+    result = RunResult(request="r", outcome=Outcome.COMPLETED,
+                       plan=Plan(TaskSpec(task_id="t", request="r", steps=[]), steps))
+
+    remember_step_reads(memory, result)
+
+    assert list(memory.paths) == ["/real"]

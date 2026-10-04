@@ -111,7 +111,8 @@ def iterate(
     while True:
         verify_result = run_round(verify_request)
         if verify_result.outcome is Outcome.COMPLETED:
-            report.verified = True
+            report.verified = not dry_run
+            report.give_up_reason = "dry run: nothing was actually verified" if dry_run else ""
             return report
 
         if report.fix_attempts >= max_iterations:

@@ -115,7 +115,9 @@ def remember_step_reads(memory: ReadMemory, result: RunResult) -> None:
     if result.plan is None:
         return
     for sp in result.plan.steps:
-        if not sp.step.reads or sp.result is None or not sp.result.ok:
+        if not sp.step.reads or sp.result is None or not sp.result.ok or sp.approved is False:
             continue
+        if sp.result.output.startswith(("[skipped]", "[resumed]")):
+            continue  # a placeholder: this step produced no output of its own
         for path in sp.step.reads:
             memory.remember(path, sp.result.output)

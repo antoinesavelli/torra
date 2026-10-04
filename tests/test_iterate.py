@@ -150,7 +150,8 @@ def test_iterate_respects_dry_run_and_never_touches_the_filesystem(
 
     report = iterate(h, "add x", "check", _approve_everything, dry_run=True)
 
-    assert report.verified
+    assert not report.verified, "a dry run checked nothing, so it cannot report success"
+    assert "dry run" in report.give_up_reason
     assert not marker.exists()
 
 

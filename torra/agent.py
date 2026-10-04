@@ -280,7 +280,9 @@ class Agent:
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(),
                          flags=re.MULTILINE).strip()
         try:
-            return json.loads(cleaned)
+            data = json.loads(cleaned)
+            if isinstance(data, dict):
+                return data
         except json.JSONDecodeError:
             pass
         candidate = Agent._find_json_object(cleaned)

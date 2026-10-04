@@ -2948,6 +2948,26 @@ needs a live model run.
 > tag, the prompt rule) and `tests/test_iterate.py` (verify output wrapped and
 > defanged).
 
+### 2.67 Three small honesty gaps in the model loop
+
+1. **A reply that was valid JSON but not an object crashed planning.**
+   `json.loads("[]")` is a list, and `.get` on it raised an uncaught
+   `AttributeError`. `Agent._extract_json` now accepts only an object, falls
+   back to the first brace-balanced object, and otherwise raises `AgentError`
+   like any other unusable reply. Not done: giving a malformed reply a repair
+   round the way a vague plan gets one (`agent.py` has no room for it without a
+   split, and it is a feature rather than a defect).
+2. **A dry-run `ask --verify` reported "verified: yes".** A dry run runs
+   nothing, so nothing was verified. `iterate` now leaves `verified` false and
+   says why.
+3. **A step that never ran was remembered as file contents.** A declined step's
+   `[skipped] ...` or a resumed step's `[resumed] ...` placeholder was fed to
+   the model as what a file contained. `remember_step_reads` now skips both.
+
+> Guarded by `tests/test_agent.py::test_a_json_reply_that_is_not_an_object_is_an_agent_error_not_a_crash`,
+> `tests/test_iterate.py::test_iterate_respects_dry_run_and_never_touches_the_filesystem` and
+> `tests/test_read_memory.py::test_skipped_and_resumed_placeholders_are_not_remembered_as_file_contents`.
+
 ---
 
 ## 3. Things already tried that failed

@@ -1249,3 +1249,10 @@ def test_remember_failure_does_not_break_the_turn() -> None:
     turn = agent.converse("hello")
 
     assert turn.intent is Intent.ANSWER, "the turn itself must still complete"
+
+
+@pytest.mark.parametrize("reply", ["[]", "[1, 2]", "null", "5", '"a string"'])
+def test_a_json_reply_that_is_not_an_object_is_an_agent_error_not_a_crash(reply: str) -> None:
+    """`json.loads("[]")` is a list, and `.get` on it was an uncaught AttributeError."""
+    with pytest.raises(AgentError):
+        Agent._extract_json(reply)
