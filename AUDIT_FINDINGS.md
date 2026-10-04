@@ -1,5 +1,8 @@
 # Audit findings — closed
 
+> Open findings from the 2026-10-03 domain grade are tracked in `GRADE_TO_A_PLAN.md`, one entry per
+> finding with its status. This file keeps the closed 2026-07-29 audit.
+
 **Date:** 2026-07-29. **Scope:** every module under `torra/` (23 files), plus
 `cli.py`, `tui.py`, `pipeline.py`, `agent.py`, `pyproject.toml`,
 `.github/workflows/ci.yml`. **Method:** read every file end to end, verified
