@@ -2,7 +2,7 @@
 context, tagged by the file path it came from, and lets the model later
 say a path's content no longer helps.
 
-Depends on: torra.core (ContextCompressor, ContextStep), torra.pipeline_types
+Depends on: torra.core (ContextCompressor, ContextStep), torra.prompts (untrusted_block), torra.pipeline_types
 (RunResult -- type-checking only, see the TYPE_CHECKING guard below for why a
 real import would cycle back through torra.agent). Split out of
 agent.py/pipeline.py, which mix conversation/execution *logic* with this one
@@ -18,6 +18,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from .core import ContextCompressor, ContextStep
+from .prompts import untrusted_block
 
 if TYPE_CHECKING:
     # Not a real runtime import: torra.pipeline_types imports Turn from
@@ -71,7 +72,8 @@ class ReadMemory:
             shown = content if len(content) <= self.CAP else (
                 content[:self.CAP] + f"\n[truncated, {len(content) - self.CAP} more bytes]")
             entry_id = f"read:{path}"
-            step = self.context.add(entry_id, "system", f"[read {path}]\n{shown}")
+            step = self.context.add(entry_id, "user",
+                                    untrusted_block("file", shown, path=path, untrusted="true"))
             if self._on_change:
                 self._on_change(step)
             self.paths[path] = entry_id

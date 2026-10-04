@@ -207,7 +207,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 - **P3.2 Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.
-- **P3.3 Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
+- **P3.3 DONE 2026-10-04 (`HANDOFF.md` §2.66; the model-bench injection scenario is not done, it needs a live model).** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
   `system`-role message with an opening `[read path]` header and no end marker (`torra/read_memory.py:74`).
   `iterate` pastes raw verify output into the operator's next request (`torra/iterate.py:124-128`). Changes:
   - move file contents out of the system role and wrap them in
