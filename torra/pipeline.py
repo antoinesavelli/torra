@@ -42,6 +42,7 @@ from .core import (
     resolve_resume,
 )
 from .core.remote_edit import escalate_remote_push, settle_remote_pull
+from .core.resume import begin_step, command_digest, end_step, interrupted_reason
 from .core.tasks import shell_output_sink
 from .dependency_warnings import dependency_warnings as _dependency_warnings
 from .gates import (
@@ -338,7 +339,8 @@ class Torra:
         result.results = []
         resume_path = self.workdir / "resume" / f"{self._safe_filename(plan.spec.task_id)}.json"
         resolution = resolve_resume(
-            plan.spec.task_id, [sp.step.step_id for sp in plan.steps],
+            plan.spec.task_id,
+            {sp.step.step_id: command_digest(sp.step.command) for sp in plan.steps},
             len(plan.steps), resume_path, dry_run)
         if resolution.note:
             self.decisions.log(
@@ -347,7 +349,7 @@ class Torra:
                 else "resume point ignored", resolution.note)
 
         failed = self._run_steps(plan, result, dry_run, resolution.resume, resume_path,
-                                 on_output, resolution.resumed_steps)
+                                 on_output, resolution.resumed_steps, resolution.interrupted)
 
         if failed:
             self._sweep_rollback(result, resume_path, held)
@@ -386,10 +388,13 @@ class Torra:
             f"{sum(len(sp.undos) for sp in approved) + len(held)} undo(s) ready")
         return held
 
-    def _arm_step(self, sp: StepPlan, dry_run: bool) -> None:
-        """Put one step's derived undos on the stack, right before it runs."""
+    def _arm_step(self, sp: StepPlan, dry_run: bool, resume: ResumePoint,
+                  resume_path: Path) -> None:
+        """Right before a step runs: its derived undos go on the stack and the resume file
+        records it as in flight."""
         if not dry_run:
             self.rollback.push_many(sp.undos)
+            begin_step(resume, resume_path, sp.step.step_id)
 
     def _block_on_conflict(self, found: Sequence[Conflict], sp: StepPlan,
                            result: RunResult) -> None:
@@ -404,7 +409,8 @@ class Torra:
     def _run_steps(self, plan: Plan, result: RunResult, dry_run: bool,
                     resume: ResumePoint, resume_path: Path,
                     on_output: Callable[[str, str], None] | None = None,
-                    resumed_steps: AbstractSet[str] = frozenset()) -> bool:
+                    resumed_steps: AbstractSet[str] = frozenset(),
+                    interrupted: str = "") -> bool:
         """Run each step in order, True if it failed/blocked. Guards run
         inside this loop, not once before it: state can change mid-run."""
         for sp in plan.steps:
@@ -433,6 +439,11 @@ class Torra:
                 result.results.append(sp.result)
                 continue
 
+            if sp.step.step_id == interrupted:
+                result.outcome = Outcome.BLOCKED
+                result.abort_reason = interrupted_reason(interrupted, resume_path)
+                return True
+
             if self.recheck_between_steps:
                 veto = self.verifier.guard()
                 if veto:
@@ -447,8 +458,9 @@ class Torra:
                 self._block_on_conflict(found, sp, result)
                 return True
 
-            self._arm_step(sp, dry_run)
+            self._arm_step(sp, dry_run, resume, resume_path)
             sp.result = self._run_one_step(sp, result, dry_run, on_output)
+            end_step(resume, resume_path, sp.step.step_id, sp.step.command, sp.result.ok, dry_run)
 
             if not sp.result.ok:
                 result.outcome = Outcome.FAILED
@@ -458,15 +470,6 @@ class Torra:
                 return True
 
             self.conflicts.refresh(sp.step.touches)
-            if not dry_run:
-                # Never written during a dry run -- see this method's and
-                # _resolve_resume's docstrings for why a resume point must
-                # only ever describe steps that genuinely ran.
-                resume.completed.append(sp.step.step_id)
-                try:
-                    resume.save(resume_path)
-                except Exception:
-                    pass  # a resume point is a nicety, not a reason to stop
         return False
 
     @staticmethod
@@ -514,17 +517,16 @@ class Torra:
                         held: Sequence[UndoAction]) -> None:
         """Undo everything pushed so far, if there's anything to undo.
 
-        Drops the resume file the same as a clean success does -- a
-        rollback (attempted or not, complete or not) means the steps a
-        resume point would otherwise vouch for as "genuinely done" got
-        reversed, or an attempt was made to. Leaving the file behind would
-        let a later retry skip steps whose effects it can no longer trust
-        are actually still applied to the machine (HANDOFF.md §6.4)."""
+        Drops the resume file only when a rollback was attempted (complete or not): that
+        reversed, or tried to reverse, steps the file would vouch for as done, and a retry
+        must not skip steps it can no longer trust are still applied (HANDOFF.md §6.4). A
+        block or failure that rolled nothing back keeps it, with its record of what finished."""
         sweep(self.rollback, self.decisions, result, held)
-        try:
-            resume_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if result.rollback is not None:
+            try:
+                resume_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _finish_success(self, result: RunResult, dry_run: bool, resume_path: Path) -> None:
         """Mark completed, drop rollback state, clean shadows, drop the resume file."""

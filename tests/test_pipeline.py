@@ -15,7 +15,7 @@ import pytest
 from conftest import plan_reply, scripted
 
 from torra.core import ConflictDetector, OllamaClient, OllamaError, RecoveryOption, Step, TaskSpec
-from torra.core.resume import ResumePoint
+from torra.core.resume import ResumePoint, command_digest
 from torra.gates import (
     DecisionLog,
     Precondition,
@@ -629,7 +629,8 @@ class TestResume:
         planned = torra.plan("two steps")
 
         resume_path = self._resume_path(tmp_path, "t")
-        ResumePoint(task_id="t", completed=["first"], total=2).save(resume_path)
+        ResumePoint(task_id="t", completed=["first"], total=2,
+                    digests={"first": command_digest(f"printf x >> {counter}")}).save(resume_path)
 
         result = torra.execute(planned, {})
 
@@ -660,6 +661,86 @@ class TestResume:
         assert result.outcome is Outcome.COMPLETED
         assert marker.exists(), "the mismatched resume point must be ignored, not trusted"
         assert result.results[0].output != "[resumed] " + result.results[0].output
+
+    def test_a_resume_point_without_digests_is_not_trusted(
+            self, make_torra, tmp_path: Path) -> None:
+        """The older format named completed steps but not what they ran."""
+        marker = tmp_path / "marker"
+        torra = make_torra(scripted(plan_reply(
+            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        planned = torra.plan("one step")
+        ResumePoint(task_id="t", completed=["s"], total=1).save(self._resume_path(tmp_path, "t"))
+
+        result = torra.execute(planned, {})
+
+        assert marker.exists() and not result.results[0].output.startswith("[resumed]")
+
+    def test_a_step_whose_command_changed_is_not_vouched_for(
+            self, make_torra, tmp_path: Path) -> None:
+        marker = tmp_path / "marker"
+        torra = make_torra(scripted(plan_reply(
+            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        planned = torra.plan("one step")
+        ResumePoint(task_id="t", completed=["s"], total=1,
+                    digests={"s": command_digest("something else entirely")}
+                    ).save(self._resume_path(tmp_path, "t"))
+
+        result = torra.execute(planned, {})
+
+        assert marker.exists() and not result.results[0].output.startswith("[resumed]")
+
+    def test_a_step_left_in_flight_by_a_crash_is_never_rerun_automatically(
+            self, make_torra, tmp_path: Path) -> None:
+        """The process died while `second` was running: its effect is unknown, so the next
+        attempt stops and says so rather than running it again."""
+        done = tmp_path / "done"
+        torra = make_torra(scripted(plan_reply(
+            "t", "two steps",
+            [{"id": "first", "run": "true"},
+             {"id": "second", "run": f"touch {done}"}])))
+        planned = torra.plan("two steps")
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(task_id="t", completed=["first"], total=2, in_progress="second",
+                    digests={"first": command_digest("true")}).save(resume_path)
+
+        result = torra.execute(planned, {})
+
+        assert result.outcome is Outcome.BLOCKED
+        assert "was running when torra stopped" in result.abort_reason
+        assert str(resume_path) in result.abort_reason
+        assert not done.exists()
+        assert ResumePoint.load(resume_path) is not None, "the record of what finished is kept"
+
+    def test_the_resume_file_marks_a_step_in_flight_while_it_runs(
+            self, make_torra, tmp_path: Path) -> None:
+        resume_path = self._resume_path(tmp_path, "t")
+        seen: list[str] = []
+        torra = make_torra(scripted(plan_reply(
+            "t", "one step", [{"id": "s", "run": "true"}])))
+        planned = torra.plan("one step")
+        real = planned.plan.steps[0].step.run  # type: ignore[union-attr]
+
+        def watching() -> str:
+            point = ResumePoint.load(resume_path)
+            seen.append(point.in_progress if point else "<no file>")
+            return str(real())  # type: ignore[misc]
+
+        planned.plan.steps[0].step.run = watching  # type: ignore[union-attr]
+        torra.execute(planned, {})
+
+        assert seen == ["s"]
+
+    def test_a_failed_step_clears_its_in_flight_mark_and_keeps_the_finished_ones(
+            self, make_torra, tmp_path: Path) -> None:
+        resume_path = self._resume_path(tmp_path, "t")
+        torra = make_torra(scripted(plan_reply(
+            "t", "two steps", [{"id": "ok", "run": "true"}, {"id": "bad", "run": "exit 1"}])))
+
+        done = torra.execute(torra.plan("two steps"), {})
+
+        assert done.outcome is Outcome.FAILED
+        point = ResumePoint.load(resume_path)
+        assert point is not None and point.in_progress == "" and point.completed == ["ok"]
 
     def test_a_mismatched_total_is_not_trusted(
             self, make_torra, tmp_path: Path) -> None:

@@ -2867,6 +2867,36 @@ disk precondition the CLI installs. Tabs after the first had none.
 > ownerless shadow directories, owner file survives cleanup) and
 > `tests/test_tui.py::test_every_tab_gets_the_default_disk_precondition`.
 
+### 2.64 A step in flight at a crash is never re-run by itself, and a resume only vouches for steps whose command is unchanged
+
+The resume file recorded a step only after it finished, and matched steps by
+id alone. Two consequences: a step that was running when the process died
+looked never attempted and ran again (a deploy, a migration, a package
+install, twice), and a plan that reused a task id with a different command
+for the same step id resumed past it.
+
+1. **A step is marked before it runs.** `begin_step` writes `in_progress`
+   (temp file, fsync, atomic rename) just before the step starts, and
+   `end_step` clears it. If the process dies in between, the mark survives.
+2. **The next attempt stops there.** `resolve_resume` reports the marked step
+   as interrupted and `_run_steps` returns BLOCKED with the step id and the
+   resume file's path: check what the step did, then delete the file to start
+   the task over. Nothing is re-run automatically. The record of what finished
+   is kept, and resumed steps still get no undo (§2.59).
+3. **Completed steps carry a command digest.** A step is only vouched for when
+   its stored digest equals the plan's. A file in the older format has no
+   digests, so it starts fresh. This is a persisted-state format change:
+   `digests` and `in_progress` are new fields with defaults, so old files still
+   load.
+4. **The file survives a block that rolled nothing back.** `_sweep_rollback`
+   used to delete it on every failed or blocked run, so a block before any
+   step ran this attempt threw away the record of what an earlier attempt had
+   finished. It now deletes it only when a rollback was attempted.
+
+> Guarded by `tests/test_pipeline.py::TestResume` (in-flight step never re-run,
+> mark visible while a step runs, failed step clears it and keeps finished
+> ones, changed command, no digests) and `tests/test_resume.py`.
+
 ---
 
 ## 3. Things already tried that failed

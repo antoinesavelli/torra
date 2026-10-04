@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from torra.core import ResumePoint, TorraError
+from torra.core import ResumePoint, TorraError, resolve_resume
+from torra.core.resume import begin_step, command_digest, end_step
 
 
 def test_load_of_an_absent_file_returns_none(tmp_path: Path) -> None:
@@ -87,3 +88,38 @@ def test_save_swallows_a_cleanup_failure_after_a_write_failure(
         ResumePoint(task_id="t").save(target)
 
     assert tmp.exists(), "the unlink failure means the stray .tmp file survives"
+
+
+def test_the_in_flight_mark_and_digests_round_trip(tmp_path: Path) -> None:
+    target = tmp_path / "t.json"
+    ResumePoint(task_id="t", completed=["a"], total=2, in_progress="b",
+                digests={"a": command_digest("echo a")}).save(target)
+
+    loaded = ResumePoint.load(target)
+
+    assert loaded is not None
+    assert loaded.in_progress == "b" and loaded.digests == {"a": command_digest("echo a")}
+
+
+def test_a_file_in_the_older_format_still_loads_but_vouches_for_nothing(tmp_path: Path) -> None:
+    target = tmp_path / "t.json"
+    target.write_text('{"task_id": "t", "completed": ["a"], "total": 1, "file_hashes": {},'
+                      ' "at": 1.0}', encoding="utf-8")
+
+    resolution = resolve_resume("t", {"a": command_digest("echo a")}, 1, target, dry_run=False)
+
+    assert resolution.resumed_steps == frozenset()
+    assert "doesn't match" in (resolution.note or "")
+
+
+def test_end_step_counts_only_a_real_successful_step(tmp_path: Path) -> None:
+    target = tmp_path / "t.json"
+    point = ResumePoint(task_id="t", total=3)
+    begin_step(point, target, "a")
+    end_step(point, target, "a", "echo a", ok=True, dry_run=False)
+    begin_step(point, target, "b")
+    end_step(point, target, "b", "false", ok=False, dry_run=False)
+    end_step(point, tmp_path / "never.json", "c", "echo c", ok=True, dry_run=True)
+
+    assert point.completed == ["a"] and point.in_progress == ""
+    assert not (tmp_path / "never.json").exists()
