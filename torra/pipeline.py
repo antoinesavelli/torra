@@ -606,6 +606,8 @@ class Torra:
         # complete but the run is not, so the stage list is left open for
         # execute() to continue and no audit record is written yet.
         result.seconds = time.perf_counter() - started
+        if result.executed and not dry_run:
+            self.agent.state = None  # a step changed the machine: observe it again next turn
         if not write_audit:
             result.decisions = self.decisions.trail()
             return result

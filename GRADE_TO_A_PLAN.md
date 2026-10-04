@@ -226,7 +226,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   executor" and never names the local file it writes (`torra/core/tasks.py:340`,
   `torra/core/remote_edit.py:79-80`). Name the destination in the classified text, run it through the
   protected-path check, and snapshot the file it overwrites. Ask-first.
-- **P3.6 Machine state is never refreshed.** It is cached once per agent and nothing passes `refresh=True`
+- **P3.6 DONE 2026-10-04 (`HANDOFF.md` §2.69; stale-after-run rather than a time label).** **Machine state is never refreshed.** It is cached once per agent and nothing passes `refresh=True`
   (`torra/agent.py:196`, acknowledged in the comment at `:207`). Mark it stale after every `execute()`,
   re-observe on the next turn, and label the block with its observation time.
 - **P3.7 DONE 2026-10-04 except repair-on-malformed-reply (`HANDOFF.md` §2.67).** **Verify first: model-loop robustness.**

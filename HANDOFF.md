@@ -2990,6 +2990,19 @@ needs a live model run.
 > `TestOpenRouterClient::test_secrets_are_scrubbed_from_what_leaves_the_machine` and
 > `tests/test_cli.py::TestLoadEnvFile::test_names_loaded_from_the_file_are_withheld_from_steps_but_exports_are_not`.
 
+### 2.69 The observed machine state is refreshed after a run that could have changed it
+
+`Agent.observe()` caches the machine's state (disk, services, models) once, and
+nothing ever passed `refresh=True`, so the turn after a deploy or a package
+install reasoned from facts that step had just changed, while rule 9 of the
+system prompt tells the model to contradict the operator when the operator
+disagrees with that state. `Torra._finish` now clears the cache after any real
+(non-dry) run that executed a step, so the next `converse()` observes again. A
+dry run changed nothing and leaves it alone. The cost is one more round of
+read-only probes on the next turn.
+
+> Guarded by `tests/test_pipeline.py::test_a_real_run_marks_the_observed_machine_state_stale`.
+
 ---
 
 ## 3. Things already tried that failed

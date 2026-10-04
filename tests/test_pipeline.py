@@ -2042,3 +2042,17 @@ def test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back(make_torra, tmp_pa
     assert done.outcome is Outcome.FAILED
     assert "KeyboardInterrupt" in done.abort_reason
     assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_a_real_run_marks_the_observed_machine_state_stale(make_torra) -> None:
+    """The state was observed once per agent and never refreshed, so the next turn reasoned
+    from disk and service facts a step had just changed (HANDOFF.md §2.69)."""
+    torra = make_torra(scripted(plan_reply("t", "touch", [{"id": "s", "run": "true"}])))
+    planned = torra.plan("touch")
+    assert torra.agent.state is not None
+
+    torra.execute(planned, {}, dry_run=True)
+    assert torra.agent.state is not None, "a dry run changed nothing"
+
+    torra.execute(planned, {})
+    assert torra.agent.state is None, "the next turn must observe the machine again"
