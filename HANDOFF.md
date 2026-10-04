@@ -3073,6 +3073,56 @@ holds the pipes open until the timeout.
 > `tests/test_resume.py` (wrong-typed files), and
 > `tests/test_gates.py::TestServiceStateHelpers`.
 
+### 2.72 The classifier was hardened against what a source-reading review got past it
+
+A blind red-team (63 commands, written without seeing the code) found nothing.
+A reviewer who read `safety.py` and `known_programs.py` found about seventy
+commands that ran without a tick. They fall into a few shapes, each closed
+structurally rather than one command at a time:
+
+1. **Option handling.** A flag written as an abbreviation (`--out` for
+   `--output`, `--del`, `--req`) or with an attached value (`-C/etc`,
+   `-t/dir`, `unzip -d/etc`) slipped past exact matching. Deny lists now match
+   abbreviations (`_hits`), destination flags are collected for every writer,
+   and `ip`, `sed`, `awk` and `git config` are judged by what they positively
+   accept (a verb allowlist for `ip`, a parser for `sed`, string literals
+   blanked before `awk` is checked) instead of by what they are known to avoid.
+2. **Things that run a command indirectly.** `<(...)` and `>(...)` are judged
+   like `$(...)`; `env -S`, `su -c`/`-lc`/`--command` and `bash -lc` are
+   unwrapped or left as the unknown program; a function definition hides no
+   body; `git -c`, `git --output`, `git grep -O`, `tar -I`/`--checkpoint-action`,
+   `rg --pre`, `rsync -e` and abbreviated destructive options ask; environment
+   prefixes that change what later commands run (`PATH`, `LD_PRELOAD`,
+   `PAGER`, anything `GIT_*`) are DANGEROUS.
+3. **Programs listed read-only that have a write option.** `less`, `more`,
+   `tree -o`, `xxd -r`, `sdiff -o`, `sensors -s`, `file -C`, `ip` with an
+   abbreviated verb, and `pip config set` are no longer unconditional.
+4. **Python purity.** Module attributes that are themselves modules (`uuid.os`,
+   `json.codecs`) and string-based attribute access (`operator`) are refused.
+5. **Context.** A `cd` into a system directory followed by a write is DANGEROUS,
+   because relative paths can no longer be judged; a destination whose root
+   torra cannot see (`$d`, a substitution) asks; a program named by a path with
+   `..` is not the system one; `kill` of a computed pid asks; `docker run
+   --privileged`, a bind mount of a system or home directory, `apt install x-`
+   (which removes) and restarting the display manager or `ssh` ask; `git checkout
+   .`/`-f`/`--` and `switch -f` throw away work and ask.
+6. **Credentials.** Reading `.env`, a private key or `~/.aws` asks (§2.71's
+   sibling in `known_programs.reads_credentials`), except for programs that
+   only report names and sizes (`ls`, `stat`, `test`).
+
+Replaying 174 real commands: 11 need a tick, against 6 before any of this
+work; the five new ones are programs torra has never been told about.
+
+Known and left open: `pytest` and `pip install` run arbitrary code and stay
+CAUTION by design; a relative path after a `cd` into a non-system directory is
+not tracked; `tmux display-message` and similar program-specific format
+strings are not parsed; case and symlink spellings of a protected path rely on
+`_protected`'s own normalisation, which another change is extending.
+
+> Guarded by `tests/test_known_programs.py::test_a_reviewed_bypass_now_asks`,
+> `test_a_routine_command_the_hardening_must_not_catch_still_runs`, the sed
+> and awk parser tests, and `tests/test_secrets.py`.
+
 ---
 
 ## 3. Things already tried that failed

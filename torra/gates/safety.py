@@ -163,6 +163,20 @@ CONTROL_PREFIXES: frozenset[str] = frozenset({"do", "then", "else", "elif", "whi
                                               "if", "!", "{"})
 STRUCTURE_ONLY: frozenset[str] = frozenset({"for", "done", "fi", "in", "}", ")"})
 
+#: Assignments whose value changes what a later command runs (a search path, a pager, a git helper).
+RISKY_ENV: frozenset[str] = frozenset("""
+PATH LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT BASH_ENV ENV PAGER MANPAGER EDITOR VISUAL BROWSER SHELL
+IFS PYTHONPATH PYTHONSTARTUP PYTHONHOME PERL5OPT PERL5LIB RUBYOPT NODE_OPTIONS SSH_ASKPASS
+LESSOPEN LESSCLOSE
+""".split())
+#: Programs that report only names, sizes and existence, never a file's contents: pointing them at a
+#: credentials file reveals no secret.
+METADATA_ONLY: frozenset[str] = frozenset({"ls", "dir", "vdir", "stat", "test", "[", "[[", "du", "df",
+                                           "find", "realpath", "readlink", "basename", "dirname"})
+#: Units whose restart or stop can cut the session torra is running in.
+CRITICAL_UNITS: tuple[str, ...] = ("display-manager", "gdm", "lightdm", "sddm", "networkmanager",
+                                   "network-manager", "systemd-logind", "ssh", "sshd", "dbus")
+
 HEREDOC = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n(?:.*?\n)?[ \t]*\2[ \t]*(?=\n|$)",
                      re.DOTALL)
 
@@ -223,6 +237,7 @@ class SafetyClassifier:
         """Set the recursion limit for unwrapping nested interpreters."""
         self.max_depth = int(max_depth)
         self.parse_failures: list[str] = []
+        self.env_risks: list[str] = []
 
     # -- resolution -------------------------------------------------------- #
 
@@ -312,11 +327,19 @@ class SafetyClassifier:
             return segment.split()
 
     @staticmethod
+    def _env_runs_a_string(out: list[str]) -> bool:
+        """`env -S 'cmd args'` and `env --split-string=...` run a command string."""
+        return out[0].rsplit("/", 1)[-1] == "env" and any(
+            a.startswith(("-S", "--split-string")) for a in out[1:4])
+
+    @staticmethod
     def _consume_wrapper(out: list[str]) -> bool:
         """Pop a leading wrapper program with its flags and duration, if
         present. Mutates `out` in place; returns whether anything was consumed."""
         if not out or out[0].rsplit("/", 1)[-1] not in WRAPPERS:
             return False
+        if SafetyClassifier._env_runs_a_string(out):
+            return False  # leave `env` as the program, which asks
         wrapper = out.pop(0).rsplit("/", 1)[-1]
         value_flags = WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
         while out and (out[0] == "--" or out[0].startswith("-")):
@@ -328,7 +351,7 @@ class SafetyClassifier:
             # its value in the one token just popped.
             if flag in value_flags and "=" not in flag and out:
                 out.pop(0)
-        if out and re.fullmatch(r"\d+[smhd]?", out[0]):
+        if out and re.fullmatch(r"\d+(?:\.\d+)?[smhd]?", out[0]):
             out.pop(0)
         return True
 
@@ -347,6 +370,8 @@ class SafetyClassifier:
             while out and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", out[0]):
                 name, _, value = out[0].partition("=")
                 env[name] = value
+                if name in RISKY_ENV or name.startswith("GIT_"):
+                    self.env_risks.append(name)
                 out.pop(0)
                 changed = True
             if out and out[0] in CONTROL_PREFIXES:
@@ -420,7 +445,7 @@ class SafetyClassifier:
         spans: list[str] = []
         i, n = 0, len(command)
         while i < n:
-            if command[i:i + 2] == "$(":
+            if command[i:i + 2] in ("$(", "<(", ">("):
                 j = self._matching_paren(command, i + 2)
                 if j is None:
                     break
@@ -441,7 +466,9 @@ class SafetyClassifier:
         (`_resolve_substitutions`); its inner spaces and `|` must not split or garble the outer
         command, as in `VERSION=$(git rev-parse HEAD)`."""
         for span in self._find_command_substitutions(command):
-            command = command.replace(f"$({span})", "SUBST", 1).replace(f"`{span}`", "SUBST", 1)
+            for opener in ("$(", "<(", ">(", "`"):
+                closer = "`" if opener == "`" else ")"
+                command = command.replace(f"{opener}{span}{closer}", "SUBST", 1)
         return command
 
     @staticmethod
@@ -512,7 +539,8 @@ class SafetyClassifier:
         if program == "eval" and len(argv) > 1:
             out += [ResolvedCommand(r.argv, r.source, "eval")
                     for r in self.resolve(" ".join(argv[1:]), depth + 1)]
-        payload = argv[argv.index("-c") + 1] if program in INTERPRETERS and "-c" in argv[:-1] else ""
+        at = next((i for i, a in enumerate(argv[:-1]) if re.fullmatch(r"-[A-Za-z]*c", a)), None)
+        payload = argv[at + 1] if program in INTERPRETERS and at is not None else ""
         if not payload:
             return out + [ResolvedCommand(argv, segment)]
         # Only a *shell* interpreter's -c payload is worth recursing into as more shell
@@ -568,7 +596,7 @@ class SafetyClassifier:
         protected = any(self._protected(o) for o in operands)
         overwrites_a_document = any(self._looks_like_document_container(o) for o in operands)
 
-        if any(reads_credentials(o) for o in operands):
+        if program not in METADATA_ONLY and any(reads_credentials(o) for o in operands):
             found.append((RiskLevel.DANGEROUS, "touches a file that holds credentials"))
 
         if program in PROGRAM_RISK:
@@ -648,6 +676,9 @@ class SafetyClassifier:
     def _judge_systemctl(argv: list[str]) -> list[tuple[RiskLevel, str]]:
         if any(a in ("stop", "disable", "mask") for a in argv[1:]):
             return [(RiskLevel.DANGEROUS, "service interruption")]
+        if any(a in ("restart", "reload", "isolate") for a in argv[1:]) and any(
+                a.lower().removesuffix(".service") in CRITICAL_UNITS for a in argv[1:]):
+            return [(RiskLevel.DANGEROUS, "restarting a unit the current session depends on")]
         if any(a in ("start", "restart", "enable", "daemon-reload") for a in argv[1:]):
             return [(RiskLevel.CAUTION, "service state change")]
         return []
@@ -664,6 +695,8 @@ class SafetyClassifier:
     def _judge_package_manager(argv: list[str]) -> list[tuple[RiskLevel, str]]:
         if any(a in ("remove", "purge", "autoremove", "uninstall") for a in argv[1:]):
             return [(RiskLevel.DANGEROUS, "package removal")]
+        if "install" in argv[1:] and any(a.endswith("-") and not a.startswith("-") for a in argv[1:]):
+            return [(RiskLevel.DANGEROUS, "an install that also removes a package (name-)")]
         if any(a in ("install", "upgrade", "update", "full-upgrade") for a in argv[1:]):
             return [(RiskLevel.CAUTION, "package change")]
         return []
@@ -748,16 +781,8 @@ class SafetyClassifier:
         return found
 
     @staticmethod
-    def _judge_kill(argv: list[str]) -> list[tuple[RiskLevel, str]]:
-        # `-9` alone used to be the only signal spec recognized here --
-        # `kill -s KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`, and plain
-        # `kill 1` (default SIGTERM) all classified SAFE. Found in a
-        # full-file audit. Walking argv properly (rather than reusing the
-        # generic `operands` split) matters here specifically: `-s`/`-n`/
-        # `--signal` consume the *next* token as their argument, not a
-        # PID -- `kill -s 1 12345` sends SIGHUP to PID 12345 and never
-        # touches PID 1, and naively treating "1" as an operand there
-        # would flag a command that is not dangerous.
+    def _kill_targets(argv: list[str]) -> tuple[list[str], bool]:
+        """The pid operands of a `kill` line, and whether it only lists signals."""
         skip_next, list_mode, signalled, pids = False, False, False, []
         for tok in argv[1:]:
             if skip_next:
@@ -772,12 +797,28 @@ class SafetyClassifier:
                 signalled = True
             else:
                 pids.append(tok)
+        return pids, list_mode
+
+    @staticmethod
+    def _judge_kill(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        # `-9` alone used to be the only signal spec recognized here --
+        # `kill -s KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`, and plain
+        # `kill 1` (default SIGTERM) all classified SAFE. Found in a
+        # full-file audit. Walking argv properly (rather than reusing the
+        # generic `operands` split) matters here specifically: `-s`/`-n`/
+        # `--signal` consume the *next* token as their argument, not a
+        # PID -- `kill -s 1 12345` sends SIGHUP to PID 12345 and never
+        # touches PID 1, and naively treating "1" as an operand there
+        # would flag a command that is not dangerous.
+        pids, list_mode = SafetyClassifier._kill_targets(argv)
         if list_mode:
             return []
         if "1" in pids:
             return [(RiskLevel.CRITICAL, "kill of PID 1")]
         if any(p == "0" or p.startswith("-") for p in pids):
             return [(RiskLevel.CRITICAL, "kill of a whole process group or every process")]
+        if not pids or not all(p.isdigit() for p in pids):
+            return [(RiskLevel.DANGEROUS, "kill of a process torra cannot name (computed pid)")]
         return []
 
     @staticmethod
@@ -786,6 +827,12 @@ class SafetyClassifier:
         if words & {"rm", "rmi", "kill", "prune"} or (
                 "down" in words and words & {"-v", "--volumes"}):
             return [(RiskLevel.DANGEROUS, "removes containers, images or volumes")]
+        if "--privileged" in words or words & {"--pid=host", "--cap-add=ALL"}:
+            return [(RiskLevel.DANGEROUS, "runs a container with host-level privileges")]
+        mounts = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-v", "--volume")]
+        mounts += [a.split("=", 1)[1] for a in argv if a.startswith("--volume=")]
+        if any(SafetyClassifier._protected(m.split(":", 1)[0]) for m in mounts):
+            return [(RiskLevel.DANGEROUS, "mounts a system or home directory into a container")]
         return []
 
     @staticmethod
@@ -850,6 +897,7 @@ class SafetyClassifier:
         # silently downgrade what another layer already caught.
         text = (command or "").strip()
         self.parse_failures = []
+        self.env_risks = []
         reasons: list[str] = []
         levels: list[RiskLevel] = []
 
@@ -869,11 +917,26 @@ class SafetyClassifier:
             reasons.append(f"NOTE: {len(self.parse_failures)} parse issue(s), "
                            "the regex backstop carried the classification")
 
+        for level_, why in self._context_findings(resolved, levels):
+            levels.append(level_)
+            reasons.append(f"{level_.value.upper()}: {why}")
         level = max(levels, key=ORDER.index) if levels else RiskLevel.SAFE
         if not reasons:
             reasons.append(f"no destructive pattern in "
                            f"{len(resolved)} resolved command(s)")
         return Verdict(text, level, reasons, resolved)
+
+    def _context_findings(self, resolved: list[ResolvedCommand],
+                          levels: list[RiskLevel]) -> list[tuple[RiskLevel, str]]:
+        """Risks that come from the line as a whole: a changed search path, or a `cd` into a
+        system directory before a write, after which relative paths cannot be judged."""
+        found = [(RiskLevel.DANGEROUS, f"sets {n}, which changes what later commands run")
+                 for n in self.env_risks]
+        entered = any(rc.program == "cd" and any(self._protected(o) for o in rc.argv[1:])
+                      for rc in resolved)
+        if entered and any(lv in (RiskLevel.CAUTION, RiskLevel.DANGEROUS) for lv in levels):
+            found.append((RiskLevel.DANGEROUS, "changes into a system directory and then writes"))
+        return found
 
     def explain(self, command: str) -> str:
         """Human readable trace of how a command was resolved and scored."""

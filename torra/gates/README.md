@@ -10,6 +10,7 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 | `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and the per-program rules (`git`, `curl`, `python -c`) that decide which. Anything absent asks (`HANDOFF.md` §2.60) |
 | `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it |
 | `state.py` | VERIFY_STATE: `StateVerifier`, preconditions rechecked between steps, TTL cached |
+| `script_rules.py` | Recognising the sed and awk programs torra runs without a tick: a parser that accepts only simple sed commands, and an awk check that blanks string literals first (`HANDOFF.md` §2.72) |
 | `service_state.py` | Reading and restoring systemd unit state for a step's undo: which units a `systemctl` step names, a unit's scope, active and enabled state, and the verbs that put both back (`HANDOFF.md` §2.63) |
 | `undo.py` | ROLLBACK_ON_FAIL, half one: `UndoGenerator` derives undo actions from what a step declares -- also `capture_remote_file`, the same real snapshot/restore bar over an optional executor SSH runner, for `remote_push` steps (`HANDOFF.md` §2.53) |
 | `rollback.py` | ROLLBACK_ON_FAIL, half two: `VerifiedRollback` proves each undo actually worked |

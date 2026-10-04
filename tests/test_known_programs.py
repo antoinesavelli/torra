@@ -211,7 +211,7 @@ SPELLINGS = [
     (["find", "-delete"], None), (["find", ".", "-name", "x"], READ_ONLY),
     (["dd", "of=/tmp/x", "if=/dev/zero"], BOUNDED_WRITE),
     (["dd", "of=/etc/passwd", "if=/dev/zero"], PROTECTED_WRITE), (["dd", "if=/dev/sda"], READ_ONLY),
-    (["ip", "add"], None), (["ip", "addr", "show"], READ_ONLY),
+    (["ip", "add", "x"], None), (["ip", "addr", "show"], READ_ONLY),
     (["rsync", "-a", "/home/user/src/", "/tmp/dst/"], BOUNDED_WRITE),
     (["rsync", "-a", "src/", "/etc/dst/"], PROTECTED_WRITE),
     (["ln", "-s", "/home/user/a", "/tmp/link"], BOUNDED_WRITE),
@@ -228,7 +228,7 @@ SPELLINGS = [
     (["nmcli", "show"], READ_ONLY),
     (["tar", "czf", "/tmp/a.tgz", "file", "/etc"], BOUNDED_WRITE),
     (["git", "-C", "/repo", "push", "origin", "main"], None),
-    (["git", "-C", "/repo", "pull"], BOUNDED_WRITE), (["git", "-c", "a=b", "log"], READ_ONLY),
+    (["git", "-C", "/repo", "pull"], BOUNDED_WRITE), (["git", "-c", "a=b", "log"], None),
     (["git", "--git-dir", "/x/.git", "push"], None),
 ]
 
@@ -321,3 +321,95 @@ def test_eval_payloads_resolve_several_levels_down() -> None:
     classifier = SafetyClassifier()
     assert ["ls"] in [rc.argv for rc in classifier.resolve("eval eval eval ls")]
     assert classifier.parse_failures == []
+
+
+#: Found by an independent review that read the classifier's source. Each used to classify SAFE or
+#: CAUTION and so ran without a tick.
+BYPASSES = [
+    "ls () { find ~ -delete; }; ls", "cat <(find ~ -delete)", "diff <(ls) >(tee /etc/x)",
+    "env -S 'find ~ -delete'", "env --split-string='find ~ -delete'",
+    "GIT_EXTERNAL_DIFF='find ~ -delete' git diff", "PAGER='sh -c x' git log",
+    "LD_PRELOAD=/tmp/x.so ls", "BASH_ENV=/tmp/x ls", "PATH=/tmp:$PATH ls",
+    "printf x > /tmp/ls; chmod +x /tmp/ls; PATH=/tmp:$PATH ls",
+    "git -c core.fsmonitor='find ~ -delete' status", "git -c core.sshCommand=x ls-remote origin",
+    "git grep -O'cmd' x", "git log --output=/home/u/f", "git diff --output=x",
+    "git config --global --remove-section user", "git checkout .", "git checkout -f",
+    "git switch -f main",
+    "tar -tf a --checkpoint=1 --checkpoint-action=exec='cmd'", "tar -tf a -I 'cmd'",
+    "tar -xf a -C/etc", "tar -xPf evil.tar", "tar -czf /tmp/a.tgz --remove-files ~/docs",
+    "sed '1w /home/u/x' f", "sed '1e cmd' f", "sed 's,a,b,w /home/u/x' f", "sed --file=s.sed f",
+    "sed -n 'w out' f", "awk 'BEGIN{print \"a;b\" > \"/home/u/x\"}'",
+    "awk 'BEGIN{\"cmd\" |& getline}'", "sort --out=/home/u/x f",
+    "curl --etag-save ~/.bashrc http://x", "curl --hsts ~/.bashrc http://x",
+    "curl -X GET a --next -X DELETE b", "curl --req DELETE http://x",
+    "ip l s eth0 down", "ip r d default", "pip config set global.index-url http://evil/",
+    "tree -o ~/.bashrc", "xxd -r in ~/.bashrc", "rg --pre sh '' .", "less -o f",
+    "sdiff -o f a b", "sensors -s",
+    "python3 -c \"import uuid; uuid.os.truncate('/home/u/x',0)\"",
+    "python3 -c \"import json; json.codecs.open('/home/u/x','w')\"",
+    "python3 -c \"import operator; operator.attrgetter('__class__')(0)\"",
+    "/usr/bin/../../tmp/ls", "unzip -d/etc a.zip", "install -m 755 -t /usr/local/bin x",
+    "cp --target-directory=/etc/cron.d evil", "cp -t/etc/cron.d evil",
+    "rsync -a --del empty/ target/", "rsync -e 'cmd' a b:c",
+    "kill -9 $(pgrep -u $USER)", "pgrep -u $USER | xargs kill -9", "kill $pid",
+    "systemctl restart display-manager", "docker run --privileged -v /:/h alpine ls",
+    "docker run -v /etc:/e alpine ls", "apt install gnome-",
+    "su -lc 'find /home -delete' root", "su root --command='x'",
+    "dd if=/dev/zero of=$(echo /dev/sda)", "for d in /dev/sda; do dd if=/dev/zero of=$d; done",
+    "cd /etc && echo x > passwd", "cd /etc && cp x passwd", "cd / && chmod -R 000 .",
+]
+
+#: Routine commands the same review found wrongly prompted, plus neighbours of the fixes.
+STILL_RUN = [
+    "awk '{print $1 \" -> \" $2}' f", "awk '{printf \"%s|%s\", $1, $2}' f", "timeout 1.5 ls",
+    "systemctl -t service status x", "sed -n '1,5p' f", "sed -n '/a/,/b/p' f", "sed 's/a/b/g' f",
+    "sed -e 's/a/b/' -e 's/c/d/' f", "sed '$d' f", "sed -n '2p;4p' f", "sed -n '/x/!p' f",
+    "ip a", "ip -br a", "ip route show", "ip link show eth0", "ip -s addr",
+    "git log --oneline -5", "git config user.name", "git config --global --get user.name",
+    "git checkout main", "curl -s -X GET http://localhost/x", "rsync -a src/ dst/",
+    "tar czf /tmp/a.tgz src", "cp a b", "cd /tmp && ls", "cd /tmp && echo x > out.txt",
+    "python3 -c \"import json,sys; print(sorted(sys.argv))\"", "pip list", "pip show x",
+    "sort -u f", "kill 1234", "docker run --rm img", "docker run -v ./data:/d img",
+    "apt install nginx", "systemctl restart nginx", "env FOO=1 ls", "FOO=1 ls",
+    "xxd file", "tree -L 2", "file x", "rg pattern .",
+]
+
+
+@pytest.mark.parametrize("command", BYPASSES)
+def test_a_reviewed_bypass_now_asks(command: str) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert verdict.needs_confirmation, (command, verdict.level, verdict.reasons)
+
+
+@pytest.mark.parametrize("command", STILL_RUN)
+def test_a_routine_command_the_hardening_must_not_catch_still_runs(command: str) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert not verdict.needs_confirmation, (command, verdict.level, verdict.reasons)
+
+
+def test_the_sed_positive_parser_accepts_simple_scripts_and_refuses_everything_else() -> None:
+    from torra.gates.script_rules import sed_script_is_simple
+    for ok in ("p", "1,5p", "$d", "/a/,/b/p", "s/a/b/", "s,a,b,g", "s|a|b|gI", "2p;4p", "/x/!p",
+               "s/a\\/b/c/", "1d;$d", "s#a#b#2"):
+        assert sed_script_is_simple(ok), ok
+    for bad in ("w out", "1w f", "1e cmd", "e", "s/a/b/w f", "s/a/b/e", "s,a,b,w /x", "r f",
+                "2{p;q}", "y/a/b/", "a text", "s/a/b", "s", ""[:0] + "x"):
+        assert not sed_script_is_simple(bad), bad
+
+
+def test_the_awk_check_ignores_string_literals_but_not_redirects() -> None:
+    from torra.gates.script_rules import awk_program_is_safe
+    assert awk_program_is_safe('{print $1 " -> " $2}')
+    assert awk_program_is_safe('$3 > 80 {print $1}')
+    assert not awk_program_is_safe('{print "a;b" > "/tmp/x"}')
+    assert not awk_program_is_safe('BEGIN{"cmd" | getline x}')
+    assert not awk_program_is_safe('BEGIN{"cmd" |& getline}')
+    assert not awk_program_is_safe('{system("x")}')
+
+
+def test_a_combined_c_flag_unwraps_its_payload_like_a_plain_c() -> None:
+    classifier = SafetyClassifier()
+    assert [rc.argv for rc in classifier.resolve("bash -lc 'echo hi'")] == [["echo", "hi"]]
+    assert classifier.classify("bash -lc 'echo hi'").level is RiskLevel.SAFE
+    assert classifier.classify("bash -ic 'blkdiscard /dev/sda'").level is RiskLevel.CRITICAL
+    assert classifier.classify("su -lc 'find /home -delete' root").needs_confirmation

@@ -10,8 +10,11 @@ Depends on: the standard library only (ast, re).
 from __future__ import annotations
 
 import ast
+import posixpath
 import re
 from collections.abc import Callable, Sequence
+
+from .script_rules import awk_program_is_safe, sed_script_is_simple
 
 READ_ONLY = "read_only"
 BOUNDED_WRITE = "bounded_write"
@@ -19,21 +22,21 @@ PROTECTED_WRITE = "protected_write"
 
 #: Programs that cannot change files or system state whatever their arguments: they print.
 READ_ONLY_PROGRAMS = frozenset("""
-ls dir vdir cat tac head tail wc nl od xxd hexdump strings cut paste join comm column fold fmt
-expand unexpand rev tr grep egrep fgrep rg zgrep zcat bzcat xzcat less more basename dirname
-readlink realpath stat file du df tree diff cmp sdiff md5sum sha1sum sha224sum sha256sum
+ls dir vdir cat tac head tail wc nl od hexdump strings cut paste join comm column fold fmt
+expand unexpand rev tr grep egrep fgrep zgrep zcat bzcat xzcat basename dirname
+readlink realpath stat du df diff cmp md5sum sha1sum sha224sum sha256sum
 sha384sum sha512sum b2sum cksum jq seq yes sleep echo printf true false test [ [[ : pwd cd type
 which whereis hash umask export set unset read local declare shift exit return break continue
 wait alias printenv id whoami groups who w last users logname tty uname hostname arch nproc cal
 uptime free ps pgrep pidof pstree top htop vmstat iostat mpstat pidstat lsof lscpu lsblk lspci
-lsusb lsmod lshw lsattr getfacl getent locale getconf sensors findmnt blkid netstat ping
+lsusb lsmod lshw lsattr getfacl getent locale getconf findmnt blkid netstat ping
 traceroute tracepath dig nslookup host whois modinfo apt-cache dpkg-query lsb_release aa-status
 xdg-user-dir fsstat
 """.split())
 
 #: Known to write files or state in a bounded way. They run flagged CAUTION, not unticked-silent.
 WRITER_PROGRAMS = frozenset("""
-tee cp touch mkdir ln install gzip gunzip bzip2 bunzip2 xz unxz zip unzip patch sync su pytest
+tee cp touch mkdir ln install gzip gunzip bzip2 bunzip2 xz unxz zip unzip patch sync pytest
 """.split())
 
 #: Writers whose destination is the last operand; every other writer's operands are all paths.
@@ -48,24 +51,32 @@ STANDARD_BIN_DIRS = ("/bin/", "/usr/bin/", "/sbin/", "/usr/sbin/", "/usr/local/b
 #: its one write path is `.save()`, which is refused below.
 PURE_PYTHON_MODULES = frozenset("""
 json sys re math datetime time collections itertools functools statistics string textwrap csv
-base64 binascii hashlib decimal fractions operator copy typing random uuid openpyxl
+base64 binascii hashlib decimal fractions copy typing random uuid openpyxl
 """.split())
 UNSAFE_PYTHON_NAMES = frozenset("""
 open exec eval compile __import__ getattr setattr delattr globals locals vars breakpoint input
 help memoryview exit quit
 """.split())
-UNSAFE_PYTHON_ATTRS = frozenset({"modules", "save", "save_workbook"})
+#: Attribute names that reach a module able to write, spawn or escape (`uuid.os`, `json.codecs`).
+UNSAFE_PYTHON_ATTRS = frozenset("""
+modules save save_workbook os subprocess codecs io builtins shutil pathlib socket importlib
+ctypes popen system truncate unlink remove rmdir rename replace write_text write_bytes zipfile
+tarfile tempfile pickle marshal multiprocessing threading signal glob attrgetter itemgetter
+methodcaller
+""".split())
 OPEN_KEYWORDS = frozenset({"mode", "encoding", "errors", "newline"})
 
-_SED_WRITES = re.compile(r"(?:^|[;{}\s])[wWeE](?:\s|$)|/[0-9gpiImM]*[we](?:\s|;|}|$)")
-_AWK_UNSAFE = re.compile(r"system\s*\(|\|\s*getline|getline\s*<|\bprintf?\b[^;}\n]*(?:>|\|)")
 _CURL_LONG_WRITES = ("--output", "--remote-name", "--upload-file", "--data", "--form", "--json",
                      "--config", "--post", "--create-dirs", "--trace", "--dump-header",
-                     "--cookie-jar", "--stderr", "--libcurl")
+                     "--cookie-jar", "--stderr", "--libcurl", "--etag-save", "--hsts", "--alt-svc",
+                     "--next")
+_TAR_UNSAFE_LONG = ("--checkpoint-action", "--to-command", "--use-compress-program",
+                    "--rsh-command", "--info-script", "--new-volume-script", "--remove-files",
+                    "--absolute-names")
+_DESTINATION_FLAGS = ("-t", "-d", "-C")
 _FIND_WRITES = frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0",
                           "-fprintf", "-fls"})
-_IP_WRITES = frozenset("add del delete change replace set flush append prepend exec save restore"
-                       .split())
+_IP_READ_VERBS = frozenset({"show", "list", "ls", "get", "help"})
 _NVIDIA_WRITES = frozenset("""
 -pm -e -p -c -r -pl -ac -rac -acp -lgc -rgc -lmc -rmc -mig -dm -fdm
 """.split())
@@ -85,11 +96,16 @@ def _operands(argv: Sequence[str]) -> list[str]:
     return [a for a in argv[1:] if not a.startswith("-")]
 
 
+def _hits(flag: str, denied: Sequence[str]) -> bool:
+    """Whether a `--long` flag is one of `denied` or an abbreviation of one (`--out` for `--output`)."""
+    return any(flag.startswith(d) or (len(flag) >= 4 and d.startswith(flag)) for d in denied)
+
+
 def _avoiding(short: str = "", long: tuple[str, ...] = (),
               tokens: frozenset[str] = frozenset()) -> Callable[[Sequence[str]], str | None]:
     """Read-only unless a flag from the given short letters, long prefixes or exact tokens shows."""
     def judge(argv: Sequence[str]) -> str | None:
-        bad = (_short(argv) & set(short) or any(f.startswith(long) for f in _long(argv))
+        bad = (_short(argv) & set(short) or any(_hits(f, long) for f in _long(argv))
                or tokens & set(argv[1:]))
         return None if bad else READ_ONLY
     return judge
@@ -146,17 +162,33 @@ def _only_version(argv: Sequence[str]) -> str | None:
 
 
 def _sed(argv: Sequence[str]) -> str | None:
-    if "f" in _short(argv):
-        return None
-    if "i" in _short(argv) or any(f.startswith("--in-place") for f in _long(argv)):
+    """Read-only only when every script is one `sed_script_is_simple` accepts."""
+    if "f" in _short(argv) or any(_hits(f, ("--file",)) for f in _long(argv)):
+        return None  # a script file: unknown content
+    if "i" in _short(argv) or any(_hits(f, ("--in-place",)) for f in _long(argv)):
         return BOUNDED_WRITE
-    return None if any(_SED_WRITES.search(o) for o in _operands(argv)) else READ_ONLY
+    scripts = _sed_scripts(argv)
+    return READ_ONLY if scripts and all(sed_script_is_simple(x) for x in scripts) else None
+
+
+def _sed_scripts(argv: Sequence[str]) -> list[str]:
+    """The scripts on a sed command line: every `-e` value, else the first operand."""
+    scripts, operands, tokens = [], [], iter(argv[1:])
+    for tok in tokens:
+        if tok == "--expression" or (tok.startswith("-") and not tok.startswith("--")
+                                     and tok.endswith("e")):
+            scripts.append(next(tokens, ""))
+        elif tok.startswith("--expression="):
+            scripts.append(tok.split("=", 1)[1])
+        elif not tok.startswith("-"):
+            operands.append(tok)
+    return scripts or operands[:1]
 
 
 def _awk(argv: Sequence[str]) -> str | None:
     if _short(argv) & set("fiEl") or _long(argv) & {"--file", "--include", "--load", "--exec"}:
         return None
-    return None if any(_AWK_UNSAFE.search(o) for o in _operands(argv)) else READ_ONLY
+    return READ_ONLY if all(awk_program_is_safe(o) for o in _operands(argv)) else None
 
 
 def _curl(argv: Sequence[str]) -> str | None:
@@ -164,10 +196,15 @@ def _curl(argv: Sequence[str]) -> str | None:
     outputs = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-o", "--output")]
     if outputs and all(o == "/dev/null" for o in outputs):
         short, long = short - {"o"}, long - {"--output"}
-    if short & set("oOTdFKDc") or any(f.startswith(_CURL_LONG_WRITES) for f in long):
+    if short & set("oOTdFKDc:") or any(_hits(f, _CURL_LONG_WRITES) for f in long):
         return None
-    method = next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-X", "--request")), "GET")
-    return READ_ONLY if method.upper() in ("GET", "HEAD") else None
+    return READ_ONLY if all(m.upper() in ("GET", "HEAD") for m in _curl_methods(argv)) else None
+
+
+def _curl_methods(argv: Sequence[str]) -> list[str]:
+    """Every method given with `-X` or `--request` (also abbreviated, `--req`)."""
+    return [argv[i + 1] for i, a in enumerate(argv[:-1])
+            if a == "-X" or (a.startswith("--") and len(a) >= 5 and "--request".startswith(a))]
 
 
 def _tar_modes(argv: Sequence[str]) -> set[str]:
@@ -179,11 +216,20 @@ def _tar_modes(argv: Sequence[str]) -> set[str]:
 
 def _tar(argv: Sequence[str]) -> str | None:
     modes = _tar_modes(argv)
-    if modes & set("drAu"):
+    if modes & set("drAuIFP") or any(_hits(f, _TAR_UNSAFE_LONG) for f in _long(argv)):
         return None
     if modes & set("cx"):
         return BOUNDED_WRITE
     return READ_ONLY if "t" in modes else None
+
+
+def _tar_long_or_attached(tok: str, following: list[str]) -> list[str]:
+    """A path given as `--file=x`, `--file x`, or attached (`-C/etc`)."""
+    if tok[:2] in ("-C", "-f") and len(tok) > 2 and tok[2] in "/~.":
+        return [tok[2:]]
+    if tok in ("--directory", "--file"):
+        return following
+    return [tok.split("=", 1)[1]] if tok.startswith(("--directory=", "--file=")) else []
 
 
 def _tar_paths(argv: Sequence[str]) -> list[str]:
@@ -194,10 +240,7 @@ def _tar_paths(argv: Sequence[str]) -> list[str]:
             tok[1:] if tok.startswith("-") and not tok.startswith("--") else "")
         if i + 1 < len(toks) and ("C" in cluster or "f" in cluster):
             paths.append(toks[i + 1])
-        if tok in ("--directory", "--file") and i + 1 < len(toks):
-            paths.append(toks[i + 1])
-        if tok.startswith(("--directory=", "--file=")):
-            paths.append(tok.split("=", 1)[1])
+        paths += _tar_long_or_attached(tok, toks[i + 1:i + 2])
     return paths
 
 
@@ -218,19 +261,40 @@ _GIT_VALUE_FLAGS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespa
 _GIT_EDITING = frozenset("-d -D -m -M -f -c -C --delete --move --force --copy".split())
 _GIT_LISTING = frozenset("-a -r -l -v -vv --list --all --remotes --verbose --show-current --contains --merged --no-merged --points-at --sort".split())
 _GIT_CONFIG_READS = frozenset("--get --get-all --get-regexp --list -l --show-origin".split())
-_GIT_CONFIG_EDITS = frozenset("--unset --unset-all --add --replace-all --edit -e".split())
+_GIT_CONFIG_EDITS = frozenset("--unset --unset-all --add --replace-all --edit -e --remove-section "
+                              "--rename-section".split())
+_GIT_SCOPE_FLAGS = frozenset({"--global", "--local", "--system", "--worktree"})
 
 
 def _git(argv: Sequence[str]) -> str | None:
     """Reads run, a `pull`-like write is bounded, and everything else (push, reset, rebase) asks."""
     sub = _subcommand(argv, _GIT_VALUE_FLAGS)
-    rest = list(argv[argv.index(sub) + 1:]) if sub in argv else []
+    at = argv.index(sub) if sub in argv else len(argv)
+    rest = list(argv[at + 1:])
     free = [a for a in rest if not a.startswith("-")]
+    if "-c" in argv[1:at] or any(_hits(a, ("--exec-path", "--config-env")) for a in argv[1:at]):
+        return None  # a per-command config setting can name a program to run
     if sub in _GIT_READ:
-        return READ_ONLY
+        return None if _git_read_writes(rest) else READ_ONLY
+    if sub in ("checkout", "switch") and ({"-f", "--force", "--discard-changes", "."} & set(rest)
+                                          or "--" in rest):
+        return None  # throws away uncommitted work
     if sub in _GIT_WRITE:
         return BOUNDED_WRITE
     return _git_by_shape(sub, rest, free)
+
+
+def _git_read_writes(rest: Sequence[str]) -> bool:
+    """A read subcommand given an option that writes a file or runs a program."""
+    longs = (a.split("=", 1)[0] for a in rest if a.startswith("--"))
+    return (any(_hits(f, ("--output", "--open-files-in-pager", "--ext-diff")) for f in longs)
+            or any(a.startswith("-O") for a in rest))
+
+
+def _git_config(rest: list[str], free: list[str]) -> str | None:
+    plain_key = len(free) == 1 and set(rest) - set(free) <= _GIT_SCOPE_FLAGS  # `git config <key>`
+    reading = _GIT_CONFIG_READS & set(rest) or plain_key
+    return READ_ONLY if reading and not _GIT_CONFIG_EDITS & set(rest) else None
 
 
 def _git_by_shape(sub: str, rest: list[str], free: list[str]) -> str | None:
@@ -243,10 +307,26 @@ def _git_by_shape(sub: str, rest: list[str], free: list[str]) -> str | None:
         return READ_ONLY if not free or free[0] in ("show", "get-url") else None
     if sub == "stash":
         return READ_ONLY if free[:1] in (["list"], ["show"]) else BOUNDED_WRITE
-    if sub == "config":
-        reading = _GIT_CONFIG_READS & set(rest) or len(free) == 1  # `git config <key>` reads
-        return READ_ONLY if reading and not _GIT_CONFIG_EDITS & set(rest) else None
-    return None
+    return _git_config(rest, free) if sub == "config" else None
+
+
+def _ip(argv: Sequence[str]) -> str | None:
+    """`ip OBJECT [show|list|ls|get]`: any other verb, abbreviated or not, asks."""
+    words = [a for a in argv[1:] if not a.startswith("-")]
+    return READ_ONLY if len(words) < 2 or words[1] in _IP_READ_VERBS else None
+
+
+def _su(argv: Sequence[str]) -> str | None:
+    """A login shell for another user is bounded; `-c`/`--command` runs something as them."""
+    runs = "c" in _short(argv) or any(_hits(f, ("--command",)) for f in _long(argv))
+    return None if runs else BOUNDED_WRITE
+
+
+def _rsync_checked(argv: Sequence[str]) -> str | None:
+    """`_rsync` plus the options it must not trust: deletion (also abbreviated) and `-e`/`--rsh`."""
+    risky = (any(_hits(f, ("--delete", "--remove-source-files", "--rsh")) for f in _long(argv))
+             or "e" in _short(argv))
+    return None if risky else _rsync(argv)
 
 
 def _crontab(argv: Sequence[str]) -> str | None:
@@ -315,13 +395,14 @@ SUBCOMMANDS: dict[str, tuple[frozenset[str], ...]] = {
     "systemctl": _sub(
         "- status is-active is-enabled is-failed show list-units list-unit-files list-timers "
         "list-sockets list-dependencies list-jobs list-machines cat get-default help",
-        "reload reload-or-restart try-restart reset-failed daemon-reexec", "-H -M"),
+        "reload reload-or-restart try-restart reset-failed daemon-reexec",
+        "-H -M -t --type -p --property -n --lines -o --output -s --signal -a --state"),
     "apt": _sub("list search show policy depends rdepends showpkg madison changelog -"),
     "apt-get": _sub("-"),
     "snap": _sub("list info find version services changes connections interfaces -"),
     "flatpak": _sub("list info search remote-ls -"),
-    "pip": _sub("list show freeze check config inspect -", "install"),
-    "pip3": _sub("list show freeze check config inspect -", "install"),
+    "pip": _sub("list show freeze check inspect -", "install"),
+    "pip3": _sub("list show freeze check inspect -", "install"),
     "loginctl": _sub("- list-sessions list-users list-seats show-session show-user show-seat "
                      "session-status user-status seat-status status"),
     "timedatectl": _sub("- status show list-timezones show-timesync timesync-status"),
@@ -363,9 +444,13 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "find": lambda argv: None if _FIND_WRITES & set(argv[1:]) else READ_ONLY,
     "dd": lambda argv: BOUNDED_WRITE if any(a.startswith("of=") for a in argv[1:]) else READ_ONLY,
     "mount": lambda argv: None if _operands(argv) else READ_ONLY,
-    "ip": lambda argv: None if _IP_WRITES & set(argv[1:]) else READ_ONLY,
+    "ip": lambda argv: _ip(argv),
     "sed": _sed, "awk": _awk, "gawk": _awk, "mawk": _awk, "curl": _curl, "tar": _tar,
-    "rsync": _rsync, "git": _git, "crontab": _crontab, "dpkg": _dpkg,
+    "rsync": _rsync_checked, "git": _git, "su": _su,
+    "tree": _avoiding("o", ("--output",)), "sdiff": _avoiding("o", ("--output",)),
+    "sensors": _avoiding("s"), "file": _avoiding("C", ("--compile",)),
+    "rg": _avoiding("", ("--pre", "--hostname-bin")),
+    "xxd": lambda argv: None if len(_operands(argv)) > 1 or "r" in _short(argv) else READ_ONLY, "crontab": _crontab, "dpkg": _dpkg,
     "iptables": _iptables, "ip6tables": _iptables, "sysctl": _sysctl, "command": _command,
     "python": _python, "perl": _only_version, "ruby": _only_version, "node": _only_version,
     "bash": _only_version, "sh": _only_version, "zsh": _only_version, "dash": _only_version,
@@ -399,7 +484,8 @@ def reads_credentials(path: str) -> bool:
 
 def _program(argv0: str) -> str | None:
     """The program's name, or None when it is a path torra cannot vouch for."""
-    if "/" in argv0 and not argv0.startswith(STANDARD_BIN_DIRS):
+    if "/" in argv0 and (not argv0.startswith(STANDARD_BIN_DIRS)
+                         or posixpath.normpath(argv0) != argv0):
         return None
     name = argv0.rsplit("/", 1)[-1]
     return "python" if re.fullmatch(r"python[0-9.]*", name) else name
@@ -430,21 +516,41 @@ def _lookup(program: str, argv: Sequence[str]) -> str | None:
     return BOUNDED_WRITE if program in WRITER_PROGRAMS else None
 
 
+def _unresolved(path: str) -> bool:
+    """A destination whose root torra cannot see (`$d`, a substitution, `/dev/$x`)."""
+    return path.startswith(("$", "SUBST")) or (path.startswith("/") and ("$" in path or "SUBST" in path))
+
+
+def _flag_value(tok: str, following: list[str]) -> list[str]:
+    """The path a destination flag carries, if `tok` is one: `-t dir`, `-d/dir`, `--directory=dir`."""
+    if tok in (*_DESTINATION_FLAGS, "--target-directory", "--directory"):
+        return following
+    if tok.startswith(_DESTINATION_FLAGS) and len(tok) > 2 and tok[2] in "/~.$":
+        return [tok[2:]]
+    return [tok.split("=", 1)[1]] if tok.startswith(("--target-directory=", "--directory=")) else []
+
+
+def _flag_destinations(argv: Sequence[str]) -> list[str]:
+    """Values given to a destination flag: `-t dir`, `-d/dir`, `-C dir`, `--target-directory=dir`."""
+    return [v for i, tok in enumerate(argv[1:], start=1) for v in _flag_value(tok, list(argv[i + 1:i + 2]))]
+
+
 def _destinations(program: str, argv: Sequence[str]) -> list[str]:
     if program == "tar":
         return _tar_paths(argv)
     if program == "dd":
         return [a[3:] for a in argv[1:] if a.startswith("of=")]
     operands = _operands(argv)
-    return operands[-1:] if program in LAST_OPERAND_DESTINATION else operands
+    return (operands[-1:] if program in LAST_OPERAND_DESTINATION else operands) + _flag_destinations(argv)
 
 
 def trust(argv: Sequence[str], protected: Callable[[str], bool]) -> str | None:
     """READ_ONLY, BOUNDED_WRITE, PROTECTED_WRITE (a known writer aimed at a system path), or None."""
     program = _program(argv[0]) if argv else None
-    if program is None:
-        return None
+    if program is None or "()" in argv[:2] or argv[0].endswith("()"):
+        return None  # an unknown path, or a function definition hiding its body
     verdict = _lookup(program, argv)
-    if verdict == BOUNDED_WRITE and any(protected(d) for d in _destinations(program, argv)):
+    if verdict == BOUNDED_WRITE and any(protected(d) or _unresolved(d)
+                                        for d in _destinations(program, argv)):
         return PROTECTED_WRITE
     return verdict
