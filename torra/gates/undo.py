@@ -19,6 +19,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from .service_state import (
+    restore_verbs,
+    service_units,
+    systemctl_query,
+    systemctl_scope,
+)
+
 __all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
 
 
@@ -82,9 +89,6 @@ class UndoAction:
         }
 
 
-SERVICE_PATTERN = re.compile(
-    r"\bsystemctl\s+(?:--user\s+)?(start|stop|restart|enable|disable|mask|unmask)"
-    r"\s+([\w@.\-]+)", re.IGNORECASE)
 #: apt/apt-get only, not dnf or pacman: `undo_packages` below hardcodes
 #: `apt-get remove`, and the default `_package_probe` (`_dpkg_set`) only
 #: understands dpkg. Matching a dnf/pacman install here would generate an
@@ -118,11 +122,14 @@ class UndoGenerator:
     #: BOTH this old AND its owning pid is dead -- an in-progress run, even
     #: a long one, must never have its snapshots pulled out from under it.
     STALE_SHADOW_SECONDS: float = 24 * 3600
+    #: A directory with no owner record (from before `owner.pid` existed) waits this long.
+    LEGACY_SHADOW_SECONDS: float = 7 * 24 * 3600
 
     def __init__(
         self,
         shadow_dir: os.PathLike[str] | str | None = None,
         service_probe: Callable[[str], str] | None = None,
+        enabled_probe: Callable[[str], str] | None = None,
         scope_probe: Callable[[str], str] | None = None,
         package_probe: Callable[[], set[str]] | None = None,
         max_shadow_bytes: int | None = None,
@@ -145,6 +152,7 @@ class UndoGenerator:
         self.shadow_dir.mkdir(parents=True, exist_ok=True)
         self._scope_probe = scope_probe or self._systemctl_scope
         self._service_probe = service_probe or self._systemctl_state
+        self._enabled_probe = enabled_probe or self._systemctl_enabled
         self._package_probe = package_probe or self._dpkg_set
         self.max_shadow_bytes = (self.MAX_SHADOW_BYTES if max_shadow_bytes is None
                                  else int(max_shadow_bytes))
@@ -156,7 +164,33 @@ class UndoGenerator:
         self.snapshots: list[Snapshot] = []
         self.skipped: list[str] = []
         self._counter: int = 0
+        self._claim_shadow_dir()
         self._reap_stale_shadows()
+
+    def _claim_shadow_dir(self) -> None:
+        """Record which process owns this directory, so a reaper can tell live from dead.
+
+        Kept beside the directory (`<name>.owner`), not inside it: the directory holds only
+        snapshots, and cleanup() leaves it empty."""
+        try:
+            self._owner_file(self.shadow_dir).write_text(str(os.getpid()), encoding="utf-8")
+        except OSError:
+            pass
+
+    @staticmethod
+    def _owner_file(entry: Path) -> Path:
+        return entry.with_name(entry.name + ".owner")
+
+    @staticmethod
+    def _shadow_owner(entry: Path) -> int | None:
+        """The pid that owns a shadow directory: its owner file, else a pid in its name."""
+        import re
+        try:
+            return int(UndoGenerator._owner_file(entry).read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            pass
+        match = re.match(r"torra-shadow-(\d+)(?:-|$)", entry.name)
+        return int(match.group(1)) if match else None
 
     # -- reaping ------------------------------------------------------------ #
 
@@ -187,7 +221,6 @@ class UndoGenerator:
         reaped only once it is both stale by age AND its owning pid is
         dead, so a run genuinely still in progress is never touched.
         """
-        import re
         import time
 
         parent = self.shadow_dir.parent
@@ -199,57 +232,32 @@ class UndoGenerator:
         for entry in entries:
             if entry == self.shadow_dir or not entry.is_dir():
                 continue
-            match = re.match(r"torra-shadow-(\d+)", entry.name)
-            if not match:
+            if not entry.name.startswith("torra-shadow-"):
                 continue
+            owner = self._shadow_owner(entry)
             try:
                 age = now - entry.stat().st_mtime
             except OSError:
                 continue
-            if age < self.STALE_SHADOW_SECONDS or self._pid_alive(int(match.group(1))):
-                continue
-            shutil.rmtree(entry, ignore_errors=True)
+            if owner is None:
+                stale = age >= self.LEGACY_SHADOW_SECONDS
+            else:
+                stale = age >= self.STALE_SHADOW_SECONDS and not self._pid_alive(owner)
+            if stale:
+                shutil.rmtree(entry, ignore_errors=True)
+                self._owner_file(entry).unlink(missing_ok=True)
 
     # -- probes ------------------------------------------------------------ #
 
-    @staticmethod
-    def _systemctl_scope(unit: str) -> str:
-        """'user' when systemd's user instance knows this unit, else 'system'.
-
-        `is-active` alone can't tell "not loaded in this scope" apart from
-        "loaded and genuinely inactive" -- both report inactive/exit-4
-        under --user for a unit that is actually a system service, which
-        is exactly the case that matters here. LoadState does distinguish
-        them ("not-found" vs "loaded"). Found live: `ollama.service` is a
-        system unit on this project's own reference machine, and every
-        systemctl call in this class hardcoded --user, so a generated undo
-        for it would probe and act on the wrong systemd instance entirely
-        -- reading "unknown" instead of the real state, and restoring
-        nothing. Duplicated from the identical check in gates/state.py
-        rather than imported: the five gates are deliberately
-        self-contained with no cross-references (gates/__init__.py's own
-        docstring), and this is small and stable enough not to be worth
-        breaking that for.
-        """
-        try:
-            out = subprocess.run(
-                ["systemctl", "--user", "show", unit, "--property=LoadState"],
-                capture_output=True, text=True, timeout=5)
-            if out.stdout.strip() == "LoadState=loaded":
-                return "user"
-        except Exception:
-            pass
-        return "system"
+    _systemctl_scope = staticmethod(systemctl_scope)
 
     def _systemctl_state(self, unit: str) -> str:
         """Active state of a unit, or 'unknown' on error."""
-        scope = self._scope_probe(unit)
-        cmd = ["systemctl", *(["--user"] if scope == "user" else []), "is-active", unit]
-        try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            return out.stdout.strip() or "unknown"
-        except Exception:
-            return "unknown"
+        return systemctl_query("is-active", unit, self._scope_probe(unit))
+
+    def _systemctl_enabled(self, unit: str) -> str:
+        """Enablement of a unit (enabled, disabled, masked, static ...), or 'unknown' on error."""
+        return systemctl_query("is-enabled", unit, self._scope_probe(unit))
 
     @staticmethod
     def _dpkg_set() -> set[str]:
@@ -454,23 +462,28 @@ class UndoGenerator:
     def capture_service(self, unit: str, step_id: str = "") -> UndoAction:
         """Snapshot a unit's state and build its restore action."""
         before = self._service_probe(unit)
+        enabled_before = self._enabled_probe(unit)
         scope = self._scope_probe(unit)
-        snap = Snapshot(SnapshotKind.SERVICE_STATE, unit, f"was {before}", payload=before)
+        snap = Snapshot(SnapshotKind.SERVICE_STATE, unit, f"was {before}, {enabled_before}",
+                        payload=before)
         self.snapshots.append(snap)
 
         def undo_service() -> None:
-            """Put the unit back into whichever state it was in."""
+            """Put the unit back into whichever state it was in: enablement, then running."""
             # Same scope the state was captured under, not a hardcoded
             # --user -- a system unit's undo used to silently target the
             # user systemd instance, which would run without error and
             # restore nothing.
-            subprocess.run(
-                ["systemctl", *(["--user"] if scope == "user" else []),
-                 "start" if before == "active" else "stop", unit],
-                capture_output=True, text=True, timeout=30, check=False)
+            base = ["systemctl", *(["--user"] if scope == "user" else [])]
+            for verb in restore_verbs(self._enabled_probe(unit), before, enabled_before):
+                subprocess.run([*base, verb, unit], capture_output=True, text=True,
+                               timeout=30, check=False)
 
-        return UndoAction(f"restore {unit} to {before}", undo_service, True,
-                          lambda: self._service_probe(unit) == before, True, snap, step_id)
+        return UndoAction(
+            f"restore {unit} to {before}, {enabled_before}", undo_service, True,
+            lambda: (self._service_probe(unit) == before
+                     and self._enabled_probe(unit) == enabled_before),
+            True, snap, step_id)
 
     def capture_packages(self, requested: str, step_id: str = "") -> UndoAction:
         """Snapshot the package set. Marked unsafe: removals cascade."""
@@ -536,7 +549,7 @@ class UndoGenerator:
                 actions.append(remote_action)
 
         command = getattr(step, "command", "") or ""
-        for _verb, unit in SERVICE_PATTERN.findall(command):
+        for unit in service_units(command):
             actions.append(self.capture_service(unit, step_id))
         for verb, packages in PACKAGE_PATTERN.findall(command):
             if verb.lower() == "install":
@@ -560,7 +573,7 @@ class UndoGenerator:
         for step in steps:
             command = getattr(step, "command", "") or ""
             derivable = (bool(getattr(step, "touches", None))
-                         or SERVICE_PATTERN.search(command)
+                         or service_units(command)
                          or PACKAGE_PATTERN.search(command)
                          or MKDIR_PATTERN.search(command))
             (covered if derivable else uncovered).append(getattr(step, "step_id", "?"))
@@ -596,4 +609,5 @@ class UndoGenerator:
         """
         shutil.rmtree(self.shadow_dir, ignore_errors=True)
         self.shadow_dir.mkdir(parents=True, exist_ok=True)
+        self._claim_shadow_dir()
         self._counter = 0

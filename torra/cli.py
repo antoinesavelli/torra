@@ -30,7 +30,7 @@ from .core import (
     TaskSpec,
     TaskSpecError,
 )
-from .gates import Clarifier, Precondition, SafetyClassifier, StateVerifier
+from .gates import Clarifier, SafetyClassifier, StateVerifier
 from .iterate import iterate
 from .pipeline import Outcome, Plan, RunResult, Torra
 from .telemetry import (
@@ -88,14 +88,11 @@ def build_torra(workdir: Path, offline: bool = False) -> Torra:
     here (`cmd_tui`), not build its own `Torra` independently, or it
     would silently never see it either.
     """
-    verifier = StateVerifier()
-    verifier.add(Precondition(
-        "disk:/", lambda: StateVerifier.disk_free_gb("/") > 1.0,
-        "at least 1 GB free on /", ttl_seconds=30))
     ollama = (OllamaClient(transport=lambda p, pay, t: {"models": []})
               if offline else OllamaClient())
     backends: dict[str, ModelBackend] = {"openrouter": OpenRouterClient()}
-    return Torra(workdir=workdir, ollama=ollama, verifier=verifier, backends=backends)
+    return Torra(workdir=workdir, ollama=ollama, verifier=StateVerifier.default(),
+                 backends=backends)
 
 
 def print_plan(plan: Plan) -> None:

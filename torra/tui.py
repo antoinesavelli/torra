@@ -44,7 +44,7 @@ from textual.widgets import (
 from textual.widgets.option_list import Option
 
 from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore, detect_accelerator
-from .gates import UndoGenerator
+from .gates import StateVerifier, UndoGenerator
 from .pipeline import Outcome, Plan, RunResult, StepPlan, Torra
 from .telemetry import CrashReporter, crash_summary, health_summary
 
@@ -1476,6 +1476,7 @@ class TorraApp(App):
         (e.g. OpenRouter) the app was started with (HANDOFF.md §2.27)."""
         return Torra(
             workdir=base_workdir, ollama=self.ollama, backends=self.backends,
+            verifier=StateVerifier.default(),
             undo=UndoGenerator(shadow_dir=base_workdir / f"torra-shadow-{session_id}"))
 
     def _mount_session_tab(self, torra: Torra, meta: SessionMeta, *, greet: bool) -> None:

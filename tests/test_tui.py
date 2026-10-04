@@ -2279,3 +2279,16 @@ def test_run_tui_builds_and_runs_the_app(tmp_path: Path, monkeypatch) -> None:
 
     assert len(calls) == 1
     assert calls[0].torra is torra
+
+
+def test_every_tab_gets_the_default_disk_precondition(tmp_path: Path) -> None:
+    """Tabs after the first used to be built without the verifier the CLI installs."""
+    from types import SimpleNamespace
+
+    from torra.tui import TorraApp
+
+    app = SimpleNamespace(ollama=OllamaClient(transport=lambda p, pay, t: {"models": []}),
+                          backends={})
+    torra = TorraApp._build_session_torra(app, tmp_path, "abc123")  # type: ignore[arg-type]
+
+    assert [p.name for p in torra.verifier.preconditions] == ["disk:/"]

@@ -759,6 +759,7 @@ class TestUndoGeneration:
         monkeypatch.setattr(subprocess, "run", fake_run)
         generator = UndoGenerator(shadow_dir=tmp_path / "s",
                                   service_probe=fake_service_probe,
+                                  enabled_probe=lambda unit: "enabled",
                                   scope_probe=fake_scope_probe)
         action = generator.capture_service("myservice")
         action.undo()
@@ -766,6 +767,66 @@ class TestUndoGeneration:
         assert calls, "undo never called subprocess.run"
         assert "--user" not in calls[0]
         assert calls[0][:2] == ["systemctl", "start"]
+
+    def test_the_units_a_systemctl_step_acts_on_come_from_its_arguments(self) -> None:
+        """`enable --now nginx` used to yield the unit `--now`."""
+        from torra.gates.service_state import service_units
+        assert service_units("sudo systemctl enable --now nginx") == ["nginx"]
+        assert service_units("systemctl --user restart a.service b@1.service") == [
+            "a.service", "b@1.service"]
+        assert service_units("systemctl status nginx") == []
+        assert service_units("systemctl stop x && systemctl disable y") == ["x", "y"]
+
+    def _unit(self, tmp_path: Path, monkeypatch, active: str, enabled: str):
+        state = {"active": active, "enabled": enabled}
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            verb = cmd[1 if "--user" not in cmd else 2]
+            state["enabled"] = {"enable": "enabled", "disable": "disabled", "mask": "masked",
+                                "unmask": "disabled"}.get(verb, state["enabled"])
+            state["active"] = {"start": "active", "stop": "inactive"}.get(verb, state["active"])
+
+            class Result:
+                returncode = 0
+            return Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        generator = UndoGenerator(shadow_dir=tmp_path / "s",
+                                  service_probe=lambda unit: state["active"],
+                                  enabled_probe=lambda unit: state["enabled"],
+                                  scope_probe=lambda unit: "system")
+        return generator, state, calls
+
+    def test_undoing_a_disable_re_enables_the_unit_and_verifies_both_facts(
+            self, tmp_path: Path, monkeypatch) -> None:
+        generator, state, calls = self._unit(tmp_path, monkeypatch, "active", "enabled")
+        action = generator.capture_service("nginx")
+        state.update(active="inactive", enabled="disabled")  # the step: disable --now
+
+        action.undo()
+
+        assert [c[1] for c in calls] == ["enable", "start"]
+        assert state == {"active": "active", "enabled": "enabled"}
+        assert action.verify is not None and action.verify() is True
+
+    def test_an_undo_that_restores_only_the_running_state_is_not_called_verified(
+            self, tmp_path: Path, monkeypatch) -> None:
+        generator, state, _ = self._unit(tmp_path, monkeypatch, "active", "enabled")
+        action = generator.capture_service("nginx")
+        state.update(active="active", enabled="disabled")  # running again, still disabled
+
+        assert action.verify is not None and action.verify() is False
+
+    def test_undoing_a_mask_unmasks_before_restoring(self, tmp_path: Path, monkeypatch) -> None:
+        generator, state, calls = self._unit(tmp_path, monkeypatch, "inactive", "disabled")
+        action = generator.capture_service("nginx")
+        state.update(active="inactive", enabled="masked")
+
+        action.undo()
+
+        assert [c[1] for c in calls] == ["unmask", "disable", "stop"]
 
     def test_package_undo_is_unsafe_by_design(self) -> None:
         """Removing packages cascades through dependencies, so it asks first."""
@@ -907,6 +968,64 @@ class TestUndoGeneration:
         UndoGenerator(shadow_dir=tmp_path / f"torra-shadow-{os.getpid()}")
 
         assert live.exists()
+
+    def _aged(self, path: Path, seconds: float) -> None:
+        import os
+        import time
+        old = time.time() - seconds
+        os.utime(path, (old, old))
+
+    def test_a_uuid_named_dir_whose_owner_file_names_a_live_pid_is_never_reaped(
+            self, tmp_path: Path) -> None:
+        """A TUI tab's shadow dir is named by session uuid; `torra-shadow-3f2a...`
+        was read as pid 3 by the old pattern, so an idle tab could lose snapshots."""
+        import os
+        live = tmp_path / "torra-shadow-3f2a9c0d11"
+        live.mkdir()
+        (tmp_path / "torra-shadow-3f2a9c0d11.owner").write_text(str(os.getpid()), encoding="utf-8")
+        self._aged(live, UndoGenerator.STALE_SHADOW_SECONDS + 3600)
+
+        UndoGenerator(shadow_dir=tmp_path / f"torra-shadow-{os.getpid()}")
+
+        assert live.exists()
+
+    def test_a_uuid_named_dir_whose_owner_is_dead_is_reaped(self, tmp_path: Path) -> None:
+        import os
+        dead_pid = 999999
+        while UndoGenerator._pid_alive(dead_pid) and dead_pid > 2:
+            dead_pid -= 1
+        stale = tmp_path / "torra-shadow-9e8d7c6b5a"
+        stale.mkdir()
+        (tmp_path / "torra-shadow-9e8d7c6b5a.owner").write_text(str(dead_pid), encoding="utf-8")
+        self._aged(stale, UndoGenerator.STALE_SHADOW_SECONDS + 3600)
+
+        UndoGenerator(shadow_dir=tmp_path / f"torra-shadow-{os.getpid()}")
+
+        assert not stale.exists()
+
+    def test_an_ownerless_uuid_dir_is_left_a_week_then_reaped(self, tmp_path: Path) -> None:
+        import os
+        young = tmp_path / "torra-shadow-aaaa1111"
+        old = tmp_path / "torra-shadow-bbbb2222"
+        for d in (young, old):
+            d.mkdir()
+        self._aged(young, UndoGenerator.STALE_SHADOW_SECONDS + 3600)
+        self._aged(old, UndoGenerator.LEGACY_SHADOW_SECONDS + 3600)
+
+        UndoGenerator(shadow_dir=tmp_path / f"torra-shadow-{os.getpid()}")
+
+        assert young.exists() and not old.exists()
+
+    def test_every_shadow_dir_records_its_owner_even_after_cleanup(self, tmp_path: Path) -> None:
+        import os
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        owner = tmp_path / "s.owner"
+        assert owner.read_text(encoding="utf-8") == str(os.getpid())
+
+        generator.cleanup()
+
+        assert owner.read_text(encoding="utf-8") == str(os.getpid())
+        assert not any((tmp_path / "s").iterdir())
 
 
 class TestCaptureRemoteFile:

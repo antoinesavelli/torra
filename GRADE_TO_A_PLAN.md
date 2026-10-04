@@ -165,7 +165,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
   Exit with the first real failing status rather than 1. *Proof:* these eight cases on both execution paths,
   mirroring the SIGPIPE tests (`tests/test_core.py:2130-2168`). Ask-first (D2).
-- **P2.3 Service undo is wrong for enable, disable, mask and `--now`.** `SERVICE_PATTERN`
+- **P2.3 DONE 2026-10-04 (`HANDOFF.md` §2.63).** **Service undo is wrong for enable, disable, mask and `--now`.** `SERVICE_PATTERN`
   (`undo.py:85-87`) reads `systemctl enable --now nginx` as unit `--now`. Enable, disable and mask are "undone"
   by start or stop and verified with `is-active` (`undo.py:454-473`), so the result reads "undone" when the
   enablement never changed back. Parse the resolved argv instead of a regex: skip flags and handle several
@@ -181,12 +181,12 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
     says "not undoable: completed in an earlier attempt".
 
   Ask-first.
-- **P2.5 The shadow reaper can't read uuid-named dirs.** It parses `torra-shadow-(\d+)` as a pid
+- **P2.5 DONE 2026-10-04 (§2.63; the owner record is a sibling `<name>.owner` file).** **The shadow reaper can't read uuid-named dirs.** It parses `torra-shadow-(\d+)` as a pid
   (`undo.py:202-211`), but TUI tabs name dirs by session uuid (`torra/tui.py:1479`). Five uuid dirs from
   2026-08-25..28 are still in `~/.torra/` today. Four never match the pattern, and `2dbada4f…` parses as pid 2,
   which is always alive. Write an `owner.pid` file into every shadow dir and have the reaper read it, keeping
   today's numeric-name rule as the fallback. *Proof:* uuid-named dirs with a live and a dead owner.
-- **P2.6 TUI tabs after the first have no disk precondition.** `_build_session_torra` (`tui.py:1477-1479`)
+- **P2.6 DONE 2026-10-04 (§2.63).** **TUI tabs after the first have no disk precondition.** `_build_session_torra` (`tui.py:1477-1479`)
   builds `Torra` without the verifier `cli.py:91-94` installs. Build the verifier in one factory both use.
 - **P2.7 DONE 2026-10-04 (§2.61).** **Captured output is unbounded** (`tasks.py:523`, `:575-594`). Keep the head and tail of each stream up
   to a cap, with a truncation marker; the live streaming callback is unaffected.

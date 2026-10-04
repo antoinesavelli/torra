@@ -132,6 +132,15 @@ class StateVerifier:
         except Exception:
             return False
 
+    @classmethod
+    def default(cls) -> StateVerifier:
+        """The verifier every `Torra` session runs with: at least 1 GB free on `/`."""
+        verifier = cls()
+        verifier.add(Precondition(
+            "disk:/", lambda: cls.disk_free_gb("/") > 1.0,
+            "at least 1 GB free on /", ttl_seconds=30))
+        return verifier
+
     @staticmethod
     def disk_free_gb(path: str = "/") -> float:
         """Free space in GB, or -1.0 on error."""

@@ -2836,6 +2836,37 @@ Three gaps in how a step's command ran (`torra/core/process.py`):
 > `TestShellRunsInItsOwnGroup`, the unchanged SIGPIPE tests, and
 > `tests/test_pipeline.py::test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back`.
 
+### 2.63 A service undo restores what the step changed, and a shadow directory's owner is recorded, not guessed
+
+Three gaps in the undo layer:
+
+1. **The unit was read from a fixed shape.** `systemctl enable --now nginx`
+   yielded the unit `--now`, and `restart a b` only ever saw `a`. Units now
+   come from the arguments (`service_units`, `torra/gates/service_state.py`):
+   flags are skipped and every named unit is captured.
+2. **"Undone" was claimed on half the evidence.** The undo for `enable`,
+   `disable` and `mask` only started or stopped the unit and verified
+   `is-active`, so an enablement that never changed back still read
+   "undone". `capture_service` now records both the active state and the
+   `is-enabled` state, restores enablement first (unmasking if needed, masking
+   again if it began masked) and then the running state, and verifies both.
+3. **The reaper read a uuid as a pid.** A TUI tab's shadow directory is named
+   by session uuid, and `torra-shadow-3f2a...` matched the pid pattern as
+   pid 3, so an idle tab could lose snapshots it still needed while dead
+   owners' directories were never reaped. Every directory now has a sibling
+   `<name>.owner` file holding its pid (beside it, so the directory itself
+   stays empty after `cleanup()`); the reaper trusts that, falls back to a pid
+   in the name only when it is followed by `-`, and gives a directory with no
+   record seven days before reaping it.
+
+Also here: every TUI tab is built with `StateVerifier.default()`, the same
+disk precondition the CLI installs. Tabs after the first had none.
+
+> Guarded by `tests/test_gates.py::TestUndoGeneration` (unit parsing, undoing
+> a disable, a half-restored unit not verified, undoing a mask, uuid and
+> ownerless shadow directories, owner file survives cleanup) and
+> `tests/test_tui.py::test_every_tab_gets_the_default_disk_precondition`.
+
 ---
 
 ## 3. Things already tried that failed
