@@ -91,7 +91,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   `torra/pipeline_rollback.py`, because the change pushed `pipeline.py` over the 500-line cap; it is 489 lines now.
   `Torra.execute` stays at 14 and `_run_steps` went from 14 to 13. Suite: 788 to 798 tests.
 
-**P1.2 Unrecognised commands classify SAFE and run with no tick.** Ask-first; depends on D1 and D1b.
+**P1.2 Unrecognised commands classify SAFE and run with no tick.** Ask-first; depends on D1 and D1b. **DONE 2026-10-04.**
 - *Finding.* `torra/gates/safety.py:781` returns SAFE when no rule matches, and SAFE steps are auto-approved
   (`pipeline.py:371`). An in-process probe on 2026-10-03 classified all of these SAFE:
   - `blkdiscard /dev/nvme0n1`, `mkswap /dev/sda1`, `dd if=/dev/zero of=/etc/passwd`
@@ -128,6 +128,11 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 - *Proof.* Add every probe above to `EVASIONS`, plus a `test_an_unknown_program_needs_confirmation`. Grow
   `ROUTINE` with the read-only commands from the replay, and keep `test_no_false_positives_on_routine_work`
   green.
+- *As built.* `HANDOFF.md` §2.60, `torra/gates/known_programs.py`, `tests/test_known_programs.py`. Three tiers: read-only SAFE,
+  bounded writers CAUTION, unknown or protected-write DANGEROUS. Replay of 174 real commands: ticks 6 to 11 after adding the five
+  measured read-only diagnostics. Interpreter payloads: an AST proof of purity instead of always asking. Also done: the
+  `remote_pull` verdict (part of P3.5), resolver fixes for `2>&1`, `do`/`then`, parentheses, heredocs and `eval`. The probes
+  went into the new test file rather than `EVASIONS`.
 - *Docs.* `agents/GUARDRAILS.md:15` and `AGENTS.md:134` say "20/20". The corpus has 26 cases, and after this
   it has more. Say "every case in `EVASIONS`" instead of a count.
 - *Invariant.* Add to `HANDOFF.md` §2: "A command torra can't prove read-only needs a tick."

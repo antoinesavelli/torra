@@ -132,8 +132,8 @@ replacement. If any of these is unclear before you act, read the full entry, the
 
 - **Command resolution must match how a real shell resolves it**, not a regex guess.
   `SafetyClassifier` unwraps `sudo`/`env`/`timeout`/`nohup`/`nice`/`xargs`, recurses into
-  `sh -c`, decodes base64-to-shell, splits quotes correctly. Bar: 20/20 evasions caught, 0
-  false positives (`tests/test_gates.py::TestSafety`) — don't regress it. A new wrapper or shell construct to recognize means
+  `sh -c`, decodes base64-to-shell, splits quotes correctly. Bar: every case in `TestSafety.EVASIONS` caught, and
+  every command in `tests/test_known_programs.py` classified as listed — don't regress it. A new wrapper or shell construct to recognize means
   adding its evasion case to that corpus in the same change.
 - **systemd-scope assumptions must be checked against the real unit**, never assumed
   `--user`. `ollama.service` on this exact machine runs system-wide.

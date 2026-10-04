@@ -253,7 +253,8 @@ class TestSafety:
         something shaped like an office document must stay unescalated --
         this is deliberately narrow, not a blanket "relative path" rule."""
         verdict = SafetyClassifier().classify("zip -r backup.zip staging/")
-        assert verdict.level is RiskLevel.SAFE, verdict.reasons
+        assert verdict.level is RiskLevel.CAUTION, verdict.reasons
+        assert not any("office document" in r for r in verdict.reasons), verdict.reasons
 
     def test_a_python_comparison_operator_is_not_mistaken_for_a_redirect(self) -> None:
         """Found testing xlsx commands for real: `_check_redirect`'s final
@@ -347,7 +348,7 @@ class TestSafety:
         not a PID -- `kill -s 1 12345` sends SIGHUP to PID 12345 and never
         touches PID 1."""
         verdict = SafetyClassifier().classify("kill -s 1 12345")
-        assert verdict.level is RiskLevel.SAFE
+        assert verdict.level is RiskLevel.CAUTION, verdict.reasons  # a bounded write, never CRITICAL
 
     def test_kill_list_mode_is_not_mistaken_for_a_kill(self) -> None:
         """`kill -l [1]` prints a signal name; it kills nothing."""
@@ -403,11 +404,11 @@ class TestSafetyCoverageEdges:
         token -- an empty payload is falsy, so nothing recurses, but the
         IndexError itself must not propagate."""
         verdict = SafetyClassifier().classify("sh -c")
-        assert verdict.level is RiskLevel.SAFE
+        assert verdict.level is RiskLevel.DANGEROUS  # a bare shell is not known to be read-only
 
     def test_dd_without_a_block_device_target_is_not_flagged(self) -> None:
         verdict = SafetyClassifier().classify("dd if=/dev/zero of=/tmp/out.img bs=1M count=1")
-        assert verdict.level is RiskLevel.SAFE
+        assert verdict.level is RiskLevel.CAUTION, verdict.reasons  # a file write, not a device write
 
     def test_find_without_delete_or_exec_is_not_flagged(self) -> None:
         verdict = SafetyClassifier().classify('find /tmp -name "*.tmp" -mtime +7')

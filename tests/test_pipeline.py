@@ -1307,12 +1307,12 @@ class TestRemotePushEscalation:
         sp = plan.steps[0]
         assert sp.verdict.level is RiskLevel.CRITICAL
         assert any("less-guarded machine" in r for r in sp.verdict.reasons)
-        # Confirms this is a floor, not a fluke: torra-authored
-        # command text alone matches nothing in SafetyClassifier.
-        from torra.gates import SafetyClassifier
-        assert SafetyClassifier().classify(sp.step.command).level is RiskLevel.SAFE
+        # Confirms this is a floor, not a fluke: torra-authored command
+        # text alone never reaches CRITICAL in SafetyClassifier.
+        assert SafetyClassifier().classify(sp.step.command).level is not RiskLevel.CRITICAL
 
-    def test_remote_pull_gets_no_escalation(self, make_torra, tmp_path: Path) -> None:
+    def test_remote_pull_is_judged_by_the_local_file_it_writes(
+            self, make_torra, tmp_path: Path) -> None:
         spec = TaskSpec.validate({
             "task_id": "t", "request": "r",
             "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
@@ -1323,7 +1323,19 @@ class TestRemotePushEscalation:
 
         plan = torra._gate(spec)
 
-        assert plan.steps[0].verdict.level is RiskLevel.SAFE
+        assert plan.steps[0].verdict.level is RiskLevel.CAUTION
+        assert not plan.steps[0].verdict.needs_confirmation
+
+    def test_remote_pull_into_a_system_path_asks(self, make_torra) -> None:
+        spec = TaskSpec.validate({
+            "task_id": "t", "request": "r",
+            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
+                      "remote_path": "/etc/nginx/nginx.conf",
+                      "touches": ["/etc/nginx/nginx.conf"]}]}, source="test")
+        torra = make_torra(scripted({}))
+        torra._executor_runner = None
+
+        assert torra._gate(spec).steps[0].verdict.needs_confirmation
 
     def test_end_to_end_pull_edit_push_with_a_real_snapshot_based_undo(
             self, make_torra, tmp_path: Path) -> None:

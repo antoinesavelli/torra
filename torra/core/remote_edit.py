@@ -10,7 +10,7 @@ Depends on: torra.core.tasks (TorraError, TaskSpecError -- reused rather
 than new exception types; `TaskSpec.to_steps`'s `build()` imports this
 module back lazily, inside the function body, to avoid a real cycle at
 module-load time -- see that call site's own comment), torra.gates
-(RiskLevel, for `escalate_remote_push` only -- safe as a top-level import
+(RiskLevel, for `escalate_remote_push`/`settle_remote_pull` only -- safe as a top-level import
 here since torra.gates has no import-time dependency on torra.core in
 the other direction, confirmed in torra/gates/router.py's own docstring).
 """
@@ -27,7 +27,7 @@ from .tasks import TaskSpecError, TorraError
 
 __all__ = [
     "build_remote_pull_action", "build_remote_push_action",
-    "escalate_remote_push", "validate_remote_step_fields",
+    "escalate_remote_push", "settle_remote_pull", "validate_remote_step_fields",
 ]
 
 
@@ -134,8 +134,18 @@ def escalate_remote_push(verdict: Any, kind: str) -> None:
     called from in `Torra._gate`."""
     if kind != "remote_push":
         return
-    order = [RiskLevel.SAFE, RiskLevel.CAUTION, RiskLevel.DANGEROUS, RiskLevel.CRITICAL]
-    verdict.level = max(verdict.level, RiskLevel.CRITICAL, key=order.index)
-    verdict.reasons.insert(
-        0, "writes to a second, less-guarded machine (executor) -- "
-           "always confirmed regardless of content")
+    verdict.level = RiskLevel.CRITICAL
+    verdict.reasons[:] = ["writes to a second, less-guarded machine (executor) -- "
+                          "always confirmed regardless of content"]
+
+
+def settle_remote_pull(verdict: Any, step: Any, protected: Callable[[str], bool]) -> None:
+    """Give a `remote_pull` step a verdict from what it does, which is write its local file.
+
+    Its descriptive text names no real program, so the classifier can only call it unknown. The
+    destination is the step's first declared `touches` path (`build_remote_pull_action`)."""
+    if step.kind != "remote_pull":
+        return
+    local = step.touches[0] if step.touches else ""
+    verdict.level = RiskLevel.DANGEROUS if protected(local) else RiskLevel.CAUTION
+    verdict.reasons[:] = [f"writes {local or 'a local file'} with the executor's copy"]

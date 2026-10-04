@@ -8,7 +8,7 @@ Step lists for the recurring kinds of change.
 1. Add the case to `tests/test_gates.py::TestSafety`'s corpus first — this is benchmark-driven
    work, same discipline as `docs/`: measure the gap before closing it.
 2. Implement the resolution logic in `torra/gates/safety.py`.
-3. Confirm 20/20 (or the new total) still passes with 0 false positives on the routine-command set.
+3. Confirm every `EVASIONS` case and the `tests/test_known_programs.py` lists still pass: nothing unrecognised runs without a tick, and routine read-only work still does.
 4. Update `HANDOFF.md` §2.1 only if the change affects the `Step.command`/`Step.run` equivalence.
 
 ### Adding a new gate or extending an existing one

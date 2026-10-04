@@ -2762,6 +2762,51 @@ in helpers.
 > `test_undos_left_by_an_earlier_halted_rollback_are_not_run_by_a_later_plan`, and
 > `tests/test_gates.py::TestVerifiedRollback::test_drop_where_removes_only_the_selected_actions_and_keeps_the_order`
 
+### 2.60 A command torra cannot prove read-only needs a tick
+
+`SafetyClassifier` used to start from SAFE and only raise a verdict when a
+rule matched, so any program no rule named ran with no tick on every path.
+A probe on 2026-10-03 classified all of these SAFE: `blkdiscard
+/dev/nvme0n1`, `dd if=/dev/zero of=/etc/passwd`, `eval "chmod -R 777 /etc"`,
+`crontab -r`, `curl ... | /bin/bash`, `sed -i ... /etc/fstab`, `rsync
+--delete`, `git push -f`, `kill -9 -1`, `mkswap`. A list of dangerous things
+to detect cannot be complete (§3), so the default is inverted.
+
+After every rule has had its say, a resolved command that drew no finding is
+asked of `known_programs.trust()`: **read-only** stays SAFE, a **bounded
+writer** (`tar`, `git pull`, `touch`, `python -m pytest`) runs flagged CAUTION,
+a known writer aimed at a protected path or an **unknown program** is
+DANGEROUS and asks. The lists name what is known, so a missing program fails
+toward asking. They grow only from a measured false positive: replaying 174
+real logged commands raised the ticks from 6 to 11 (2.9%), and the five that
+were genuine read-only diagnostics were added.
+
+Rules that make this hold:
+
+1. A program named by a relative or odd path (`./ls`) is never taken for the
+   system one.
+2. `python -c` is read-only only when an AST check proves the payload pure:
+   stdlib modules that cannot write or spawn, `open()` in read mode, no dunder
+   or `getattr` escape, and `openpyxl` without `.save()`. This replaces the
+   denylist scan §2.55 tuned as the only gate for reads: the reads it kept
+   quiet (spreadsheets, CSV) still run unticked, everything else asks.
+3. The resolver no longer invents commands: `2>&1` stays one command,
+   `do`/`then` expose the command behind them, `(group)` parentheses and
+   `$(...)` spans are not words, heredoc bodies fed to a reader are data, and
+   `eval` re-resolves its argument.
+4. `kill` with a negative pid or 0, and the device tools (`blkdiscard`,
+   `sgdisk`, `mkswap`, `cryptsetup`, LVM removals), are CRITICAL.
+5. Steps torra authors itself (`remote_pull`, `remote_push`) get verdicts from
+   what they do (`settle_remote_pull`, `escalate_remote_push`), because their
+   text names no real program.
+
+Known writers now read CAUTION, not SAFE, which does not change what needs a
+tick. Four older assertions that pinned SAFE for `zip`, `dd of=file` and
+`kill <pid>` were updated to CAUTION on that basis.
+
+> Guarded by `tests/test_known_programs.py` (every list, `trust()`, the
+> resolver cases) and the unchanged `TestSafety.EVASIONS` and `ROUTINE` corpora.
+
 ---
 
 ## 3. Things already tried that failed

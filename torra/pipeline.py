@@ -41,7 +41,7 @@ from .core import (
     resolve_executor_config,
     resolve_resume,
 )
-from .core.remote_edit import escalate_remote_push
+from .core.remote_edit import escalate_remote_push, settle_remote_pull
 from .core.tasks import shell_output_sink
 from .dependency_warnings import dependency_warnings as _dependency_warnings
 from .gates import (
@@ -244,10 +244,10 @@ class Torra:
 
         for step in steps:
             verdict = self.safety.classify(step.command)
-            # Unconditional CRITICAL floor for remote_push, regardless of
-            # what its (torra-authored) command text classifies to on its
-            # own -- see escalate_remote_push's own docstring for why.
+            # Remote steps are torra-authored: their command text names no real
+            # program, so their verdicts come from what they do instead.
             escalate_remote_push(verdict, step.kind)
+            settle_remote_pull(verdict, step, self.safety.protects)
             undos = self.undo.for_step(step)
             plan.steps.append(StepPlan(step=step, verdict=verdict, undos=undos))
             self.decisions.log(

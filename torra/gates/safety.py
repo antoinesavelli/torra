@@ -1,6 +1,6 @@
 """SAFETY_FIRST: resolves what a command will actually run, then classifies it.
 
-Depends on: stdlib only.
+Depends on: torra.gates.known_programs (what torra can vouch for as read-only).
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
+
+from .known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY, trust
 
 __all__ = ["RiskLevel", "ResolvedCommand", "Verdict", "SafetyClassifier"]
 
@@ -39,8 +41,9 @@ class ResolvedCommand:
 
     @property
     def program(self) -> str:
-        """Executable name with any directory prefix stripped."""
-        return self.argv[0].rsplit("/", 1)[-1] if self.argv else ""
+        """Executable name with any directory prefix stripped; `python3.12` is `python3`."""
+        name = self.argv[0].rsplit("/", 1)[-1] if self.argv else ""
+        return "python3" if re.fullmatch(r"python3\.[0-9]+", name) else name
 
     def to_dict(self) -> dict[str, Any]:
         """Serializable dict form."""
@@ -88,6 +91,14 @@ PROGRAM_RISK: dict[str, tuple[RiskLevel, str]] = {
     "wipefs": (RiskLevel.CRITICAL, "filesystem signature wipe"),
     "fdisk": (RiskLevel.CRITICAL, "partition table edit"),
     "parted": (RiskLevel.CRITICAL, "partition table edit"),
+    "sgdisk": (RiskLevel.CRITICAL, "partition table edit"),
+    "sfdisk": (RiskLevel.CRITICAL, "partition table edit"),
+    "blkdiscard": (RiskLevel.CRITICAL, "block device discard"),
+    "mkswap": (RiskLevel.CRITICAL, "swap format"),
+    "cryptsetup": (RiskLevel.CRITICAL, "disk encryption change"),
+    "lvremove": (RiskLevel.CRITICAL, "logical volume removal"),
+    "vgremove": (RiskLevel.CRITICAL, "volume group removal"),
+    "pvremove": (RiskLevel.CRITICAL, "physical volume removal"),
     "reboot": (RiskLevel.DANGEROUS, "host restart"),
     "poweroff": (RiskLevel.DANGEROUS, "host power off"),
     "halt": (RiskLevel.DANGEROUS, "host halt"),
@@ -143,6 +154,17 @@ INTERPRETERS: tuple[str, ...] = ("sh", "bash", "zsh", "ksh", "dash", "su", "pyth
 
 WRAPPERS: tuple[str, ...] = ("sudo", "doas", "env", "nohup", "nice", "ionice",
                              "setsid", "time", "timeout", "stdbuf", "xargs")
+
+#: Shell keywords that sit in front of a command (`do rm -rf /x`, `then cat f`) and end a segment
+#: that is only loop or branch structure (`for x in a b`, `done`, `fi`). Judging them as programs
+#: hid the real command behind them. `case` is deliberately absent: its arms share one segment
+#: with the pattern, so it stays an unrecognised program and asks.
+CONTROL_PREFIXES: frozenset[str] = frozenset({"do", "then", "else", "elif", "while", "until",
+                                              "if", "!", "{"})
+STRUCTURE_ONLY: frozenset[str] = frozenset({"for", "done", "fi", "in", "}", ")"})
+
+HEREDOC = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n(?:.*?\n)?[ \t]*\2[ \t]*(?=\n|$)",
+                     re.DOTALL)
 
 #: Flags that consume the *next* token as their own value, per wrapper --
 #: used so _strip doesn't mistake a flag's value for the start of the
@@ -241,6 +263,8 @@ class SafetyClassifier:
                 buf = []
                 i += 2
                 continue
+            elif ch == "&" and (command[i - 1:i] in (">", "<") or command[i + 1:i + 2] == ">"):
+                buf.append(ch)  # a redirect (`2>&1`, `&>file`), not a background separator
             elif ch in (";", "|", "&", "\n"):
                 segments.append("".join(buf))
                 buf = []
@@ -325,9 +349,20 @@ class SafetyClassifier:
                 env[name] = value
                 out.pop(0)
                 changed = True
+            if out and out[0] in CONTROL_PREFIXES:
+                out.pop(0)  # `do rm -rf /x`: the keyword is not the command
+                changed = True
             if self._consume_wrapper(out):
                 changed = True
         return out
+
+    @staticmethod
+    def _unparen(segment: str) -> str:
+        """Drop the grouping parentheses `(cd /x && ls)` leaves glued to its first and last word."""
+        segment = segment.lstrip("( \t")
+        while segment.endswith(")") and segment.count(")") > segment.count("("):
+            segment = segment[:-1].rstrip()
+        return segment
 
     @staticmethod
     def _substitute(argv: list[str], env: dict[str, str]) -> list[str]:
@@ -401,6 +436,26 @@ class SafetyClassifier:
                 i += 1
         return spans
 
+    def _blank_substitutions(self, command: str) -> str:
+        """Swap each `$(...)`/backtick span for a placeholder word. The span is judged on its own
+        (`_resolve_substitutions`); its inner spaces and `|` must not split or garble the outer
+        command, as in `VERSION=$(git rev-parse HEAD)`."""
+        for span in self._find_command_substitutions(command):
+            command = command.replace(f"$({span})", "SUBST", 1).replace(f"`{span}`", "SUBST", 1)
+        return command
+
+    @staticmethod
+    def _strip_heredocs(command: str) -> str:
+        """Drop a heredoc body fed to a program that only reads it (`cat <<EOF`): it is data. One
+        fed to an interpreter stays, because the interpreter runs it."""
+        def keep_or_drop(m: re.Match[str]) -> str:
+            lead = command[command.rfind("\n", 0, m.start()) + 1:m.start()].split()[:1]
+            runner = lead[0].rsplit("/", 1)[-1] if lead else ""
+            if runner in INTERPRETERS or runner in WRAPPERS:
+                return m.group(0)
+            return f"<<{m.group(2)}{m.group(3)}"
+        return HEREDOC.sub(keep_or_drop, command)
+
     def _resolve_substitutions(self, command: str, depth: int) -> list[ResolvedCommand]:
         """Recurse into every command-substitution span -- captured stdout is what runs next."""
         out: list[ResolvedCommand] = []
@@ -442,42 +497,46 @@ class SafetyClassifier:
         resolved += self._resolve_substitutions(command, depth)
 
         env: dict[str, str] = {}
-        for segment in self.split_segments(command):
-            segment = self._expand_ifs(segment)
+        for segment in self.split_segments(self._blank_substitutions(self._strip_heredocs(command))):
+            segment = self._unparen(self._expand_ifs(segment))
             argv = self._substitute(self._strip(self._tokenize(segment), env), env)
-            if not argv:
+            if not argv or argv[0] in STRUCTURE_ONLY:
                 continue
-            program = argv[0].rsplit("/", 1)[-1]
-            if program in INTERPRETERS and "-c" in argv:
-                try:
-                    payload = argv[argv.index("-c") + 1]
-                except IndexError:
-                    payload = ""
-                if payload:
-                    # Only a *shell* interpreter's -c payload is worth
-                    # recursing into as more shell syntax. Python/Perl/Ruby/
-                    # Node source is not shell grammar -- resolving it here
-                    # would misparse it -- so it is kept as one opaque
-                    # ResolvedCommand and left to _judge's regex check for
-                    # filesystem/process operations in the source text.
-                    if program.startswith("python") or program in ("perl", "ruby", "node"):
-                        resolved.append(ResolvedCommand(argv, segment,
-                                                        f"{program} -c source"))
-                        continue
-                    resolved += [ResolvedCommand(r.argv, r.source, f"{program} -c")
-                                 for r in self.resolve(payload, depth + 1)]
-                    continue
-            resolved.append(ResolvedCommand(argv, segment))
+            resolved += self._unwrap(argv, segment, depth)
         return resolved
+
+    def _unwrap(self, argv: list[str], segment: str, depth: int) -> list[ResolvedCommand]:
+        """The commands one segment runs: its `eval` or `sh -c` payload, or itself."""
+        program = ResolvedCommand(argv, segment).program
+        out: list[ResolvedCommand] = []
+        if program == "eval" and len(argv) > 1:
+            out += [ResolvedCommand(r.argv, r.source, "eval")
+                    for r in self.resolve(" ".join(argv[1:]), depth + 1)]
+        payload = argv[argv.index("-c") + 1] if program in INTERPRETERS and "-c" in argv[:-1] else ""
+        if not payload:
+            return out + [ResolvedCommand(argv, segment)]
+        # Only a *shell* interpreter's -c payload is worth recursing into as more shell
+        # syntax. Python/Perl/Ruby/Node source is not shell grammar, so it is kept as one
+        # opaque ResolvedCommand and left to _judge's checks of the source text.
+        if program.startswith("python") or program in ("perl", "ruby", "node"):
+            return out + [ResolvedCommand(argv, segment, f"{program} -c source")]
+        return out + [ResolvedCommand(r.argv, r.source, f"{program} -c")
+                      for r in self.resolve(payload, depth + 1)]
 
     # -- classification ---------------------------------------------------- #
 
     @staticmethod
     def _protected(path: str) -> bool:
         """True when a path targets a system location worth protecting."""
+        if path.startswith(("~", "$HOME", "${HOME}")):
+            return True  # the home directory, which /home already protects by its absolute path
         cleaned = path.rstrip("/*") or "/"
         return cleaned in PROTECTED_PREFIXES or any(
             cleaned.startswith(p + "/") for p in PROTECTED_PREFIXES if p != "/")
+
+    def protects(self, path: str) -> bool:
+        """Public form of `_protected`, for steps torra builds itself (a remote pull's local file)."""
+        return self._protected(path)
 
     @staticmethod
     def _looks_like_document_container(path: str) -> bool:
@@ -524,6 +583,7 @@ class SafetyClassifier:
             (program in ("python", "python3", "perl", "ruby", "node"),
              lambda: self._judge_script_source(program, argv)),
             (program == "kill", lambda: self._judge_kill(argv)),
+            (program == "docker", lambda: self._judge_docker(argv)),
             (program in ("chmod", "chown"),
              lambda: self._judge_chmod_chown(program, protected)),
             (program in ("tee", "cp", "mv", "zip"),
@@ -542,7 +602,19 @@ class SafetyClassifier:
         for matched, call in rules:
             if matched:
                 found += call()
-        return found
+        return found or self._judge_by_trust(rc)
+
+    def _judge_by_trust(self, rc: ResolvedCommand) -> list[tuple[RiskLevel, str]]:
+        """No rule objected, so only a program torra can vouch for runs without a tick."""
+        verdict = trust(rc.argv, self._protected)
+        if verdict == READ_ONLY:
+            return []
+        if verdict == BOUNDED_WRITE:
+            return [(RiskLevel.CAUTION, f"{rc.program} writes files or state")]
+        if verdict == PROTECTED_WRITE:
+            return [(RiskLevel.DANGEROUS, f"{rc.program} writes to a system path")]
+        return [(RiskLevel.DANGEROUS,
+                 f"unrecognised program {rc.program!r}: not known to be read-only")]
 
     @staticmethod
     def _judge_rm(chars: set[str], flags: list[str],
@@ -683,18 +755,34 @@ class SafetyClassifier:
         # PID -- `kill -s 1 12345` sends SIGHUP to PID 12345 and never
         # touches PID 1, and naively treating "1" as an operand there
         # would flag a command that is not dangerous.
-        skip_next, list_mode, pids = False, False, []
+        skip_next, list_mode, signalled, pids = False, False, False, []
         for tok in argv[1:]:
             if skip_next:
                 skip_next = False
             elif tok in ("-s", "-n", "--signal"):
-                skip_next = True
+                skip_next = signalled = True
             elif tok in ("-l", "-L", "--list", "--table"):
                 list_mode = True
-            elif not tok.startswith("-"):
+            elif signalled and re.fullmatch(r"-\d+", tok):
+                pids.append(tok)  # `kill -9 -1`: the signal is chosen, so this is a pid
+            elif tok.startswith("-"):
+                signalled = True
+            else:
                 pids.append(tok)
-        if "1" in pids and not list_mode:
+        if list_mode:
+            return []
+        if "1" in pids:
             return [(RiskLevel.CRITICAL, "kill of PID 1")]
+        if any(p == "0" or p.startswith("-") for p in pids):
+            return [(RiskLevel.CRITICAL, "kill of a whole process group or every process")]
+        return []
+
+    @staticmethod
+    def _judge_docker(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        words = set(argv[1:])
+        if words & {"rm", "rmi", "kill", "prune"} or (
+                "down" in words and words & {"-v", "--volumes"}):
+            return [(RiskLevel.DANGEROUS, "removes containers, images or volumes")]
         return []
 
     @staticmethod
@@ -735,7 +823,7 @@ class SafetyClassifier:
         in-quote characters, so an unquoted match's span is identical in
         both strings."""
         masked = self._mask_quoted(text)
-        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+)", masked)
+        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+|~[^\s;|&]*|\$\{?HOME\}?[^\s;|&]*)", masked)
         if redirect:
             target = text[redirect.start(2):redirect.end(2)]
             if target in SAFE_REDIRECT_TARGETS:
@@ -743,7 +831,7 @@ class SafetyClassifier:
             if self._protected(target):
                 verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
                 return [(RiskLevel.CRITICAL, f"redirect {verb} {target}")]
-        if re.search(r">\s*[^>\s]", masked):
+        if re.search(r">(?!&)\s*[^>\s]", masked):
             return [(RiskLevel.CAUTION, "output redirect that overwrites")]
         return []
 

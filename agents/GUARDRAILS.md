@@ -12,7 +12,7 @@ wrong command runs against a real filesystem, package manager, or init system.
   `timeout`, `nohup`, `nice`, `xargs`; recurses into `sh -c` payloads; decodes base64 blobs
   piped to a shell; and splits on quotes correctly. Plain regex over raw text measured 5 of 12
   evasions missed in testing — treat that number as the bar a change to this area must clear
-  (currently 20/20 caught, 0 false positives; re-run `tests/test_gates.py::TestSafety` and
+  (every `EVASIONS` case caught, none of the routine commands asking; re-run `tests/test_gates.py::TestSafety` and
   don't let it regress). If you're adding a new wrapper or shell construct to recognize, add
   the evasion case to that test corpus in the same change — an unlisted evasion is
   indistinguishable from "handled" until someone hits it live.

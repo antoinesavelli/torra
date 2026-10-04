@@ -7,6 +7,7 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 
 | File | Holds |
 |---|---|
+| `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and the per-program rules (`git`, `curl`, `python -c`) that decide which. Anything absent asks (`HANDOFF.md` §2.60) |
 | `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it |
 | `state.py` | VERIFY_STATE: `StateVerifier`, preconditions rechecked between steps, TTL cached |
 | `undo.py` | ROLLBACK_ON_FAIL, half one: `UndoGenerator` derives undo actions from what a step declares -- also `capture_remote_file`, the same real snapshot/restore bar over an optional executor SSH runner, for `remote_push` steps (`HANDOFF.md` §2.53) |
