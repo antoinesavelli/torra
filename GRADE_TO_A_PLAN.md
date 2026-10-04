@@ -190,7 +190,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   builds `Torra` without the verifier `cli.py:91-94` installs. Build the verifier in one factory both use.
 - **P2.7 DONE 2026-10-04 (§2.61).** **Captured output is unbounded** (`tasks.py:523`, `:575-594`). Keep the head and tail of each stream up
   to a cap, with a truncation marker; the live streaming callback is unaffected.
-- **P2.8 Minor, verify first:** undo `coverage()` counts a step whose snapshot was skipped (`undo.py:562`).
+- **P2.8 DONE 2026-10-04 (`HANDOFF.md` §2.65; both claims confirmed and fixed).** **Minor, verify first:** undo `coverage()` counts a step whose snapshot was skipped (`undo.py:562`).
   The remote restore drops a trailing newline but still verifies (`torra/core/machine.py:554`,
   `undo.py:449`).
 

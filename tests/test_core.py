@@ -326,8 +326,9 @@ class TestRemoteEditSteps:
         local_dest = tmp_path / "pulled-nginx.conf"
 
         def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
-            assert "nginx.conf" in command
-            return "server { listen 80; }\n"
+            import base64
+            assert "nginx.conf" in command and command.startswith("base64 -w0")
+            return base64.b64encode(b"server { listen 80; }\n").decode()
 
         spec = TaskSpec.validate({
             "task_id": "t", "request": "r",

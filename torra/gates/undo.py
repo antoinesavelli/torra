@@ -168,10 +168,7 @@ class UndoGenerator:
         self._reap_stale_shadows()
 
     def _claim_shadow_dir(self) -> None:
-        """Record which process owns this directory, so a reaper can tell live from dead.
-
-        Kept beside the directory (`<name>.owner`), not inside it: the directory holds only
-        snapshots, and cleanup() leaves it empty."""
+        """Record the owning pid beside the directory (`<name>.owner`; cleanup() leaves it empty)."""
         try:
             self._owner_file(self.shadow_dir).write_text(str(os.getpid()), encoding="utf-8")
         except OSError:
@@ -380,6 +377,14 @@ class UndoGenerator:
         return UndoAction(f"restore {target} from snapshot ({how})", undo_restore,
                           True, lambda: self.digest(target) == dig, True, snap, step_id)
 
+    @staticmethod
+    def _read_remote_bytes(runner: Callable[[str, str | None, float | None], str],
+                           remote_path: str) -> bytes:
+        """A remote file's exact bytes (the runner strips output, which `cat` lost newlines to)."""
+        import base64
+        import shlex
+        return base64.b64decode(runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0))
+
     def capture_remote_file(self, remote_path: str, step_id: str = "") -> UndoAction | None:
         """Snapshot one file on executor (over `self._executor_runner`) and
         build its restore action -- the direct remote mirror of
@@ -423,7 +428,7 @@ class UndoGenerator:
                 undo_absent, True, verify_absent, True, snap, step_id)
 
         try:
-            content = runner(f"cat {shlex.quote(remote_path)}", None, 30.0)
+            content = self._read_remote_bytes(runner, remote_path)
         except Exception as exc:
             self.skipped.append(f"{remote_path} (executor): shadow capture failed {exc!r}")
             return None
@@ -431,30 +436,29 @@ class UndoGenerator:
         self._counter += 1
         shadow = self.shadow_dir / f"{self._counter:05d}_executor_{Path(remote_path).name}"
         try:
-            shadow.write_text(content, encoding="utf-8")
+            shadow.write_bytes(content)
         except OSError as exc:
             self.skipped.append(f"{remote_path} (executor): shadow write failed {exc!r}")
             return None
 
         dig = self.digest(shadow)
         snap = Snapshot(SnapshotKind.FILE_CONTENT, remote_path,
-                        f"{len(content)} bytes via executor cat", str(shadow), dig)
+                        f"{len(content)} bytes via executor base64", str(shadow), dig)
         self.snapshots.append(snap)
 
         def undo_restore() -> None:
             """Push the shadowed bytes back to executor."""
             import base64
-            shadow_content = shadow.read_text(encoding="utf-8")
-            encoded = base64.b64encode(shadow_content.encode("utf-8")).decode("ascii")
+            encoded = base64.b64encode(shadow.read_bytes()).decode("ascii")
             runner(f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}",
                   None, 30.0)
 
         def verify_restore() -> bool:
             try:
-                current = runner(f"cat {shlex.quote(remote_path)}", None, 30.0)
+                current = self._read_remote_bytes(runner, remote_path)
             except Exception:
                 return False
-            return hashlib.sha256(current.encode("utf-8")).hexdigest() == dig
+            return hashlib.sha256(current).hexdigest() == dig
 
         return UndoAction(f"restore {remote_path} on executor from snapshot",
                           undo_restore, True, verify_restore, True, snap, step_id)
@@ -570,9 +574,11 @@ class UndoGenerator:
         # before the run rather than after the failure.
         covered: list[str] = []
         uncovered: list[str] = []
+        snapped = {s.target for s in self.snapshots}
         for step in steps:
             command = getattr(step, "command", "") or ""
-            derivable = (bool(getattr(step, "touches", None))
+            touches = getattr(step, "touches", None) or []
+            derivable = (bool(touches) and all(str(Path(t)) in snapped for t in touches)
                          or service_units(command)
                          or PACKAGE_PATTERN.search(command)
                          or MKDIR_PATTERN.search(command))

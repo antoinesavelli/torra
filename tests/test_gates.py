@@ -919,6 +919,25 @@ class TestUndoGeneration:
         second = generator.for_step(Step("edit2", touches=[str(target)]))
         assert second and second[0].snapshot is not None
 
+    def test_a_step_whose_snapshot_was_skipped_is_reported_uncovered(
+            self, tmp_path: Path) -> None:
+        """`touches` alone used to count as covered, even when the file was too big to
+        snapshot or was a directory, so the plan advertised an undo that did not exist."""
+        big = tmp_path / "big.bin"
+        big.write_bytes(b"x" * 100)
+        small = tmp_path / "small.txt"
+        small.write_text("ok", encoding="utf-8")
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", max_shadow_bytes=10)
+        steps = [Step("big", touches=[str(big)]), Step("dir", touches=[str(tmp_path)]),
+                 Step("small", touches=[str(small)])]
+        for step in steps:
+            generator.for_step(step)
+
+        report = generator.coverage(steps)
+
+        assert report["covered"] == ["small"]
+        assert report["uncovered"] == ["big", "dir"]
+
     def test_a_dead_old_sibling_shadow_dir_is_reaped(self, tmp_path: Path) -> None:
         """A directory from a run that failed (so cleanup() never ran) must
         not accumulate forever either -- reaped once it is both stale by
@@ -1045,8 +1064,9 @@ class TestCaptureRemoteFile:
         def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
             if command.startswith("test -e"):
                 return "yes" if "/etc/nginx/nginx.conf" in remote else "no"
-            if command.startswith("cat "):
-                return remote["/etc/nginx/nginx.conf"]
+            if command.startswith("base64 -w0"):
+                import base64 as b64
+                return b64.b64encode(remote["/etc/nginx/nginx.conf"].encode("utf-8")).decode()
             if "base64 -d" in command:
                 import base64
                 encoded = command.split("echo ", 1)[1].split(" |", 1)[0].strip("'")
@@ -1063,6 +1083,36 @@ class TestCaptureRemoteFile:
         remote["/etc/nginx/nginx.conf"] = "CLOBBERED\n"
         action.undo()
         assert remote["/etc/nginx/nginx.conf"] == "original\n"
+        assert _verify(action) is True
+
+    def test_restore_keeps_a_trailing_newline_and_bytes_that_are_not_utf8(
+            self, tmp_path: Path) -> None:
+        """The real runner strips its output, so a `cat` read dropped the trailing newline and
+        the restore still verified, against content that was already wrong."""
+        import base64
+        path = "/etc/app/blob.bin"
+        original = b"line one\nline two\n\xff\xfe\x00tail\n"
+        remote = {path: original}
+
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command.startswith("test -e"):
+                return "yes"
+            if command.startswith("base64 -w0"):
+                return base64.b64encode(remote[path]).decode().strip()
+            if "base64 -d" in command:
+                encoded = command.split("echo ", 1)[1].split(" |", 1)[0].strip("'")
+                remote[path] = base64.b64decode(encoded)
+                return ""
+            raise AssertionError(f"unexpected command: {command}")
+
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner)
+        action = generator.capture_remote_file(path, "push")
+        assert action is not None
+        remote[path] = b"CLOBBERED"
+
+        action.undo()
+
+        assert remote[path] == original
         assert _verify(action) is True
 
     def test_absent_case_undo_deletes_what_the_push_created(self, tmp_path: Path) -> None:

@@ -74,10 +74,12 @@ def build_remote_pull_action(
             raise TorraError(
                 "remote_pull step needs an executor configured "
                 "(TORRA_EXECUTOR_HOST unset)")
+        import base64
         import shlex
-        content = executor_runner(f"cat {shlex.quote(remote_path)}", None, 30.0)
+        content = base64.b64decode(
+            executor_runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0))
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(local_path).write_text(content, encoding="utf-8")
+        Path(local_path).write_bytes(content)
         return f"pulled {remote_path} from executor to {local_path}"
 
     return action

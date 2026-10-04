@@ -2897,6 +2897,26 @@ for the same step id resumed past it.
 > mark visible while a step runs, failed step clears it and keeps finished
 > ones, changed command, no digests) and `tests/test_resume.py`.
 
+### 2.65 A remote file is read and restored as exact bytes, and a plan's undo coverage counts only snapshots that exist
+
+1. **The remote read lost bytes.** `build_ssh_runner` returns stripped output,
+   and the executor snapshot (`capture_remote_file`) and `remote_pull` both
+   read with `cat`, so a file's trailing newline was dropped and non-UTF-8
+   content broke. The restore then verified against the already-stripped
+   snapshot, so a file that no longer matched what it was reported as
+   "undone". Both reads now use `base64 -w0`, which has no whitespace to
+   strip, and shadow files and pulled files are written as bytes. The test
+   fakes used to return raw text and so hid this; they now return what the
+   real runner returns.
+2. **Coverage over-claimed.** `UndoGenerator.coverage()` counted any step with
+   `touches` as covered, even when its snapshot was skipped (a file over the
+   size cap, or a directory). It now requires a snapshot for every touched
+   path, so the plan no longer advertises an undo that does not exist.
+
+> Guarded by `tests/test_gates.py::TestCaptureRemoteFile` (byte-for-byte
+> round trip with a trailing newline and non-UTF-8 bytes) and
+> `TestUndoGeneration::test_a_step_whose_snapshot_was_skipped_is_reported_uncovered`.
+
 ---
 
 ## 3. Things already tried that failed

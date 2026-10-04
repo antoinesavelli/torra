@@ -1426,8 +1426,9 @@ class TestRemotePushEscalation:
         def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
             if command.startswith("test -e"):
                 return "yes" if "/etc/nginx/nginx.conf" in remote else "no"
-            if command.startswith("cat "):
-                return remote["/etc/nginx/nginx.conf"]
+            if command.startswith("base64 -w0"):
+                import base64 as b64
+                return b64.b64encode(remote["/etc/nginx/nginx.conf"].encode("utf-8")).decode()
             if "base64 -d" in command:
                 import base64
                 encoded = command.split("echo ", 1)[1].split(" |", 1)[0].strip("'")
