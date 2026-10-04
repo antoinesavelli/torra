@@ -23,10 +23,10 @@ one-line docstrings, module `Depends on:` line, CCN<15 ceiling/aim≤10, one tes
 are AGENT_DOCTRINE.md's; this section is torra-specific rest.)
 
 - Line length: 100 (ruff `E501` ignored — don't fight it manually).
-- **Named, deliberate CCN exceptions:** `SafetyClassifier._judge` (CCN 46), `Clarifier.detect`
-  (CCN 26), and `Torra.execute` (CCN 29) — flat dispatch/guard-clause/orchestration functions
-  that read *worse* fragmented. Don't split those to move a number; do split anything that's
-  actually tangled.
+- **No CCN exceptions remain.** `SafetyClassifier._judge`, `Clarifier.detect` and `Torra.execute`
+  were split on 2026-08-11 (`DEFENSIVE_CODING_STANDARDS.md` §2.1 update); `Torra.execute` is 14,
+  one below the ceiling, so extract a helper before adding a branch. Don't fragment flat code
+  just to move a number; do split anything that's actually tangled.
 - Typing: full param + return hints on new/edited code; `Any` for genuinely untyped externals,
   never as a shortcut around a knowable type; `X | None` whenever a real caller can pass `None`.
 - Imports: ruff isort, first-party = `torra`.

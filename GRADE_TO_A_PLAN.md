@@ -53,12 +53,16 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
 ### Phase 0: mechanical groundwork
 
-- **P0.1 Format once.** `ruff format --check .` would reformat 53 of 83 files. Run `ruff format .` as its own
-  behaviour-neutral commit, with the suite and scorecard identical before and after. Do it first so later fix
-  diffs stay readable. No model is needed: it's a tool run.
-- **P0.2 Pin the reproduction.** Add the blocked-run test from P1.1 as a strict `xfail` so the bug is recorded
-  in the suite before the fix. The reproduction lives at `/tmp/torra_repro/test_blocked_rollback_repro.py`;
-  `/tmp` is ephemeral, so re-derive it from P1.1 if it's gone.
+- **P0.1 Format once. WITHDRAWN 2026-10-04.** Measured on a throwaway copy: `ruff format .` reformats 53 files
+  and pushes three more files over the scorecard's 500 functional-LOC cap (`undo.py` 579, `pipeline.py` 576,
+  `agent.py` 561, besides `safety.py` growing from 619 to 736). Modularity falls from B to D, below its B floor,
+  and the GPA from 3.83 to 3.50, so `--enforce` fails. `skip-magic-trailing-comma` gives the same result. The
+  repo's dense hand-formatted style is what the scorecard baseline was measured on, and no floor gets lowered to
+  admit a formatter. `ruff format` is not adopted, nothing in `DEFENSIVE_CODING_STANDARDS.md` requires it, and
+  the "53 files fail `ruff format --check`" deduction in the grade is withdrawn with it.
+- **P0.2 Pin the reproduction. FOLDED INTO P1.1.** Test first, watch it fail, then fix, in one commit. The
+  reproduction was `/tmp/torra_repro/test_blocked_rollback_repro.py`; `/tmp` is ephemeral, so P1.1's tests are
+  the durable copy.
 
 ### Phase 1: the two critical defects (lifts both F caps)
 
@@ -75,7 +79,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   the PRESENT-stage override log is unchanged. Hold them in a pending list and push them only if at least one
   real step ran, just before the sweep. That keeps today's order: declared entries undo first, then derived
   undos in LIFO order.
-- *Proof.* Flip P0.2's test to pass. Add tests for these cases:
+- *Proof.* Write the reproduction as a test first and watch it fail. Add tests for these cases:
   - a precondition block before step 1 runs zero undos;
   - a block before step 2 reverts step 1 only;
   - a blocked dry run runs zero undos;
@@ -226,7 +230,8 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
 ### Phase 4: software and governance
 
-- **P4.1 CI gates.** Add `ruff format --check .` and an explicit `ruff check .` to `.github/workflows/ci.yml`.
+- **P4.1 CI gates. WITHDRAWN 2026-10-04.** No format check (see P0.1). An explicit `ruff check .` step would be
+  redundant: the scorecard's Lint dimension already runs ruff and `--enforce` fails CI on any issue.
 - **P4.2 Lock coverage, then test the assertions.** Measured 2026-10-03 with branch coverage on: 98% overall.
   `safety.py` 99%, `pipeline.py` 99%, `tasks.py` 100%, `rollback.py` 100%, `undo.py` 95%. Coverage isn't the
   gap. The P1.1 bug lived in fully covered code whose test didn't assert the right thing.
@@ -234,14 +239,15 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
     lower it.
   - Run one mutation pass (for example `mutmut`, in a throwaway venv, not `.venv` and not the lock file) over
     `safety.py`, `undo.py` and `Torra.execute`. Kill or justify every surviving mutant.
-- **P4.3** `AGENTS.md:197` advertises a `--coverage` flag the scorecard script doesn't have. Remove it.
-- **P4.4 Test-count drift.** "788" is hardcoded in `AGENTS.md:13`, `:178` and `:192`, `README.md:54`,
+- **P4.3 DONE 2026-10-04.** `AGENTS.md:197` advertises a `--coverage` flag the scorecard script doesn't have. Remove it.
+- **P4.4 Test-count drift. DONE 2026-10-04.** "788" is hardcoded in `AGENTS.md:13`, `:178` and `:192`, `README.md:54`,
   `agents/LOOP.md:42` and `agents/GUARDRAILS.md:51`, while `tests/README.md` still says 653. Replace each with
   "all pass; the count never drops", which is the AUDIT_FINDINGS LOW-6 lesson. `AGENTS.md` is 13,812 of its
   14,400-byte budget (`tests/test_instruction_files.py:12`), so edits there must stay small.
-- **P4.5** `tests/README.md` omits `test_instruction_files.py`, `test_iterate.py` and `test_read_memory.py`.
-- **P4.6** `AGENTS.md`'s code-conventions block still names `_judge`, `detect` and `execute` as CCN
-  exceptions not to split. They were split on 2026-08-11, and `_judge` is CCN 6 now. Update it.
+- **P4.5 DONE 2026-10-04.** `tests/README.md` omits `test_instruction_files.py`, `test_iterate.py` and `test_read_memory.py`.
+- **P4.6 DONE 2026-10-04.** `AGENTS.md`'s code-conventions block still named `_judge`, `detect` and `execute` as CCN
+  exceptions not to split. They were split on 2026-08-11 (`_judge` is CCN 6; `Torra.execute` is 14, one below the
+  ceiling, so P1.1 must not add branches to it). `agents/CONVENTIONS.md` carried the same claim and is fixed too.
 - **P4.7 HANDOFF.md.** Add the §2 invariants from P1.1, P1.2, P2.4 ("a step in flight at a crash never re-runs
   by itself") and P3.3 ("untrusted content never carries instruction authority"), each with its test. Add §5
   entries per fix and update §6.

@@ -10,7 +10,7 @@ instructions torra itself sends to its planning model (that's `torra/agent.py`'s
 `SYSTEM_PROMPT` and `docs/`, a different audience entirely; don't conflate the two).
 
 Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `torra.cli:main`,
-`torra.pipeline:Torra` (the only orchestrator). Tests: **788, must stay 788 passed**
+`torra.pipeline:Torra` (the only orchestrator). Tests: **every one must pass, and the count never drops**
 (`python3 -m pytest tests/ -q`) — nothing in `tests/` touches a live Ollama, systemd, or
 network; every external dependency is an injected callable (see `tests/conftest.py`).
 
@@ -170,13 +170,13 @@ a suggested command like `RecoveryOption.action`. To check a var is set, show pr
 ## Code conventions (short form; full in `agents/CONVENTIONS.md`)
 
 Line length 100 (ruff `E501` ignored). No comments unless WHY. One-line docstrings + a
-`Depends on:` line per touched module. CCN<15 ceiling (named exceptions: `SafetyClassifier
-._judge`, `Clarifier.detect`, `Torra.execute` — don't split those to move a number).
+`Depends on:` line per touched module. CCN<15 ceiling (no function exceeds it today; `Torra.execute` is 14, so a new branch there
+means extracting a helper first).
 Full param + return type hints on new/edited code.
 
 ## Definition of done (short form; full in `agents/LOOP.md`)
 
-1. `python3 -m pytest tests/ -q` — must stay 788 passed.
+1. `python3 -m pytest tests/ -q` — every test passes, count never drops.
 2. Per-file docstring current on every touched module.
 3. That directory's `README.md` updated if a file was added/moved/renamed.
 4. `HANDOFF.md` §2 updated if the change touches an existing invariant.
@@ -190,12 +190,12 @@ dependencies, so `tests/` fails at collection without the venv.
 
 | Task | Command |
 |---|---|
-| Tests (all, must stay 788) | `python3 -m pytest tests/ -q` |
+| Tests (all; the count never drops) | `python3 -m pytest tests/ -q` |
 | Tests (one file/case) | `python3 -m pytest tests/test_gates.py -k <name>` |
 | Lint | `ruff check .` |
 | Format | `ruff format .` |
 | Type check | `mypy torra/` |
-| Defensive-coding scorecard | `python3 scripts/dev/defensive_coding_report.py` (`--area <pkg>` · `--coverage` · `--verbose`) |
+| Defensive-coding scorecard | `python3 scripts/dev/defensive_coding_report.py` (`--area <pkg>` · `--enforce` · `--verbose`) |
 | Environment check | `torra doctor` |
 | One-shot request | `torra ask "..."` |
 | Plan only, run nothing | `torra plan "..."` |

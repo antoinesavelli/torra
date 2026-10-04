@@ -48,7 +48,7 @@ wrong command runs against a real filesystem, package manager, or init system.
 
 ## When a check fails: fix the CAUSE, not the check
 
-The rule is AGENT_DOCTRINE.md's. This repo's guards: the 788-test suite, `ruff`/`mypy`, the
+The rule is AGENT_DOCTRINE.md's. This repo's guards: the test suite, `ruff`/`mypy`, the
 defensive-coding scorecard, the evasion corpus in `test_gates.py::TestSafety`, the clarifier's
 ambiguity corpus. The ❌ path has a named precedent here — tuning the clarifier against its own
 test corpus instead of a fresh one (`HANDOFF.md` §4 calls this out explicitly as a mistake already

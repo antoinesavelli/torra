@@ -38,8 +38,8 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
 
 Not complete until all hold, in the *same* change:
 
-1. **Tests run and pass.** `python3 -m pytest tests/ -q` — the count is the fact:
-   **788 passed** is the current baseline. A change that adds behavior without adding a test
+1. **Tests run and pass.** `python3 -m pytest tests/ -q` — every test must pass and
+   the count never drops. A change that adds behavior without adding a test
    for it isn't done; a change that *removes* a test to make the suite pass is very likely
    deleting the thing HANDOFF.md §2 told you not to delete — stop and re-read that section
    before doing it.

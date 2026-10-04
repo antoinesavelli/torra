@@ -51,7 +51,7 @@ pip install -e . --no-deps
 python3 -m pytest tests/ -q
 ```
 
-Expect **788 passed**. Then:
+Expect every test to pass. Then:
 
 ```bash
 torra doctor     # environment check

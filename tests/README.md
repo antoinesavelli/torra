@@ -1,6 +1,6 @@
 # tests/
 
-653 cases, organised by subsystem. Nothing here needs a live Ollama, systemd,
+Organised by subsystem. Nothing here needs a live Ollama, systemd,
 or network -- every external dependency is an injected callable (see
 `conftest.py`), which is also how it's wired to the real thing in `torra/`.
 
@@ -16,7 +16,10 @@ or network -- every external dependency is an injected callable (see
 | `test_resume.py` | `ResumePoint`'s on-disk round-trip: atomic writes, corrupt-file handling |
 | `test_session.py` | `SessionStore`'s persisted-conversation layer: atomic meta writes, append-only transcript, corrupt-file/line tolerance, `ContextCompressor` rehydration |
 | `test_telemetry.py` | `CorpusExporter.drift()` and `LoopholeAudit.audit()` at the unit level, plus secret redaction (`TaskLogger.scrub()`/`Label.why`) |
+| `test_iterate.py` | `iterate()`'s bounded edit, verify, fix loop: stop conditions, round count, dry-run behaviour |
+| `test_read_memory.py` | A completed read-only step's output entering the model's context, tagged by path, and the model dropping a path again |
+| `test_instruction_files.py` | `CLAUDE.md` stays a one-line import stub, every read-first trigger target exists and is indexed, `AGENTS.md` stays under its byte budget |
 
 ```bash
-python3 -m pytest tests/ -q              # must stay 653 passed
+python3 -m pytest tests/ -q              # every test passes; the count never drops
 ```
