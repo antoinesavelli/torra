@@ -2716,6 +2716,52 @@ non-dry, first-time completion).
 > test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript`,
 > extended with the label and step-card-dimming assertions.
 
+### 2.59 A rollback only reverses what torra itself did, in this attempt
+
+`Torra.execute` used to push every approved step's derived undos, and the
+plan's declared rollback entries, onto the undo stack before step one ran.
+A conflict block ("external file change(s) before step X") reports FAILED
+to the caller, so `_sweep_rollback` ran the whole stack -- including the
+undo for a file a human had just edited. `UndoGenerator.capture_file`'s
+restore copies the plan-time snapshot back over the target, so the very
+edit the conflict check had just caught was overwritten and reported as
+"undone". Reproduced 2026-10-03 with torra's own fixtures: after the
+block, the file read `original` instead of the human's text. A blocked dry
+run did the same, since the sweep had no dry-run check, and a declared
+cleanup (`rm -rf` of a directory that already held someone's files, say)
+ran even though no step had.
+
+Three rules now hold together:
+
+1. **A step's derived undos are pushed by `_arm_step` immediately before
+   that step runs**, after its precondition and conflict guards, and never
+   in a dry run. A block before step N therefore reverses steps 1..N-1 and
+   nothing else, and a resumed step (§2.33) gets no undo.
+2. **Declared rollback entries are classified up front but pushed only if a
+   real step ran** (`RunResult.executed`), on top of the derived undos so
+   they still run first. The stack is emptied at the start of every attempt,
+   so a halted sweep's leftovers never run on behalf of a later plan.
+3. **On a conflict block, `_block_on_conflict` drops the undo of every file
+   the detector flagged** (`VerifiedRollback.drop_where`), so a human edit
+   made after one of torra's own steps ran is not overwritten either. The
+   skip is written to the decision log ("undo skipped ... changed outside
+   torra") rather than silently omitted.
+
+If you add another way for a run to stop early, it must go through the same
+sweep with the same stack discipline: push before running, never in advance.
+`Torra.execute` is at CCN 14, one below the ceiling, so new branches belong
+in helpers.
+
+> Guarded by `tests/test_pipeline.py::
+> test_a_block_before_any_step_ran_does_not_overwrite_the_external_edit`,
+> `test_a_block_before_step_two_reverts_step_one_and_never_step_two`,
+> `test_a_blocked_dry_run_runs_no_undos`,
+> `test_a_declared_rollback_does_not_run_when_no_step_ran`,
+> `test_a_declared_rollback_still_runs_when_a_real_step_failed`,
+> `test_a_conflict_after_a_step_ran_does_not_overwrite_the_edited_file`,
+> `test_undos_left_by_an_earlier_halted_rollback_are_not_run_by_a_later_plan`, and
+> `tests/test_gates.py::TestVerifiedRollback::test_drop_where_removes_only_the_selected_actions_and_keeps_the_order`
+
 ---
 
 ## 3. Things already tried that failed

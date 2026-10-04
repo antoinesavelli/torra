@@ -1379,6 +1379,19 @@ class TestVerifiedRollback:
         rollback.rollback()
         assert order == ["top", "middle", "bottom"]
 
+    def test_drop_where_removes_only_the_selected_actions_and_keeps_the_order(self) -> None:
+        order = []
+        rollback = VerifiedRollback()
+        for name in ("bottom", "drop-me", "top"):
+            rollback.add(name, lambda n=name: order.append(n))
+
+        dropped = rollback.drop_where(lambda action: action.description == "drop-me")
+
+        assert [a.description for a in dropped] == ["drop-me"]
+        assert rollback.depth == 2
+        rollback.rollback()
+        assert order == ["top", "bottom"]
+
     def test_an_unverified_undo_halts_the_sweep(self) -> None:
         """Unwinding past a step that did not revert is not recovery."""
         order = []

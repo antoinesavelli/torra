@@ -11,6 +11,7 @@ The package. Model proposes, five gates decide, the operator approves.
 | `prompts.py` | `PLAN_SCHEMA`/`SYSTEM_PROMPT` -- the literal text handed to the model, split out of `agent.py` |
 | `pipeline.py` | `Torra`, the seven-stage orchestrator, the only thing that decides what runs |
 | `pipeline_types.py` | The data model `Torra` produces: `Stage`, `Outcome`, `StepPlan`, `Plan`, `RunResult` |
+| `pipeline_rollback.py` | Rollback bookkeeping for one `execute()`: classify the declared entries, skip undos for files changed outside torra, unwind the stack (`HANDOFF.md` §2.59) |
 | `iterate.py` | `iterate()`, a bounded edit -> verify -> fix loop -- ordinary `plan()`/`execute()` turns on one conversation, nothing safety-critical touched (`cli.py`'s `torra ask --verify`) |
 | `dependency_warnings.py` | Best-effort, pre-`execute()` check for an approved step depending on a declined one -- never blocks, so it isn't under `gates/` |
 | `read_memory.py` | A completed read-only step's real output entering the model's own context, tagged by path, and the model later saying a path no longer helps |

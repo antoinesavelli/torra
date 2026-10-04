@@ -66,7 +66,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
 ### Phase 1: the two critical defects (lifts both F caps)
 
-**P1.1 A BLOCKED run reverts the external edit it detected.** Ask-first.
+**P1.1 A BLOCKED run reverts the external edit it detected.** Ask-first. **DONE 2026-10-04.**
 - *Finding.* `_stage_rollback` (`torra/pipeline.py:375-383`) pushes every approved step's undos before any
   step runs. A precondition or conflict block (`pipeline.py:437-454`) returns "failed", so `_sweep_rollback`
   (`pipeline.py:349-350`) runs the file undo. That undo copies the plan-time snapshot back over the target
@@ -85,6 +85,11 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   - a blocked dry run runs zero undos;
   - declared entries never run when no real step ran.
 - *Invariant.* Add to `HANDOFF.md` §2: "A rollback only reverses steps that actually ran."
+- *As built.* `HANDOFF.md` §2.59. Beyond the plan: the stack is emptied at the start of each attempt, and on a
+  conflict block the undo of every flagged file is dropped (`VerifiedRollback.drop_where`), which also covers a
+  human editing a file after torra's own earlier step wrote it. The logic lives in the new
+  `torra/pipeline_rollback.py`, because the change pushed `pipeline.py` over the 500-line cap; it is 489 lines now.
+  `Torra.execute` stays at 14 and `_run_steps` went from 14 to 13. Suite: 788 to 798 tests.
 
 **P1.2 Unrecognised commands classify SAFE and run with no tick.** Ask-first; depends on D1 and D1b.
 - *Finding.* `torra/gates/safety.py:781` returns SAFE when no rule matches, and SAFE steps are auto-approved

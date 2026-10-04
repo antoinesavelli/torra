@@ -124,6 +124,15 @@ class VerifiedRollback:
         """Drop the stack. Call on success, once changes are committed."""
         self._stack.clear()
 
+    def drop_where(self, selected: Callable[[UndoAction], bool]) -> list[UndoAction]:
+        """Remove and return every pending action `selected` picks, keeping the rest in order."""
+        kept: list[UndoAction] = []
+        dropped: list[UndoAction] = []
+        for action in self._stack:
+            (dropped if selected(action) else kept).append(action)
+        self._stack = kept
+        return dropped
+
     def _decline_unsafe(self, action: UndoAction, order: int) -> RollbackResult | None:
         """Ask before an unsafe undo runs. None means it was approved."""
         try:

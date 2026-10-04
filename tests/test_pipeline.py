@@ -16,8 +16,19 @@ from conftest import plan_reply, scripted
 
 from torra.core import ConflictDetector, OllamaClient, OllamaError, RecoveryOption, Step, TaskSpec
 from torra.core.resume import ResumePoint
-from torra.gates import Precondition, RiskLevel, StateVerifier, UndoGenerator, Verdict
+from torra.gates import (
+    DecisionLog,
+    Precondition,
+    RiskLevel,
+    SafetyClassifier,
+    StateVerifier,
+    UndoAction,
+    UndoGenerator,
+    Verdict,
+    VerifiedRollback,
+)
 from torra.pipeline import Torra
+from torra.pipeline_rollback import declared_undos, sweep
 from torra.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 
 SAFE_PLAN = plan_reply(
@@ -956,6 +967,183 @@ def test_an_external_edit_stops_the_run(make_torra, tmp_path: Path) -> None:
     assert done.outcome is Outcome.BLOCKED
     assert "external file change" in done.abort_reason
     assert not marker.exists()
+
+
+def test_a_block_before_any_step_ran_does_not_overwrite_the_external_edit(
+        make_torra, tmp_path: Path) -> None:
+    """HANDOFF.md §2.59. Every approved step's undo used to be staged before
+    step one ran, so a conflict block went through the rollback sweep and
+    copied the plan-time snapshot back over the very edit the conflict check
+    had just caught. Nothing had run, so nothing may be reversed."""
+    conf = tmp_path / "shared.conf"
+    conf.write_text("original", encoding="utf-8")
+    marker = tmp_path / "second-ran"
+    torra = make_torra(scripted(plan_reply(
+        "t", f"touch {conf} then write a marker",
+        [{"id": "first", "run": "true", "touches": [str(conf)]},
+         {"id": "second", "run": f"touch {marker}", "touches": [str(conf)]}])))
+
+    planned = torra.plan(f"update {conf} in two steps")
+    conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
+    done = torra.execute(planned, {})
+
+    assert done.outcome is Outcome.BLOCKED
+    assert conf.read_text(encoding="utf-8") == "EDITED BY A HUMAN"
+    assert done.rollback is None, "no step ran, so no undo may run"
+    assert not marker.exists()
+
+
+def test_a_block_before_step_two_reverts_step_one_and_never_step_two(
+        make_torra, tmp_path: Path) -> None:
+    """Undos are staged just before their own step runs, so a block at step
+    two reverses step one and leaves step two's file exactly as found."""
+    a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+    a.write_text("a-original", encoding="utf-8")
+    b.write_text("b-original", encoding="utf-8")
+    torra = make_torra(scripted(plan_reply(
+        "t", "write a then b",
+        [{"id": "one", "kind": "write",
+          "run": f"printf 'a-new' > {a} && printf 'EXTERNAL' > {b}", "touches": [str(a)]},
+         {"id": "two", "kind": "write",
+          "run": f"printf 'b-new' > {b}", "touches": [str(b)]}])))
+
+    planned = torra.plan("write a then b")
+    done = torra.execute(planned, {})
+
+    assert done.outcome is Outcome.BLOCKED
+    assert a.read_text(encoding="utf-8") == "a-original", "step one is reversed"
+    assert b.read_text(encoding="utf-8") == "EXTERNAL", "step two never ran, so is never undone"
+    assert done.rollback is not None and done.rollback.ok
+
+
+def test_a_blocked_dry_run_runs_no_undos(make_torra, tmp_path: Path) -> None:
+    """A dry run changes nothing, so a block during one has nothing to undo."""
+    conf = tmp_path / "shared.conf"
+    conf.write_text("original", encoding="utf-8")
+    torra = make_torra(scripted(plan_reply(
+        "t", "edit conf", [{"id": "only", "run": "true", "touches": [str(conf)]}])))
+
+    planned = torra.plan("edit conf")
+    conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
+    done = torra.execute(planned, {}, dry_run=True)
+
+    assert done.outcome is Outcome.BLOCKED
+    assert conf.read_text(encoding="utf-8") == "EDITED BY A HUMAN"
+    assert done.rollback is None
+
+
+def test_a_declared_rollback_does_not_run_when_no_step_ran(
+        make_torra, tmp_path: Path) -> None:
+    """A declared rollback compensates for steps; with none run it is a
+    cleanup of work that never happened (a declared `rm -rf` of a directory
+    that already held someone's files, say)."""
+    conf = tmp_path / "shared.conf"
+    conf.write_text("original", encoding="utf-8")
+    marker = tmp_path / "cleanup-ran"
+    torra = make_torra(scripted(plan_reply(
+        "t", "edit conf",
+        [{"id": "only", "run": "true", "touches": [str(conf)]}],
+        rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+
+    planned = torra.plan("edit conf")
+    conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
+    done = torra.execute(planned, {})
+
+    assert done.outcome is Outcome.BLOCKED
+    assert not marker.exists()
+
+
+def test_a_declared_rollback_still_runs_when_a_real_step_failed(
+        make_torra, tmp_path: Path) -> None:
+    """The other side of the rule above: once a step has run, the declared
+    cleanup is wanted, and it still runs before the derived undos."""
+    marker = tmp_path / "cleanup-ran"
+    torra = make_torra(scripted(plan_reply(
+        "t", "fail",
+        [{"id": "boom", "run": "exit 1"}],
+        rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+
+    done = torra.execute(torra.plan("fail"), {})
+
+    assert done.outcome is Outcome.FAILED
+    assert marker.exists()
+
+
+def test_a_conflict_after_a_step_ran_does_not_overwrite_the_edited_file(
+        make_torra, tmp_path: Path) -> None:
+    """A human edits a file torra's own earlier step wrote. Restoring the
+    plan-time snapshot would destroy that edit, so the file's undo is dropped
+    and the decision log says so."""
+    a = tmp_path / "a.txt"
+    a.write_text("a-original", encoding="utf-8")
+    marker = tmp_path / "second-ran"
+    torra = make_torra(scripted(plan_reply(
+        "t", "write a then a marker",
+        [{"id": "one", "kind": "write", "run": f"printf 'torra-wrote' > {a}",
+          "touches": [str(a)]},
+         {"id": "two", "run": f"touch {marker}", "touches": [str(a)]}])))
+    real_detect, calls = torra.conflicts.detect, []
+
+    def detect_with_a_human_edit_landing_between_the_steps():
+        calls.append(1)
+        if len(calls) == 2:
+            a.write_text("HUMAN EDIT", encoding="utf-8")
+        return real_detect()
+
+    torra.conflicts.detect = detect_with_a_human_edit_landing_between_the_steps  # type: ignore[method-assign]
+
+    done = torra.execute(torra.plan("write a then a marker"), {})
+
+    assert done.outcome is Outcome.BLOCKED
+    assert a.read_text(encoding="utf-8") == "HUMAN EDIT"
+    assert not marker.exists()
+    assert any(d["decision"] == "undo skipped" and "changed outside torra" in d["reasoning"]
+               for d in done.decisions)
+
+
+def test_declared_undos_hold_a_dangerous_command_declared_safe_as_unsafe() -> None:
+    """The collaborator on its own: a declared-safe entry that classifies
+    DANGEROUS comes back unsafe, and the override is logged."""
+    spec = TaskSpec(task_id="t", request="r", steps=[],
+                    rollback=[{"run": "rm -rf /srv/api", "description": "wipe", "safe": True},
+                              {"run": "true", "description": "noop", "safe": True}])
+    decisions = DecisionLog()
+
+    held = declared_undos(spec, SafetyClassifier(), decisions)
+
+    assert [(a.description, a.safe) for a in held] == [("wipe", False), ("noop", True)]
+    assert [r.decision for r in decisions.records] == ["rollback safety override"]
+
+
+def test_sweep_pushes_declared_entries_only_when_a_real_step_ran() -> None:
+    for ran, expected in ((False, []), (True, ["declared"])):
+        ran_undos: list[str] = []
+        rollback = VerifiedRollback()
+        held = [UndoAction("declared", lambda log=ran_undos: log.append("declared"))]
+        result = RunResult(request="r", outcome=Outcome.FAILED, executed=ran)
+
+        sweep(rollback, DecisionLog(), result, held)
+
+        assert ran_undos == expected
+        assert (result.rollback is not None) is ran
+
+
+def test_undos_left_by_an_earlier_halted_rollback_are_not_run_by_a_later_plan(
+        make_torra, tmp_path: Path) -> None:
+    """Each execute attempt starts from an empty undo stack."""
+    conf = tmp_path / "shared.conf"
+    conf.write_text("original", encoding="utf-8")
+    torra = make_torra(scripted(plan_reply(
+        "t", "edit conf", [{"id": "only", "run": "true", "touches": [str(conf)]}])))
+    leaked: list[str] = []
+    torra.rollback.add("left over from an earlier plan", lambda: leaked.append("ran"))
+
+    planned = torra.plan("edit conf")
+    conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
+    done = torra.execute(planned, {})
+
+    assert done.outcome is Outcome.BLOCKED
+    assert leaked == []
 
 
 def test_a_dry_run_executes_nothing_but_gates_everything(make_torra,

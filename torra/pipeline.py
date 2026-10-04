@@ -6,7 +6,8 @@ same optional second-machine config Agent resolves for observation, §2.52, reus
 for remote_pull/remote_push and their undo, §2.53), torra.core.remote_edit/.tasks
 (escalate_remote_push, shell_output_sink -- neither re-exported from torra.core),
 torra.gates (all five guardrails), torra.pipeline_types (Stage, Outcome, StepPlan,
-Plan, RunResult -- the data model this module produces), torra.dependency_warnings
+Plan, RunResult -- the data model this module produces), torra.pipeline_rollback
+(which undos run, when, and which are skipped), torra.dependency_warnings
 (the advisory-only check `Torra.dependency_warnings` delegates to), torra.read_memory
 (remember_step_reads, feeding a completed read step's real output into the model's context).
 
@@ -27,6 +28,7 @@ from typing import Any
 
 from .agent import Agent, AgentError, Intent, Turn
 from .core import (
+    Conflict,
     ConflictDetector,
     ModelBackend,
     OllamaClient,
@@ -46,12 +48,13 @@ from .gates import (
     Clarifier,
     DecisionLog,
     ModelRouter,
-    RiskLevel,
     SafetyClassifier,
     StateVerifier,
+    UndoAction,
     UndoGenerator,
     VerifiedRollback,
 )
+from .pipeline_rollback import declared_undos, drop_edited_undos, sweep
 from .pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 from .read_memory import remember_step_reads
 from .telemetry import TaskLogger
@@ -324,7 +327,7 @@ class Torra:
                 f"{len(refused)} step(s) declined and will be skipped: "
                 + ", ".join(sp.step.step_id for sp in refused))
 
-        self._stage_rollback(plan)
+        held = self._stage_rollback(plan)
 
         result.stages.append(Stage.EXECUTE.value)
         # A fresh attempt reports fresh results -- discard whatever a prior
@@ -347,7 +350,7 @@ class Torra:
                                  on_output, resolution.resumed_steps)
 
         if failed:
-            self._sweep_rollback(result, resume_path)
+            self._sweep_rollback(result, resume_path, held)
         else:
             self._finish_success(result, dry_run, resume_path)
 
@@ -372,35 +375,31 @@ class Torra:
                            else bool(decisions.get(sp.step.step_id, False)))
         return [sp for sp in plan.steps if sp.approved is False]
 
-    def _stage_rollback(self, plan: Plan) -> None:
-        """Push every approved step's derived undos, then the plan's
-        declared ones. Skips a declined step's undos deliberately -- there
-        is nothing to undo for a step that never ran, and staging one
-        anyway would let a later rollback sweep "restore" a file a
-        declined step never touched."""
-        for sp in plan.steps:
-            if sp.approved:
-                self.rollback.push_many(sp.undos)
-        for description, command, undo, declared_safe in plan.spec.rollback_actions():
-            # A declared rollback entry only gets to make a command *more*
-            # cautious than SafetyClassifier would, never less: the command
-            # runs through the same gate a regular step does, and either
-            # side calling it risky is enough to require confirmation.
-            verdict = self.safety.classify(command)
-            risky = verdict.level in (RiskLevel.DANGEROUS, RiskLevel.CRITICAL)
-            effective_safe = declared_safe and not risky
-            if declared_safe and risky:
-                self.decisions.log(
-                    Stage.PRESENT.value, "rollback safety override",
-                    f"'{description}' was declared safe but classifies "
-                    f"{verdict.level.value}: {verdict.reasons[0]}; will ask "
-                    "before running it during rollback",
-                    {"command": command})
-            self.rollback.add(description, undo, safe=effective_safe)
+    def _stage_rollback(self, plan: Plan) -> list[UndoAction]:
+        """Empty the undo stack and return the declared entries, unpushed (HANDOFF.md §2.59)."""
+        self.rollback.clear()
+        held = declared_undos(plan.spec, self.safety, self.decisions)
+        approved = [sp for sp in plan.steps if sp.approved]
         self.decisions.log(
             Stage.PRESENT.value, "approved",
-            f"{sum(1 for sp in plan.steps if sp.approved)} step(s) approved, "
-            f"rollback depth {self.rollback.depth}")
+            f"{len(approved)} step(s) approved, "
+            f"{sum(len(sp.undos) for sp in approved) + len(held)} undo(s) ready")
+        return held
+
+    def _arm_step(self, sp: StepPlan, dry_run: bool) -> None:
+        """Put one step's derived undos on the stack, right before it runs."""
+        if not dry_run:
+            self.rollback.push_many(sp.undos)
+
+    def _block_on_conflict(self, found: Sequence[Conflict], sp: StepPlan,
+                           result: RunResult) -> None:
+        """Mark the run BLOCKED and keep the sweep off the files that changed."""
+        result.outcome = Outcome.BLOCKED
+        result.abort_reason = (
+            f"{len(found)} external file change(s) before {sp.step.step_id}: "
+            + ", ".join(f"{c.path}={c.kind.value}" for c in found[:4]))
+        self.decisions.log(Stage.EXECUTE.value, "external conflict", result.abort_reason)
+        drop_edited_undos(self.rollback, self.decisions, found)
 
     def _run_steps(self, plan: Plan, result: RunResult, dry_run: bool,
                     resume: ResumePoint, resume_path: Path,
@@ -445,14 +444,10 @@ class Torra:
             found = self.conflicts.detect() if (
                 self.conflicts.hashes or self.conflicts.roots) else []
             if found:
-                result.outcome = Outcome.BLOCKED
-                result.abort_reason = (
-                    f"{len(found)} external file change(s) before {sp.step.step_id}: "
-                    + ", ".join(f"{c.path}={c.kind.value}" for c in found[:4]))
-                self.decisions.log(Stage.EXECUTE.value, "external conflict",
-                                   result.abort_reason)
+                self._block_on_conflict(found, sp, result)
                 return True
 
+            self._arm_step(sp, dry_run)
             sp.result = self._run_one_step(sp, result, dry_run, on_output)
 
             if not sp.result.ok:
@@ -515,7 +510,8 @@ class Torra:
         result.results.append(step_result)
         return step_result
 
-    def _sweep_rollback(self, result: RunResult, resume_path: Path) -> None:
+    def _sweep_rollback(self, result: RunResult, resume_path: Path,
+                        held: Sequence[UndoAction]) -> None:
         """Undo everything pushed so far, if there's anything to undo.
 
         Drops the resume file the same as a clean success does -- a
@@ -524,16 +520,7 @@ class Torra:
         reversed, or an attempt was made to. Leaving the file behind would
         let a later retry skip steps whose effects it can no longer trust
         are actually still applied to the machine (HANDOFF.md §6.4)."""
-        if self.rollback.depth:
-            result.rollback = self.rollback.rollback()
-            self.decisions.log(
-                Stage.EXECUTE.value,
-                "rollback clean" if result.rollback.ok else "rollback incomplete",
-                f"{len(result.rollback.undone)} undone, "
-                f"{len(result.rollback.unverified)} unverified, "
-                f"{len(result.rollback.cancelled)} cancelled, "
-                f"{len(result.rollback.failed)} failed",
-                {"results": [r.to_dict() for r in result.rollback.results]})
+        sweep(self.rollback, self.decisions, result, held)
         try:
             resume_path.unlink(missing_ok=True)
         except OSError:
