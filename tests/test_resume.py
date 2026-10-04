@@ -137,3 +137,24 @@ def test_begin_and_end_step_really_write_the_file_each_time(tmp_path: Path) -> N
     loaded = ResumePoint.load(target)
     assert loaded is not None and loaded.completed == ["a"] and loaded.in_progress == ""
     assert loaded.digests == {"a": command_digest("echo a")}
+
+
+@pytest.mark.parametrize("body", [
+    '{"task_id": "t", "completed": null, "total": 1}',
+    '{"task_id": "t", "completed": ["a"], "total": 1, "digests": [], "in_progress": ""}',
+    '{"task_id": "t", "completed": ["a"], "total": 1, "digests": null}',
+    '{"task_id": "t", "completed": [], "total": 1, "in_progress": ["x"]}',
+    '{"task_id": "t", "completed": [], "total": 1, "file_hashes": null}',
+    '{"task_id": "t", "completed": [1, 2], "total": 2}',
+    '{"task_id": "t", "completed": [], "total": "many"}',
+    '{"task_id": 7, "completed": [], "total": 1}',
+])
+def test_a_resume_file_with_wrong_field_types_starts_fresh_instead_of_crashing(
+        tmp_path: Path, body: str) -> None:
+    target = tmp_path / "t.json"
+    target.write_text(body, encoding="utf-8")
+
+    resolution = resolve_resume("t", {"a": command_digest("echo a")}, 1, target, dry_run=False)
+
+    assert resolution.resumed_steps == frozenset() and resolution.interrupted == ""
+    assert "corrupt" in (resolution.note or "")

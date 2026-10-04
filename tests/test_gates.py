@@ -2212,6 +2212,8 @@ class TestServiceStateHelpers:
         assert restore_verbs("masked", "inactive", "masked") == ["stop"]
         assert restore_verbs("static", "active", "static") == ["start"]
         assert restore_verbs("enabled", "active", "enabled") == ["start"]
+        assert restore_verbs("masked", "inactive", "static") == ["unmask", "stop"]
+        assert restore_verbs("masked", "active", "indirect") == ["unmask", "start"]
 
     def test_the_query_runs_in_the_units_own_scope(self, monkeypatch) -> None:
         from torra.gates.service_state import systemctl_query
@@ -2226,3 +2228,13 @@ class TestServiceStateHelpers:
         assert systemctl_query("is-enabled", "u.service", "system") == "active"
         assert seen == [["systemctl", "--user", "is-active", "u.service"],
                         ["systemctl", "is-enabled", "u.service"]]
+
+    def test_an_undo_is_not_verified_when_the_state_could_never_be_read(
+            self, tmp_path: Path, monkeypatch) -> None:
+        """`unknown == unknown` used to pass, so a failed undo read as verified."""
+        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: None)
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", service_probe=lambda u: "unknown",
+                                  enabled_probe=lambda u: "unknown", scope_probe=lambda u: "system")
+        action = generator.capture_service("nginx")
+
+        assert action.verify is not None and action.verify() is False

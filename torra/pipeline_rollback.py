@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .core import Conflict, TaskSpec
+from .core import Conflict, ConflictDetector, TaskSpec
 from .gates import DecisionLog, RiskLevel, SafetyClassifier, UndoAction, VerifiedRollback
 from .pipeline_types import RunResult, Stage
 
@@ -48,9 +48,16 @@ def drop_edited_undos(rollback: VerifiedRollback, decisions: DecisionLog,
 
 
 def sweep(rollback: VerifiedRollback, decisions: DecisionLog, result: RunResult,
-          held: Sequence[UndoAction]) -> None:
-    """Unwind the stack, declared entries first and only if a real step ran, and record the report."""
-    if result.executed:
+          held: Sequence[UndoAction], ran: bool, conflicts: ConflictDetector) -> None:
+    """Unwind the stack and record the report.
+
+    Whatever stopped the run, files changed outside torra since its last check lose their undo
+    first, and then the declared entries go on top, to run first, only if a real step was armed
+    in this attempt (resumed steps do not count) and nothing was found changed."""
+    found = conflicts.detect() if (conflicts.hashes or conflicts.roots) else []
+    if found:
+        drop_edited_undos(rollback, decisions, found)
+    if ran and not found:
         rollback.push_many(held)
     if rollback.depth:
         result.rollback = rollback.rollback()

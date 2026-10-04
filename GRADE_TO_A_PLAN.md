@@ -171,7 +171,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   enablement never changed back. Parse the resolved argv instead of a regex: skip flags and handle several
   units. Capture both `is-active` and `is-enabled` (masked included), restore each, and verify both.
   *Proof:* tests for `enable --now`, `disable`, `mask`, and a two-unit command. Ask-first.
-- **P2.4 DONE 2026-10-04 (`HANDOFF.md` §2.64).** **Crash resume re-runs the step that was in flight.** A step is recorded only after it finishes
+- **P2.4 DONE 2026-10-04 (`HANDOFF.md` §2.64, hardened by §2.71 after the independent review).** **Crash resume re-runs the step that was in flight.** A step is recorded only after it finishes
   (`pipeline.py:470`), and resume matches step ids, not commands (`torra/core/resume.py:132-134`). With D3:
   - write `in_progress` before each step (temp file, fsync, `os.replace`);
   - on resume, a step that was in progress but never completed makes the run BLOCKED with "step X was running

@@ -226,7 +226,11 @@ def run_in_group(command: str, cwd: str | None, timeout: float | None,
 
     for reader in readers:
         reader.join()
-    returncode = proc.wait(timeout=5)  # both pipes closed -- already exited, just reaping
+    try:
+        returncode = proc.wait(timeout=5)  # both pipes closed: reap it
+    except subprocess.TimeoutExpired:
+        _kill_group(proc)  # it closed its pipes but is still running
+        raise
 
     stdout, stderr = kept["out"].text(), kept["err"].text()
     if returncode != 0:

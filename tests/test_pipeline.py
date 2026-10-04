@@ -1201,9 +1201,9 @@ def test_sweep_pushes_declared_entries_only_when_a_real_step_ran() -> None:
         ran_undos: list[str] = []
         rollback = VerifiedRollback()
         held = [UndoAction("declared", lambda log=ran_undos: log.append("declared"))]
-        result = RunResult(request="r", outcome=Outcome.FAILED, executed=ran)
+        result = RunResult(request="r", outcome=Outcome.FAILED)
 
-        sweep(rollback, DecisionLog(), result, held)
+        sweep(rollback, DecisionLog(), result, held, ran, ConflictDetector())
 
         assert ran_undos == expected
         assert (result.rollback is not None) is ran
@@ -2056,3 +2056,90 @@ def test_a_real_run_marks_the_observed_machine_state_stale(make_torra) -> None:
 
     torra.execute(planned, {})
     assert torra.agent.state is None, "the next turn must observe the machine again"
+
+
+class TestTheSweepNeverOverwritesAnEditItCanSee:
+    """HANDOFF.md §2.71: every way a run stops goes through one conflict check before the sweep."""
+
+    def test_a_veto_between_steps_does_not_restore_over_an_edit_made_after_step_one(
+            self, make_torra, tmp_path: Path) -> None:
+        a = tmp_path / "a.txt"
+        a.write_text("original", encoding="utf-8")
+
+        def probe() -> bool:
+            if a.read_text(encoding="utf-8") == "torra-wrote":
+                a.write_text("HUMAN EDIT", encoding="utf-8")
+                return False
+            return True
+
+        verifier = StateVerifier()
+        verifier.add(Precondition("p", probe, "probe", ttl_seconds=0))
+        torra = make_torra(scripted(plan_reply(
+            "t", "two steps",
+            [{"id": "one", "kind": "write", "run": f"printf torra-wrote > {a}", "touches": [str(a)]},
+             {"id": "two", "run": "true"}])), verifier=verifier)
+
+        done = torra.execute(torra.plan("two steps"), {})
+
+        assert done.outcome is Outcome.BLOCKED
+        assert a.read_text(encoding="utf-8") == "HUMAN EDIT"
+
+    def test_a_failed_step_does_not_restore_over_an_edit_made_during_it(
+            self, make_torra, tmp_path: Path) -> None:
+        a = tmp_path / "a.txt"
+        a.write_text("original", encoding="utf-8")
+        marker = tmp_path / "cleanup-ran"
+        torra = make_torra(scripted(plan_reply(
+            "t", "write then fail",
+            [{"id": "one", "kind": "write", "run": f"printf torra-wrote > {a}", "touches": [str(a)]},
+             {"id": "two", "run": f"printf 'HUMAN EDIT' > {a}; exit 1"}],
+            rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+
+        done = torra.execute(torra.plan("write then fail"), {})
+
+        assert done.outcome is Outcome.FAILED
+        assert a.read_text(encoding="utf-8") == "HUMAN EDIT"
+        assert not marker.exists(), "a declared cleanup could overwrite the same edit"
+
+    def test_a_failed_step_still_restores_the_file_it_declared(
+            self, make_torra, tmp_path: Path) -> None:
+        a = tmp_path / "a.txt"
+        a.write_text("original", encoding="utf-8")
+        torra = make_torra(scripted(plan_reply(
+            "t", "partial write then fail",
+            [{"id": "one", "kind": "write", "run": f"printf partial > {a}; exit 1",
+              "touches": [str(a)]}])))
+
+        done = torra.execute(torra.plan("partial write then fail"), {})
+
+        assert done.outcome is Outcome.FAILED
+        assert a.read_text(encoding="utf-8") == "original", "its own change is still undone"
+
+    def test_an_interrupted_block_runs_no_declared_cleanup_and_keeps_the_resume_file(
+            self, make_torra, tmp_path: Path) -> None:
+        marker = tmp_path / "cleanup-ran"
+        torra = make_torra(scripted(plan_reply(
+            "t", "two steps",
+            [{"id": "first", "run": "true"}, {"id": "second", "run": "true"}],
+            rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+        planned = torra.plan("two steps")
+        resume_path = tmp_path / "wd" / "resume" / "t.json"
+        ResumePoint(task_id="t", completed=["first"], total=2, in_progress="second",
+                    digests={"first": command_digest("true")}).save(resume_path)
+
+        done = torra.execute(planned, {})
+
+        assert done.outcome is Outcome.BLOCKED
+        assert not marker.exists()
+        assert resume_path.exists() and ResumePoint.load(resume_path).in_progress == "second"  # type: ignore[union-attr]
+
+    def test_a_dry_run_that_succeeds_leaves_a_crashed_runs_resume_file_alone(
+            self, make_torra, tmp_path: Path) -> None:
+        torra = make_torra(scripted(plan_reply("t", "one step", [{"id": "s", "run": "true"}])))
+        planned = torra.plan("one step")
+        resume_path = tmp_path / "wd" / "resume" / "t.json"
+        ResumePoint(task_id="t", total=1, in_progress="s").save(resume_path)
+
+        torra.execute(planned, {}, dry_run=True)
+
+        assert resume_path.exists(), "the in-flight record must outlive a preview"

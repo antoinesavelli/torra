@@ -62,6 +62,13 @@ class ResumePoint:
         """Serializable dict form."""
         return asdict(self)
 
+    def _well_typed(self) -> bool:
+        """Whether every field has the type a resume decision relies on."""
+        return (isinstance(self.task_id, str) and isinstance(self.total, int)
+                and isinstance(self.in_progress, str) and isinstance(self.file_hashes, dict)
+                and isinstance(self.digests, dict) and isinstance(self.completed, list)
+                and all(isinstance(c, str) for c in self.completed))
+
     @classmethod
     def load(cls, path: os.PathLike[str] | str) -> ResumePoint | None:
         """Read a resume point, or None when absent."""
@@ -71,7 +78,10 @@ class ResumePoint:
         if not target.exists():
             return None
         try:
-            return cls(**json.loads(target.read_text(encoding="utf-8")))
+            point = cls(**json.loads(target.read_text(encoding="utf-8")))
+            if not point._well_typed():
+                raise TypeError("a field has the wrong type")
+            return point
         except Exception as exc:
             raise TorraError(f"corrupt resume point {target}: {exc}") from exc
 

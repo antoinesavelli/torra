@@ -3030,6 +3030,49 @@ read-only probes on the next turn.
 > (`docker run --rm img` is CAUTION) and the new spelling, resolver and
 > service-state tests.
 
+### 2.71 Every way a run stops goes through one conflict check before the sweep
+
+An independent review of §2.59 and §2.64 found they held for the paths they
+named and not for the others.
+
+1. **The conflict check ran only at the top of a step.** A veto from the
+   precondition guard, a failed step, and an interrupted block all went
+   straight to the rollback sweep, which could restore a snapshot over a file
+   edited since the last check. `sweep` (`pipeline_rollback.py`) now calls
+   `detect()` first for every stop and drops the undo of any file found
+   changed. A failed step's own writes are re-baselined (`conflicts.refresh`
+   now runs after every step, ok or not) so its own partial change is still
+   undone; an edit to any other file is protected.
+2. **Declared cleanup is gated on "a real step was armed in this attempt"**,
+   not on `result.executed`, which a resumed step also sets. It is also
+   skipped when the sweep finds an edit it cannot attribute, because a declared
+   command has no snapshot to drop.
+3. **A dry run that succeeded deleted the resume file** (`_finish_success`
+   unlinked it outside the `if not dry_run` block), so a crash, a preview and a
+   real run re-ran the in-flight step. It is now left alone.
+4. **A resume file with a field of the wrong type** (`completed: null`,
+   `digests: []`, a list for `in_progress`) raised inside `execute()`.
+   `ResumePoint.load` now checks the types and reports it as corrupt, so the
+   run starts fresh.
+5. **Service undo.** Verification passed when both probes returned `unknown`
+   (nothing could be read), and a masked static or indirect unit was never
+   unmasked. Neither holds now.
+6. **A child could outlive the step.** `proc.wait` after the pipes closed was
+   outside the guard; a step that closed its pipes and kept running was never
+   killed. It is now.
+7. **The machine-state refresh moved from `_finish` to `_arm_step`**, so an
+   exception escaping `execute()` after a step ran still leaves the state
+   stale-marked (§2.69).
+
+Known and not fixed: a user `trap ... ERR` or `set -e` inside a step defeats
+the error wrapper (§2.61), the marker write in `begin_step` swallows a save
+error, the digest covers only the command text, and an unredirected `cmd &`
+holds the pipes open until the timeout.
+
+> Guarded by `tests/test_pipeline.py::TestTheSweepNeverOverwritesAnEditItCanSee`,
+> `tests/test_resume.py` (wrong-typed files), and
+> `tests/test_gates.py::TestServiceStateHelpers`.
+
 ---
 
 ## 3. Things already tried that failed

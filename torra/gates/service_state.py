@@ -64,11 +64,10 @@ def systemctl_query(verb: str, unit: str, scope: str) -> str:
 def restore_verbs(enabled_now: str, active_before: str, enabled_before: str) -> list[str]:
     """The systemctl verbs that put a unit's enablement and running state back, in order."""
     verbs: list[str] = []
-    if enabled_now != enabled_before and enabled_before in ("enabled", "disabled", "masked"):
-        if enabled_now == "masked":
-            verbs.append("unmask")
-        if enabled_before != "masked":
-            verbs.append("enable" if enabled_before == "enabled" else "disable")
+    if enabled_now == "masked" and enabled_before != "masked":
+        verbs.append("unmask")  # whatever it was: static and indirect units can be masked too
+    if enabled_now != enabled_before and enabled_before in ("enabled", "disabled"):
+        verbs.append("enable" if enabled_before == "enabled" else "disable")
     verbs.append("start" if active_before == "active" else "stop")
     if enabled_before == "masked" and enabled_now != "masked":
         verbs.append("mask")

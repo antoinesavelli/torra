@@ -485,7 +485,8 @@ class UndoGenerator:
 
         return UndoAction(
             f"restore {unit} to {before}, {enabled_before}", undo_service, True,
-            lambda: (self._service_probe(unit) == before
+            lambda: ("unknown" not in (before, enabled_before)  # never read: nothing to verify
+                     and self._service_probe(unit) == before
                      and self._enabled_probe(unit) == enabled_before),
             True, snap, step_id)
 

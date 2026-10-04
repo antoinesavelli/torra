@@ -68,6 +68,8 @@ class Torra:
     deliberately boring -- every collaborator has a working, injectable
     default, so the TUI, CLI and test suite drive one object, not three."""
 
+    _armed: bool = False  # a real step was armed in this attempt (see `_arm_step`)
+
     def __init__(
         self,
         workdir: Path | str | None = None,
@@ -380,6 +382,7 @@ class Torra:
     def _stage_rollback(self, plan: Plan) -> list[UndoAction]:
         """Empty the undo stack and return the declared entries, unpushed (HANDOFF.md §2.59)."""
         self.rollback.clear()
+        self._armed = False
         held = declared_undos(plan.spec, self.safety, self.decisions)
         approved = [sp for sp in plan.steps if sp.approved]
         self.decisions.log(
@@ -393,6 +396,8 @@ class Torra:
         """Right before a step runs: its derived undos go on the stack and the resume file
         records it as in flight."""
         if not dry_run:
+            self._armed = True
+            self.agent.state = None  # the step may change the machine: observe it again next turn
             self.rollback.push_many(sp.undos)
             begin_step(resume, resume_path, sp.step.step_id)
 
@@ -461,6 +466,7 @@ class Torra:
             self._arm_step(sp, dry_run, resume, resume_path)
             sp.result = self._run_one_step(sp, result, dry_run, on_output)
             end_step(resume, resume_path, sp.step.step_id, sp.step.command, sp.result.ok, dry_run)
+            self.conflicts.refresh(sp.step.touches)  # its own writes, even a failed step's
 
             if not sp.result.ok:
                 result.outcome = Outcome.FAILED
@@ -468,8 +474,6 @@ class Torra:
                 self.decisions.log(Stage.EXECUTE.value, "step failed",
                                    result.abort_reason)
                 return True
-
-            self.conflicts.refresh(sp.step.touches)
         return False
 
     @staticmethod
@@ -521,7 +525,7 @@ class Torra:
         reversed, or tried to reverse, steps the file would vouch for as done, and a retry
         must not skip steps it can no longer trust are still applied (HANDOFF.md §6.4). A
         block or failure that rolled nothing back keeps it, with its record of what finished."""
-        sweep(self.rollback, self.decisions, result, held)
+        sweep(self.rollback, self.decisions, result, held, self._armed, self.conflicts)
         if result.rollback is not None:
             try:
                 resume_path.unlink(missing_ok=True)
@@ -539,10 +543,10 @@ class Torra:
             # away the shadow copies the real run still needs.
             self.undo.cleanup()
             remember_step_reads(self.agent.read_memory, result)
-        try:
-            resume_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+            try:
+                resume_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         self.decisions.log(Stage.EXECUTE.value, "completed",
                            f"{len(result.results)} step(s) ran")
 
@@ -606,8 +610,6 @@ class Torra:
         # complete but the run is not, so the stage list is left open for
         # execute() to continue and no audit record is written yet.
         result.seconds = time.perf_counter() - started
-        if result.executed and not dry_run:
-            self.agent.state = None  # a step changed the machine: observe it again next turn
         if not write_audit:
             result.decisions = self.decisions.trail()
             return result
