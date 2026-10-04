@@ -960,6 +960,24 @@ class TestOpenRouterClient:
         assert client.chat("anthropic/claude-3.5-sonnet",
                            [{"role": "user", "content": "hi"}]) == "hi there"
 
+    def test_secrets_are_scrubbed_from_what_leaves_the_machine(self) -> None:
+        """HANDOFF.md §2.68: the full message list goes to a third party, so a key a command
+        printed, or a file held, must not travel with it."""
+        sent: list[dict] = []
+
+        def transport(path: str, payload: dict, timeout: float) -> dict:
+            sent.append(payload)
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        client = OpenRouterClient(api_key="k", transport=transport)
+        client.chat("x", [{"role": "system", "content": "state"},
+                          {"role": "user", "content": "found password=hunter2xyz and sk-"
+                           + "b" * 30}])
+
+        content = sent[0]["messages"][1]["content"]
+        assert "hunter2xyz" not in content and "b" * 30 not in content
+        assert sent[0]["messages"][0]["content"] == "state"
+
     def test_token_and_cost_counts_accumulate_from_the_usage_field(self) -> None:
         """OpenRouter's own `usage` object, present by default on a
         non-streaming completion (this client never sets stream: true) --
@@ -2486,3 +2504,18 @@ class TestShellRunsInItsOwnGroup:
         out = shell("yes abcdefghij | head -c 3000000")
         assert len(out) < 600_000
         assert "characters omitted" in out
+
+
+class TestStepsDoNotInheritSecretsFromTheEnvFile:
+    """HANDOFF.md §2.68: names loaded from the `.env` are withheld from a step's environment."""
+
+    def test_a_withheld_name_is_not_visible_to_a_step_but_an_ordinary_one_is(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from torra.core import process
+        monkeypatch.setenv("TORRA_TEST_SECRET", "s3cret")
+        monkeypatch.setenv("TORRA_TEST_PLAIN", "visible")
+        monkeypatch.setattr(process, "WITHHELD_ENV", {"TORRA_TEST_SECRET"})
+
+        out = shell("echo ${TORRA_TEST_SECRET:-none} ${TORRA_TEST_PLAIN:-none}")
+
+        assert out == "none visible"

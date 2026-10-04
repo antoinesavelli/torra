@@ -2968,6 +2968,28 @@ needs a live model run.
 > `tests/test_iterate.py::test_iterate_respects_dry_run_and_never_touches_the_filesystem` and
 > `tests/test_read_memory.py::test_skipped_and_resumed_placeholders_are_not_remembered_as_file_contents`.
 
+### 2.68 A step does not inherit secrets from the `.env`, and nothing secret-looking leaves for a remote model
+
+1. **Every step inherited the `.env`.** `_load_env_file` exports the repo's
+   `.env` into `os.environ`, and every step subprocess inherited the whole
+   environment, so a model-proposed `printenv` or `env | curl ...` could read
+   `OPENROUTER_API_KEY`. Torra still needs the key in its own process, so the
+   file is still loaded; the names that came only from the file (not already
+   exported by the operator) are recorded in `process.WITHHELD_ENV` and left
+   out of each step's environment. An operator's own `export` still passes
+   through, because that was their choice.
+2. **A remote model saw everything.** `OpenRouterClient`'s docstring said it
+   sent "request text, clarifier gaps and machine state". It sends the whole
+   message list: the system prompt, machine state, earlier requests and
+   proposed commands, file contents (8000 characters each) and, in a summary,
+   every executed command with 2000 characters of its output. The docstring now
+   says so, and every message is run through `redact_secrets` first. That is a
+   pattern match, so it narrows the exposure and does not remove it.
+
+> Guarded by `tests/test_core.py::TestStepsDoNotInheritSecretsFromTheEnvFile`,
+> `TestOpenRouterClient::test_secrets_are_scrubbed_from_what_leaves_the_machine` and
+> `tests/test_cli.py::TestLoadEnvFile::test_names_loaded_from_the_file_are_withheld_from_steps_but_exports_are_not`.
+
 ---
 
 ## 3. Things already tried that failed

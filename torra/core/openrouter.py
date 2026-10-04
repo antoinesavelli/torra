@@ -1,6 +1,6 @@
 """Talks to OpenRouter, an opt-in, paid, remote alternative to the local Ollama daemon.
 
-Depends on: torra.core.tasks (OllamaError, reused rather than a new
+Depends on: torra.telemetry.records (redact_secrets), torra.core.tasks (OllamaError, reused rather than a new
 exception type -- its docstring is already backend-generic), torra.core.ollama
 (RecoveryOption), stdlib urllib (same no-external-HTTP-client rule as ollama.py).
 """
@@ -15,6 +15,8 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from torra.telemetry.records import redact_secrets
+
 from .ollama import RecoveryOption
 from .tasks import OllamaError
 
@@ -27,9 +29,13 @@ class OpenRouterClient:
     Never selected automatically -- `torra/gates/router.py`'s `ModelRouter`
     has no reference to this class at all. Only used when an operator
     explicitly names a model with the `openrouter/` prefix
-    (`Agent.resolve_backend`), because sending request text, clarifier gaps,
-    and observed machine state to a third party is a real trust-boundary
-    change from this torra's local-only default.
+    (`Agent.resolve_backend`), because the whole message list goes to a third
+    party: the system prompt, observed machine state, earlier requests and
+    proposed commands, the contents of any file the model read (up to 8000
+    characters each) and, in a summary, every executed command with up to 2000
+    characters of its output. Secret-looking text is scrubbed first
+    (`redact_secrets`), but that is a pattern match, not a guarantee. A real
+    trust-boundary change from this torra's local-only default.
     """
 
     DEFAULT_HOST: str = "https://openrouter.ai/api/v1"
@@ -103,6 +109,11 @@ class OpenRouterClient:
 
     # -- generation -------------------------------------------------------- #
 
+    @staticmethod
+    def _scrubbed(messages: Sequence[dict[str, str]]) -> list[dict[str, str]]:
+        """The messages with secret-looking text replaced, since all of it leaves the machine."""
+        return [{**m, "content": redact_secrets(str(m.get("content", "")))} for m in messages]
+
     def chat(
         self,
         model: str,
@@ -129,7 +140,7 @@ class OpenRouterClient:
 
         payload: dict[str, Any] = {
             "model": model,
-            "messages": list(messages),
+            "messages": self._scrubbed(messages),
             "temperature": float(temperature),
         }
         if json_mode:

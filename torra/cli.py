@@ -20,7 +20,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 from .core import (
     ModelBackend,
@@ -30,6 +30,7 @@ from .core import (
     TaskSpec,
     TaskSpecError,
 )
+from .core.process import WITHHELD_ENV
 from .gates import Clarifier, SafetyClassifier, StateVerifier
 from .iterate import iterate
 from .pipeline import Outcome, Plan, RunResult, Torra
@@ -591,7 +592,9 @@ def _load_env_file(path: os.PathLike[str] | str | None = None) -> None:
     required file for every other command that has nothing to do with
     OpenRouter.
     """
-    load_dotenv(path or Path(__file__).resolve().parent.parent / ".env")
+    target = path or Path(__file__).resolve().parent.parent / ".env"
+    WITHHELD_ENV.update(k for k in dotenv_values(target) if k not in os.environ)
+    load_dotenv(target)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

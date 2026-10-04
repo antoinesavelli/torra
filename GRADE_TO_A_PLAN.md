@@ -204,7 +204,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   (`torra/core/session.py:139-143`, verify first). Extend the patterns to `sk-[A-Za-z0-9_-]{20,}`, env-style
   `NAME_KEY/TOKEN/SECRET/PASSWORD=` lines, and `Authorization: Bearer`. *Proof:* fake keys built at test time
   pushed through each writer, then asserted absent.
-- **P3.2 Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
+- **P3.2 DONE 2026-10-04 (`HANDOFF.md` §2.68; names from the file are withheld from steps rather than the file no longer being loaded).** **Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.
 - **P3.3 DONE 2026-10-04 (`HANDOFF.md` §2.66; the model-bench injection scenario is not done, it needs a live model).** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
@@ -234,7 +234,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   - Schema errors get no repair round (`agent.py:391`).
   - A dry-run `iterate` reports "verified: yes" (`iterate.py:112-114`).
   - `[skipped]` placeholders are remembered as file contents (`pipeline.py:431-433`).
-- **P3.8 The remote backend.** `OpenRouterClient`'s docstring understates what leaves the machine
+- **P3.8 DONE 2026-10-04 (§2.68).** **The remote backend.** `OpenRouterClient`'s docstring understates what leaves the machine
   (`openrouter.py:30-32`): the full system prompt, machine state, file contents and command output go out. Fix
   the docstring, and run P3.1's scrub over outbound messages for remote backends only.
 

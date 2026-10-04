@@ -85,6 +85,10 @@ def pipefail_wrapped(command: str) -> str:
     )
 
 
+#: Variable names `cli` loaded from the repo's `.env` and the operator never exported. Torra
+#: reads them in-process; a step's subprocess does not inherit them (HANDOFF.md §2.68).
+WITHHELD_ENV: set[str] = set()
+
 _OUTPUT_HEAD = 256 * 1024
 _OUTPUT_TAIL = 256 * 1024
 
@@ -189,7 +193,8 @@ def run_in_group(command: str, cwd: str | None, timeout: float | None,
     # with empty output when sudo alone fails. See pipefail_wrapped for the rest.
     proc = subprocess.Popen(
         ["/bin/bash", "-c", pipefail_wrapped(command)],
-        cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        cwd=cwd, env={k: v for k, v in os.environ.items() if k not in WITHHELD_ENV},
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, start_new_session=True)
     assert proc.stdout is not None and proc.stderr is not None
 

@@ -1220,6 +1220,18 @@ class TestLoadEnvFile:
 
         assert os.environ["OPENROUTER_API_KEY"] == "from-the-real-shell"
 
+    def test_names_loaded_from_the_file_are_withheld_from_steps_but_exports_are_not(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(cli, "WITHHELD_ENV", set())
+        monkeypatch.delenv("TORRA_ONLY_IN_FILE", raising=False)
+        monkeypatch.setenv("TORRA_EXPORTED", "from-the-shell")
+        (tmp_path / ".env").write_text("TORRA_ONLY_IN_FILE=a\nTORRA_EXPORTED=b\n")
+
+        cli._load_env_file(tmp_path / ".env")
+
+        assert cli.WITHHELD_ENV == {"TORRA_ONLY_IN_FILE"}
+        assert os.environ["TORRA_ONLY_IN_FILE"] == "a"  # torra itself still reads it
+
     def test_a_missing_file_is_a_silent_no_op(self, tmp_path: Path) -> None:
         cli._load_env_file(tmp_path / "does-not-exist.env")  # must not raise
 
