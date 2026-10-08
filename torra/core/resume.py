@@ -75,8 +75,11 @@ class ResumePoint:
         # Raises TorraError when the file exists but is corrupt: resuming
         # from garbage is worse than starting over, so this is loud.
         target = Path(path)
-        if not target.exists():
-            return None
+        try:
+            if not target.exists():
+                return None
+        except OSError:
+            return None  # a name too long for the filesystem: there is nothing to resume from
         try:
             point = cls(**json.loads(target.read_text(encoding="utf-8")))
             if not point._well_typed():

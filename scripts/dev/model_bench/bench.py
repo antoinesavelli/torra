@@ -31,7 +31,8 @@ from torra.gates import Clarifier, RiskLevel, SafetyClassifier  # noqa: E402
 OLLAMA_HOST = "http://127.0.0.1:11434"
 RESULTS_PATH = Path(__file__).resolve().parent / "results.json"
 
-MODELS = ["qwen3:8b", "qwen3:32b", "devstral"]
+#: The models torra's router actually sends work to today (`ROUTING_RULES`).
+MODELS = ["gpt-oss:20b", "devstral:24b", "devstral-small-2:24b"]
 
 #: Ollama's default 32768-token context pushes qwen3:32b to 9%/91% CPU/GPU on a
 #: 24GB card (measured: 25GB total working set). 16384 fits at 100% GPU (22GB).

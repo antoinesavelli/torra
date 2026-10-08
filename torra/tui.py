@@ -44,7 +44,7 @@ from textual.widgets import (
 from textual.widgets.option_list import Option
 
 from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore, detect_accelerator
-from .gates import StateVerifier, UndoGenerator
+from .gates import RiskLevel, StateVerifier, UndoGenerator
 from .pipeline import Outcome, Plan, RunResult, StepPlan, Torra
 from .telemetry import CrashReporter, crash_summary, health_summary
 
@@ -837,6 +837,7 @@ class TorraApp(App):
             self.session_store.append(session_id, step)
 
         torra.agent._on_context_change = _persist
+        torra.agent.read_memory._on_change = _persist
         torra.agent.task_id_prefix = f"{meta.session_id[:8]}-"
         raw_record_count = self.session_store.rehydrate_compressor(
             meta.session_id, torra.agent.context)
@@ -944,6 +945,11 @@ class TorraApp(App):
         self.sub_title = f"{self.ollama.host}  {status.value}"
         self._greet(self.active_session_id, status)
         self._prompt(self.active_session_id).focus()
+
+    def on_unmount(self) -> None:
+        """Release every tab's file watches on exit."""
+        for tab in self.sessions.values():
+            tab.torra.close()
 
     def _greet(self, session_id: str, status: OllamaStatus) -> None:
         """Print the standard opening lines into one session's chat pane."""
@@ -1166,7 +1172,7 @@ class TorraApp(App):
         tab.auto_run = arg == "on"
         self._say(session_id, "torra",
                   f"auto-run {'on' if tab.auto_run else 'off'} -- "
-                  "a plan needing no tick at all will run immediately"
+                  "a plan whose every step is read-only will run immediately"
                   if tab.auto_run else
                   "auto-run off -- every plan waits for Run", "dim")
 
@@ -1293,9 +1299,13 @@ class TorraApp(App):
         # first place -- a DANGEROUS/CRITICAL step still always waits for
         # Run, this flag or not (see SessionTab.auto_run's own docstring).
         if not pending and self.sessions[session_id].auto_run:
-            self._say(session_id, "torra",
-                      "auto-run: nothing needs confirmation, running now", "dim")
-            self.execute_plan(session_id)
+            if result.plan.worst_level is RiskLevel.SAFE:
+                self._say(session_id, "torra",
+                          "auto-run: every step is read-only, running now", "dim")
+                self.execute_plan(session_id)
+            else:
+                self._say(session_id, "torra",
+                          "auto-run skipped: this plan changes something, press Run", "dim")
         elif pending:
             self._flag_needs_approval(session_id, pending)
 
@@ -1361,7 +1371,8 @@ class TorraApp(App):
                     self.execute_plan(session_id, dry_run=False)
 
             self.push_screen(
-                ConfirmDialog("This plan's commands already ran once. Run it again?"),
+                ConfirmDialog("This plan's commands already ran once and Run will not "
+                              "repeat them. Press Ctrl+R to plan it again.", "OK"),
                 _handle)
             return
         self.execute_plan(session_id, dry_run=False)
@@ -1572,7 +1583,7 @@ class TorraApp(App):
             # await it, not be handed to run_worker() as a bare value (which
             # only starts it, doesn't wait for it before the dict mutation).
             await self.query_one("#sessions", TabbedContent).remove_pane(f"tab-{session_id}")
-            del self.sessions[session_id]
+            self.sessions.pop(session_id).torra.close()
 
         self.run_worker(_remove(), exclusive=False)
 
@@ -1741,13 +1752,14 @@ class TorraApp(App):
             # way to skip that confirmation.)
             self.call_from_thread(
                 self._say, session_id, "torra",
-                "Nothing to run -- this plan's commands already ran.", "dim")
+                "Nothing to run -- this plan's commands already ran. "
+                "Ctrl+R plans it again.", "dim")
             self.call_from_thread(self._set_busy, session_id, False, "")
             return
         approvals = self.call_from_thread(self._approvals, session_id)
         for warning in Torra.dependency_warnings(result.plan, approvals):
             self.call_from_thread(self._say, session_id, "torra",
-                                  f"warning: {warning}", "yellow")
+                                  f"warning: {escape(warning)}", "yellow")
 
         def on_output(step_id: str, chunk: str) -> None:
             self.call_from_thread(self._append_step_output, session_id, step_id, chunk)

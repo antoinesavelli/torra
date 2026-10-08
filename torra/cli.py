@@ -234,6 +234,10 @@ def cmd_ask_with_verify(torra: Torra, args: argparse.Namespace) -> int:
     """`--verify`: the request, then a bounded (verify, fix)* cycle -- see
     iterate.py for why this is still just ordinary plan()/execute() turns
     on the same conversation, not a second way to run a command."""
+    if args.non_interactive and not getattr(args, "yes", False):
+        print("--verify with --non-interactive runs model-written steps with nobody watching; "
+              "add --yes to allow it.")
+        return EXIT_BLOCKED
     report = iterate(
         torra, args.request, args.verify, _approve_for_ask(args),
         model=args.model, dry_run=args.dry_run,
@@ -279,6 +283,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
     print_plan(result.plan)
     if args.plan_only:
         print("\n(plan only, nothing run)")
+        return EXIT_BLOCKED
+
+    if args.non_interactive and not args.dry_run and not getattr(args, "yes", False):
+        print("\n(non-interactive without --yes: plan shown, nothing run)")
         return EXIT_BLOCKED
 
     approvals = {} if args.non_interactive else approve_at_prompt(result.plan)
@@ -396,6 +404,18 @@ def _check_reflink() -> tuple[str, bool, str]:
         return "cp --reflink", False, type(exc).__name__
 
 
+def _check_env_file_private(path: Path | None = None) -> tuple[str, bool, str]:
+    """Warn when the `.env` holding `OPENROUTER_API_KEY` is readable by group or others."""
+    target = path or Path(__file__).resolve().parent.parent / ".env"
+    try:
+        mode = target.stat().st_mode & 0o777
+    except OSError:
+        return ".env permissions", True, "no .env file"
+    if mode & 0o077:
+        return ".env permissions", False, f"mode {mode:o}; run: chmod 600 {target}"
+    return ".env permissions", True, f"mode {mode:o}"
+
+
 def _check_ollama() -> tuple[str, bool, str]:
     ollama = OllamaClient()
     status = ollama.health()
@@ -411,6 +431,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     checks = _check_python_and_modules()
     checks.append(_check_workdir_writable(workdir))
     checks.append(_check_reflink())
+    checks.append(_check_env_file_private())
     checks.append(_check_ollama())
 
     width = max(len(n) for n, _o, _d in checks)
@@ -533,7 +554,11 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("request")
     ask.add_argument("--model")
     ask.add_argument("--dry-run", action="store_true")
-    ask.add_argument("--non-interactive", action="store_true")
+    ask.add_argument("--non-interactive", action="store_true",
+                     help="never prompt: shows the plan and stops unless --yes is also given")
+    ask.add_argument("--yes", action="store_true",
+                     help="with --non-interactive, run the steps that need no tick "
+                          "(anything needing one is still refused)")
     ask.add_argument("--plan-only", action="store_true")
     ask.add_argument("--verify",
                      help="after the request completes, repeat this check "

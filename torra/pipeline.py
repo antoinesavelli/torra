@@ -59,6 +59,7 @@ from .pipeline_rollback import declared_undos, drop_edited_undos, sweep
 from .pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 from .read_memory import remember_step_reads
 from .telemetry import TaskLogger
+from .telemetry.scrub import redact_tree
 
 __all__ = ["Stage", "Outcome", "StepPlan", "Plan", "RunResult", "Torra"]
 
@@ -643,7 +644,7 @@ class Torra:
                    else f"{self.agent.task_id_prefix}turn-{self.agent._turn_counter}")
         path = self.audit_dir / f"{self._safe_filename(task_id)}.audit.json"
         try:
-            path.write_text(json.dumps(result.to_dict(), indent=2, default=str),
+            path.write_text(json.dumps(redact_tree(result.to_dict()), indent=2, default=str),
                             encoding="utf-8")
             result.audit_path = str(path)
         except Exception as exc:

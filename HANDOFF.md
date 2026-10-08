@@ -2741,8 +2741,9 @@ Three rules now hold together:
    real step ran** (`RunResult.executed`), on top of the derived undos so
    they still run first. The stack is emptied at the start of every attempt,
    so a halted sweep's leftovers never run on behalf of a later plan.
-3. **On a conflict block, `_block_on_conflict` drops the undo of every file
-   the detector flagged** (`VerifiedRollback.drop_where`), so a human edit
+3. **Before any sweep, `drop_edited_undos` drops the undo of every file the
+   detector flagged** (`VerifiedRollback.drop_where`; called from
+   `_block_on_conflict` and from the sweep itself, §2.71), so a human edit
    made after one of torra's own steps ran is not overwritten either. The
    skip is written to the decision log ("undo skipped ... changed outside
    torra") rather than silently omitted.
@@ -2836,6 +2837,60 @@ Three gaps in how a step's command ran (`torra/core/process.py`):
 > `TestShellRunsInItsOwnGroup`, the unchanged SIGPIPE tests, and
 > `tests/test_pipeline.py::test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back`.
 
+### 2.62 State kept across plans, and secrets written to disk, were both wider than one run
+
+Found by the 2026-10-04 full audit, not live.
+
+1. **`ConflictDetector.baseline()` starts from nothing every time.** One
+   detector lives for a whole TUI tab, and it used to add each plan's
+   `touches` to `hashes` and keep the previous plan's `watch_roots` when a
+   plan declared none. A hand edit to a file only plan 1 named then blocked
+   the unrelated plan 2 with "external file change(s)", and each plan's
+   inotify instance was opened without closing the last. `baseline()` now
+   closes the old watch, empties `hashes`, and falls back to the roots the
+   detector was constructed with, never the previous plan's.
+2. **Every persisted string is scrubbed, not just `request`.**
+   `TaskRecord.abort_reason` (up to 400 characters of a failed step's raw
+   stderr) and session transcript entries (including a read step's output,
+   which is replayed to the model on reopen) go through `redact_secrets`.
+   The patterns now catch `sk-or-v1-...` keys (dashes inside the body),
+   `NAME_API_KEY=` style assignments (`\b` never matches after `_`) and
+   `Bearer` tokens. The audit JSON is not yet covered.
+3. **A reopened session keeps what the model had read.** `ReadMemory` took
+   its persistence hook at construction, before the TUI wired it, so read
+   output never reached the transcript. `_register_session` sets both hooks.
+4. **A closed tab releases its file watches**, and the app releases every
+   tab's on exit.
+5. **`torra doctor` warns when `.env` is readable by group or others.**
+6. **The classifier looks at every redirect and every spelling of a path.**
+   `_check_redirect` stopped at the first `>`, so `cmd 2>/dev/null > /etc/fstab`
+   was SAFE; it now judges each redirect (a `/dev/null` one is skipped, not a
+   reason to stop). `_protected` compares a normalised path, so
+   `tee /tmp/../etc/fstab` is caught. `rsync` with a remote operand
+   (`host:`, `user@host:`, `rsync://`) needs a tick, like `scp`.
+7. **A byte that is not UTF-8 cannot hang a step.** The reader threads decode
+   with replacement and always send their end-of-stream marker; before, a
+   finished command waited out its whole timeout and was reported as timed out.
+8. **Nobody-watching execution is explicit.** `torra ask --non-interactive`
+   shows the plan and stops unless `--yes` is given (`--dry-run` is exempt;
+   `--verify --non-interactive` also needs `--yes`). The TUI's `/auto on`
+   runs a plan on its own only when every step classifies SAFE (read-only); a
+   plan with a CAUTION write waits for the Run click. Hand-written task files
+   (`torra run`) are unchanged: a human wrote them.
+
+> Guarded by `tests/test_core.py::TestBaselineIsPerPlan`,
+> `tests/test_telemetry.py::TestRedaction` (the four new cases) and
+> `test_a_label_line_with_a_field_from_a_later_version_still_loads`,
+> `tests/test_session.py::test_a_secret_in_a_transcript_entry_is_redacted_on_disk`,
+> `tests/test_tui.py::test_a_read_steps_output_is_written_to_the_session_transcript`,
+> `test_closing_a_tab_releases_its_file_watches`, and
+> `tests/test_cli.py::test_doctor_env_check_*`,
+> `test_ask_non_interactive_without_yes_shows_the_plan_and_runs_nothing`,
+> `test_ask_verify_non_interactive_without_yes_runs_nothing`,
+> `tests/test_tui.py::test_auto_run_waits_for_a_click_when_the_plan_changes_something`,
+> `tests/test_gates.py::TestSafety::test_every_evasion_is_caught` (five new cases) and
+> `tests/test_core.py::TestShellSurvivesBinaryOutput`.
+
 ### 2.63 A service undo restores what the step changed, and a shadow directory's owner is recorded, not guessed
 
 Three gaps in the undo layer:
@@ -2850,6 +2905,8 @@ Three gaps in the undo layer:
    "undone". `capture_service` now records both the active state and the
    `is-enabled` state, restores enablement first (unmasking if needed, masking
    again if it began masked) and then the running state, and verifies both.
+   A unit whose state could not be read (`unknown`) is never stopped by the
+   restore (§2.74).
 3. **The reaper read a uuid as a pid.** A TUI tab's shadow directory is named
    by session uuid, and `torra-shadow-3f2a...` matched the pid pattern as
    pid 3, so an idle tab could lose snapshots it still needed while dead
@@ -2997,9 +3054,10 @@ needs a live model run.
 nothing ever passed `refresh=True`, so the turn after a deploy or a package
 install reasoned from facts that step had just changed, while rule 9 of the
 system prompt tells the model to contradict the operator when the operator
-disagrees with that state. `Torra._finish` now clears the cache after any real
-(non-dry) run that executed a step, so the next `converse()` observes again. A
-dry run changed nothing and leaves it alone. The cost is one more round of
+disagrees with that state. `Torra._arm_step` now clears the cache just before
+any real (non-dry) step runs, so the next `converse()` observes again, even if
+that step then fails or the run is stopped. A dry run changed nothing and
+leaves it alone. The cost is one more round of
 read-only probes on the next turn.
 
 > Guarded by `tests/test_pipeline.py::test_a_real_run_marks_the_observed_machine_state_stale`.
@@ -3107,9 +3165,10 @@ structurally rather than one command at a time:
    --privileged`, a bind mount of a system or home directory, `apt install x-`
    (which removes) and restarting the display manager or `ssh` ask; `git checkout
    .`/`-f`/`--` and `switch -f` throw away work and ask.
-6. **Credentials.** Reading `.env`, a private key or `~/.aws` asks (§2.71's
-   sibling in `known_programs.reads_credentials`), except for programs that
-   only report names and sizes (`ls`, `stat`, `test`).
+6. **Credentials.** Reading `.env`, a private key or `~/.aws` asks
+   (`known_programs.reads_credentials`), except for programs that only report
+   names and sizes (`ls`, `stat`, `test`). §2.74 widens the names and the ways
+   of reading one.
 
 Replaying 174 real commands: 11 need a tick, against 6 before any of this
 work; the five new ones are programs torra has never been told about.
@@ -3167,6 +3226,54 @@ a model.
 > hostile-reply cases in `tests/test_agent.py`.
 
 ---
+
+### 2.74 Second review round: what a credential read is, what the audit file holds, and what a hostile model field can do
+
+A second independent pass over the §2.66-2.73 work found residue, fixed here:
+
+1. **Credential reads were matched by file name only.** `reads_credentials`
+   now also sees `key=value` operands (`dd if=.env`), shell globs that could
+   expand to a credential name (`.e*`, `id_*`; a pattern with under two literal
+   characters is skipped), `/proc/*/environ`, shell and database history,
+   `terraform.tfstate`, `wp-config.php`, rclone, and the `~/.kube`, `~/.docker`,
+   gcloud, azure and `gh` directories, in any case. A `< file` redirect is
+   checked the same way (`_context_findings`), and a string constant inside an
+   inline `python -c` that names one makes it ask. `printenv` with no names,
+   or a secret-sounding name, asks.
+2. **The audit JSON was not scrubbed.** `_finish` wrote `RunResult.to_dict()`
+   as it was. `telemetry/scrub.redact_tree` now scrubs every string at any
+   depth before the write, one string at a time so a line-end pattern cannot
+   eat a closing quote.
+3. **Redaction patterns could be made slow.** Every unbounded quantifier in
+   `REDACTIONS` is bounded; hostile inputs that took seconds now take
+   milliseconds. A `Cookie:` header is redacted mid-line as well as at line start.
+4. **A hostile field could crash the loop.** A task path with a NUL byte, a
+   path over 4096 characters, a non-string entry, a non-list `rollback`, an
+   `estimated_seconds` too large for a float, and a JSON integer past the parser's
+   digit limit are now ordinary validation errors (`TaskSpecError`/`ReplyError`),
+   not tracebacks. `resume.load` tolerates a path the filesystem rejects, and
+   `_pid_alive` tolerates a pid outside the platform's range.
+5. **`UndoGenerator.cleanup` now clears its snapshot list**, so a later plan's
+   undo coverage cannot count a shadow copy that was deleted.
+6. **Service restore never stops a unit whose state was `unknown`.**
+7. **More read-only diagnostics need no tick**: `lsns lvs pvs vgs acpi glxinfo
+   fc-list upower`, `swapon --show`, `zpool`/`zfs` queries, `rfkill list`,
+   `ethtool` without its writing flags, `gsettings get`, `wpctl status`,
+   `arecord -l`, `hdparm -I/-i`, `xrandr --query`, `systemd-resolve --status`,
+   `go version`, compiler `--version`, `python -m pip list`, and
+   `fdisk`/`parted`/`sfdisk`/`sgdisk` when they only list or print.
+
+Replaying the 174 real commands now: 154 safe, 10 caution, 9 dangerous, 1
+critical.
+
+Known and left open: redaction is pattern-based, so a secret in a shape no
+pattern knows still leaves; a user-written `trap ... ERR` or `set -e` defeats
+the error wrapper; `begin_step` swallows a failed save of the resume file; the
+resume digest covers the command text only; an unredirected `cmd &` keeps the
+output pipes open; Ctrl-C between steps is not caught; an unusable model reply
+is reported, not repaired.
+
+> Guarded by `tests/test_review_round_two.py`.
 
 ## 3. Things already tried that failed
 

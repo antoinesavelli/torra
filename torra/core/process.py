@@ -195,16 +195,20 @@ def run_in_group(command: str, cwd: str | None, timeout: float | None,
         ["/bin/bash", "-c", pipefail_wrapped(command)],
         cwd=cwd, env={k: v for k, v in os.environ.items() if k not in WITHHELD_ENV},
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, start_new_session=True)
+        text=True, encoding="utf-8", errors="replace", start_new_session=True)
     assert proc.stdout is not None and proc.stderr is not None
 
     lines: queue.Queue[tuple[str, str] | None] = queue.Queue(maxsize=4096)
 
     def pump(stream: Any, tag: str) -> None:
-        for line in iter(lambda: stream.readline(65536), ""):
-            lines.put((tag, line))
-        stream.close()
-        lines.put(None)
+        # The end-of-stream marker is sent even if reading fails: without it the consumer waits
+        # for a stream that will never close, and a finished command reports a timeout.
+        try:
+            for line in iter(lambda: stream.readline(65536), ""):
+                lines.put((tag, line))
+        finally:
+            stream.close()
+            lines.put(None)
 
     readers = [
         threading.Thread(target=pump, args=(proc.stdout, "out"), daemon=True),

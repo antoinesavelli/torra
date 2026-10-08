@@ -356,3 +356,18 @@ def test_session_record_to_context_step_round_trips_the_shared_fields() -> None:
     step = record.to_context_step()
     assert (step.entry_id, step.role, step.content, step.tokens, step.compressed) == \
         ("u1", "user", "hello", 3, True)
+
+
+def test_a_secret_in_a_transcript_entry_is_redacted_on_disk(tmp_path: Path) -> None:
+    """Step output the model read (a `cat .env`) enters the context, and the
+    transcript is replayed to the model on reopen -- it must not keep the key."""
+    from torra.core.context import ContextStep
+
+    store = SessionStore(tmp_path)
+    meta = store.create()
+    key = "sk-or-v1-" + "k3y" * 12
+    store.append(meta.session_id, ContextStep("read:.env", "system", f"[read .env]\nOPENROUTER_API_KEY={key}"))
+
+    on_disk = (tmp_path / "sessions" / meta.session_id / "transcript.jsonl").read_text()
+    assert key[:12] not in on_disk
+    assert store.load_transcript(meta.session_id)[0].content.startswith("[read .env]")

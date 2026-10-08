@@ -2445,6 +2445,46 @@ class TestContextCompressor:
         ]
 
 
+class TestBaselineIsPerPlan:
+    """One ConflictDetector serves every plan in a TUI tab (reproduced
+    2026-10-04): plan 2, which declared nothing, was blocked by an edit to a
+    file only plan 1 had declared."""
+
+    def test_a_second_baseline_forgets_the_first_plans_paths(self, tmp_path) -> None:
+        old = tmp_path / "plan1.conf"
+        old.write_text("x", encoding="utf-8")
+        detector = ConflictDetector(use_inotify=False)
+        detector.baseline([str(old)])
+        detector.baseline([])
+
+        old.write_text("edited between plans", encoding="utf-8")
+
+        assert detector.detect() == []
+        assert detector.hashes == {}
+
+    def test_a_second_baseline_forgets_the_first_plans_watch_roots(self, tmp_path) -> None:
+        watched = tmp_path / "tree"
+        watched.mkdir()
+        (watched / "a.txt").write_text("x", encoding="utf-8")
+        detector = ConflictDetector(use_inotify=False)
+        detector.baseline([], roots=[watched])
+        detector.baseline([])
+
+        (watched / "b.txt").write_text("new file", encoding="utf-8")
+
+        assert detector.detect() == []
+
+    def test_constructor_roots_still_apply_when_a_plan_declares_none(self, tmp_path) -> None:
+        watched = tmp_path / "tree"
+        watched.mkdir()
+        detector = ConflictDetector(roots=[watched], use_inotify=False)
+        detector.baseline([])
+
+        (watched / "late.txt").write_text("new file", encoding="utf-8")
+
+        assert [c.kind for c in detector.detect()] == [ConflictKind.CREATED]
+
+
 class TestShellStopsAtTheFirstRealError:
     """HANDOFF.md §2.61: the wrapper's error trap makes a step fail where bash would carry on."""
 
@@ -2505,6 +2545,26 @@ class TestShellRunsInItsOwnGroup:
         assert len(out) < 600_000
         assert "characters omitted" in out
 
+
+class TestShellSurvivesBinaryOutput:
+    """A single non-UTF-8 byte killed the reader thread before it sent its
+    end-of-stream marker, so a finished command waited out the whole timeout
+    (an hour by default) and was then reported as timed out."""
+
+    def test_the_plain_path_returns_the_output_with_the_bad_byte_replaced(self) -> None:
+        out = shell("printf '\\xff\\xfe\\n'; echo done", timeout=5)
+        assert out.endswith("done") and "\ufffd" in out
+
+    def test_the_streaming_path_returns_and_still_streams(self) -> None:
+        received: list[str] = []
+        with shell_output_sink(received.append):
+            out = shell("printf '\\xff\\n'; echo done", timeout=5)
+        assert out.endswith("done")
+        assert any("done" in chunk for chunk in received)
+
+    def test_binary_output_on_stderr_does_not_hide_the_exit_status(self) -> None:
+        with pytest.raises(RuntimeError, match="exit 3"):
+            shell("printf '\\xff' >&2; exit 3", timeout=5)
 
 class TestStepsDoNotInheritSecretsFromTheEnvFile:
     """HANDOFF.md §2.68: names loaded from the `.env` are withheld from a step's environment."""

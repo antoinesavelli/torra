@@ -84,7 +84,8 @@ class LabelStore:
                     continue
                 try:
                     data = json.loads(raw)
-                    out[data["request"]] = Label(**data)
+                    known = Label.__dataclass_fields__
+                    out[data["request"]] = Label(**{k: v for k, v in data.items() if k in known})
                 except Exception as exc:
                     self.errors.append(f"label line unreadable: {exc}")
         except OSError as exc:

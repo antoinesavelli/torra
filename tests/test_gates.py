@@ -66,6 +66,11 @@ class TestSafety:
         ("rm${IFS}-rf${IFS}/srv/data", "IFS-obfuscated rm -rf"),
         ("su -c 'rm -rf /var/lib/x' postgres", "su -c wrapper"),
         ("perl -e 'unlink(\"/etc/passwd\")'", "perl bareword unlink, no leading dot"),
+        ("grep x /etc/fstab 2>/dev/null > /etc/fstab", "a real redirect after a /dev/null one"),
+        ("echo ok > /dev/null; echo '' > /etc/fstab", "second statement truncates a system file"),
+        ("tee /tmp/../etc/fstab", "dot-dot path that lands in /etc"),
+        ("rsync -a ./payload antoine@executor:/etc/", "rsync to another machine"),
+        ("rsync -a ./payload rsync://executor/etc/", "rsync daemon url"),
     ]
 
     ROUTINE = [
@@ -79,10 +84,12 @@ class TestSafety:
         "echo \"today is $(date)\"", "tar czf backup-$(date +%Y%m%d).tar.gz /home/user/docs",
         "VERSION=$(git rev-parse --short HEAD)", "echo \"free: $(df -h / | tail -1)\"",
         "su - postgres",
+        "ls > /dev/null 2>&1", "echo hi > /dev/null 2> /dev/null",
+        "rsync -a ./src/ ./backup/", "cat /etc/hosts > /dev/null",
     ]
 
     def test_every_evasion_is_caught(self) -> None:
-        """26/26: the original 20, four found by an independent security
+        """Every case in EVASIONS: the original 20, four found by an independent security
         audit (command-substitution and IFS obfuscation), and two found via
         live probing outside the documented corpus (su -c wrapping a shell
         payload; Perl's bareword unlink, which the old regex's required

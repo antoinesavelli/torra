@@ -68,7 +68,10 @@ def restore_verbs(enabled_now: str, active_before: str, enabled_before: str) -> 
         verbs.append("unmask")  # whatever it was: static and indirect units can be masked too
     if enabled_now != enabled_before and enabled_before in ("enabled", "disabled"):
         verbs.append("enable" if enabled_before == "enabled" else "disable")
-    verbs.append("start" if active_before == "active" else "stop")
+    if active_before == "active":
+        verbs.append("start")
+    elif active_before != "unknown":
+        verbs.append("stop")  # never stop a unit whose state could not be read
     if enabled_before == "masked" and enabled_now != "masked":
         verbs.append("mask")
     return verbs

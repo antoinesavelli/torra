@@ -1676,25 +1676,25 @@ async def test_auto_command_rejects_a_garbage_argument(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_auto_run_executes_a_plan_with_nothing_needing_confirmation(
+async def test_auto_run_executes_a_plan_whose_every_step_is_read_only(
         tmp_path: Path) -> None:
-    """The actual feature: a plan made entirely of SAFE/CAUTION steps
-    (already auto-approved today, per Verdict.needs_confirmation) no
-    longer waits for a manual Run click when auto-run is on."""
-    target = tmp_path / "v.txt"
+    """The actual feature: a plan made entirely of read-only (SAFE) steps no
+    longer waits for a manual Run click when auto-run is on. A plan that writes
+    anything, even a CAUTION one, still waits (the next test)."""
     app = build(tmp_path, scripted(plan_reply(
-        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+        "t", f"list {tmp_path}", [{"id": "ls", "run": f"ls {tmp_path}"}])))
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.sessions[app.active_session_id].auto_run = True
 
-        app.query_one("#prompt", Input).value = f"touch {target}"
+        app.query_one("#prompt", Input).value = f"list {tmp_path}"
         await pilot.press("enter")
         await pilot.pause(0.5)
         await app.workers.wait_for_complete()
 
-        assert target.exists(), "auto-run must have executed without a Run click"
-        assert "auto-run: nothing needs confirmation" in screen_text(app)
+        assert app.sessions[app.active_session_id].current.executed, \
+            "auto-run must have executed without a Run click"
+        assert "auto-run: every step is read-only" in screen_text(app)
 
 
 @pytest.mark.asyncio
@@ -2281,6 +2281,52 @@ def test_run_tui_builds_and_runs_the_app(tmp_path: Path, monkeypatch) -> None:
     assert calls[0].torra is torra
 
 
+@pytest.mark.asyncio
+async def test_closing_a_tab_releases_its_file_watches(tmp_path: Path) -> None:
+    """A closed tab's Torra used to be dropped with its inotify instance still open."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+t")
+        await app.workers.wait_for_complete()
+        closing = app.sessions[app.active_session_id].torra
+        released: list[bool] = []
+        closing.close = lambda: released.append(True)  # type: ignore[method-assign]
+
+        app.action_close_tab()
+        await app.workers.wait_for_complete()
+
+        assert released == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_read_steps_output_is_written_to_the_session_transcript(
+        tmp_path: Path) -> None:
+    """ReadMemory captured its persistence hook at construction (None), so what
+    the model had read never reached the transcript and a reopened session lost it."""
+    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        tab = app.sessions[app.active_session_id]
+        tab.torra.agent.read_memory.remember("/etc/hostname", "pop-os")
+
+        saved = app.session_store.load_transcript(tab.session_id)
+
+        assert any('<file path="/etc/hostname"' in r.content and "pop-os" in r.content
+                   for r in saved)
+
+
+def test_the_dependency_warning_is_escaped_before_it_reaches_markup() -> None:
+    """A path with a `[segment]` was swallowed as a markup tag, so the warning
+    could omit the very path it was about."""
+    import inspect
+
+    from torra import tui
+
+    source = inspect.getsource(tui.TorraApp._execute_plan_body)
+    assert "escape(warning)" in source
+
+
 def test_every_tab_gets_the_default_disk_precondition(tmp_path: Path) -> None:
     """Tabs after the first used to be built without the verifier the CLI installs."""
     from types import SimpleNamespace
@@ -2292,3 +2338,22 @@ def test_every_tab_gets_the_default_disk_precondition(tmp_path: Path) -> None:
     torra = TorraApp._build_session_torra(app, tmp_path, "abc123")  # type: ignore[arg-type]
 
     assert [p.name for p in torra.verifier.preconditions] == ["disk:/"]
+
+
+@pytest.mark.asyncio
+async def test_auto_run_waits_for_a_click_when_the_plan_changes_something(
+        tmp_path: Path) -> None:
+    """/auto used to run any plan with no step needing a tick, which includes
+    CAUTION steps that write files; it now runs only plans that are all read-only."""
+    marker = tmp_path / "written"
+    app = build(tmp_path, scripted(plan_reply(
+        "t", f"write {marker}", [{"id": "w", "run": f"touch {marker}"}])))
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.sessions[app.active_session_id].auto_run = True
+        app.query_one("#prompt", Input).value = f"write {marker}"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        await app.workers.wait_for_complete()
+
+        assert not marker.exists(), "a writing plan must wait for the Run click"
+        assert "auto-run skipped" in screen_text(app)

@@ -81,6 +81,7 @@ class ConflictDetector:
     ) -> None:
         """Configure watched roots, ignored directory names, and the walk/event policy."""
         self.roots: list[Path] = [Path(r) for r in (roots or [])]
+        self._default_roots: list[Path] = list(self.roots)
         self.ignores: set[str] = set(ignores if ignores is not None
                                      else self.DEFAULT_IGNORES)
         self.max_files = int(max_files)
@@ -134,12 +135,19 @@ class ConflictDetector:
         paths: Iterable[os.PathLike[str] | str] = (),
         roots: Iterable[os.PathLike[str] | str] | None = None,
     ) -> None:
-        """Record hashes for declared paths and fingerprints for watched trees."""
+        """Record hashes for declared paths and fingerprints for watched trees.
+
+        Starts from nothing every time: one detector serves every plan in a
+        TUI tab, and a path or watch root left over from an earlier plan
+        would make a later hand edit block an unrelated one.
+        """
+        self.close()
+        self.hashes = {}
+        self._watch_paths = {}
         for path in paths:
             key = str(Path(path))
             self.hashes[key] = self.hash_file(key)
-        if roots is not None:
-            self.roots = [Path(r) for r in roots]
+        self.roots = [Path(r) for r in roots] if roots is not None else list(self._default_roots)
         self.fingerprints = {}
         for root in self.roots:
             self.fingerprints.update(self._walk(root))

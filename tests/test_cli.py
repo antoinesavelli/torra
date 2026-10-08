@@ -431,11 +431,11 @@ def test_evidence_prints_loophole_examples_when_present(
 
 def ask_args(workdir: Path, request: str, *, model=None, dry_run=False,
              non_interactive=False, plan_only=False, verify=None,
-             max_iterations=3) -> argparse.Namespace:
+             max_iterations=3, yes=False) -> argparse.Namespace:
     return argparse.Namespace(workdir=str(workdir), request=request, model=model,
                               dry_run=dry_run, non_interactive=non_interactive,
                               plan_only=plan_only, verify=verify,
-                              max_iterations=max_iterations)
+                              max_iterations=max_iterations, yes=yes)
 
 
 def test_ask_runs_a_safe_plan_end_to_end(tmp_path, monkeypatch,
@@ -445,7 +445,8 @@ def test_ask_runs_a_safe_plan_end_to_end(tmp_path, monkeypatch,
     patch_ollama(monkeypatch, scripted(plan_reply(
         "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
 
-    exit_code = cli.cmd_ask(ask_args(tmp_path, f"touch {marker}", non_interactive=True))
+    exit_code = cli.cmd_ask(ask_args(
+        tmp_path, f"touch {marker}", non_interactive=True, yes=True))
 
     out = capsys.readouterr().out
     assert exit_code == cli.EXIT_OK
@@ -471,7 +472,7 @@ def test_ask_verify_fixes_a_failing_check_and_reports_success(
     )))
 
     exit_code = cli.cmd_ask(ask_args(
-        tmp_path, "add the feature", non_interactive=True,
+        tmp_path, "add the feature", non_interactive=True, yes=True,
         verify="run the tests"))
 
     out = capsys.readouterr().out
@@ -493,7 +494,8 @@ def test_ask_verify_reports_failure_once_iterations_are_exhausted(
     )))
 
     exit_code = cli.cmd_ask(ask_args(
-        tmp_path, "add x", non_interactive=True, verify="check", max_iterations=1))
+        tmp_path, "add x", non_interactive=True, yes=True, verify="check",
+        max_iterations=1))
 
     out = capsys.readouterr().out
     assert exit_code == cli.EXIT_FAILED
@@ -635,7 +637,8 @@ def test_ask_reports_a_dangerous_step_awaiting_approval_when_declined(
         "t", f"delete {victim}",
         [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
 
-    exit_code = cli.cmd_ask(ask_args(tmp_path, f"delete {victim}", non_interactive=True))
+    exit_code = cli.cmd_ask(ask_args(
+        tmp_path, f"delete {victim}", non_interactive=True, yes=True))
 
     assert exit_code == cli.EXIT_BLOCKED
     assert victim.exists()
@@ -1244,3 +1247,73 @@ class TestLoadEnvFile:
         cli.main(["doctor"])
 
         assert calls == [True]
+
+
+def test_doctor_env_check_flags_a_group_readable_env_file(tmp_path) -> None:
+    """`.env` holds the OpenRouter key, and every step inherits it, so a
+    664 file shared the key with the whole group."""
+    env = tmp_path / ".env"
+    env.write_text("OPENROUTER_API_KEY=placeholder\n", encoding="utf-8")
+    env.chmod(0o664)
+
+    name, ok, detail = cli._check_env_file_private(env)
+
+    assert not ok and "chmod 600" in detail
+
+
+def test_doctor_env_check_passes_a_private_or_absent_env_file(tmp_path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("OPENROUTER_API_KEY=placeholder\n", encoding="utf-8")
+    env.chmod(0o600)
+
+    assert cli._check_env_file_private(env)[1] is True
+    assert cli._check_env_file_private(tmp_path / "missing")[1] is True
+
+
+# --- unattended execution needs an explicit --yes (GRADE_TO_A_PLAN D4) -------- #
+
+
+def test_ask_non_interactive_without_yes_shows_the_plan_and_runs_nothing(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """A model-written plan must not run with nobody watching unless asked to."""
+    patch_observe(monkeypatch)
+    marker = tmp_path / "marker"
+    patch_ollama(monkeypatch, scripted(plan_reply(
+        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, f"touch {marker}", non_interactive=True))
+
+    out = capsys.readouterr().out
+    assert exit_code == cli.EXIT_BLOCKED
+    assert "without --yes" in out and f"touch {marker}" in out
+    assert not marker.exists()
+
+
+def test_ask_non_interactive_dry_run_needs_no_yes(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    patch_observe(monkeypatch)
+    marker = tmp_path / "marker"
+    patch_ollama(monkeypatch, scripted(plan_reply(
+        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    exit_code = cli.cmd_ask(ask_args(
+        tmp_path, f"touch {marker}", non_interactive=True, dry_run=True))
+
+    assert exit_code == cli.EXIT_OK
+    assert not marker.exists()
+
+
+def test_ask_verify_non_interactive_without_yes_runs_nothing(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """--verify loops model-written fixes, so it needs the explicit --yes too."""
+    patch_observe(monkeypatch)
+    marker = tmp_path / "marker"
+    patch_ollama(monkeypatch, scripted(plan_reply(
+        "t", "x", [{"id": "touch", "run": f"touch {marker}"}])))
+
+    exit_code = cli.cmd_ask(ask_args(
+        tmp_path, "add the feature", non_interactive=True, verify="run the tests"))
+
+    assert exit_code == cli.EXIT_BLOCKED
+    assert "--yes" in capsys.readouterr().out
+    assert not marker.exists()

@@ -1,7 +1,7 @@
 """Persisted chat sessions: one directory per conversation, an append-only transcript.
 
 Depends on: torra.core.context (ContextStep, ContextCompressor), torra.core.tasks
-(TorraError).
+(TorraError), torra.telemetry.records (redact_secrets).
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from torra.telemetry.records import redact_secrets
 
 from .context import ContextCompressor, ContextStep
 from .tasks import TorraError
@@ -134,7 +136,7 @@ class SessionStore:
         failure, since the entry is safely on disk either way.
         """
         try:
-            record = SessionRecord(step.entry_id, step.role, step.content,
+            record = SessionRecord(step.entry_id, step.role, redact_secrets(step.content),
                                    step.tokens, step.compressed, at=time.time())
             line = json.dumps(record.to_dict(), sort_keys=True) + "\n"
             path = self._transcript_path(session_id)

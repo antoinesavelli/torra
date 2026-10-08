@@ -196,7 +196,7 @@ class UndoGenerator:
         """True when a process with this pid is still running."""
         try:
             os.kill(pid, 0)
-        except ProcessLookupError:
+        except (ProcessLookupError, OverflowError, ValueError):
             return False
         except PermissionError:
             return True  # exists, just not ours to signal
@@ -604,18 +604,10 @@ class UndoGenerator:
         }
 
     def cleanup(self) -> None:
-        """Delete shadow copies made so far. Only after a successful run.
-
-        Recreates an empty `shadow_dir` afterward rather than leaving it
-        gone: one `UndoGenerator` is built once per `Torra` and reused
-        across every `plan()` call in the session (`_gate()` snapshots
-        files at propose time, before execute() even knows whether the run
-        will be real or dry), so the *next* plan's `capture_file` needs
-        somewhere to write. Leaving the directory deleted would silently
-        skip every snapshot for the rest of the session -- caught, but only
-        as a `skipped` entry nobody is watching for.
-        """
+        """Delete shadow copies made so far, after a successful run. The directory is recreated empty
+        because one generator serves every `plan()` of the session and the next snapshot needs it."""
         shutil.rmtree(self.shadow_dir, ignore_errors=True)
+        self.snapshots.clear()
         self.shadow_dir.mkdir(parents=True, exist_ok=True)
         self._claim_shadow_dir()
         self._counter = 0

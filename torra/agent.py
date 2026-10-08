@@ -388,7 +388,7 @@ class Agent:
             task.setdefault("request", request)
             try:
                 turn.spec = TaskSpec.validate(task, source=f"{model} proposal")
-            except TaskSpecError as exc:
+            except (TaskSpecError, TypeError, ValueError, OverflowError, OSError) as exc:
                 raise AgentError(f"proposed task is malformed: {exc}") from exc
         return turn
 

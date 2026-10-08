@@ -23,26 +23,39 @@ __all__ = ["TaskRecord", "TaskLogger", "redact_secrets"]
 #: quote a secret as the request it's commenting on -- goes through the
 #: same scrub instead of a second, drifting copy of these patterns.
 REDACTIONS: list[tuple[str, str]] = [
-    (r"\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\b", "<JWT>"),
+    (r"\b[A-Za-z0-9_-]{20,200}\.[A-Za-z0-9_-]{10,200}\.[A-Za-z0-9_-]{20,200}\b", "<JWT>"),
     (r"\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}\b", "<GITHUB_TOKEN>"),
     (r"\bsk-[A-Za-z0-9_-]{20,}", "<API_KEY>"),
+    (r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}", "<API_KEY>"),
+    (r"\b(?:npm_[A-Za-z0-9]{30,}|pypi-[A-Za-z0-9_-]{30,}|glpat-[A-Za-z0-9_-]{16,})", "<API_KEY>"),
+    (r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}", "<API_KEY>"),
     (r"\bxox[abprs]-[A-Za-z0-9-]{10,}", "<SLACK_TOKEN>"),
+    (r"hooks\.slack\.com/services/[A-Za-z0-9/]+", "hooks.slack.com/services/<REDACTED>"),
     (r"\bAIza[0-9A-Za-z_-]{30,}", "<API_KEY>"),
     (r"\bhf_[A-Za-z0-9]{30,}", "<API_KEY>"),
+    (r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", "<AWS_KEY>"),
+    (r"(?i)\bauthorization:\s*(?:basic|bearer|token)\s+\S+", "Authorization: <REDACTED>"),
     (r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}", "Bearer <TOKEN>"),
-    (r"\bAKIA[0-9A-Z]{16}\b", "<AWS_KEY>"),
-    (r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@", r"\1<REDACTED>@"),
-    # A JSON value under a secret-looking key, whatever else the key is called.
-    (r'(?i)("[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key'
-     r'|private[_-]?key)[A-Za-z0-9_.-]*"\s*:\s*)"[^"]*"', r'\1"<REDACTED>"'),
+    (r"(?i)\b((?:set-)?cookie:[ \t]*)[^\r\n]{1,4000}", r"\1<REDACTED>"),
+    (r"(?i)\b([a-z][a-z0-9+.-]{1,20}://)[^\s/@]{1,200}@", r"\1<REDACTED>@"),
+    (r"(?i)([?&](?:key|api_?key|access_token|token|sig|signature|secret)=)[^&\s]+", r"\1<REDACTED>"),
+    (r"(?i)(\s(?:-u|--user)[ =]+)[^\s:]+:\S+", r"\1<REDACTED>"),
+    (r"(?i)(--(?:password|passwd|token|secret|api-?key)[ =]+)\S+", r"\1<REDACTED>"),
+    (r"(?i)(\bsshpass\s+-p\s*)\S+", r"\1<REDACTED>"),
+    (r"(?im)^(\s*(?:password|passwd)\s+)\S+$", r"\1<REDACTED>"),
+    # A value under a secret-looking key in JSON or a Python dict, either quote style.
+    (r"(?i)([\"'][A-Za-z0-9_.-]{0,40}(?:pass(?:word|wd)?|secret|token|credentials?|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|client[_-]?secret|psk)[A-Za-z0-9_.-]{0,40}[\"']\s*[:：]\s*)([\"'])[^\"'\n]{0,500}\2",
+     r"\1\2<REDACTED>\2"),
+    (r"(?i)([\"']auth[\"']\s*[:：]\s*)([\"'])[^\"'\n]{0,500}\2", r"\1\2<REDACTED>\2"),
     # \S.*$ (to end of line), not \S+ (one token): a multi-word secret like
     # "password = super secret phrase" used to redact only "password = super".
     # Over-redacting the rest of the line is far cheaper than under-redacting a
-    # secret. The name may carry a prefix or suffix (OPENROUTER_API_KEY, AUTH_TOKEN).
-    (r"(?im)(?<![A-Za-z0-9])([A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key"
-     r"|access[_-]?key|private[_-]?key)[A-Za-z0-9_.-]*)\s*[=:]\s*\S.*$", r"\1=<REDACTED>"),
-    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
-     "<PRIVATE_KEY>"),
+    # secret. The name may carry a prefix or suffix (OPENROUTER_API_KEY, DATABASE_PASS); both
+    # are bounded so hostile text cannot make the match slow.
+    (r"(?im)(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]{0,40}(?:pass(?:word|wd)?|secret|token|credentials?|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|client[_-]?secret|psk)[A-Za-z0-9_.-]{0,40})\s*[=:：]\s*\S.*$",
+     r"\1=<REDACTED>"),
+    (r"-----BEGIN [A-Z ]*(?:PRIVATE KEY|KEY BLOCK)-----[\s\S]*?"
+     r"(?:-----END [A-Z ]*(?:PRIVATE KEY|KEY BLOCK)-----|\Z)", "<PRIVATE_KEY>"),
 ]
 
 
@@ -163,6 +176,7 @@ class TaskLogger:
         """Append one record. Never raises; see class docstring."""
         try:
             record.request = self.scrub(record.request)
+            record.abort_reason = self.scrub(record.abort_reason)
             if not record.at:
                 record.at = self._clock()
             line = json.dumps(record.to_dict(), sort_keys=True) + "\n"

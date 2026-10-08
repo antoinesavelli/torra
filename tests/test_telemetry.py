@@ -227,6 +227,34 @@ class TestRedaction:
         assert "hunter2" not in on_disk
 
 
+    def test_an_openrouter_key_is_redacted(self, tmp_path: Path) -> None:
+        """`sk-or-v1-...` has dashes inside the key body, which the old
+        alphanumeric-only pattern stopped at, leaving the tail on disk."""
+        key = "sk-or-v1-" + "a1b2c3d4" * 6
+        scrubbed = TaskLogger(tmp_path / "tasks.jsonl").scrub(f"use {key} for the call")
+        assert key[:12] not in scrubbed and "<API_KEY>" in scrubbed
+
+    def test_an_env_style_assignment_is_redacted(self, tmp_path: Path) -> None:
+        """`\\b` never matches between `_` and `API`, so `NAME_API_KEY=` leaked."""
+        logger = TaskLogger(tmp_path / "tasks.jsonl")
+        assert "hunter2" not in logger.scrub("OPENROUTER_API_KEY=hunter2")
+        assert "hunter2" not in logger.scrub("export DB_PASSWORD=hunter2")
+
+    def test_a_bearer_header_is_redacted(self, tmp_path: Path) -> None:
+        token = "z" * 32
+        scrubbed = TaskLogger(tmp_path / "tasks.jsonl").scrub(f"Authorization: Bearer {token}")
+        assert token not in scrubbed
+
+    def test_abort_reason_is_scrubbed_before_it_is_written(self, tmp_path: Path) -> None:
+        """`abort_reason` carries up to 400 characters of a failed step's raw
+        stderr, which is exactly where a printed key ends up."""
+        logger = TaskLogger(tmp_path / "tasks.jsonl")
+        key = "sk-or-v1-" + "q9w8e7r6" * 6
+        logger.record(TaskRecord(task_id="t", request="r", at=1.0,
+                                 abort_reason=f"step failed: exit 1: {key}"))
+        assert key[:12] not in (tmp_path / "tasks.jsonl").read_text(encoding="utf-8")
+
+
 class TestTaskLoggerFailureEdges:
     """TaskLogger's own construction/record/read failure paths -- exercised
     only incidentally via test_cli.py before this, never at the unit level
@@ -649,3 +677,15 @@ class TestSummary:
         assert "1 crash(es) recorded" in out
         assert "ValueError (tui)" in out
         assert "simulated crash" in out
+
+
+def test_a_label_line_with_a_field_from_a_later_version_still_loads(tmp_path: Path) -> None:
+    """Every other persisted record type ignores unknown fields; labels did not,
+    so a file written by a newer torra became unreadable line by line."""
+    path = tmp_path / "labels.jsonl"
+    path.write_text(
+        '{"request": "r", "ambiguous": true, "why": "", "labeled_at": 1.0, '
+        '"labeler": "a", "confidence": 0.9}\n', encoding="utf-8")
+    store = LabelStore(path)
+    assert store.all()["r"].ambiguous is True
+    assert store.errors == []

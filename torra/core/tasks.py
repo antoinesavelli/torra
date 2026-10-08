@@ -158,6 +158,9 @@ class TaskSpec:
             raise TaskSpecError(
                 f"{where}: '{field_name}' must be a list of paths, not "
                 f"{type(value).__name__}")
+        for item in value or []:
+            if not isinstance(item, str) or "\x00" in item or len(item) > 4096:
+                raise TaskSpecError(f"{where}: '{field_name}' holds something that is not a path")
 
     @staticmethod
     def _validate_estimated_seconds(value: Any, where: str) -> None:
@@ -171,7 +174,7 @@ class TaskSpec:
             return
         try:
             float(value)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise TaskSpecError(f"{where}: 'estimated_seconds' must be a number") from exc
 
     @classmethod
@@ -229,7 +232,10 @@ class TaskSpec:
     @classmethod
     def _validate_rollback(cls, data: dict[str, Any], source: str) -> None:
         """Validate every declared rollback entry, if any."""
-        for index, raw in enumerate(data.get("rollback") or [], start=1):
+        entries = data.get("rollback") or []
+        if not isinstance(entries, list):
+            raise TaskSpecError(f"{source or 'task'}: 'rollback' must be a list of entries")
+        for index, raw in enumerate(entries, start=1):
             cls._validate_rollback_entry(raw, index, source)
 
     @classmethod

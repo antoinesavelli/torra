@@ -6,8 +6,12 @@ files exist and when to add to them.
 ## Recovery partition
 
 Pop!_OS ships a recovery partition. To reach it: reboot, and at the
-System76/Pop!_OS boot menu (GRUB-based) select the recovery entry. From
-there, the two options are:
+System76/Pop!_OS boot menu select the recovery entry (hold or tap Space
+at power-on to reach it). The bootloader depends on how the machine boots:
+UEFI installs (the default) use **systemd-boot**, managed with `kernelstub`
+and `bootctl`, with entries under `/boot/efi/loader/entries/`; only legacy
+BIOS installs use GRUB. Check with `bootctl status` before assuming either.
+From the menu, the two recovery options are:
 
 - **Refresh install** — reinstalls the OS while keeping `/home` intact.
 - **Clean install** — full reinstall, wipes everything.

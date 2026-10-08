@@ -6,6 +6,7 @@ Depends on: torra.gates.known_programs (what torra can vouch for as read-only).
 from __future__ import annotations
 
 import base64
+import posixpath
 import re
 import shlex
 from collections.abc import Callable
@@ -173,6 +174,8 @@ LESSOPEN LESSCLOSE
 #: credentials file reveals no secret.
 METADATA_ONLY: frozenset[str] = frozenset({"ls", "dir", "vdir", "stat", "test", "[", "[[", "du", "df",
                                            "find", "realpath", "readlink", "basename", "dirname"})
+#: Disk tools that are read-only when they only list or print (see `known_programs._disk_listing`).
+LISTING_TOOLS: frozenset[str] = frozenset({"fdisk", "sfdisk", "parted", "sgdisk"})
 #: Units whose restart or stop can cut the session torra is running in.
 CRITICAL_UNITS: tuple[str, ...] = ("display-manager", "gdm", "lightdm", "sddm", "networkmanager",
                                    "network-manager", "systemd-logind", "ssh", "sshd", "dbus")
@@ -558,7 +561,7 @@ class SafetyClassifier:
         """True when a path targets a system location worth protecting."""
         if path.startswith(("~", "$HOME", "${HOME}")):
             return True  # the home directory, which /home already protects by its absolute path
-        cleaned = path.rstrip("/*") or "/"
+        cleaned = posixpath.normpath(re.sub(r"/{2,}", "/", path.rstrip("/*") or "/"))
         return cleaned in PROTECTED_PREFIXES or any(
             cleaned.startswith(p + "/") for p in PROTECTED_PREFIXES if p != "/")
 
@@ -599,7 +602,8 @@ class SafetyClassifier:
         if program not in METADATA_ONLY and any(reads_credentials(o) for o in operands):
             found.append((RiskLevel.DANGEROUS, "touches a file that holds credentials"))
 
-        if program in PROGRAM_RISK:
+        if program in PROGRAM_RISK and not (
+                program in LISTING_TOOLS and trust(rc.argv, self._protected) == READ_ONLY):
             level, why = PROGRAM_RISK[program]
             found.append((level, f"{why} via {program}"))
 
@@ -873,11 +877,15 @@ class SafetyClassifier:
         in-quote characters, so an unquoted match's span is identical in
         both strings."""
         masked = self._mask_quoted(text)
-        redirect = re.search(r"(>{1,2})\s*(/[^\s;|&]+|~[^\s;|&]*|\$\{?HOME\}?[^\s;|&]*)", masked)
-        if redirect:
+        for redirect in re.finditer(
+                r"(>{1,2})\s*(/[^\s;|&]+|~[^\s;|&]*|\$\{?HOME\}?[^\s;|&]*)", masked):
             target = text[redirect.start(2):redirect.end(2)]
             if target in SAFE_REDIRECT_TARGETS:
-                return []  # a stream sink or documented no-op; nothing is overwritten
+                # A stream sink or documented no-op; nothing is overwritten. Blanked so the
+                # generic check below ignores it too, while a later redirect is still judged.
+                masked = (masked[:redirect.start()] + " " * (redirect.end() - redirect.start())
+                          + masked[redirect.end():])
+                continue
             if self._protected(target):
                 verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
                 return [(RiskLevel.CRITICAL, f"redirect {verb} {target}")]
@@ -917,7 +925,7 @@ class SafetyClassifier:
             reasons.append(f"NOTE: {len(self.parse_failures)} parse issue(s), "
                            "the regex backstop carried the classification")
 
-        for level_, why in self._context_findings(resolved, levels):
+        for level_, why in self._context_findings(resolved, levels, text):
             levels.append(level_)
             reasons.append(f"{level_.value.upper()}: {why}")
         level = max(levels, key=ORDER.index) if levels else RiskLevel.SAFE
@@ -926,8 +934,8 @@ class SafetyClassifier:
                            f"{len(resolved)} resolved command(s)")
         return Verdict(text, level, reasons, resolved)
 
-    def _context_findings(self, resolved: list[ResolvedCommand],
-                          levels: list[RiskLevel]) -> list[tuple[RiskLevel, str]]:
+    def _context_findings(self, resolved: list[ResolvedCommand], levels: list[RiskLevel],
+                          text: str) -> list[tuple[RiskLevel, str]]:
         """Risks that come from the line as a whole: a changed search path, or a `cd` into a
         system directory before a write, after which relative paths cannot be judged."""
         found = [(RiskLevel.DANGEROUS, f"sets {n}, which changes what later commands run")
@@ -936,6 +944,9 @@ class SafetyClassifier:
                       for rc in resolved)
         if entered and any(lv in (RiskLevel.CAUTION, RiskLevel.DANGEROUS) for lv in levels):
             found.append((RiskLevel.DANGEROUS, "changes into a system directory and then writes"))
+        fed = re.findall(r"(?<![<\d&])<\s*(?![<(])([^\s;|&<>()]+)", self._mask_quoted(text))
+        if any(reads_credentials(f) for f in fed):
+            found.append((RiskLevel.DANGEROUS, "feeds a file that holds credentials to a command"))
         return found
 
     def explain(self, command: str) -> str:

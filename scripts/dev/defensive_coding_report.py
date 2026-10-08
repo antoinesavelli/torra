@@ -342,6 +342,8 @@ def grade_lint(files: list[Path]) -> DimensionResult:
         [sys.executable, "-m", "ruff", "check", "--output-format=json",
          *[str(f) for f in files]],
         capture_output=True, text=True, cwd=REPO_ROOT)
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(f"ruff check failed ({proc.returncode}): {proc.stderr.strip()}")
     issues = json.loads(proc.stdout or "[]")
     grade = band(len(issues), (0, 5, 20, 50), lower_is_better=True)
     offenders = [f"{Path(i['filename']).relative_to(REPO_ROOT)}:{i['location']['row']} "

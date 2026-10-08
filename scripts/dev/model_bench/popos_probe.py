@@ -77,7 +77,7 @@ PROBES: list[Probe] = [
     Probe("recovery-partition", "pop-specific",
          "How does a user access the Pop!_OS recovery partition to refresh or "
          "reinstall the OS from the boot menu?",
-         ("recovery", "esc", "boot menu", "grub")),
+         ("recovery", "esc", "boot menu", "systemd-boot", "space")),
     Probe("cosmic-desktop", "pop-specific",
          "What is COSMIC in the context of Pop!_OS, and is it Rust or another "
          "language?",

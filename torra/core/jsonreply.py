@@ -51,8 +51,10 @@ def _matching_brace(text: str, start: int) -> int | None:
 def _loads(text: str) -> Any:
     try:
         return json.loads(text)
-    except RecursionError as exc:
-        raise json.JSONDecodeError("nested too deeply", text, 0) from exc
+    except json.JSONDecodeError:
+        raise
+    except (RecursionError, ValueError) as exc:  # nesting, or an integer past the parser's limit
+        raise json.JSONDecodeError("unusable JSON", text, 0) from exc
 
 
 def _find_object(text: str) -> dict[str, Any] | None:

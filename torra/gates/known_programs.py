@@ -10,6 +10,7 @@ Depends on: the standard library only (ast, re).
 from __future__ import annotations
 
 import ast
+import fnmatch
 import posixpath
 import re
 from collections.abc import Callable, Sequence
@@ -27,11 +28,11 @@ expand unexpand rev tr grep egrep fgrep zgrep zcat bzcat xzcat basename dirname
 readlink realpath stat du df diff cmp md5sum sha1sum sha224sum sha256sum
 sha384sum sha512sum b2sum cksum jq seq yes sleep echo printf true false test [ [[ : pwd cd type
 which whereis hash umask export set unset read local declare shift exit return break continue
-wait alias printenv id whoami groups who w last users logname tty uname hostname arch nproc cal
+wait alias id whoami groups who w last users logname tty uname hostname arch nproc cal
 uptime free ps pgrep pidof pstree top htop vmstat iostat mpstat pidstat lsof lscpu lsblk lspci
 lsusb lsmod lshw lsattr getfacl getent locale getconf findmnt blkid netstat ping
 traceroute tracepath dig nslookup host whois modinfo apt-cache dpkg-query lsb_release aa-status
-xdg-user-dir fsstat
+xdg-user-dir fsstat lsns lvs pvs vgs acpi glxinfo fc-list upower
 """.split())
 
 #: Known to write files or state in a bounded way. They run flagged CAUTION, not unticked-silent.
@@ -132,6 +133,8 @@ def _reaches_outside(node: ast.AST, reading: set[int]) -> bool:
                                             and id(node) not in reading)
     if isinstance(node, ast.Attribute):
         return node.attr.startswith("_") or node.attr in UNSAFE_PYTHON_ATTRS
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return len(node.value) < 300 and reads_credentials(node.value)
     return False
 
 
@@ -150,6 +153,8 @@ def _python(argv: Sequence[str]) -> str | None:
     rest = [a for a in argv[1:] if a not in ("-u", "-B", "-I", "-E", "-s", "-S", "-q")]
     if rest[:1] in (["--version"], ["-V"]) or rest[:2] == ["-m", "json.tool"]:
         return READ_ONLY
+    if rest[:2] == ["-m", "pip"] and rest[2:3] in (["list"], ["show"], ["freeze"], ["check"]):
+        return READ_ONLY
     if rest[:2] in (["-m", "pytest"], ["-m", "unittest"]):
         return BOUNDED_WRITE
     if rest[:1] == ["-c"] and len(rest) == 2 and _pure_python(rest[1]):
@@ -158,7 +163,7 @@ def _python(argv: Sequence[str]) -> str | None:
 
 
 def _only_version(argv: Sequence[str]) -> str | None:
-    return READ_ONLY if list(argv[1:]) in (["--version"], ["-v"], ["-V"]) else None
+    return READ_ONLY if list(argv[1:]) in (["--version"], ["-v"], ["-V"], ["-version"], ["version"]) else None
 
 
 def _sed(argv: Sequence[str]) -> str | None:
@@ -244,10 +249,15 @@ def _tar_paths(argv: Sequence[str]) -> list[str]:
     return paths
 
 
+#: `host:path`, `user@host:path` and `rsync://host/...`: an operand that leaves this machine.
+_REMOTE_OPERAND = re.compile(r"^(?:rsync://|(?:[\w.-]+@)?[\w.-]+::?)")
+
+
 def _rsync(argv: Sequence[str]) -> str | None:
     """A local sync is bounded; deleting, or any remote operand, needs a tick."""
     deleting = any(f.startswith(("--delete", "--remove-source-files")) for f in _long(argv))
-    return None if deleting else BOUNDED_WRITE
+    remote = any(_REMOTE_OPERAND.match(a) for a in argv[1:] if not a.startswith("-"))
+    return None if deleting or remote else BOUNDED_WRITE
 
 
 _GIT_READ = frozenset("""
@@ -376,6 +386,30 @@ def _nmcli(argv: Sequence[str]) -> str | None:
     return READ_ONLY if words & {"show", "status", "list"} and not words & _NMCLI_WRITES else None
 
 
+def _listing_only(allowed_short: str, allowed_long: frozenset[str]):
+    """Read-only when it has no operands, at least one flag, and only the listed flags."""
+    def judge(argv: Sequence[str]) -> str | None:
+        flags = [a for a in argv[1:] if a.startswith("-")]
+        ok = (flags and not _operands(argv) and not _short(argv) - set(allowed_short)
+              and not _long(argv) - allowed_long)
+        return READ_ONLY if ok else None
+    return judge
+
+
+def _disk_listing(argv: Sequence[str]) -> str | None:
+    """fdisk/parted/sfdisk/sgdisk are read-only only when they just list or print."""
+    asks_to_list = {"-l", "--list", "-p", "--print", "print", "list"} & set(argv[1:])
+    plain = all(a in ("print", "list") or a.startswith(("/dev/", "-")) for a in argv[1:])
+    return READ_ONLY if asks_to_list and plain else None
+
+
+def _printenv(argv: Sequence[str]) -> str | None:
+    """Named variables only, and not ones that sound like secrets (`printenv API_KEY`)."""
+    names = _operands(argv)
+    quiet = names and not any(re.search(r"(?i)key|token|secret|pass|cred", n) for n in names)
+    return READ_ONLY if quiet else None
+
+
 def _command(argv: Sequence[str]) -> str | None:
     return READ_ONLY if argv[1:2] in (["-v"], ["-V"]) else None
 
@@ -412,6 +446,10 @@ SUBCOMMANDS: dict[str, tuple[frozenset[str], ...]] = {
     "resolvectl": _sub("- status query statistics"),
     "ufw": _sub("status show version"),
     "nft": _sub("list"),
+    "zpool": _sub("status list get history iostat version"), "zfs": _sub("list get"),
+    "rfkill": _sub("list"), "go": _sub("version"), "wpctl": _sub("status inspect get-volume"),
+    "gsettings": _sub("get list-keys list-schemas list-recursively range describe list-children "
+                      "writable"),
     "ollama": _sub("- list ps show help"),
     "borg": _sub("list info version"),
     "amixer": _sub("- get sget scontents controls scontrols info"),
@@ -457,6 +495,16 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "ksh": _only_version, "pactl": _pactl, "nmcli": _nmcli,
     "aplay": lambda argv: READ_ONLY if {"-l", "-L"} & set(argv[1:]) else None,
     "ssh-keygen": _positive("lfEvB", needs="l"),
+    "swapon": _listing_only("s", frozenset({"--show", "--summary", "--noheadings", "--raw", "--bytes"})),
+    "ethtool": _avoiding("sEfACGKLNWtp"), "hdparm": _positive("IitTv"),
+    "xrandr": _positive("q", frozenset({"--query", "--listmonitors", "--listproviders", "--prop",
+                                        "--verbose"})),
+    "systemd-resolve": _positive("", frozenset({"--status", "--statistics"})),
+    "arecord": lambda argv: READ_ONLY if {"-l", "-L"} & set(argv[1:]) else None,
+    "fdisk": _disk_listing, "sfdisk": _disk_listing, "parted": _disk_listing, "sgdisk": _disk_listing,
+    "printenv": _printenv,
+    "gcc": _only_version, "g++": _only_version, "cc": _only_version, "clang": _only_version,
+    "rustc": _only_version, "cargo": _only_version, "java": _only_version,
     "mokutil": _positive("", frozenset({"--sb-state", "--list-enrolled", "--list-new",
                                         "--list-delete", "--db", "--dbx", "--kek", "--pk",
                                         "--mokx", "--help", "--version"})),
@@ -466,20 +514,40 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
 _CREDENTIAL_NAME = re.compile(
     r"^(?:\.env(?:\.(?!example$|sample$|template$|dist$)[\w.-]+)?|id_(?:rsa|dsa|ecdsa|ed25519)"
     r"|credentials|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.pypirc|g?shadow"
-    r"|secrets?\.(?:ya?ml|json|toml)|ssh_host_\w+_key|.+\.(?:key|p12|pfx|kdbx)|secring\.gpg)$")
+    r"|secrets?\.(?:ya?ml|json|toml)|ssh_host_\w+_key|.+\.(?:key|p12|pfx|kdbx)|secring\.gpg"
+    r"|\.(?:bash|zsh|psql|mysql|python)_history|terraform\.tfstate(?:\.backup)?|wp-config\.php"
+    r"|rclone\.conf|environ)$", re.IGNORECASE)
 _SSH_PUBLIC = re.compile(r"^(?:.+\.pub|known_hosts.*|config|authorized_keys.*)$")
+_CREDENTIAL_DIRS = ("/.aws/", "/.gnupg/", "/.kube/", "/.docker/", "/.azure/", "/.config/gcloud/",
+                    "/.config/gh/", "/.config/rclone/", "/.password-store/")
+#: Concrete names a glob like `.e*` or `id_*` could expand to.
+_CREDENTIAL_LITERALS = (".env", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials", ".netrc",
+                        ".pgpass", ".git-credentials", ".npmrc", ".pypirc", "shadow", "gshadow",
+                        ".bash_history", ".zsh_history", "terraform.tfstate", "wp-config.php",
+                        "rclone.conf")
+
+
+def _glob_could_match_a_credential(pattern: str) -> bool:
+    """Whether a shell glob in a file name could expand to a credentials file. A pattern with fewer
+    than two literal characters (`*`) is skipped, and `*`/`?` never match a leading dot."""
+    if not any(c in pattern for c in "*?[") or len(re.sub(r"[*?\[\]]", "", pattern)) < 2:
+        return False
+    return any(fnmatch.fnmatchcase(name, pattern) and (pattern.startswith(".") or name[0] != ".")
+               for name in _CREDENTIAL_LITERALS)
 
 
 def reads_credentials(path: str) -> bool:
-    """True when `path` names a file that holds credentials: an env file, a private key, a cloud
-    or git credentials file, anything under ~/.aws or ~/.gnupg. Reading one puts the secret in
-    front of the model, and from there possibly a remote one, so it needs a tick."""
+    """True when `path` names a file that holds credentials: an env file, a private key, a cloud,
+    git or shell-history file, a process environment, anything under ~/.aws, ~/.kube or ~/.gnupg.
+    Reading one puts the secret in front of the model, and from there possibly a remote one."""
+    if "=" in path and not path.startswith(("/", "~", ".")):
+        path = path.split("=", 1)[1]  # dd if=.env
     name = path.rstrip("/").rsplit("/", 1)[-1]
-    if "/.aws/" in path or "/.gnupg/" in path:
+    if any(d in path for d in _CREDENTIAL_DIRS):
         return True
     if "/.ssh/" in path and not _SSH_PUBLIC.match(name):
         return True
-    return bool(_CREDENTIAL_NAME.match(name))
+    return bool(_CREDENTIAL_NAME.match(name)) or _glob_could_match_a_credential(name)
 
 
 def _program(argv0: str) -> str | None:

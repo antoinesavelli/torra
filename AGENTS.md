@@ -124,7 +124,7 @@ replacement. If any of these is unclear before you act, read the full entry, the
 | **Telemetry can never break a run** — every `telemetry/` method catches its own exceptions | `test_pipeline.py` |
 | **An undo that can't be proven is not "undone"** — three states (`undone`/`unverified`/`failed`), never collapsed to two | `test_gates.py::TestVerifiedRollback` |
 | **A declared `rollback:` command is still classified** — a step's own `safe: true` can only make `SafetyClassifier` more cautious, never override it | `test_pipeline.py::test_a_declared_safe_rollback_is_still_classified` |
-| **`execute()` cannot replay an already-executed result** — `executed` is set only immediately before a real `step.run()`, never for merely entering the loop | `test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it` + 3 more |
+| **`execute()` cannot replay an already-executed result** — `executed` is set only immediately before a real `step.run()` or when a resumed step's earlier run is recorded, never for merely entering the loop | `test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it` + 3 more |
 | **Model size/chat-capability come from the daemon (`/api/show`), never guessed from the name** | `test_core.py::TestModelInfo`, `test_gates.py::TestModelParamsAndChatCapable` |
 | **Every way to decline a plan goes through `Torra.reject()`** — never `execute()` with empty approvals, never bare UI state | `test_pipeline.py::test_reject_never_runs_an_all_safe_plan` + 4 more |
 
