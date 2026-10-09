@@ -546,7 +546,8 @@ def test_ask_loops_across_multiple_rounds_of_questions(
         plan_reply("t", f"touch {marker}",
                   [{"id": "touch", "run": f"touch {marker}"}]),
     ))
-    monkeypatch.setattr("builtins.input", lambda prompt="": "popos-01")
+    monkeypatch.setattr("builtins.input",
+                        lambda prompt="": "y" if "run this plan" in prompt else "popos-01")
 
     exit_code = cli.cmd_ask(ask_args(tmp_path, "tidy up the box"))
 
@@ -642,6 +643,132 @@ def test_ask_reports_a_dangerous_step_awaiting_approval_when_declined(
 
     assert exit_code == cli.EXIT_BLOCKED
     assert victim.exists()
+
+
+# D4 (GRADE_TO_A_PLAN P3.4): interactive `ask` shows the plan and asks once before anything runs;
+# `--yes` skips that question but never ticks a step, and a `--verify` fix round always asks.
+
+def _answer(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
+    """Answer stdin prompts in order and record each one; EOF once the replies run out."""
+    asked: list[str] = []
+    queue = list(replies)
+
+    def fake_input(prompt: str = "") -> str:
+        asked.append(prompt.strip())
+        if not queue:
+            raise EOFError
+        return queue.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    return asked
+
+
+def _touch_plan(monkeypatch: pytest.MonkeyPatch, marker: Path) -> None:
+    patch_observe(monkeypatch)
+    patch_ollama(monkeypatch, scripted(plan_reply(
+        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+
+
+def test_ask_interactive_asks_once_and_a_no_rejects_the_plan(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    marker = tmp_path / "marker"
+    _touch_plan(monkeypatch, marker)
+    asked = _answer(monkeypatch, "n")
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, f"touch {marker}"))
+
+    assert asked == ["run this plan? [y/N]"]
+    assert exit_code == cli.EXIT_BLOCKED and not marker.exists()
+    assert "outcome: rejected" in capsys.readouterr().out
+
+
+def test_ask_interactive_runs_the_plan_on_a_yes(tmp_path, monkeypatch) -> None:
+    marker = tmp_path / "marker"
+    _touch_plan(monkeypatch, marker)
+    _answer(monkeypatch, "y")
+
+    assert cli.cmd_ask(ask_args(tmp_path, f"touch {marker}")) == cli.EXIT_OK
+    assert marker.exists()
+
+
+def test_ask_interactive_eof_at_the_plan_question_runs_nothing(tmp_path, monkeypatch) -> None:
+    marker = tmp_path / "marker"
+    _touch_plan(monkeypatch, marker)
+    _answer(monkeypatch)
+
+    assert cli.cmd_ask(ask_args(tmp_path, f"touch {marker}")) == cli.EXIT_BLOCKED
+    assert not marker.exists()
+
+
+def test_ask_interactive_dry_run_asks_no_plan_question(tmp_path, monkeypatch) -> None:
+    marker = tmp_path / "marker"
+    _touch_plan(monkeypatch, marker)
+    asked = _answer(monkeypatch)
+
+    cli.cmd_ask(ask_args(tmp_path, f"touch {marker}", dry_run=True))
+
+    assert asked == [] and not marker.exists()
+
+
+def test_ask_yes_skips_the_plan_question_but_never_ticks_a_dangerous_step(
+        tmp_path, monkeypatch) -> None:
+    patch_observe(monkeypatch)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me", encoding="utf-8")
+    patch_ollama(monkeypatch, scripted(plan_reply(
+        "t", f"delete {victim}",
+        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    asked = _answer(monkeypatch, "n")
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, f"delete {victim}", yes=True))
+
+    assert asked == ["approve? [y/N]"]
+    assert exit_code == cli.EXIT_BLOCKED and victim.exists()
+
+
+def _verify_rounds(monkeypatch: pytest.MonkeyPatch, marker: Path) -> None:
+    patch_observe(monkeypatch)
+    monkeypatch.setattr("torra.agent.Agent.MAX_REPAIRS", 0)
+    patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
+        plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
+        plan_reply("verify1", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]),
+        plan_reply("fix", "fix it", [{"id": "fix", "run": f"touch {marker}"}]),
+        plan_reply("verify2", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]),
+    )))
+
+
+def test_ask_verify_shows_every_round_and_a_fix_round_asks_even_with_yes(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    marker = tmp_path / "fixed"
+    _verify_rounds(monkeypatch, marker)
+    asked = _answer(monkeypatch, "y")
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, "add the feature", yes=True, verify="run the tests"))
+
+    assert asked == ["run this plan? [y/N]"], "under --yes only the fix round asks"
+    assert f"touch {marker}" in capsys.readouterr().out, "the fix round's plan is shown"
+    assert exit_code == cli.EXIT_OK and marker.exists()
+
+
+def test_ask_verify_without_yes_asks_before_every_round(tmp_path, monkeypatch) -> None:
+    marker = tmp_path / "fixed"
+    _verify_rounds(monkeypatch, marker)
+    asked = _answer(monkeypatch, "y", "y", "y", "y")
+
+    assert cli.cmd_ask(ask_args(tmp_path, "add the feature", verify="run the tests")) == cli.EXIT_OK
+    assert asked == ["run this plan? [y/N]"] * 4
+
+
+def test_ask_verify_declining_a_fix_round_rejects_it_and_stops(
+        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    marker = tmp_path / "fixed"
+    _verify_rounds(monkeypatch, marker)
+    _answer(monkeypatch, "n")
+
+    exit_code = cli.cmd_ask(ask_args(tmp_path, "add the feature", yes=True, verify="run the tests"))
+
+    assert exit_code == cli.EXIT_FAILED and not marker.exists()
+    assert "fix attempt 1: rejected" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- #

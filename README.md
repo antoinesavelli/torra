@@ -193,7 +193,7 @@ middle-click to paste the X11 primary selection with no explicit copy step at al
 
 ```bash
 torra                       # the interface
-torra ask "..."             # one request, approve at the prompt
+torra ask "..."             # one request: shows the plan, asks once, then each tick
 torra plan "..."            # plan only, print it, run nothing
 torra run task.yaml         # a hand-written task file, no model involved
 torra check task.yaml       # classify a task file without running it
@@ -229,7 +229,9 @@ the same conversation, exactly what a human retyping "that failed, fix it"
 after reading real output would produce. It stops the moment any round isn't
 COMPLETED (rejected, blocked, backend down, or the model asks a clarifying
 question) -- an automated loop cannot safely answer for you, only a human
-turn can. See `torra/iterate.py` for the implementation and
+turn can. Each round prints its plan and asks "run this plan?" before it
+runs; `--yes` skips that question for the first change and the checks,
+never for a fix round, and never ticks a step. See `torra/iterate.py` for the implementation and
 `CLAUDE_MIGRATION_ROADMAP.md` for why this is scoped the way it is.
 
 ---

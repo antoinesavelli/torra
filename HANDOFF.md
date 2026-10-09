@@ -3330,6 +3330,36 @@ reached `tasks.jsonl` (`TaskLogger.record` scrubbed only `request` and
 > `tests/test_telemetry.py::TestRedaction::test_every_string_field_is_scrubbed_not_just_the_free_text_ones`
 > and `tests/test_pipeline.py::test_a_model_written_id_that_holds_a_secret_names_no_file_and_reaches_no_file`.
 
+### 2.77 `torra ask` asks once before anything runs, and a no goes through `reject()`
+
+Decision D4 in `GRADE_TO_A_PLAN.md` (P3.4). Interactive `ask` printed the
+plan and then ran every SAFE and CAUTION step with no question; `ask
+--verify` printed no plan for any round, so a model-written fix ran unseen.
+
+1. **One question per plan.** `cli.confirm_and_approve` asks "run this
+   plan? [y/N]" before the per-step ticks. Anything but yes, EOF or
+   Ctrl-C included, returns None, and the caller declines through
+   `Torra.reject()` (§2.10), never `execute()` with empty approvals.
+2. **`--yes` skips that question, never a tick.** A DANGEROUS step still
+   asks on its own. `--non-interactive` is unchanged (§2.62 item 8), and a
+   dry run, which runs nothing, gets no plan question.
+3. **`--verify` shows every round, and a fix round always asks.**
+   `iterate`'s `approve` callback takes the round kind (`request`,
+   `verify`, `fix`) and may return None; `_run_one_round` then calls
+   `reject()`, and the loop stops on the REJECTED round as it already did.
+
+`torra run` (a hand-written task file) and the TUI (a Run click per plan)
+are unchanged.
+
+> Guarded by `tests/test_cli.py::test_ask_interactive_asks_once_and_a_no_rejects_the_plan`,
+> `test_ask_interactive_runs_the_plan_on_a_yes`, `test_ask_interactive_eof_at_the_plan_question_runs_nothing`,
+> `test_ask_interactive_dry_run_asks_no_plan_question`,
+> `test_ask_yes_skips_the_plan_question_but_never_ticks_a_dangerous_step`,
+> `test_ask_verify_shows_every_round_and_a_fix_round_asks_even_with_yes`,
+> `test_ask_verify_without_yes_asks_before_every_round`,
+> `test_ask_verify_declining_a_fix_round_rejects_it_and_stops`, and
+> `tests/test_iterate.py::test_a_declined_round_goes_through_reject_and_stops`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

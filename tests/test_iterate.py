@@ -10,7 +10,7 @@ from pathlib import Path
 from conftest import plan_replies_with_summaries, plan_reply, scripted
 
 from torra.iterate import iterate
-from torra.pipeline import Plan, Torra
+from torra.pipeline import Outcome, Plan, Torra
 
 
 def _no_repairs(h: Torra) -> Torra:
@@ -23,7 +23,7 @@ def _no_repairs(h: Torra) -> Torra:
     return h
 
 
-def _approve_everything(plan: Plan) -> dict[str, bool]:
+def _approve_everything(plan: Plan, kind: str) -> dict[str, bool]:
     return {sp.step.step_id: True for sp in plan.steps}
 
 
@@ -39,7 +39,7 @@ def test_iterate_succeeds_without_a_fix_round(make_torra) -> None:
         )
     )
 
-    report = iterate(h, "add the feature", "run the tests", lambda plan: {})
+    report = iterate(h, "add the feature", "run the tests", lambda plan, kind: {})
 
     assert report.verified
     assert report.fix_attempts == 0
@@ -66,7 +66,7 @@ def test_iterate_fixes_after_one_failed_verification(tmp_path: Path, make_torra)
         )
     )
 
-    report = iterate(h, "add the feature", "run the tests", lambda plan: {}, max_iterations=2)
+    report = iterate(h, "add the feature", "run the tests", lambda plan, kind: {}, max_iterations=2)
 
     assert report.verified
     assert report.fix_attempts == 1
@@ -88,7 +88,7 @@ def test_iterate_gives_up_after_max_iterations(make_torra) -> None:
         )
     )
 
-    report = iterate(h, "add x", "check", lambda plan: {}, max_iterations=1)
+    report = iterate(h, "add x", "check", lambda plan, kind: {}, max_iterations=1)
 
     assert not report.verified
     assert report.fix_attempts == 1
@@ -105,7 +105,7 @@ def test_iterate_stops_when_the_initial_change_is_declined(make_torra) -> None:
         )
     )
 
-    report = iterate(h, "wipe it", "check", lambda plan: {})
+    report = iterate(h, "wipe it", "check", lambda plan, kind: {})
 
     assert not report.verified
     assert "initial change" in report.give_up_reason
@@ -128,7 +128,7 @@ def test_iterate_never_authors_a_step_itself(make_torra) -> None:
         )
     )
 
-    report = iterate(h, "add x", "check", lambda plan: {}, max_iterations=2)
+    report = iterate(h, "add x", "check", lambda plan, kind: {}, max_iterations=2)
 
     assert not report.verified
     assert "fix attempt 1" in report.give_up_reason
@@ -177,3 +177,22 @@ def test_a_closing_tag_in_command_output_cannot_end_the_data_block_early() -> No
     text = _round_output(result)
 
     assert text.count("</command-output>") == 1 and text.endswith("</command-output>")
+
+
+def test_a_declined_round_goes_through_reject_and_stops(tmp_path: Path, make_torra) -> None:
+    """D4 (GRADE_TO_A_PLAN P3.4): an approve callback that returns None declines the plan through
+    Torra.reject() (HANDOFF.md §2.10), never execute(), and iterate stops on the rejection."""
+    marker = tmp_path / "should-not-exist"
+    h = _no_repairs(make_torra(scripted(
+        plan_reply("edit", "add x", [{"id": "edit", "run": f"touch {marker}"}]))))
+    kinds: list[str] = []
+
+    def decline(plan: Plan, kind: str) -> None:
+        kinds.append(kind)
+
+    report = iterate(h, "add x", "check", decline)
+
+    assert kinds == ["request"]
+    assert report.last is not None and report.last.outcome is Outcome.REJECTED
+    assert report.give_up_reason == "initial change: rejected"
+    assert not marker.exists()

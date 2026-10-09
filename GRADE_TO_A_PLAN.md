@@ -40,7 +40,7 @@ scorecard's `--enforce` floors must hold and the suite must stay green.
 | D1b | Interpreter payloads (`python3 -c`, `perl -e`, `node -e`) are arbitrary code. Should they be DANGEROUS unless provably read-only, or keep today's denylist scan? | DANGEROUS unless the payload passes a small read-only allowlist. A denylist scan can't be fail-closed. | P1.2 |
 | D2 | Make a masked mid-step failure fail the step (an ERR trap in the step wrapper). Existing multi-statement steps that "succeeded" while hiding a failure will start failing and rolling back. | Yes. Prototype verified, see P2.2. | P2.2 |
 | D3 | Resume file format gains `in_progress` and a per-step `command_digest` (persisted-state change). Old files lacking them mean "start fresh". | Yes. | P2.4 |
-| D4 | CLI `ask` shows the plan and asks once ("run this plan? [y/N]") before running anything, with `--yes` to skip. `ask --verify` fix rounds always ask. | Yes. Adds a human step, removes none. | P3.4 |
+| D4 **(decided yes, 2026-10-09)** | CLI `ask` shows the plan and asks once ("run this plan? [y/N]") before running anything, with `--yes` to skip. `ask --verify` fix rounds always ask. | Yes. Adds a human step, removes none. | P3.4 |
 | D5 | Stop exporting `.env` into `os.environ`. Read it with `dotenv_values()` and hand the key to `OpenRouterClient` directly. | Yes. | P3.2 |
 | D6 | Commit the untracked routine logs (`AUDIT_LOG.md`, `DEFENSIVE_SCORECARD_LOG.md`), `opencode.json` and the `.gitignore` edit. Push the 10 local commits so CI runs again. CI last ran on 2026-09-03, green. | Yes. Pushing is outward-facing, so it is the owner's action. | P4.8 |
 | D7 | The TUI is one 1,914-line file. It is peripheral tier and ungraded by the scorecard. | Out of scope for this plan unless the owner wants it. | none |
@@ -257,10 +257,15 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   *Proof:* tests on the built message list (role, delimiters, escaping). Add a `scripts/dev/model_bench/`
   scenario with an injected instruction inside a file, reported but not gated in CI. Ask-first: this changes
   what the model sees.
-- **P3.4 Plans run without being shown.** `ask` prints the plan but runs SAFE and CAUTION steps with no
+- **P3.4 DONE 2026-10-09 (`HANDOFF.md` §2.62 item 8, §2.77).** **Plans run without being shown.** `ask` prints the plan but runs SAFE and CAUTION steps with no
   confirm (`cli.py:281-288`). `ask --verify` never prints its fix-round plans and reports only step ids
   (`cli.py:228-250`). Apply D4. `--non-interactive` keeps today's refuse-gated behaviour, and the TUI is
   unchanged since it already needs a Run click per plan.
+  - *As built.* `--non-interactive` stopping without `--yes` landed with §2.62. The interactive half:
+    `cli.confirm_and_approve` asks once before the per-step ticks, and a no, EOF or Ctrl-C goes through
+    `Torra.reject()`. `iterate`'s `approve` callback now gets the round kind and may return None to
+    decline; every `--verify` round prints its plan, and a fix round asks even under `--yes`. A dry run
+    gets no plan question. `test_ask_loops_across_multiple_rounds_of_questions` now answers it.
 - **P3.5 DONE 2026-10-04, checked 2026-10-09.** **Verify first: `remote_pull` writes an unclassified local path.** The classified text is "pull X from
   executor" and never names the local file it writes (`torra/core/tasks.py:340`,
   `torra/core/remote_edit.py:79-80`). Name the destination in the classified text, run it through the

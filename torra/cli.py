@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
@@ -32,7 +32,7 @@ from .core import (
 )
 from .core.process import WITHHELD_ENV
 from .gates import Clarifier, SafetyClassifier, StateVerifier
-from .iterate import iterate
+from .iterate import Approve, iterate
 from .pipeline import Outcome, Plan, RunResult, Torra
 from .telemetry import (
     CorpusExporter,
@@ -151,6 +151,25 @@ def approve_at_prompt(plan: Plan) -> dict[str, bool]:
     return approvals
 
 
+def confirm_and_approve(plan: Plan, args: argparse.Namespace,
+                        always_ask: bool = False) -> dict[str, bool] | None:
+    """Ask once before anything runs, then tick each step that needs it; None declines the plan.
+
+    `--yes` skips the plan question (a `--verify` fix round asks regardless) but never ticks a
+    step. `--non-interactive` asks nothing, and a dry run, which runs nothing, gets no question."""
+    if args.non_interactive:
+        return {}
+    if not args.dry_run and (always_ask or not getattr(args, "yes", False)):
+        try:
+            answer = input("\nrun this plan? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if answer not in ("y", "yes"):
+            return None
+    return approve_at_prompt(plan)
+
+
 # --------------------------------------------------------------------------- #
 # Commands
 # --------------------------------------------------------------------------- #
@@ -225,9 +244,13 @@ def _print_execution_report(done: RunResult) -> None:
         print(f"audit  : {done.audit_path}")
 
 
-def _approve_for_ask(args: argparse.Namespace) -> Callable[[Plan], dict[str, bool]]:
-    """The same approval policy the single-round path below uses."""
-    return (lambda plan: {}) if args.non_interactive else approve_at_prompt
+def _approve_for_ask(args: argparse.Namespace) -> Approve:
+    """Every `--verify` round shows its plan, then is confirmed the way a single `ask` is."""
+    def approve(plan: Plan, kind: str) -> dict[str, bool] | None:
+        print(f"\n[{kind} round]")
+        print_plan(plan)
+        return confirm_and_approve(plan, args, always_ask=kind == "fix")
+    return approve
 
 
 def cmd_ask_with_verify(torra: Torra, args: argparse.Namespace) -> int:
@@ -289,9 +312,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print("\n(non-interactive without --yes: plan shown, nothing run)")
         return EXIT_BLOCKED
 
-    approvals = {} if args.non_interactive else approve_at_prompt(result.plan)
-    print_dependency_warnings(result.plan, approvals)
-    done = torra.execute(result, approvals, dry_run=args.dry_run)
+    approvals = confirm_and_approve(result.plan, args)
+    if approvals is None:
+        done = torra.reject(result)
+    else:
+        print_dependency_warnings(result.plan, approvals)
+        done = torra.execute(result, approvals, dry_run=args.dry_run)
     _print_execution_report(done)
     return OUTCOME_EXIT.get(done.outcome.value, EXIT_FAILED)
 
@@ -557,8 +583,9 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--non-interactive", action="store_true",
                      help="never prompt: shows the plan and stops unless --yes is also given")
     ask.add_argument("--yes", action="store_true",
-                     help="with --non-interactive, run the steps that need no tick "
-                          "(anything needing one is still refused)")
+                     help="skip the 'run this plan?' question (a --verify fix round still asks); "
+                          "with --non-interactive, run the steps that need no tick. "
+                          "Never ticks a step that needs one")
     ask.add_argument("--plan-only", action="store_true")
     ask.add_argument("--verify",
                      help="after the request completes, repeat this check "
