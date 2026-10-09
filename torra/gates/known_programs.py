@@ -27,7 +27,7 @@ ls dir vdir cat tac head tail wc nl od hexdump strings cut paste join comm colum
 expand unexpand rev tr grep egrep fgrep zgrep zcat bzcat xzcat basename dirname
 readlink realpath stat du df diff cmp md5sum sha1sum sha224sum sha256sum
 sha384sum sha512sum b2sum cksum jq seq yes sleep echo printf true false test [ [[ : pwd cd type
-which whereis hash umask export set unset read local declare shift exit return break continue
+which whereis umask export set unset read local declare shift exit return break continue
 wait alias id whoami groups who w last users logname tty uname hostname arch nproc cal
 uptime free ps pgrep pidof pstree top htop vmstat iostat mpstat pidstat lsof lscpu lsblk lspci
 lsusb lsmod lshw lsattr getfacl getent locale getconf findmnt blkid netstat ping
@@ -487,6 +487,7 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "rsync": _rsync_checked, "git": _git, "su": _su,
     "tree": _avoiding("o", ("--output",)), "sdiff": _avoiding("o", ("--output",)),
     "sensors": _avoiding("s"), "file": _avoiding("C", ("--compile",)),
+    "hash": _avoiding("p"),  # `hash -p PROG ls` makes a later `ls` run PROG
     "rg": _avoiding("", ("--pre", "--hostname-bin")),
     "xxd": lambda argv: None if len(_operands(argv)) > 1 or "r" in _short(argv) else READ_ONLY, "crontab": _crontab, "dpkg": _dpkg,
     "iptables": _iptables, "ip6tables": _iptables, "sysctl": _sysctl, "command": _command,

@@ -5,6 +5,9 @@ Depends on: torra.gates (RiskLevel, SafetyClassifier), torra.gates.known_program
 
 from __future__ import annotations
 
+import shlex
+from collections.abc import Callable
+
 import pytest
 
 from torra.gates import RiskLevel, SafetyClassifier
@@ -372,7 +375,54 @@ STILL_RUN = [
     "sort -u f", "kill 1234", "docker run --rm img", "docker run -v ./data:/d img",
     "apt install nginx", "systemctl restart nginx", "env FOO=1 ls", "FOO=1 ls",
     "xxd file", "tree -L 2", "file x", "rg pattern .",
+    "hash", "hash -r", "hash -t ls", "export FOO=1", "export PATH", "declare -x FOO=bar",
+    "local x=1",
 ]
+
+
+#: GRADE_TO_A_PLAN.md P1.3 (2026-10-08): each classified SAFE while pointing a trusted name at
+#: another program.
+REBINDS_A_NAME = [
+    "hash -p /tmp/x/tool ls; ls", "hash -rp /tmp/x/tool ls",
+    "export PATH=/tmp/x:$PATH; ls", "export LD_PRELOAD=/tmp/x.so; ls", "export PATH+=:/tmp/x",
+    "declare -x BASH_ENV=/tmp/x; bash -c ls", "typeset -x PATH=/tmp/x", "readonly PATH=/tmp/x",
+    "local PATH=/tmp/x", "export GIT_SSH_COMMAND=/tmp/x; git fetch",
+]
+
+
+def _sh_c(command: str) -> str:
+    return "sh -c " + shlex.quote(command)
+
+
+def _substituted(command: str) -> str:
+    return f"echo $({command})"
+
+
+def _nested(command: str, levels: int, wrap: Callable[[str], str] = _sh_c) -> str:
+    for _ in range(levels):
+        command = wrap(command)
+    return command
+
+
+@pytest.mark.parametrize("command", REBINDS_A_NAME)
+def test_rebinding_what_a_command_name_runs_asks(command: str) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert verdict.needs_confirmation, (command, verdict.level, verdict.reasons)
+
+
+@pytest.mark.parametrize("wrap", [_sh_c, _substituted])
+@pytest.mark.parametrize("payload", ["kill -9 -1", "frobnicate --everything /", "ls"])
+def test_a_line_nested_past_the_unwrap_limit_asks(wrap: Callable[[str], str], payload: str) -> None:
+    """GRADE_TO_A_PLAN.md P1.3: past `max_depth`, resolve() sees nothing, which used to mean SAFE."""
+    classifier = SafetyClassifier()
+    verdict = classifier.classify(_nested(payload, classifier.max_depth + 1, wrap))
+    assert verdict.needs_confirmation, (wrap.__name__, payload, verdict.level, verdict.reasons)
+
+
+def test_nesting_within_the_unwrap_limit_is_still_judged_by_what_it_runs() -> None:
+    classifier = SafetyClassifier()
+    assert not classifier.classify(_nested("ls", classifier.max_depth)).needs_confirmation
+    assert classifier.classify(_nested("kill -9 -1", classifier.max_depth)).level is RiskLevel.CRITICAL
 
 
 @pytest.mark.parametrize("command", BYPASSES)

@@ -137,7 +137,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   it has more. Say "every case in `EVASIONS`" instead of a count.
 - *Invariant.* Add to `HANDOFF.md` §2: "A command torra can't prove read-only needs a tick."
 
-**P1.3 Three shapes still run an unproven program with no tick.** Ask-first. **OPEN, found 2026-10-08 at `7b7f10d`.**
+**P1.3 Three shapes still run an unproven program with no tick.** Ask-first. **DONE 2026-10-09 (`HANDOFF.md` §2.75), found 2026-10-08 at `7b7f10d`.**
 - *Finding.* Probed in-process, then through `torra check`, which printed `ok safe` for each shape:
   1. *Unwrap depth.* `resolve()` returns `[]` past `max_depth` (4) (`torra/gates/safety.py:518-520`), and
      `_unwrap` returns only a `sh -c` payload's commands, never the wrapper itself (`safety.py:554-555`). A
@@ -152,13 +152,21 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
      (`_strip`, `safety.py:376`). `PATH=/x ls` asks, but `export PATH=/x:$PATH; ls`, `export
      LD_PRELOAD=/x.so; ls` and `declare -x BASH_ENV=/x; bash -c ls` are SAFE, and the `BASH_ENV` form ran the
      unknown script.
-- *Fix (proposed, not done).* (1) When unwrapping a wrapper yields no command, keep the wrapper as a resolved
+- *Fix (as proposed).* (1) When unwrapping a wrapper yields no command, keep the wrapper as a resolved
   command so `_judge_by_trust` rates it DANGEROUS, and make a depth-limit parse failure a DANGEROUS finding
   rather than a note. (2) `hash` with `-p` or `-d` is not read-only. (3) Judge `export`, `declare -x`,
   `typeset -x` and `readonly` arguments against `RISKY_ENV` and `GIT_*` the way a leading assignment is.
 - *Proof.* Each probe above into `EVASIONS` or `BYPASSES`, failing first; a test that no depth-limit parse
   failure classifies below DANGEROUS; `ROUTINE` and `STILL_RUN` unchanged; replay the 174 logged commands and
   report the tick-rate change.
+- *As built.* (1) A depth-limit hit sets `unwrap_limit_hit` and `_context_findings` adds a DANGEROUS finding;
+  keeping the wrapper was not needed once that held, and nested `$(...)` fails the same way and is covered too.
+  (2) `hash` is `_avoiding("p")`; `-d` only forgets a location, so it stays read-only. (3) The builtins also
+  include `local`, and `NAME+=` counts. Tests: `test_a_line_nested_past_the_unwrap_limit_asks`,
+  `test_nesting_within_the_unwrap_limit_is_still_judged_by_what_it_runs`,
+  `test_rebinding_what_a_command_name_runs_asks`, new `STILL_RUN` neighbours; the probes went into
+  `tests/test_known_programs.py` rather than `EVASIONS`, as P1.2's did. Replay of 178 distinct logged commands:
+  11 ticks before and after.
 
 ### Phase 2: reliability and OS-semantics majors
 

@@ -170,6 +170,9 @@ PATH LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT BASH_ENV ENV PAGER MANPAGER EDITOR VISU
 IFS PYTHONPATH PYTHONSTARTUP PYTHONHOME PERL5OPT PERL5LIB RUBYOPT NODE_OPTIONS SSH_ASKPASS
 LESSOPEN LESSCLOSE
 """.split())
+#: Builtins whose `NAME=value` arguments set a variable exactly as a leading assignment does.
+ASSIGNMENT_BUILTINS: frozenset[str] = frozenset({"export", "declare", "typeset", "local", "readonly"})
+ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\+?=")
 #: Programs that report only names, sizes and existence, never a file's contents: pointing them at a
 #: credentials file reveals no secret.
 METADATA_ONLY: frozenset[str] = frozenset({"ls", "dir", "vdir", "stat", "test", "[", "[[", "du", "df",
@@ -241,6 +244,7 @@ class SafetyClassifier:
         self.max_depth = int(max_depth)
         self.parse_failures: list[str] = []
         self.env_risks: list[str] = []
+        self.unwrap_limit_hit = False
 
     # -- resolution -------------------------------------------------------- #
 
@@ -373,8 +377,7 @@ class SafetyClassifier:
             while out and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", out[0]):
                 name, _, value = out[0].partition("=")
                 env[name] = value
-                if name in RISKY_ENV or name.startswith("GIT_"):
-                    self.env_risks.append(name)
+                self._note_assignment(name)
                 out.pop(0)
                 changed = True
             if out and out[0] in CONTROL_PREFIXES:
@@ -383,6 +386,17 @@ class SafetyClassifier:
             if self._consume_wrapper(out):
                 changed = True
         return out
+
+    def _note_assignment(self, name: str) -> None:
+        """Record a variable whose value changes what a later command runs."""
+        if name in RISKY_ENV or name.startswith("GIT_"):
+            self.env_risks.append(name)
+
+    def _note_builtin_assignments(self, argv: list[str]) -> None:
+        """`export PATH=/x`, `declare -x BASH_ENV=/x`: the same assignment, spelled as a builtin."""
+        if argv[0] in ASSIGNMENT_BUILTINS:
+            for match in filter(None, (ASSIGNMENT.match(a) for a in argv[1:])):
+                self._note_assignment(match.group(1))
 
     @staticmethod
     def _unparen(segment: str) -> str:
@@ -512,11 +526,12 @@ class SafetyClassifier:
         # `depth` bounds two different recursions that could otherwise not
         # terminate on adversarial input: a base64 blob that decodes to
         # another base64-piped-to-sh command, and a `sh -c` payload that
-        # itself contains another `sh -c`. Hitting the limit is recorded as
-        # a parse failure rather than silently truncated, so classify()'s
-        # regex backstop is what carries the verdict past this point.
+        # itself contains another `sh -c`. Hitting the limit is recorded, and
+        # `_context_findings` makes the line DANGEROUS: what runs past this
+        # point is unseen, and unseen used to read as SAFE (GRADE_TO_A_PLAN P1.3).
         if depth > self.max_depth:
             self.parse_failures.append(f"max unwrap depth hit on {command!r}")
+            self.unwrap_limit_hit = True
             return []
 
         resolved: list[ResolvedCommand] = []
@@ -532,6 +547,7 @@ class SafetyClassifier:
             argv = self._substitute(self._strip(self._tokenize(segment), env), env)
             if not argv or argv[0] in STRUCTURE_ONLY:
                 continue
+            self._note_builtin_assignments(argv)
             resolved += self._unwrap(argv, segment, depth)
         return resolved
 
@@ -906,6 +922,7 @@ class SafetyClassifier:
         text = (command or "").strip()
         self.parse_failures = []
         self.env_risks = []
+        self.unwrap_limit_hit = False
         reasons: list[str] = []
         levels: list[RiskLevel] = []
 
@@ -936,10 +953,14 @@ class SafetyClassifier:
 
     def _context_findings(self, resolved: list[ResolvedCommand], levels: list[RiskLevel],
                           text: str) -> list[tuple[RiskLevel, str]]:
-        """Risks that come from the line as a whole: a changed search path, or a `cd` into a
-        system directory before a write, after which relative paths cannot be judged."""
+        """Risks that come from the line as a whole: a changed search path, nesting too deep to
+        see into, or a `cd` into a system directory before a write, after which relative paths
+        cannot be judged."""
         found = [(RiskLevel.DANGEROUS, f"sets {n}, which changes what later commands run")
                  for n in self.env_risks]
+        if self.unwrap_limit_hit:
+            found.append((RiskLevel.DANGEROUS, f"nests commands more than {self.max_depth} "
+                          "levels deep, past what torra unwraps, so what runs is unseen"))
         entered = any(rc.program == "cd" and any(self._protected(o) for o in rc.argv[1:])
                       for rc in resolved)
         if entered and any(lv in (RiskLevel.CAUTION, RiskLevel.DANGEROUS) for lv in levels):

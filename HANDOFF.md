@@ -3275,6 +3275,34 @@ is reported, not repaired.
 
 > Guarded by `tests/test_review_round_two.py`.
 
+### 2.75 What the resolver cannot see, and what renames a trusted command, needs a tick
+
+Found 2026-10-08 by probing §2.60's "unknown means ask" from outside the corpora
+(`GRADE_TO_A_PLAN.md` P1.3). Three shapes still classified SAFE:
+
+1. **Past the unwrap limit.** `resolve()` returns nothing beyond `max_depth`
+   (4), and `_unwrap` keeps only a `sh -c` payload's commands, never the
+   wrapper. Five nested `sh -c` levels, or five nested `$(...)`, left nothing
+   to judge, the parse failure was only a NOTE, and `classify()` fell through
+   to SAFE, whatever the payload. A depth-limit hit now sets
+   `unwrap_limit_hit`, and `_context_findings` makes the line DANGEROUS.
+2. **`hash -p PROG ls`** makes a later `ls` run PROG. `hash` left the
+   unconditional read-only list; `trust()` now judges it by `_avoiding("p")`.
+3. **An exported search path.** `RISKY_ENV` was checked only for a leading
+   `PATH=...`. `export`, `declare`, `typeset`, `local` and `readonly` arguments
+   (`NAME=` and `NAME+=`) now go through the same `_note_assignment`.
+
+Replaying the 178 distinct logged commands: 11 need a tick before and after.
+
+The bar for this area is not "every corpus case passes"; the corpora passed
+while all three shapes were open. A new way for the line to hide what runs
+belongs in a test that builds it (`_nested`), not only a fixed string.
+
+> Guarded by `tests/test_known_programs.py::test_a_line_nested_past_the_unwrap_limit_asks`,
+> `test_nesting_within_the_unwrap_limit_is_still_judged_by_what_it_runs`,
+> `test_rebinding_what_a_command_name_runs_asks`, and the `hash`/`export`
+> neighbours in `STILL_RUN`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.
