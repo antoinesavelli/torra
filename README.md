@@ -503,11 +503,11 @@ wearing a percentage sign.
 
 ## Where the numbers come from
 
-All run on 2026-10-09 at commit `c0751b6`.
+All run on 2026-10-09 at commit `f974a03`.
 
 | Result | Measured how |
 |---|---|
-| 1518 tests, all passing | `python3 -m pytest tests/ -q` |
+| 1534 tests, all passing | `python3 -m pytest tests/ -q` |
 | 31 of 31 evasion cases classified DANGEROUS or CRITICAL; 0 of 31 routine commands needed a tick | `tests/test_gates.py::TestSafety` |
 | 150 commands that must ask (55 unknown or unproven, 9 critical, 70 from a source-reading review, 16 from the 2026-10-08 probe) all ask; 138 read-only or routine commands run unticked | `tests/test_known_programs.py` |
 | Clarifier flagged 18 of 18 ambiguous requests and 1 of 10 specific ones | `tests/test_gates.py::TestClarifier` |
@@ -558,8 +558,8 @@ isn't one, so those numbers are no longer claimed here at all.
 ## How it is built
 
 torra is designed and directed by its owner. AI coding agents write the code,
-and the test suite verifies their work. Up to commit `c0751b6` (2026-10-09),
-147 of the 157 commits on `main` carry a `Co-Authored-By:` trailer naming a Claude model.
+and the test suite verifies their work. Up to commit `f974a03` (2026-10-09),
+151 of the 161 commits on `main` carry a `Co-Authored-By:` trailer naming a Claude model.
 The other 10 carry no trailer, which says nothing either way about who wrote them.
 
 ---
@@ -570,6 +570,6 @@ The other 10 carry no trailer, which says nothing either way about who wrote the
 python3 -m pytest tests/ -q
 ```
 
-On 2026-10-09 (commit `c0751b6`) this ran 1518 tests, all passing.
+On 2026-10-09 (commit `f974a03`) this ran 1534 tests, all passing.
 Nothing needs a live Ollama, systemd, or network. Every external dependency is
 an injected callable, which is also how you wire it to the real thing.
