@@ -137,6 +137,29 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   it has more. Say "every case in `EVASIONS`" instead of a count.
 - *Invariant.* Add to `HANDOFF.md` §2: "A command torra can't prove read-only needs a tick."
 
+**P1.3 Three shapes still run an unproven program with no tick.** Ask-first. **OPEN, found 2026-10-08 at `7b7f10d`.**
+- *Finding.* Probed in-process, then through `torra check`, which printed `ok safe` for each shape:
+  1. *Unwrap depth.* `resolve()` returns `[]` past `max_depth` (4) (`torra/gates/safety.py:518-520`), and
+     `_unwrap` returns only a `sh -c` payload's commands, never the wrapper itself (`safety.py:554-555`). A
+     command nested five or more `sh -c` levels deep therefore resolves to nothing, the parse failure becomes a
+     NOTE only, and `classify()` falls through to SAFE (`safety.py:931`). `kill -9 -1`, `blkdiscard
+     /dev/nvme0n1`, `dd if=/dev/zero of=/etc/passwd`, `crontab -r`, `git push -f origin main` and an unknown
+     program are each DANGEROUS or CRITICAL at depth 0 to 4 and SAFE at 5 or more. Under `bash -c`, a
+     depth-6 nest ran an unknown script, which wrote its marker file.
+  2. *`hash -p`.* `hash -p PROG ls; ls` is SAFE and runs PROG: `hash` is listed read-only
+     (`torra/gates/known_programs.py:30`) whatever its options.
+  3. *Exported search paths.* `RISKY_ENV` (`safety.py:168`) is checked only for leading `NAME=value` words
+     (`_strip`, `safety.py:376`). `PATH=/x ls` asks, but `export PATH=/x:$PATH; ls`, `export
+     LD_PRELOAD=/x.so; ls` and `declare -x BASH_ENV=/x; bash -c ls` are SAFE, and the `BASH_ENV` form ran the
+     unknown script.
+- *Fix (proposed, not done).* (1) When unwrapping a wrapper yields no command, keep the wrapper as a resolved
+  command so `_judge_by_trust` rates it DANGEROUS, and make a depth-limit parse failure a DANGEROUS finding
+  rather than a note. (2) `hash` with `-p` or `-d` is not read-only. (3) Judge `export`, `declare -x`,
+  `typeset -x` and `readonly` arguments against `RISKY_ENV` and `GIT_*` the way a leading assignment is.
+- *Proof.* Each probe above into `EVASIONS` or `BYPASSES`, failing first; a test that no depth-limit parse
+  failure classifies below DANGEROUS; `ROUTINE` and `STILL_RUN` unchanged; replay the 174 logged commands and
+  report the tick-rate change.
+
 ### Phase 2: reliability and OS-semantics majors
 
 - **P2.1 DONE 2026-10-04 (`HANDOFF.md` §2.61).** **A step timeout kills only bash, and its children keep running.** Nothing in the repo uses

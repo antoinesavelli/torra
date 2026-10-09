@@ -4,6 +4,14 @@
 
 A local model proposes. Five gates decide. You approve. Then it runs.
 
+**Status: in progress.** A program the command classifier does not recognise
+needs a tick, but on 2026-10-08 three shell shapes that run an unrecognised or
+destructive program still classified SAFE, so they would run with no tick: a
+command nested five or more `sh -c` levels deep, `hash -p` pointing a trusted
+name such as `ls` at another program, and `export`/`declare -x` of `PATH`,
+`LD_PRELOAD` or `BASH_ENV` before a trusted command. Until those ask too, treat
+the classifier as unfinished.
+
 ```bash
 pip install -e .
 torra doctor
@@ -17,7 +25,7 @@ torra
 You describe what you want in plain language. A model on your own machine reads
 the actual state of the box, writes a plan, and hands it to five guardrails that
 resolve every command down to argv, classify it, snapshot the files it touches,
-and refuse to run anything dangerous without an explicit tick from you.
+and hold every step classified DANGEROUS or CRITICAL until you tick it.
 
 The model never gets a shell. It writes a proposal into the same structure a
 hand-written task file uses, and that proposal travels the exact code path the
@@ -27,7 +35,7 @@ test suite covers. There is no second path.
 converse   the model reads your request, consults the clarifier for what is
            structurally missing, and answers, asks, or proposes
 observe    real machine state, read-only, before any proposal exists
-propose    a validated task spec
+propose    a task spec, every field type-checked
 gate       safety classification, preconditions, undo generation, conflict baseline
 present    you see the plan AND every gate verdict, and approve per step
 execute    with rollback armed and preconditions rechecked between steps
@@ -64,7 +72,8 @@ Put it on PATH permanently:
 echo "alias torra='~/torra/.venv/bin/torra'" >> ~/.bashrc && source ~/.bashrc
 ```
 
-`inotify_simple` is optional and makes tree watching about 5,000x cheaper.
+`inotify_simple` is optional. With it, conflict detection checks only the paths
+the kernel reports changed, plus a periodic full walk; without it, every check walks the tree.
 `textual` is required for the interface but not for `run` or `check`.
 
 To update an existing checkout later: `scripts/update.sh` -- pulls latest
@@ -113,12 +122,12 @@ into the chat as it runs, tagged with the step id -- the only place a
 successful step's output is ever shown, so unlike the reasoning stream
 it stays in the transcript after the run finishes.
 
-Dangerous steps arrive with an **unticked** box, each with a description of
-*why* it's there -- what it confirms, what it depends on from an earlier
-step, what it sets up for a later one -- not just the bare command. Safe
-steps get no box at all, because asking for approval on `df -h` trains
-people to tick without reading, which is how the one that mattered gets
-ticked too.
+Steps classified DANGEROUS or CRITICAL arrive with an **unticked** box, each
+with a description of *why* it's there -- what it confirms, what it depends on
+from an earlier step, what it sets up for a later one -- not just the bare
+command. SAFE and CAUTION steps get no box at all, because asking for
+approval on `df -h` trains people to tick without reading, which is how the
+one that mattered gets ticked too.
 
 Ticking some dangerous steps and leaving others declined runs the ticked
 ones and skips the rest -- it no longer rejects the whole plan over one
@@ -266,12 +275,12 @@ step reads without modifying. Meaningful mainly for a model-generated
 plan, not a hand-written one: once such a step completes for real, its
 output enters the *model's own memory* of the conversation, tagged by
 that path -- `torra run`/`torra check` never touch the model at all,
-so declaring it on a hand-written step validates cleanly but has nothing
+so declaring it on a hand-written step passes the schema check but has nothing
 to feed.
 
 If a run crashes partway through, re-running the identical task file skips
 whatever steps already completed for real instead of redoing them --
-validated against `task_id` and the step sequence, so an edited or
+checked against `task_id` and the step sequence, so an edited or
 unrelated task file is never trusted as a continuation of a different one.
 
 ---
@@ -283,8 +292,11 @@ it: quote-aware segment splitting, `VAR=value` substitution, wrapper unwrapping
 (`sudo`, `env`, `timeout`, `nohup`, `nice`, `xargs`), recursion into `sh -c`/
 `su -c` payloads and command substitutions (`$(...)`/backticks), base64
 decode of blobs piped to a shell, and `$IFS` field-splitting obfuscation.
-Regex over raw text missed five of twelve evasions in testing. This catches
-26 out of 26 with no false positives on 27 routine commands.
+A known read-only program runs with no tick, a known writer runs flagged
+CAUTION, and a program it does not recognise is DANGEROUS and needs a tick.
+On 2026-10-08 all 31 cases in the evasion corpus (`tests/test_gates.py::TestSafety`)
+classified DANGEROUS or CRITICAL, and none of its 31 routine commands needed a
+tick. A fixed corpus is not proof of coverage: see the status note at the top.
 
 **TRANSPARENCY.** Every branch torra takes is recorded with its reasoning
 and lands in a JSON audit file. Reasoning is not optional; a decision logged
@@ -294,18 +306,20 @@ without one is flagged as a violation.
 execution, with a TTL per check so an expensive probe is not re-run 200 times. A
 service that is up when you approve and dead at step two stops the run.
 
-**ROLLBACK_ON_FAIL.** Undos are derived from what a step declares, not hoped for:
-files in `touches` are snapshotted, `systemctl` state is captured, `apt install`
-records the package set, `mkdir` gets a removal that refuses to delete a
-directory someone filled. Each undo then has to **prove** it worked. Three
-states, not two: `undone` (verified), `unverified` (ran, but the system is not
-back), `failed` (raised).
+**ROLLBACK_ON_FAIL.** Undos are derived from what a step declares: files in
+`touches` are snapshotted, `systemctl` state is captured, `apt install` records
+the package set, `mkdir` gets a removal that refuses to delete a directory
+someone filled. A step's undo is armed just before that step runs, so a stop
+reverses only steps that ran. Before any rollback, torra checks for files
+changed outside it and skips their undo instead of restoring a snapshot over
+the edit (`HANDOFF.md` §2.59, §2.71). After an undo runs, torra checks the
+system and reports one of three states: `undone` (the check passed),
+`unverified` (it ran, but the system is not back), `failed` (it raised).
 
-**ASK_CLARIFYING_QUESTIONS.** Detects ambiguity by what a request is missing, not
-by how it is phrased. Two closed-vocabulary approaches failed measurement first:
-a list of vague phrasings scored 83% false negatives on a blind corpus, a list of
-mutating verbs scored 50%. Asking "is there a concrete anchor" is verb-agnostic
-and measured 0% false negatives on a corpus it was never tuned against.
+**ASK_CLARIFYING_QUESTIONS.** Detects ambiguity by what a request is missing (a
+path, unit, host, version, file or quantity), not by how it is phrased. On
+2026-10-08 it flagged all 18 ambiguous requests in its test corpus and 1 of 10
+specific ones. On real traffic the model asks far less often: see Known gaps.
 
 ---
 
@@ -404,9 +418,9 @@ chooses, an ordinary local edit step against that path (full undo/snapshot
 coverage, unchanged), then push it back. The push step always needs an
 explicit tick, regardless of what it looks like -- writing to a second,
 less-guarded machine is always treated as torra's highest risk level,
-unconditionally. Its undo is real: the file's prior content is snapshotted
-over SSH before the push runs, so a failure later in the same run genuinely
-restores it, the same provable bar local file undo already has
+unconditionally. Its undo snapshots the file's prior content over SSH
+before the push runs; a failure later in the same run restores that
+snapshot and checks the result, as local file undo does
 (`HANDOFF.md` §2.53).
 
 ---
@@ -425,7 +439,8 @@ export TORRA_KNOWLEDGE_DIR=/path/to/your/docs
 
 This only gives the model *awareness* that the library exists, never a new
 capability: reading a file still goes through an ordinary, gated plan step
-(a `grep`/`cat`, always SAFE, auto-run) -- nothing bypasses the five gates.
+(a `grep`/`cat` of an ordinary file, rated SAFE, so it runs without a tick)
+-- nothing bypasses the five gates.
 It also only reliably works with a capable-enough model behind it; the
 smallest routed-to model does not consistently use it (measured in
 `scripts/dev/model_bench/REPORT.md`).
@@ -475,7 +490,7 @@ wearing a percentage sign.
 | `torra/cli.py` | entry points |
 | `torra/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `tests/` | 757 cases, organised by subsystem |
+| `tests/` | the test suite, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
@@ -487,10 +502,14 @@ wearing a percentage sign.
 
 ## Where the numbers come from
 
-| Claim | Measured how |
+All run on 2026-10-08 at commit `7b7f10d`.
+
+| Result | Measured how |
 |---|---|
-| 26/26 evasions caught, 0 false positives | `tests/test_gates.py::TestSafety` |
-| Clarifier 0% false negatives | `tests/test_gates.py::TestClarifier` |
+| 1494 tests, all passing | `python3 -m pytest tests/ -q` |
+| 31 of 31 evasion cases classified DANGEROUS or CRITICAL; 0 of 31 routine commands needed a tick | `tests/test_gates.py::TestSafety` |
+| 134 commands that must ask (55 unknown or unproven, 9 critical, 70 from a source-reading review) all ask; 131 read-only or routine commands run unticked | `tests/test_known_programs.py` |
+| Clarifier flagged 18 of 18 ambiguous requests and 1 of 10 specific ones | `tests/test_gates.py::TestClarifier` |
 
 Every one of those came from data generated in testing, not from real use. That
 is the single largest caveat on this whole project and it is not resolved.
@@ -507,8 +526,10 @@ isn't one, so those numbers are no longer claimed here at all.
 
 ## Known gaps
 
-1. **Model judgement is measured now, and the first real finding is still
-   open.** The gates are measured exhaustively; tests still use a scripted
+1. **The classifier still lets three shapes through.** See the status note
+   at the top. Each one runs, with no tick, a program torra cannot prove read-only.
+2. **Model judgement is measured now, and the first real finding is still
+   open.** The gates are tested against fixed corpora; tests still use a scripted
    backend and prove nothing about judgement on their own. But real traffic
    now flows through telemetry and gets hand-labeled (`torra label`), and
    that measurement found the model stops and asks for only ~18% of requests
@@ -516,30 +537,40 @@ isn't one, so those numbers are no longer claimed here at all.
    0% synthetic baseline). Whether a routing fix already found along the way
    closes that gap isn't confirmed yet -- too little traffic has run since.
    One related failure shape is fixed: a question torra could answer
-   itself with a safe read-only command (`lsblk`, `systemctl --failed`, ...)
+   itself with a read-only command (`lsblk`, `systemctl --failed`, ...)
    used to get deflected back to "please run that yourself" instead of the
    torra just running it -- live A/B tested against the real model before
    shipping. See `HANDOFF.md` §6.1 and §2.40.
-2. **Real traffic exists, and it already found two real bugs.** No longer a
-   gap to close -- 143 recorded tasks and counting, 91 hand-labeled, and that
+3. **Real traffic exists, and it already found two real bugs.** Recorded
+   tasks are hand-labeled (`torra label`), and that
    loop has already surfaced a pipefail/SIGPIPE bug and a VRAM-routing bug
    that reading the code alone hadn't caught. See `HANDOFF.md` §6.2.
-3. **Undo coverage ceiling is narrower than it looks.** `dd`/`mkfs` writing
+4. **Undo coverage ceiling is narrower than it looks.** `dd`/`mkfs` writing
    to a regular file is already covered automatically, the same as any other
    command, as long as the file is declared in `touches:`. Only `dd`/`mkfs`
    against a **raw device** and database migrations need a hand-written
    `rollback:` entry -- there's no prior on-disk state to snapshot for
    either. The plan pane names which steps those are. See `HANDOFF.md` §6.3.
-4. **Tree watching misses a same-size same-mtime edit.** The declared-path
+5. **Tree watching misses a same-size same-mtime edit.** The declared-path
    SHA256 layer catches it, so `touches:` still matters.
+
+---
+
+## How it is built
+
+torra is designed and directed by its owner. AI coding agents write the code,
+and the test suite verifies their work. Up to commit `7b7f10d` (2026-10-08),
+145 of the 155 commits on `main` carry a `Co-Authored-By:` trailer naming a Claude model.
+The other 10 carry no trailer, which says nothing either way about who wrote them.
 
 ---
 
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -v              # 757 cases
+python3 -m pytest tests/ -q
 ```
 
+On 2026-10-08 (commit `7b7f10d`) this ran 1494 tests, all passing.
 Nothing needs a live Ollama, systemd, or network. Every external dependency is
 an injected callable, which is also how you wire it to the real thing.
