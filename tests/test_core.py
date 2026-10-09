@@ -1325,6 +1325,21 @@ class TestTaskSpecBasicValidation:
             TaskSpec.validate({"task_id": "t", "request": "r", "steps": [
                 {"id": "s", "run": "true"}, {"id": "s", "run": "false"}]})
 
+    @pytest.mark.parametrize("where", ["task_id", "step id"])
+    def test_an_id_that_holds_a_secret_is_refused_without_repeating_it(self, where: str) -> None:
+        """GRADE_TO_A_PLAN P3.1: an id names the resume and audit files, so it must hold no key."""
+        key = "sk-or-v1-" + "z7x6c5v4" * 6
+        data = {"task_id": f"t-{key}" if where == "task_id" else "t", "request": "r",
+                "steps": [{"id": f"s-{key}" if where == "step id" else "s", "run": "true"}]}
+        with pytest.raises(TaskSpecError, match="looks like a secret") as caught:
+            TaskSpec.validate(data)
+        assert "z7x6c5v4" not in str(caught.value)
+
+    def test_an_id_that_only_names_a_secret_still_validates(self) -> None:
+        spec = TaskSpec.validate({"task_id": "rotate-api-key", "request": "r", "steps": [
+            {"id": "check-password-policy", "run": "true"}, {"id": "refresh-token", "run": "true"}]})
+        assert spec.task_id == "rotate-api-key"
+
     def test_load_of_a_missing_file_is_rejected(self, tmp_path) -> None:
         with pytest.raises(TaskSpecError, match="task file not found"):
             TaskSpec.load(tmp_path / "no-such-file.yaml")

@@ -245,6 +245,14 @@ class TestRedaction:
         scrubbed = TaskLogger(tmp_path / "tasks.jsonl").scrub(f"Authorization: Bearer {token}")
         assert token not in scrubbed
 
+    def test_every_string_field_is_scrubbed_not_just_the_free_text_ones(self, tmp_path: Path) -> None:
+        """GRADE_TO_A_PLAN P3.1: ids, labels and lists of them can carry a key as well."""
+        logger = TaskLogger(tmp_path / "tasks.jsonl")
+        key = "sk-or-v1-" + "m1n2b3v4" * 6
+        logger.record(TaskRecord(task_id=f"t-{key}", request="r", at=1.0, model=key,
+                                 uncovered_steps=[f"s-{key}"], intent=key))
+        assert "m1n2b3v4" not in (tmp_path / "tasks.jsonl").read_text(encoding="utf-8")
+
     def test_abort_reason_is_scrubbed_before_it_is_written(self, tmp_path: Path) -> None:
         """`abort_reason` carries up to 400 characters of a failed step's raw
         stderr, which is exactly where a printed key ends up."""

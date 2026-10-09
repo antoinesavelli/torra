@@ -4,7 +4,8 @@ Depends on: PyYAML (lazily imported in `TaskSpec.load`/`to_yaml`), stdlib `subpr
 `queue` (lazily imported in `shell`/`_shell_streaming`), stdlib `threading` (module-level,
 for the `shell_output_sink` thread-local), `.remote_edit` (lazily imported inside
 `_validate_step`/`to_steps`'s `build()` to avoid a real cycle -- `remote_edit.py` imports
-`TorraError`/`TaskSpecError` from this module at its own top level, see HANDOFF.md §2.53).
+`TorraError`/`TaskSpecError` from this module at its own top level, see HANDOFF.md §2.53),
+`torra.telemetry.records` (`redact_secrets`, to refuse an id that holds a secret).
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+from torra.telemetry.records import redact_secrets
 
 from .process import run_in_group
 
@@ -189,11 +192,12 @@ class TaskSpec:
                 f"{sorted(unknown)}; known fields are {sorted(STEP_FIELDS)}")
         if not raw.get("run"):
             raise TaskSpecError(f"{source or 'task'}: step {index} has no 'run' command")
+        where = f"{source or 'task'}: step {index}"
         step_id = str(raw.get("id") or f"step{index}")
+        cls._validate_id(step_id, f"{where} id")
         if step_id in seen:
             raise TaskSpecError(f"{source or 'task'}: duplicate step id '{step_id}'")
         seen.add(step_id)
-        where = f"{source or 'task'}: step {index}"
         cls._validate_path_list(raw.get("touches"), "touches", where)
         cls._validate_path_list(raw.get("reads"), "reads", where)
         cls._validate_estimated_seconds(raw.get("estimated_seconds"), where)
@@ -203,6 +207,14 @@ class TaskSpec:
         # runs, well after both modules have finished loading (§2.53).
         from .remote_edit import validate_remote_step_fields
         validate_remote_step_fields(raw, where)
+
+    @staticmethod
+    def _validate_id(value: str, what: str) -> None:
+        """An id names the resume and audit files and is logged as written, so it may hold no secret.
+
+        The message never repeats the id: it travels on into abort reasons and the console."""
+        if redact_secrets(value) != value:
+            raise TaskSpecError(f"{what} looks like a secret; ids end up in file names, choose another")
 
     @staticmethod
     def _validate_rollback_entry(raw: Any, index: int, source: str) -> None:
@@ -256,6 +268,7 @@ class TaskSpec:
                 raise TaskSpecError(f"{label}: missing required key '{key}'")
         if not isinstance(data["steps"], list) or not data["steps"]:
             raise TaskSpecError(f"{label}: 'steps' must be a non-empty list")
+        cls._validate_id(str(data["task_id"]), f"{label}: task_id")
         cls._validate_path_list(data.get("watch_roots"), "watch_roots", label)
 
         seen: set[str] = set()

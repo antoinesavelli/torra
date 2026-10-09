@@ -227,7 +227,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
 ### Phase 3: security, privacy and the model loop
 
-- **P3.1 PARTLY DONE, checked 2026-10-09.** **Redact every persisted string.** `TaskLogger.record` scrubs only `request`
+- **P3.1 DONE 2026-10-09 (`HANDOFF.md` §2.62, §2.74, §2.76).** **Redact every persisted string.** `TaskLogger.record` scrubs only `request`
   (`torra/telemetry/records.py:159`). `abort_reason` carries up to 400 characters of raw stderr
   (`records.py:204`). The patterns (`records.py:24-42`) miss `sk-or-v1-…` keys, and they miss
   `OPENROUTER_API_KEY=…` because `\b` doesn't match after `_`. Apply one scrub to every string field before
@@ -239,11 +239,10 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
     audit JSON through `scrub.redact_tree` (§2.74 item 2); remote prompts (§2.68), crash and label logs.
     `test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk` pushes a fake key through the
     request and a step's stderr and finds it in no file torra writes; it fails with `redact_tree` removed.
-  - *Open.* `TaskLogger.record` scrubs `request` and `abort_reason` only. The model writes `task_id` and step
-    ids, nothing constrains them, and a key-shaped id reaches `tasks.jsonl` (`task_id`, `uncovered_steps`)
-    and the resume file's name and body unscrubbed (probed 2026-10-09). Fix: scrub every string field in
-    `record`, and scrub or refuse a secret-shaped id before it names a file. The resume file is persisted
-    state, so the second part is ask-first.
+  - *Closed 2026-10-09 (§2.76).* A model-written `task_id` or step id reached `tasks.jsonl` and the resume
+    file's name and body unscrubbed. `TaskSpec.validate` now refuses an id `redact_secrets` would change
+    (none of 283 logged ids is), without repeating it, and `TaskLogger.record` runs `redact_tree` over the
+    whole record. No persisted format changed.
 - **P3.2 DONE 2026-10-04 (`HANDOFF.md` §2.68; names from the file are withheld from steps rather than the file no longer being loaded).** **Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.

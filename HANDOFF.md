@@ -2856,8 +2856,8 @@ Found by the 2026-10-04 full audit, not live.
    The patterns now catch `sk-or-v1-...` keys (dashes inside the body),
    `NAME_API_KEY=` style assignments (`\b` never matches after `_`) and
    `Bearer` tokens. The audit JSON was not yet covered; §2.74 covers it.
-   Model-written `task_id` and step ids are still written unscrubbed
-   (`GRADE_TO_A_PLAN.md` P3.1).
+   Model-written `task_id` and step ids were still written unscrubbed;
+   §2.76 closes that.
 3. **A reopened session keeps what the model had read.** `ReadMemory` took
    its persistence hook at construction, before the TUI wired it, so read
    output never reached the transcript. `_register_session` sets both hooks.
@@ -3305,6 +3305,30 @@ belongs in a test that builds it (`_nested`), not only a fixed string.
 > `test_nesting_within_the_unwrap_limit_is_still_judged_by_what_it_runs`,
 > `test_rebinding_what_a_command_name_runs_asks`, and the `hash`/`export`
 > neighbours in `STILL_RUN`.
+
+### 2.76 An id may hold no secret, and the task log scrubs every field
+
+Found 2026-10-09 checking `GRADE_TO_A_PLAN.md` P3.1. The model writes
+`task_id` and step ids, and nothing constrained them. A key-shaped id
+reached `tasks.jsonl` (`TaskLogger.record` scrubbed only `request` and
+`abort_reason`) and named the resume file, which nothing scrubs.
+
+1. **`TaskSpec.validate` refuses an id that `redact_secrets` would change**
+   (`_validate_id`), for the task and every step, and its message never
+   repeats the id, because the message travels on into `abort_reason` and
+   the console. Refusing at the one gate every spec passes, model or hand
+   written, keeps the id out of every file name and record at once, and no
+   persisted format changes. Of 283 distinct ids in the logged traffic,
+   none is refused.
+2. **`TaskLogger.record` runs `redact_tree` over the whole record** when
+   redaction is on, after the truncating scrub of `request` and
+   `abort_reason`. It imports `scrub` lazily, since `scrub` imports
+   `records`, and inside the method's own `try` (§2.5).
+
+> Guarded by `tests/test_core.py::TestTaskSpecBasicValidation::test_an_id_that_holds_a_secret_is_refused_without_repeating_it`,
+> `test_an_id_that_only_names_a_secret_still_validates`,
+> `tests/test_telemetry.py::TestRedaction::test_every_string_field_is_scrubbed_not_just_the_free_text_ones`
+> and `tests/test_pipeline.py::test_a_model_written_id_that_holds_a_secret_names_no_file_and_reaches_no_file`.
 
 ## 3. Things already tried that failed
 

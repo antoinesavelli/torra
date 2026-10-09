@@ -1379,7 +1379,27 @@ def test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk(
 
     written = [p for p in tmp_path.rglob("*") if p.is_file()]
     assert {"t.audit.json", "tasks.jsonl"} <= {p.name for p in written}
-    assert [p.name for p in written if fake in p.read_text(errors="replace")] == []
+    assert _holding(written, fake) == []
+
+
+def test_a_model_written_id_that_holds_a_secret_names_no_file_and_reaches_no_file(
+        make_torra, tmp_path: Path) -> None:
+    """GRADE_TO_A_PLAN P3.1: the proposal is refused, and nothing torra writes holds the key."""
+    fake = "sk-or-v1-" + "f4k3" * 12
+    torra = make_torra(scripted(plan_reply(
+        f"t-{fake}", "one step", [{"id": f"s-{fake}", "run": "exit 1"}])))
+
+    result = torra.plan("run the step")
+    if result.plan is not None:
+        torra.execute(result, {})
+
+    assert result.plan is None and "looks like a secret" in result.abort_reason
+    assert _holding([p for p in tmp_path.rglob("*") if p.is_file()], fake) == []
+
+
+def _holding(files: list[Path], text: str) -> list[str]:
+    """Files whose name or body holds `text`."""
+    return [p.name for p in files if text in p.name or text in p.read_text(errors="replace")]
 
 
 class TestRemotePushEscalation:

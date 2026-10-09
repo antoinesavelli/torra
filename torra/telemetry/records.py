@@ -1,6 +1,7 @@
 """Append-only JSONL log of every task torra is given.
 
-Depends on: stdlib only. Every public method catches its own exceptions --
+Depends on: stdlib, plus `.scrub.redact_tree` (imported lazily in `TaskLogger.record`, because
+`scrub` imports this module). Every public method catches its own exceptions --
 telemetry must never be able to break the run it is describing.
 """
 
@@ -175,11 +176,13 @@ class TaskLogger:
     def record(self, record: TaskRecord) -> bool:
         """Append one record. Never raises; see class docstring."""
         try:
+            from .scrub import redact_tree  # lazily: scrub imports this module
             record.request = self.scrub(record.request)
             record.abort_reason = self.scrub(record.abort_reason)
             if not record.at:
                 record.at = self._clock()
-            line = json.dumps(record.to_dict(), sort_keys=True) + "\n"
+            data = record.to_dict()
+            line = json.dumps(redact_tree(data) if self.redact else data, sort_keys=True) + "\n"
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(line)
                 fh.flush()
