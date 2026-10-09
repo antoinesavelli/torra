@@ -5,12 +5,11 @@
 A local model proposes. Five gates decide. You approve. Then it runs.
 
 **Status: in progress.** A program the command classifier does not recognise
-needs a tick, but on 2026-10-08 three shell shapes that run an unrecognised or
-destructive program still classified SAFE, so they would run with no tick: a
-command nested five or more `sh -c` levels deep, `hash -p` pointing a trusted
-name such as `ls` at another program, and `export`/`declare -x` of `PATH`,
-`LD_PRELOAD` or `BASH_ENV` before a trusted command. Until those ask too, treat
-the classifier as unfinished.
+needs a tick. Three shell shapes that still ran such a program with no tick
+(deeply nested `sh -c` or `$(...)`, `hash -p`, and an exported `PATH`,
+`LD_PRELOAD` or `BASH_ENV`) were found on 2026-10-08 and closed on 2026-10-09,
+each with a test (`HANDOFF.md` §2.75). No independent re-check has run since
+(`GRADE_TO_A_PLAN.md` Phase 5); until one does, treat the classifier as unfinished.
 
 ```bash
 pip install -e .
@@ -294,7 +293,7 @@ it: quote-aware segment splitting, `VAR=value` substitution, wrapper unwrapping
 decode of blobs piped to a shell, and `$IFS` field-splitting obfuscation.
 A known read-only program runs with no tick, a known writer runs flagged
 CAUTION, and a program it does not recognise is DANGEROUS and needs a tick.
-On 2026-10-08 all 31 cases in the evasion corpus (`tests/test_gates.py::TestSafety`)
+On 2026-10-09 all 31 cases in the evasion corpus (`tests/test_gates.py::TestSafety`)
 classified DANGEROUS or CRITICAL, and none of its 31 routine commands needed a
 tick. A fixed corpus is not proof of coverage: see the status note at the top.
 
@@ -318,7 +317,7 @@ system and reports one of three states: `undone` (the check passed),
 
 **ASK_CLARIFYING_QUESTIONS.** Detects ambiguity by what a request is missing (a
 path, unit, host, version, file or quantity), not by how it is phrased. On
-2026-10-08 it flagged all 18 ambiguous requests in its test corpus and 1 of 10
+2026-10-09 it flagged all 18 ambiguous requests in its test corpus and 1 of 10
 specific ones. On real traffic the model asks far less often: see Known gaps.
 
 ---
@@ -502,13 +501,13 @@ wearing a percentage sign.
 
 ## Where the numbers come from
 
-All run on 2026-10-08 at commit `7b7f10d`.
+All run on 2026-10-09 at commit `c0751b6`.
 
 | Result | Measured how |
 |---|---|
-| 1494 tests, all passing | `python3 -m pytest tests/ -q` |
+| 1518 tests, all passing | `python3 -m pytest tests/ -q` |
 | 31 of 31 evasion cases classified DANGEROUS or CRITICAL; 0 of 31 routine commands needed a tick | `tests/test_gates.py::TestSafety` |
-| 134 commands that must ask (55 unknown or unproven, 9 critical, 70 from a source-reading review) all ask; 131 read-only or routine commands run unticked | `tests/test_known_programs.py` |
+| 150 commands that must ask (55 unknown or unproven, 9 critical, 70 from a source-reading review, 16 from the 2026-10-08 probe) all ask; 138 read-only or routine commands run unticked | `tests/test_known_programs.py` |
 | Clarifier flagged 18 of 18 ambiguous requests and 1 of 10 specific ones | `tests/test_gates.py::TestClarifier` |
 
 Every one of those came from data generated in testing, not from real use. That
@@ -526,9 +525,7 @@ isn't one, so those numbers are no longer claimed here at all.
 
 ## Known gaps
 
-1. **The classifier still lets three shapes through.** See the status note
-   at the top. Each one runs, with no tick, a program torra cannot prove read-only.
-2. **Model judgement is measured now, and the first real finding is still
+1. **Model judgement is measured now, and the first real finding is still
    open.** The gates are tested against fixed corpora; tests still use a scripted
    backend and prove nothing about judgement on their own. But real traffic
    now flows through telemetry and gets hand-labeled (`torra label`), and
@@ -541,17 +538,17 @@ isn't one, so those numbers are no longer claimed here at all.
    used to get deflected back to "please run that yourself" instead of the
    torra just running it -- live A/B tested against the real model before
    shipping. See `HANDOFF.md` §6.1 and §2.40.
-3. **Real traffic exists, and it already found two real bugs.** Recorded
+2. **Real traffic exists, and it already found two real bugs.** Recorded
    tasks are hand-labeled (`torra label`), and that
    loop has already surfaced a pipefail/SIGPIPE bug and a VRAM-routing bug
    that reading the code alone hadn't caught. See `HANDOFF.md` §6.2.
-4. **Undo coverage ceiling is narrower than it looks.** `dd`/`mkfs` writing
+3. **Undo coverage ceiling is narrower than it looks.** `dd`/`mkfs` writing
    to a regular file is already covered automatically, the same as any other
    command, as long as the file is declared in `touches:`. Only `dd`/`mkfs`
    against a **raw device** and database migrations need a hand-written
    `rollback:` entry -- there's no prior on-disk state to snapshot for
    either. The plan pane names which steps those are. See `HANDOFF.md` §6.3.
-5. **Tree watching misses a same-size same-mtime edit.** The declared-path
+4. **Tree watching misses a same-size same-mtime edit.** The declared-path
    SHA256 layer catches it, so `touches:` still matters.
 
 ---
@@ -559,8 +556,8 @@ isn't one, so those numbers are no longer claimed here at all.
 ## How it is built
 
 torra is designed and directed by its owner. AI coding agents write the code,
-and the test suite verifies their work. Up to commit `7b7f10d` (2026-10-08),
-145 of the 155 commits on `main` carry a `Co-Authored-By:` trailer naming a Claude model.
+and the test suite verifies their work. Up to commit `c0751b6` (2026-10-09),
+147 of the 157 commits on `main` carry a `Co-Authored-By:` trailer naming a Claude model.
 The other 10 carry no trailer, which says nothing either way about who wrote them.
 
 ---
@@ -571,6 +568,6 @@ The other 10 carry no trailer, which says nothing either way about who wrote the
 python3 -m pytest tests/ -q
 ```
 
-On 2026-10-08 (commit `7b7f10d`) this ran 1494 tests, all passing.
+On 2026-10-09 (commit `c0751b6`) this ran 1518 tests, all passing.
 Nothing needs a live Ollama, systemd, or network. Every external dependency is
 an injected callable, which is also how you wire it to the real thing.
