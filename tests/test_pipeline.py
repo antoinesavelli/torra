@@ -1368,6 +1368,20 @@ def test_a_step_with_no_run_action_fails_instead_of_crashing(make_torra) -> None
     assert "has no run action attached" in done.results[0].error
 
 
+def test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk(
+        make_torra, tmp_path: Path) -> None:
+    """HANDOFF.md §2.62, §2.74 (GRADE_TO_A_PLAN P3.1): audit JSON, task log and resume file."""
+    fake = "sk-or-v1-" + "f4k3" * 12
+    torra = make_torra(scripted(plan_reply(
+        "t", "echo then fail", [{"id": "one", "run": f"echo {fake} >&2; exit 1"}])))
+
+    torra.execute(torra.plan(f"check that {fake} works"), {})
+
+    written = [p for p in tmp_path.rglob("*") if p.is_file()]
+    assert {"t.audit.json", "tasks.jsonl"} <= {p.name for p in written}
+    assert [p.name for p in written if fake in p.read_text(errors="replace")] == []
+
+
 class TestRemotePushEscalation:
     """`_gate()`'s unconditional CRITICAL floor for `remote_push` steps --
     HANDOFF.md §2.53. No test here touches a live network; the executor
@@ -1417,6 +1431,36 @@ class TestRemotePushEscalation:
         torra._executor_runner = None
 
         assert torra._gate(spec).steps[0].verdict.needs_confirmation
+
+    def test_a_pull_over_an_existing_local_file_is_undone_when_a_later_step_fails(
+            self, make_torra, tmp_path: Path) -> None:
+        """GRADE_TO_A_PLAN P3.5: the file a pull overwrites is snapshotted like any `touches` path."""
+        import base64
+        local, marker = tmp_path / "app.conf", tmp_path / "pull-wrote"
+        local.write_text("local original\n", encoding="utf-8")
+
+        def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
+            if command.startswith("test -e"):
+                return "yes"
+            if command.startswith("base64 -w0"):
+                return base64.b64encode(b"remote copy\n").decode()
+            raise AssertionError(f"unexpected command: {command}")
+
+        torra = make_torra(scripted(plan_reply(
+            "t", "pull then fail",
+            [{"id": "pull", "kind": "remote_pull", "run": "ignored", "remote_path": "/srv/app.conf",
+              "touches": [str(local)]},
+             {"id": "fail", "run": f"grep -q 'remote copy' {local} && touch {marker}; exit 1"}])),
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner))
+        torra._executor_runner = fake_runner
+        planned = torra.plan("pull then fail")
+
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
+
+        assert done.outcome is Outcome.FAILED
+        assert marker.exists(), "the pull really overwrote the local file"
+        assert local.read_text(encoding="utf-8") == "local original\n"
+        assert done.rollback is not None and done.rollback.ok
 
     def test_end_to_end_pull_edit_push_with_a_real_snapshot_based_undo(
             self, make_torra, tmp_path: Path) -> None:

@@ -2855,7 +2855,9 @@ Found by the 2026-10-04 full audit, not live.
    which is replayed to the model on reopen) go through `redact_secrets`.
    The patterns now catch `sk-or-v1-...` keys (dashes inside the body),
    `NAME_API_KEY=` style assignments (`\b` never matches after `_`) and
-   `Bearer` tokens. The audit JSON is not yet covered.
+   `Bearer` tokens. The audit JSON was not yet covered; §2.74 covers it.
+   Model-written `task_id` and step ids are still written unscrubbed
+   (`GRADE_TO_A_PLAN.md` P3.1).
 3. **A reopened session keeps what the model had read.** `ReadMemory` took
    its persistence hook at construction, before the TUI wired it, so read
    output never reached the transcript. `_register_session` sets both hooks.
@@ -3273,7 +3275,8 @@ resume digest covers the command text only; an unredirected `cmd &` keeps the
 output pipes open; Ctrl-C between steps is not caught; an unusable model reply
 is reported, not repaired.
 
-> Guarded by `tests/test_review_round_two.py`.
+> Guarded by `tests/test_review_round_two.py` and, for the audit JSON,
+> `tests/test_pipeline.py::test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk`.
 
 ### 2.75 What the resolver cannot see, and what renames a trusted command, needs a tick
 

@@ -227,7 +227,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 
 ### Phase 3: security, privacy and the model loop
 
-- **P3.1 Redact every persisted string.** `TaskLogger.record` scrubs only `request`
+- **P3.1 PARTLY DONE, checked 2026-10-09.** **Redact every persisted string.** `TaskLogger.record` scrubs only `request`
   (`torra/telemetry/records.py:159`). `abort_reason` carries up to 400 characters of raw stderr
   (`records.py:204`). The patterns (`records.py:24-42`) miss `sk-or-v1-…` keys, and they miss
   `OPENROUTER_API_KEY=…` because `\b` doesn't match after `_`. Apply one scrub to every string field before
@@ -235,6 +235,15 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   (`torra/core/session.py:139-143`, verify first). Extend the patterns to `sk-[A-Za-z0-9_-]{20,}`, env-style
   `NAME_KEY/TOKEN/SECRET/PASSWORD=` lines, and `Authorization: Bearer`. *Proof:* fake keys built at test time
   pushed through each writer, then asserted absent.
+  - *Done.* Patterns (`a0010df`, §2.74 item 3); `abort_reason` and session transcripts (§2.62 item 2); the
+    audit JSON through `scrub.redact_tree` (§2.74 item 2); remote prompts (§2.68), crash and label logs.
+    `test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk` pushes a fake key through the
+    request and a step's stderr and finds it in no file torra writes; it fails with `redact_tree` removed.
+  - *Open.* `TaskLogger.record` scrubs `request` and `abort_reason` only. The model writes `task_id` and step
+    ids, nothing constrains them, and a key-shaped id reaches `tasks.jsonl` (`task_id`, `uncovered_steps`)
+    and the resume file's name and body unscrubbed (probed 2026-10-09). Fix: scrub every string field in
+    `record`, and scrub or refuse a secret-shaped id before it names a file. The resume file is persisted
+    state, so the second part is ask-first.
 - **P3.2 DONE 2026-10-04 (`HANDOFF.md` §2.68; names from the file are withheld from steps rather than the file no longer being loaded).** **Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.
@@ -253,10 +262,18 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   confirm (`cli.py:281-288`). `ask --verify` never prints its fix-round plans and reports only step ids
   (`cli.py:228-250`). Apply D4. `--non-interactive` keeps today's refuse-gated behaviour, and the TUI is
   unchanged since it already needs a Run click per plan.
-- **P3.5 Verify first: `remote_pull` writes an unclassified local path.** The classified text is "pull X from
+- **P3.5 DONE 2026-10-04, checked 2026-10-09.** **Verify first: `remote_pull` writes an unclassified local path.** The classified text is "pull X from
   executor" and never names the local file it writes (`torra/core/tasks.py:340`,
   `torra/core/remote_edit.py:79-80`). Name the destination in the classified text, run it through the
   protected-path check, and snapshot the file it overwrites. Ask-first.
+  - *As built.* The classified text still reads "pull X from executor"; instead, `settle_remote_pull`
+    (`torra/core/remote_edit.py`) sets the verdict from the local destination (`touches[0]`, required by
+    `validate`), DANGEROUS when it or its real path is protected and CAUTION otherwise, with a reason that
+    names it. `UndoGenerator.for_step` snapshots every `touches` path, so the overwritten file is restored.
+    Guarded by `test_remote_pull_is_judged_by_the_local_file_it_writes`,
+    `test_remote_pull_into_a_system_path_asks` and
+    `test_a_pull_over_an_existing_local_file_is_undone_when_a_later_step_fails` (added 2026-10-09; it fails
+    when a pull's `touches` are not snapshotted).
 - **P3.6 DONE 2026-10-04 (`HANDOFF.md` §2.69; stale-after-run rather than a time label).** **Machine state is never refreshed.** It is cached once per agent and nothing passes `refresh=True`
   (`torra/agent.py:196`, acknowledged in the comment at `:207`). Mark it stale after every `execute()`,
   re-observe on the next turn, and label the block with its observation time.
@@ -293,7 +310,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
   by itself") and P3.3 ("untrusted content never carries instruction authority"), each with its test. Add §5
   entries per fix and update §6.
 - **P4.8** Carry out D6.
-- **P4.9** `AUDIT_FINDINGS.md` says open findings get full write-ups there. Add one line pointing at this plan
+- **P4.9 DONE 2026-10-04 (`40bede7`).** `AUDIT_FINDINGS.md` says open findings get full write-ups there. Add one line pointing at this plan
   as the open-findings tracker instead of duplicating it, then shrink each entry as its item lands.
 
 Doc items P4.3 to P4.6 are mechanical and suit the local model (`local-model-subagent`, one atomic edit per
