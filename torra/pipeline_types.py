@@ -87,6 +87,8 @@ class Plan:
     coverage: dict[str, Any] = field(default_factory=dict)
     model: str = ""
     repairs: int = 0
+    #: Advisory notes the operator should see before approving (`path_warnings`); never a gate.
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def worst_level(self) -> RiskLevel:
@@ -115,6 +117,7 @@ class Plan:
             "coverage": self.coverage,
             "model": self.model,
             "repairs": self.repairs,
+            "warnings": list(self.warnings),
             "worst_level": self.worst_level.value,
         }
 

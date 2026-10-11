@@ -44,6 +44,7 @@ from .core import (
 from .core.jsonreply import ReplyError, as_strings, extract_object
 from .core.process import shell_syntax_error
 from .gates import Clarifier, ModelRouter, SafetyClassifier, model_available
+from .path_warnings import missing_path_warnings
 from .prompts import PLAN_SCHEMA, SYSTEM_PROMPT, untrusted_block
 from .read_memory import ReadMemory
 
@@ -91,6 +92,8 @@ class Turn:
     #: audit trail records what the model chose to forget, not just that
     #: something happened to `self.context`.
     forget: list[str] = field(default_factory=list)
+    #: Advisory notes still standing once repairs ran out (a missing path); shown, never a gate.
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serializable dict form, for the audit trail."""
@@ -108,6 +111,7 @@ class Turn:
             "repairs": self.repairs,
             "seconds": round(self.seconds, 3),
             "forget": list(self.forget),
+            "warnings": list(self.warnings),
         }
 
 
@@ -167,6 +171,7 @@ class Agent:
         task_id_prefix: str = "",
         backends: dict[str, ModelBackend] | None = None,
         syntax_check: Callable[[str], str | None] = shell_syntax_error,
+        path_exists: Callable[[str], bool] | None = None,
     ) -> None:
         """Wire the model client, router, clarifier, safety pre-screen, and context."""
         self.ollama = ollama
@@ -183,6 +188,8 @@ class Agent:
         self.task_id_prefix = task_id_prefix
         self.backends = dict(backends or {})
         self.syntax_check = syntax_check
+        #: None leaves the missing-path check off (see `path_warnings`).
+        self.path_exists = path_exists
 
         self.state: MachineState | None = None
         self.turns: list[Turn] = []
@@ -375,6 +382,8 @@ class Agent:
         if unrunnable:
             # Unlike a risky plan, this leaves the operator nothing to decide: bash refuses it.
             raise MalformedTaskError("proposed task is malformed: " + "; ".join(unrunnable))
+        if turn.spec is not None:
+            turn.warnings = self._missing_paths(turn.spec)
         turn.seconds = time.perf_counter() - started
         if turn.forget:
             self.read_memory.forget(turn.forget)
@@ -463,6 +472,11 @@ class Agent:
             if step.kind not in ("remote_pull", "remote_push")
             and (problem := self.syntax_check(step.command))]
 
+    def _missing_paths(self, spec: TaskSpec) -> list[str]:
+        """Advisory: absolute local paths the plan names that are not there (off unless wired)."""
+        return (missing_path_warnings(spec, exists=self.path_exists)
+                if self.path_exists is not None else [])
+
     def _prescreen(self, spec: TaskSpec) -> str:
         """Check the model's own plan before an operator ever sees it."""
         # Not a substitute for the real gates, which still run on every
@@ -470,6 +484,12 @@ class Agent:
         # automatic revision round instead of burning the operator's
         # attention on a plan that was never going to be approved.
         complaints = [f"- {why}" for why in self._unrunnable(spec)]
+        if missing := self._missing_paths(spec):
+            complaints += [f"- {why}" for why in missing]
+            complaints.append(
+                "- Do not guess a path. Name one you were shown in the machine state or the "
+                "request, use a command that finds it (`find`, or `ls` of the parent), or ask "
+                "the operator with intent 'ask'.")
         for step in spec.to_steps(dry_run=True):
             verdict = self.safety.classify(step.command)
             if verdict.level.value == "critical":

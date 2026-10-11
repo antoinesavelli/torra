@@ -93,7 +93,7 @@ def build_torra(workdir: Path, offline: bool = False) -> Torra:
               if offline else OllamaClient())
     backends: dict[str, ModelBackend] = {"openrouter": OpenRouterClient()}
     return Torra(workdir=workdir, ollama=ollama, verifier=StateVerifier.default(),
-                 backends=backends)
+                 backends=backends, path_exists=os.path.exists)
 
 
 def print_plan(plan: Plan) -> None:
@@ -104,6 +104,8 @@ def print_plan(plan: Plan) -> None:
           + (f"  ({plan.repairs} repair(s))" if plan.repairs else ""))
     print(f"undo   : {plan.coverage.get('coverage_ratio', 0):.0%} coverage"
           + (f", none for {plan.uncovered}" if plan.uncovered else ""))
+    for warning in plan.warnings:
+        print(f"warning: {warning}")
     print()
     for index, sp in enumerate(plan.steps, start=1):
         flag = "CONFIRM" if sp.needs_confirmation else "   ok  "

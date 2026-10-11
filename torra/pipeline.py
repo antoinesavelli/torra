@@ -88,8 +88,11 @@ class Torra:
         recheck_between_steps: bool = True,
         knowledge_dir: str | None = None,
         backends: dict[str, ModelBackend] | None = None,
+        path_exists: Callable[[str], bool] | None = None,
     ) -> None:
         """Wire the workdir, model backend, and gate implementations (all injectable)."""
+        # `path_exists` switches on the agent's missing-path check (`path_warnings`); None, the
+        # default, leaves it off, so a test plan may name a path that only exists in the test.
         self.workdir = Path(workdir) if workdir is not None else Path.home() / ".torra"
         self.audit_dir = self.workdir / "audit"
         self.audit_dir.mkdir(parents=True, exist_ok=True)
@@ -127,7 +130,7 @@ class Torra:
         self.agent = agent or Agent(
             ollama=self.ollama, router=self.router,
             clarifier=self.clarifier, safety=self.safety, knowledge_dir=self.knowledge_dir,
-            backends=backends)
+            backends=backends, path_exists=path_exists)
 
     @staticmethod
     def _resolve_knowledge_dir(explicit: str | None) -> str | None:
@@ -244,7 +247,7 @@ class Torra:
         # operator's attention, not a substitute for this.
         steps = spec.to_steps(executor_runner=self._executor_runner)
         plan = Plan(spec=spec, model=turn.model if turn else "",
-                    repairs=turn.repairs if turn else 0)
+                    repairs=turn.repairs if turn else 0, warnings=list(turn.warnings) if turn else [])
 
         for step in steps:
             verdict = self.safety.classify(step.command)

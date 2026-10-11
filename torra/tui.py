@@ -16,6 +16,7 @@ undo=/task_id_prefix, the two collisions this design has to avoid).
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -236,6 +237,8 @@ class PlanPane(VerticalScroll):
             + (f"  [dim]({plan.repairs} repair(s))[/]" if plan.repairs else ""),
             markup=True, classes="plan-header"))
 
+        for warning in plan.warnings:
+            await self.mount(Static(f"[yellow]warning: {escape(warning)}[/]", markup=True))
         if plan.uncovered:
             await self.mount(Static(
                 f"[yellow]no automatic undo for: {escape(', '.join(plan.uncovered))}[/]",
@@ -1487,7 +1490,7 @@ class TorraApp(App):
         (e.g. OpenRouter) the app was started with (HANDOFF.md §2.27)."""
         return Torra(
             workdir=base_workdir, ollama=self.ollama, backends=self.backends,
-            verifier=StateVerifier.default(),
+            verifier=StateVerifier.default(), path_exists=os.path.exists,
             undo=UndoGenerator(shadow_dir=base_workdir / f"torra-shadow-{session_id}"))
 
     def _mount_session_tab(self, torra: Torra, meta: SessionMeta, *, greet: bool) -> None:
