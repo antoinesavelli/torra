@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import cached_property
 from typing import Any
 
 from .agent import Turn
 from .core import Step, StepResult, TaskSpec
 from .gates import PreconditionReport, RiskLevel, RollbackReport, UndoAction, Verdict
+from .preview import preview_targets
 
 __all__ = ["Stage", "Outcome", "StepPlan", "Plan", "RunResult"]
 
@@ -59,6 +61,12 @@ class StepPlan:
         """True when this step cannot run without an explicit yes."""
         return self.verdict.needs_confirmation
 
+    @cached_property
+    def preview(self) -> list[str]:
+        """What a step that needs a tick will act on, looked up the first time it is asked for
+        (the first look an operator gets), so gating itself never touches the disk."""
+        return preview_targets(self.step) if self.needs_confirmation else []
+
     @property
     def has_undo(self) -> bool:
         """True when failing this step can be reversed."""
@@ -70,6 +78,7 @@ class StepPlan:
             "step": self.step.to_dict(),
             "verdict": self.verdict.to_dict(),
             "undos": [u.to_dict() for u in self.undos],
+            "preview": self.preview,
             "approved": self.approved,
             "result": self.result.to_dict() if self.result else None,
         }

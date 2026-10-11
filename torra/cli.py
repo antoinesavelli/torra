@@ -136,6 +136,10 @@ def approve_at_prompt(plan: Plan) -> dict[str, bool]:
             print(f"    -- {sp.step.description}")
         for reason in sp.verdict.reasons[:3]:
             print(f"    {reason}")
+        if sp.preview:
+            print("    on disk:")
+            for line in sp.preview:
+                print(f"      {line}")
         if not sp.undos:
             print("    no automatic undo for this step")
         try:

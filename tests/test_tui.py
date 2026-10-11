@@ -384,7 +384,9 @@ async def test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs
          {"id": "use-it", "run": f"rm -f {victim}.copy; echo {victim}",
           "touches": [f"{victim}.copy"]}])))
 
-    async with app.run_test(size=(120, 50)) as pilot:
+    # 60 rows: each tick-needing card now carries a wrapped "on disk:" preview, which pushes the Run
+    # button lower in the (scrolling) plan pane; this test is about the warning, not the layout.
+    async with app.run_test(size=(120, 60)) as pilot:
         app.query_one("#prompt", Input).value = "remove then reference it"
         await pilot.press("enter")
         await pilot.pause(0.4)

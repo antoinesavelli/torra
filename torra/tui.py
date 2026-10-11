@@ -191,6 +191,8 @@ class StepCard(Vertical):
 
         for reason in sp.verdict.reasons[:2]:
             yield Static(f"  [dim]{escape(reason[:96])}[/]", markup=True)
+        for line in sp.preview:
+            yield Static(f"  [cyan]on disk:[/] {escape(line)}", markup=True)
 
         if sp.undos:
             yield Static(

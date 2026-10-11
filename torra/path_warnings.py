@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from .core import Step, TaskSpec
 from .gates import SafetyClassifier
 from .gates.safety import ResolvedCommand
 
-__all__ = ["missing_path_warnings"]
+__all__ = ["missing_path_warnings", "named_paths"]
 
 #: Programs whose arguments are text, patterns, code or paths on another machine.
 _NOT_LOCAL = frozenset({
@@ -95,3 +95,16 @@ def missing_path_warnings(spec: TaskSpec, exists: Callable[[str], bool] = os.pat
     return [warning for step in spec.to_steps(dry_run=True)
             if step.kind not in ("remote_pull", "remote_push")
             for warning in _step_warnings(step, resolver, exists, created)]
+
+
+def named_paths(command: str, extra: Iterable[str] = ()) -> list[str]:
+    """Every absolute local path a command line names (read, acted on or made), once each, in
+    order, then any of `extra` (a step's declared `touches`) that is one too."""
+    resolver = SafetyClassifier()
+    found: list[str] = []
+    for rc in resolver.resolve(command):
+        reads, made = _split(rc)
+        found += reads + made
+    found += [p for target in _REDIRECT.findall(command) if (p := _local_path(target))]
+    found += [p for token in extra if (p := _local_path(token))]
+    return list(dict.fromkeys(found))
