@@ -53,6 +53,11 @@ class AgentError(RuntimeError):
     """Raised when the model cannot produce a usable proposal."""
 
 
+class MalformedTaskError(AgentError):
+    """The proposed task failed TaskSpec validation. The one AgentError a revision round can fix:
+    the validator's message names the field and lists the valid ones."""
+
+
 class Intent(str, Enum):
     """What the agent decided to do with a turn."""
 
@@ -332,14 +337,19 @@ class Agent:
                     else None)
         raw = backend.chat(real_model, self._messages(request, gaps), json_mode=True,
                            on_thinking=stream_cb)
-        turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
-                           bool(self.state))
+        def attempt(reply: str) -> tuple[Turn | None, str, MalformedTaskError | None]:
+            """Parse one reply: the turn (None if the task failed validation) and what to fix."""
+            try:
+                parsed = self._parse(request, reply, chosen, choice.reason, gaps, anchors,
+                                     bool(self.state))
+            except MalformedTaskError as exc:
+                return None, f"- {exc}", exc
+            return parsed, self._repair_complaint(parsed), None
+
+        turn, complaint, malformed = attempt(raw)
 
         repairs = 0
-        while repairs < self.max_repairs:
-            complaint = self._repair_complaint(turn)
-            if not complaint:
-                break
+        while complaint and repairs < self.max_repairs:
             repairs += 1
             raw = backend.chat(
                 real_model,
@@ -350,10 +360,14 @@ class Agent:
                      + complaint + "\nRevise it. Same JSON schema."},
                 ]),
                 json_mode=True, on_thinking=stream_cb)
-            turn = self._parse(request, raw, chosen, choice.reason, gaps, anchors,
-                               bool(self.state))
-            turn.repairs = repairs
+            turn, complaint, malformed = attempt(raw)
+            if turn is not None:
+                turn.repairs = repairs
 
+        if turn is None:
+            # Out of revisions and still not a valid task: nothing to gate or to show.
+            assert malformed is not None
+            raise malformed
         turn.seconds = time.perf_counter() - started
         if turn.forget:
             self.read_memory.forget(turn.forget)
@@ -389,7 +403,7 @@ class Agent:
             try:
                 turn.spec = TaskSpec.validate(task, source=f"{model} proposal")
             except (TaskSpecError, TypeError, ValueError, OverflowError, OSError) as exc:
-                raise AgentError(f"proposed task is malformed: {exc}") from exc
+                raise MalformedTaskError(f"proposed task is malformed: {exc}") from exc
         return turn
 
     def _repair_complaint(self, turn: Turn) -> str:

@@ -557,6 +557,89 @@ def test_a_malformed_task_is_rejected_not_executed() -> None:
         build_agent(transport).converse("do something to /srv/api")
 
 
+def _recording(*replies: dict[str, Any]):
+    """A scripted transport that also keeps every /api/chat payload it was sent."""
+    chats: list[dict[str, Any]] = []
+    inner = scripted(*replies)
+
+    def transport(path, payload, timeout):
+        if path == "/api/chat":
+            chats.append(payload)
+        return inner(path, payload, timeout)
+
+    return transport, chats
+
+
+#: The shape gpt-oss:20b produced live (2026-10-11): `safe` is a field of a `rollback`
+#: entry, and the model put it on a step.
+_STEP_WITH_A_ROLLBACK_FIELD = {"id": "ls", "run": "ls /srv/api", "safe": True}
+
+
+def test_a_step_with_an_unknown_field_gets_a_repair_round_not_a_dead_end() -> None:
+    """Schema errors were the one proposal fault with no revision round (P3.7).
+
+    A plan that parsed but was CRITICAL was sent back to the model; a plan with a
+    stray field ended the run, though the validator's message already names the
+    fix. The model is shown that message and its own reply, and a valid answer
+    reaches the operator.
+    """
+    transport, chats = _recording(
+        plan_reply("t", "list /srv/api", [_STEP_WITH_A_ROLLBACK_FIELD]),
+        plan_reply("t", "list /srv/api", [{"id": "ls", "run": "ls /srv/api"}]))
+
+    turn = build_agent(transport).converse("list /srv/api")
+
+    assert turn.intent is Intent.PLAN
+    assert turn.spec is not None
+    assert turn.repairs == 1
+    assert "safe" not in turn.spec.steps[0]
+    assert len(chats) == 2, "the model should have been asked exactly once more"
+    revision = chats[1]["messages"]
+    assert any(m["role"] == "user" and "unknown field(s) ['safe']" in m["content"]
+               for m in revision), "the validator's own message is the instruction"
+    assert any(m["role"] == "assistant" and '"safe": true' in m["content"]
+               for m in revision), "the model should see the reply it is asked to fix"
+
+
+def test_a_task_that_stays_malformed_is_still_an_error_once_repairs_run_out() -> None:
+    """The repair round must not turn a bad plan into a loop, or into a plan."""
+    transport, chats = _recording(
+        plan_reply("t", "list /srv/api", [_STEP_WITH_A_ROLLBACK_FIELD]))
+
+    with pytest.raises(AgentError, match="malformed"):
+        build_agent(transport, max_repairs=2).converse("list /srv/api")
+
+    assert len(chats) == 3, "one proposal plus exactly max_repairs revisions"
+
+
+def test_a_malformed_task_with_repairs_disabled_fails_on_the_first_reply() -> None:
+    transport, chats = _recording(
+        plan_reply("t", "list /srv/api", [_STEP_WITH_A_ROLLBACK_FIELD]))
+
+    with pytest.raises(AgentError, match="malformed"):
+        build_agent(transport, max_repairs=0).converse("list /srv/api")
+
+    assert len(chats) == 1
+
+
+def test_a_repaired_schema_error_still_gets_the_risk_screen() -> None:
+    """The two complaints share one budget and one loop: fixing the schema must not
+    skip the risk screen the corrected plan would otherwise get."""
+    transport, chats = _recording(
+        plan_reply("t", "wipe it", [_STEP_WITH_A_ROLLBACK_FIELD]),
+        plan_reply("t", "wipe it", [{"id": "rm", "run": "rm -rf /var/lib/x"}]),
+        plan_reply("t", "back it up",
+                   [{"id": "mv", "run": "mv /var/lib/x /var/lib/x.bak",
+                     "touches": ["/var/lib/x"]}]))
+
+    turn = build_agent(transport).converse("wipe /var/lib/x")
+
+    assert turn.repairs == 2
+    assert turn.spec is not None
+    assert "rm -rf" not in " ".join(turn.spec.commands())
+    assert len(chats) == 3
+
+
 def test_backend_failure_surfaces_recovery_options() -> None:
     """An unreachable daemon is reported with the three ways out."""
     def transport(path, payload, timeout):
