@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import collections
 import os
+import re
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -83,6 +84,29 @@ def pipefail_wrapped(command: str) -> str:
         "fi\n"
         "exit \"$_ec\"\n"
     )
+
+
+def shell_syntax_error(command: str, timeout: float = 5.0) -> str | None:
+    """Why bash cannot parse `command`, in bash's own words, or None when it can.
+
+    Steps run as `bash -c`, so `bash -n -c` is the same parser answering without running
+    anything. None also means "no opinion" (bash missing, or too slow): this is a courtesy ahead
+    of the real gates, never one of them. The environment is cut down so a `BASH_ENV` file is not
+    sourced by the checker, and `LC_ALL=C` keeps the wording the same on every machine.
+    """
+    import subprocess
+
+    try:
+        done = subprocess.run(
+            ["/bin/bash", "-n", "-c", command], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = done.stderr.strip().splitlines()
+    if done.returncode == 0 or not lines:
+        return None
+    return re.sub(r"^\S*bash: -c: ", "", lines[0])
 
 
 #: Variable names `cli` loaded from the repo's `.env` and the operator never exported. Torra

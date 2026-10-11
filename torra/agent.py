@@ -42,6 +42,7 @@ from .core import (
     resolve_backend as _resolve_backend,
 )
 from .core.jsonreply import ReplyError, as_strings, extract_object
+from .core.process import shell_syntax_error
 from .gates import Clarifier, ModelRouter, SafetyClassifier, model_available
 from .prompts import PLAN_SCHEMA, SYSTEM_PROMPT, untrusted_block
 from .read_memory import ReadMemory
@@ -165,6 +166,7 @@ class Agent:
         on_context_change: Callable[[ContextStep], None] | None = None,
         task_id_prefix: str = "",
         backends: dict[str, ModelBackend] | None = None,
+        syntax_check: Callable[[str], str | None] = shell_syntax_error,
     ) -> None:
         """Wire the model client, router, clarifier, safety pre-screen, and context."""
         self.ollama = ollama
@@ -180,6 +182,7 @@ class Agent:
         self._on_context_change = on_context_change
         self.task_id_prefix = task_id_prefix
         self.backends = dict(backends or {})
+        self.syntax_check = syntax_check
 
         self.state: MachineState | None = None
         self.turns: list[Turn] = []
@@ -368,6 +371,10 @@ class Agent:
             # Out of revisions and still not a valid task: nothing to gate or to show.
             assert malformed is not None
             raise malformed
+        unrunnable = self._unrunnable(turn.spec) if turn.spec is not None else []
+        if unrunnable:
+            # Unlike a risky plan, this leaves the operator nothing to decide: bash refuses it.
+            raise MalformedTaskError("proposed task is malformed: " + "; ".join(unrunnable))
         turn.seconds = time.perf_counter() - started
         if turn.forget:
             self.read_memory.forget(turn.forget)
@@ -446,13 +453,23 @@ class Agent:
             "actually need to run something to produce the answer, use "
             "intent 'plan' instead.")
 
+    def _unrunnable(self, spec: TaskSpec) -> list[str]:
+        """One line per step whose command bash cannot parse. Remote steps are torra-built."""
+        return [
+            f"step '{step.step_id}' is not valid bash and cannot run: {problem}. Quote any "
+            "path or argument that has spaces, parentheses or other shell characters in it, "
+            "with single quotes."
+            for step in spec.to_steps(dry_run=True)
+            if step.kind not in ("remote_pull", "remote_push")
+            and (problem := self.syntax_check(step.command))]
+
     def _prescreen(self, spec: TaskSpec) -> str:
         """Check the model's own plan before an operator ever sees it."""
         # Not a substitute for the real gates, which still run on every
         # command. This exists so an obviously bad proposal gets one
         # automatic revision round instead of burning the operator's
         # attention on a plan that was never going to be approved.
-        complaints: list[str] = []
+        complaints = [f"- {why}" for why in self._unrunnable(spec)]
         for step in spec.to_steps(dry_run=True):
             verdict = self.safety.classify(step.command)
             if verdict.level.value == "critical":
