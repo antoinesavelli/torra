@@ -21,7 +21,7 @@ from test_agent import build_agent
 from torra import cli
 from torra.agent import Intent
 from torra.core import OllamaClient, TaskSpec
-from torra.path_warnings import missing_path_warnings
+from torra.path_warnings import missing_path_warnings, placeholder_tokens
 from torra.pipeline import Torra
 
 # --------------------------------------------------------------------------- #
@@ -132,7 +132,7 @@ def test_a_value_after_equals_is_checked() -> None:
 
 
 @pytest.mark.parametrize("run", [
-    "ls /home/$USER",            # a variable: unknowable here
+    "ls /srv/$TARGET",           # a variable torra cannot know
     "ls /var/log/*.log",         # a glob
     "ls /srv/{a,b}",             # brace expansion
     "ls relative/dir",           # relative: depends on cwd
@@ -166,6 +166,50 @@ def test_home_is_expanded_before_asking(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert missing_path_warnings(_spec(_step("ls ~/Downloads")), exists=exists) == []
     assert seen == ["/home/antoine/Downloads"]
+
+
+@pytest.mark.parametrize("run, expected", [
+    ('rm -r "$HOME/Downloads/Telegram (2)"', "/home/antoine/Downloads/Telegram (2)"),
+    ("ls ${HOME}/x", "/home/antoine/x"),
+    ("du -sh /home/$USER", "/home/antoine"),
+    ("ls /home/${USER}/notes", "/home/antoine/notes"),
+])
+def test_home_and_user_are_expanded_like_a_tilde(monkeypatch: pytest.MonkeyPatch,
+                                                 run: str, expected: str) -> None:
+    """Seen live 2026-10-12: gpt-oss:20b writes `"$HOME/Downloads/..."`, which the check skipped,
+    so a guessed folder name went unflagged. Steps run as the operator, so these are known."""
+    monkeypatch.setenv("HOME", "/home/antoine")
+    monkeypatch.setenv("USER", "antoine")
+    seen: list[str] = []
+
+    def exists(path: str) -> bool:
+        seen.append(path)
+        return True
+
+    missing_path_warnings(_spec(_step(run)), exists=exists)
+    assert seen == [expected]
+
+
+def test_an_unset_home_leaves_the_path_unknowable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.delenv("USER", raising=False)
+
+    assert _warn(_step('rm -r "$HOME/x" /home/$USER/y')) == []
+
+
+@pytest.mark.parametrize("run, expected", [
+    ("rm -rf '<found-path>'", ["<found-path>"]),         # seen live 2026-10-12, devstral:24b
+    ("ls -l /home/<user>/notes", ["<user>"]),
+    ("kill -9 <PID>", ["<PID>"]),
+    ("<command> --flag", ["<command>"]),
+    ("rm -rf /srv/a", []),
+    ("grep '<html>' /srv/a", []),                       # a pattern, not a slot
+    ("echo 'deleting <found-path>'", []),               # text that only prints
+    ("diff <(ls a) <(ls b)", []),                       # process substitution
+    ("cat < /srv/in.txt", []),                          # a redirect
+])
+def test_placeholder_tokens(run: str, expected: list[str]) -> None:
+    assert placeholder_tokens(run) == expected
 
 
 def test_one_warning_per_path_per_step() -> None:
@@ -225,6 +269,9 @@ def test_a_plan_naming_a_missing_path_gets_a_repair_round() -> None:
                      if m["role"] == "user" and "does not exist" in m["content"])
     assert "/data/old.log" in complaint
     assert "do not guess" in complaint.lower(), "tell the model what to do instead"
+    assert "single quotes" in complaint, "the request's own path, copied exactly, is the first choice"
+    assert "cannot pass output" in complaint, \
+        "live, 'use a command that finds it' produced find-then-act with a literal <found-path>"
 
 
 def test_a_path_still_missing_after_repairs_is_a_warning_not_a_refusal() -> None:
@@ -349,3 +396,37 @@ async def test_the_plan_pane_shows_the_warning(tmp_path: Path) -> None:
         assert app.is_running
         text = screen_text(app)
         assert "does not exist" in text and "/data/old.log" in text
+
+
+
+# --------------------------------------------------------------------------- #
+# A placeholder left in a command
+# --------------------------------------------------------------------------- #
+
+_TEMPLATE = {"id": "rm", "run": "rm -rf '<found-path>'"}
+_CONCRETE = {"id": "rm", "run": "rm -f /data/old.log", "touches": ["/data/old.log"]}
+
+
+def test_a_placeholder_gets_a_repair_round_that_names_it() -> None:
+    transport, chats = _recording(plan_reply("t", "delete /data/old.log", [_TEMPLATE]),
+                                  plan_reply("t", "delete /data/old.log", [_CONCRETE]))
+
+    turn = build_agent(transport).converse("delete /data/old.log")
+
+    assert turn.repairs == 1
+    assert turn.spec is not None and turn.spec.commands() == ["rm -f /data/old.log"]
+    complaint = next(m["content"] for m in chats[1]["messages"]
+                     if m["role"] == "user" and "placeholder" in m["content"])
+    assert "<found-path>" in complaint
+    assert "cannot pass output" in complaint
+
+
+def test_a_placeholder_still_there_after_repairs_never_reaches_the_operator() -> None:
+    """torra runs the text as written: `rm -rf '<found-path>'` can never do what was meant."""
+    from torra.agent import AgentError
+    transport, chats = _recording(plan_reply("t", "delete /data/old.log", [_TEMPLATE]))
+
+    with pytest.raises(AgentError, match="placeholder"):
+        build_agent(transport, max_repairs=2).converse("delete /data/old.log")
+
+    assert len(chats) == 3

@@ -175,7 +175,16 @@ def test_a_redirect_target_is_listed() -> None:
 
 
 def test_what_cannot_be_known_is_left_out() -> None:
-    assert preview_targets(_step("rm -r $HOME/x /var/log/*.old relative"), describe=_fake) == []
+    assert preview_targets(_step("rm -r $TARGET/x /var/log/*.old relative"), describe=_fake) == []
+
+
+def test_home_is_previewed_like_a_tilde(monkeypatch: pytest.MonkeyPatch) -> None:
+    """gpt-oss:20b writes `"$HOME/Downloads/..."` (seen live 2026-10-12); the operator should see
+    what is there, not nothing."""
+    monkeypatch.setenv("HOME", "/home/antoine")
+
+    assert preview_targets(_step('rm -r "$HOME/x"'), describe=_fake) == [
+        "/home/antoine/x: </home/antoine/x>"]
 
 
 def test_a_remote_step_has_no_local_preview() -> None:

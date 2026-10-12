@@ -44,7 +44,7 @@ from .core import (
 from .core.jsonreply import ReplyError, as_strings, extract_object
 from .core.process import shell_syntax_error
 from .gates import Clarifier, ModelRouter, SafetyClassifier, model_available
-from .path_warnings import missing_path_warnings
+from .path_warnings import missing_path_warnings, placeholder_tokens
 from .prompts import PLAN_SCHEMA, SYSTEM_PROMPT, untrusted_block
 from .read_memory import ReadMemory
 
@@ -463,14 +463,24 @@ class Agent:
             "intent 'plan' instead.")
 
     def _unrunnable(self, spec: TaskSpec) -> list[str]:
-        """One line per step whose command bash cannot parse. Remote steps are torra-built."""
-        return [
-            f"step '{step.step_id}' is not valid bash and cannot run: {problem}. Quote any "
-            "path or argument that has spaces, parentheses or other shell characters in it, "
-            "with single quotes."
-            for step in spec.to_steps(dry_run=True)
-            if step.kind not in ("remote_pull", "remote_push")
-            and (problem := self.syntax_check(step.command))]
+        """One line per step that cannot do what it means: bash cannot parse it, or it still holds
+        a template slot such as `<found-path>`. Remote steps are torra-built."""
+        problems: list[str] = []
+        for step in spec.to_steps(dry_run=True):
+            if step.kind in ("remote_pull", "remote_push"):
+                continue
+            if bad := self.syntax_check(step.command):
+                problems.append(
+                    f"step '{step.step_id}' is not valid bash and cannot run: {bad}. Quote any "
+                    "path or argument that has spaces, parentheses or other shell characters in "
+                    "it, with single quotes.")
+            if slots := placeholder_tokens(step.command):
+                problems.append(
+                    f"step '{step.step_id}' still has a placeholder ({', '.join(slots)}) where a "
+                    "real value belongs; torra runs the text as written, and steps cannot pass "
+                    "output to each other. Use the real value, or do the lookup and the action "
+                    "in one command (`find ... -exec ... {} +`).")
+        return problems
 
     def _missing_paths(self, spec: TaskSpec) -> list[str]:
         """Advisory: absolute local paths that steps needing a tick name and that are not there
@@ -490,9 +500,10 @@ class Agent:
         if missing := self._missing_paths(spec):
             complaints += [f"- {why}" for why in missing]
             complaints.append(
-                "- Do not guess a path. Name one you were shown in the machine state or the "
-                "request, use a command that finds it (`find`, or `ls` of the parent), or ask "
-                "the operator with intent 'ask'.")
+                "- Do not guess a path. If the request names it, copy it exactly, in single "
+                "quotes; otherwise use one you were shown in the machine state, or ask the "
+                "operator with intent 'ask'. Steps cannot pass output to each other: a lookup "
+                "and the action on its result belong in one command (`find ... -exec ... {} +`).")
         for step in spec.to_steps(dry_run=True):
             verdict = self.safety.classify(step.command)
             if verdict.level.value == "critical":

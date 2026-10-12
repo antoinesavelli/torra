@@ -23,7 +23,7 @@ from .core import Step, TaskSpec
 from .gates import SafetyClassifier
 from .gates.safety import ResolvedCommand
 
-__all__ = ["missing_path_warnings", "named_paths"]
+__all__ = ["missing_path_warnings", "named_paths", "placeholder_tokens"]
 
 #: Programs whose arguments are text, patterns, code or paths on another machine.
 _NOT_LOCAL = frozenset({
@@ -38,12 +38,25 @@ _REDIRECT = re.compile(r"(?<![<&\d])>{1,2}\s*([^\s;|&<>()]+)")
 #: Built at run time: a variable, a glob, brace expansion, or `SUBST`, the placeholder
 #: SafetyClassifier.resolve leaves where a `$(...)` or backtick substitution was.
 _UNKNOWABLE = re.compile(r"[$`*?\[\]{}\n]|SUBST")
+#: The two variables a step's shell is known to share with torra (steps run as the operator).
+#: Seen live 2026-10-12: gpt-oss:20b writes `"$HOME/Downloads/..."`, which used to be skipped.
+_KNOWN_VARIABLE = re.compile(r"\$(?:\{(HOME|USER)\}|(HOME|USER)\b)")
+#: A template slot such as `<found-path>` or `<PID>` left where a real value belongs.
+_PLACEHOLDER = re.compile(r"<[A-Za-z][A-Za-z0-9_-]*>")
+
+
+def _expand_known(value: str) -> str:
+    """`$HOME`, `${HOME}`, `$USER`, `${USER}` from this process's environment; left alone (and so
+    unknowable) when unset."""
+    return _KNOWN_VARIABLE.sub(
+        lambda m: os.environ.get(m.group(1) or m.group(2), m.group(0)), value)
 
 
 def _local_path(token: str) -> str | None:
     """The absolute path an argument names, or None when it is an option, relative, or built at
-    run time (a variable, glob or brace expansion)."""
+    run time (a variable other than HOME or USER, a glob or brace expansion)."""
     value = token.split("=", 1)[1] if token.startswith("-") and "=" in token else token
+    value = _expand_known(value)
     if value.startswith("-") or not (value.startswith("/") or value == "~"
                                      or value.startswith("~/")) or _UNKNOWABLE.search(value):
         return None
@@ -122,4 +135,14 @@ def named_paths(command: str, extra: Iterable[str] = ()) -> list[str]:
         found += reads + made
     found += [p for target in _REDIRECT.findall(command) if (p := _local_path(target))]
     found += [p for token in extra if (p := _local_path(token))]
+    return list(dict.fromkeys(found))
+
+
+def placeholder_tokens(command: str) -> list[str]:
+    """Template slots (`<found-path>`, `<PID>`) left in a command's arguments, once each. Text-only
+    programs are skipped, so `grep '<html>'` and `echo '... <found-path>'` are not slots."""
+    found: list[str] = []
+    for rc in SafetyClassifier().resolve(command):
+        if rc.program not in _NOT_LOCAL:
+            found += [slot for token in rc.argv for slot in _PLACEHOLDER.findall(token)]
     return list(dict.fromkeys(found))
