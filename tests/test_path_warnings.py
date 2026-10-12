@@ -110,6 +110,23 @@ def test_a_path_inside_a_shell_payload_is_found() -> None:
     assert len(_warn(_step("sh -c 'ls /srv/gone'"))) == 1
 
 
+def test_a_command_substitution_is_left_alone() -> None:
+    """The resolver hands `$(...)` over as a placeholder; it is as unknowable as a variable.
+    Found replaying past plans: `ls -l /proc/$(pgrep -n ollama)/fd` was flagged."""
+    assert _warn(_step("ls -l /proc/$(pgrep -n ollama)/fd")) == []
+
+
+def test_only_limits_which_steps_report_but_every_step_still_creates() -> None:
+    spec = _spec(_step("ls /srv/gone", "look"), _step("rm -r /srv/gone2", "rm"),
+                 _step("mkdir -p /srv/new", "make"), _step("rm -r /srv/new/x", "rm2"))
+
+    warnings = missing_path_warnings(spec, exists=lambda p: False,
+                                     only=lambda step: step.step_id.startswith("rm"))
+
+    assert len(warnings) == 1 and "'rm'" in warnings[0], \
+        "look is not reported, and rm2's path was made by make, which is not reported either"
+
+
 def test_a_value_after_equals_is_checked() -> None:
     assert len(_warn(_step("nginx -t --conf=/etc/nginx/gone.conf"))) == 1
 
@@ -172,7 +189,9 @@ def test_checking_does_not_disturb_the_safety_classifiers_state() -> None:
 # In the agent: a repair round, then a warning
 # --------------------------------------------------------------------------- #
 
-_MISSING = {"id": "ls", "run": "ls -l '/home/user/Downloads/Telegram (2)'"}
+#: Needs a tick (DANGEROUS file deletion) and declares touches, so the risk screen has nothing
+#: to say about it: any repair round below is the path check's.
+_MISSING = {"id": "rm", "run": "rm -f /data/old.log", "touches": ["/data/old.log"]}
 _REAL = {"id": "ls", "run": "ls -l /srv/api"}
 
 
@@ -204,7 +223,7 @@ def test_a_plan_naming_a_missing_path_gets_a_repair_round() -> None:
     assert turn.spec is not None and turn.spec.commands() == ["ls -l /srv/api"]
     complaint = next(m["content"] for m in chats[1]["messages"]
                      if m["role"] == "user" and "does not exist" in m["content"])
-    assert "Telegram (2)" in complaint
+    assert "/data/old.log" in complaint
     assert "do not guess" in complaint.lower(), "tell the model what to do instead"
 
 
@@ -218,13 +237,25 @@ def test_a_path_still_missing_after_repairs_is_a_warning_not_a_refusal() -> None
     assert turn.intent is Intent.PLAN
     assert turn.spec is not None
     assert len(chats) == 3
-    assert len(turn.warnings) == 1 and "Telegram (2)" in turn.warnings[0]
+    assert len(turn.warnings) == 1 and "/data/old.log" in turn.warnings[0]
 
 
 def test_the_path_check_is_off_unless_it_is_wired_in() -> None:
     transport, chats = _recording(plan_reply("t", "list /srv/api", [_MISSING]))
 
     turn = build_agent(transport).converse("list /srv/api")
+
+    assert turn.repairs == 0 and turn.warnings == [] and len(chats) == 1
+
+
+def test_the_agent_checks_paths_only_on_steps_that_need_a_tick() -> None:
+    """Replaying 121 past plans, the check flagged 18% of them, mostly read-only probes such
+    as `cat /etc/motd` or `ls /var/run/ollama.pid 2>/dev/null` that ask whether a file is there.
+    A read-only step on a wrong path fails harmlessly; a destructive one is what matters."""
+    probe = {"id": "probe", "run": "ls -l /home/user/Downloads/Telegram"}
+    transport, chats = _recording(plan_reply("t", "list /srv/api", [probe]))
+
+    turn = build_agent(transport, path_exists=_exists()).converse("list /srv/api")
 
     assert turn.repairs == 0 and turn.warnings == [] and len(chats) == 1
 
@@ -251,7 +282,7 @@ def test_the_plan_carries_the_warning_and_the_audit_trail_records_it(
     result = torra.plan("list /srv/api")
 
     assert result.plan is not None
-    assert len(result.plan.warnings) == 1 and "Telegram (2)" in result.plan.warnings[0]
+    assert len(result.plan.warnings) == 1 and "/data/old.log" in result.plan.warnings[0]
     assert result.plan.to_dict()["warnings"] == result.plan.warnings
 
 
@@ -267,7 +298,7 @@ def test_print_plan_shows_the_warning_above_the_steps(make_torra) -> None:
         cli.print_plan(plan)
 
     text = out.getvalue()
-    assert "warning:" in text and "Telegram (2)" in text
+    assert "warning:" in text and "/data/old.log" in text
     assert text.index("warning:") < text.index("1. [")
 
 
@@ -317,4 +348,4 @@ async def test_the_plan_pane_shows_the_warning(tmp_path: Path) -> None:
 
         assert app.is_running
         text = screen_text(app)
-        assert "does not exist" in text and "Telegram (2)" in text
+        assert "does not exist" in text and "/data/old.log" in text

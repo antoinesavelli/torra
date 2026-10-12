@@ -35,7 +35,9 @@ _CREATES_ALL = frozenset({"mkdir", "touch", "tee", "truncate", "mkfifo", "mktemp
 #: Sources are read, the last argument is made.
 _CREATES_LAST = frozenset({"cp", "mv", "ln", "install", "rsync"})
 _REDIRECT = re.compile(r"(?<![<&\d])>{1,2}\s*([^\s;|&<>()]+)")
-_UNKNOWABLE = re.compile(r"[$`*?\[\]{}\n]")
+#: Built at run time: a variable, a glob, brace expansion, or `SUBST`, the placeholder
+#: SafetyClassifier.resolve leaves where a `$(...)` or backtick substitution was.
+_UNKNOWABLE = re.compile(r"[$`*?\[\]{}\n]|SUBST")
 
 
 def _local_path(token: str) -> str | None:
@@ -86,15 +88,28 @@ def _step_warnings(step: Step, resolver: SafetyClassifier, exists: Callable[[str
     return out
 
 
-def missing_path_warnings(spec: TaskSpec, exists: Callable[[str], bool] = os.path.exists
-                          ) -> list[str]:
+def missing_path_warnings(spec: TaskSpec, exists: Callable[[str], bool] = os.path.exists,
+                          only: Callable[[Step], bool] | None = None) -> list[str]:
     """One line per (step, path) where a step names an absolute local path that does not exist
-    and no earlier step, or earlier part of the same step, creates."""
+    and no earlier step, or earlier part of the same step, creates.
+
+    `only` picks the steps that report (the agent passes "needs a tick": a read-only probe such
+    as `cat /etc/motd` asks whether a file is there, and a wrong path there fails harmlessly).
+    Every step still counts toward what the plan creates, reported or not."""
     resolver = SafetyClassifier()  # a private instance: resolving mutates the classifier
     created: set[str] = set()
-    return [warning for step in spec.to_steps(dry_run=True)
-            if step.kind not in ("remote_pull", "remote_push")
-            for warning in _step_warnings(step, resolver, exists, created)]
+    warnings: list[str] = []
+    for step in spec.to_steps(dry_run=True):
+        if step.kind in ("remote_pull", "remote_push"):
+            continue
+        reported = only is None or only(step)
+        warnings += _step_warnings(step, resolver, exists if reported else _anything, created)
+    return warnings
+
+
+def _anything(path: str) -> bool:
+    """`exists` for a step that does not report: no lookups, only its creations count."""
+    return True
 
 
 def named_paths(command: str, extra: Iterable[str] = ()) -> list[str]:

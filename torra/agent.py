@@ -473,9 +473,12 @@ class Agent:
             and (problem := self.syntax_check(step.command))]
 
     def _missing_paths(self, spec: TaskSpec) -> list[str]:
-        """Advisory: absolute local paths the plan names that are not there (off unless wired)."""
-        return (missing_path_warnings(spec, exists=self.path_exists)
-                if self.path_exists is not None else [])
+        """Advisory: absolute local paths that steps needing a tick name and that are not there
+        (off unless wired)."""
+        return (missing_path_warnings(
+            spec, exists=self.path_exists,
+            only=lambda step: self.safety.classify(step.command).needs_confirmation)
+            if self.path_exists is not None else [])
 
     def _prescreen(self, spec: TaskSpec) -> str:
         """Check the model's own plan before an operator ever sees it."""
