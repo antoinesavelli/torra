@@ -3360,6 +3360,131 @@ are unchanged.
 > `test_ask_verify_declining_a_fix_round_rejects_it_and_stops`, and
 > `tests/test_iterate.py::test_a_declined_round_goes_through_reject_and_stops`.
 
+### 2.78 A task that fails validation gets a repair round, not a dead end
+
+Found 2026-10-11 in the first real use since 2026-09-18 (`GRADE_TO_A_PLAN.md`
+P3.7, the part left open). `gpt-oss:20b` put `safe`, a field of a `rollback`
+entry, on a step, and `ask` ended after one model call with "unknown
+field(s) ['safe']", while a plan that parsed but was CRITICAL got a revision.
+
+1. **`_parse` raises `MalformedTaskError`** (an `AgentError`) when
+   `TaskSpec.validate` fails. `converse()` feeds the validator's own
+   message, which names the field and lists the valid ones, back with the
+   reply, on the same `max_repairs` budget as the risk screen; a corrected
+   plan still goes through that screen.
+2. **Out of revisions, the last `MalformedTaskError` is raised as before.**
+   Other `AgentError`s (no JSON, no task object) are unchanged.
+
+Seen working live 2026-10-12: `gpt-oss:20b` fixed unknown fields in a
+rollback entry in one round.
+
+> Guarded by `tests/test_agent.py::test_a_step_with_an_unknown_field_gets_a_repair_round_not_a_dead_end`,
+> `test_a_task_that_stays_malformed_is_still_an_error_once_repairs_run_out`,
+> `test_a_malformed_task_with_repairs_disabled_fails_on_the_first_reply` and
+> `test_a_repaired_schema_error_still_gets_the_risk_screen`.
+
+### 2.79 A step that cannot do what it means is repaired, then refused, never shown
+
+Found 2026-10-11: `devstral:24b` proposed `ls -l /home/user/Downloads/Telegram (2)`
+and `rm -r` on the same unquoted path. Both are syntax errors in bash, the
+classifier rated the `ls` SAFE, and the operator was asked to approve a plan
+that could never run. Then 2026-10-12, live: told not to guess a path,
+`devstral:24b` wrote `rm -rf '<found-path>'`, which bash parses.
+
+1. **`core.process.shell_syntax_error`** runs `bash -n -c`, the parser steps
+   run under, without executing anything, with a cut-down environment (no
+   `BASH_ENV`) and `LC_ALL=C`. None means "parses" and also "no opinion"
+   (bash missing, timeout): it is a courtesy ahead of the gates.
+2. **`path_warnings.placeholder_tokens`** finds template slots (`<found-path>`,
+   `<PID>`, `<command>`) in a command's argv. Text-only programs are
+   skipped, so `grep '<html>'` and `echo '... <x>'` are not slots, and
+   `<(...)` and `< file` never match.
+3. **`Agent._unrunnable`** turns either into a complaint on the shared repair
+   budget. With no revisions left it raises `MalformedTaskError`: unlike a
+   risky plan, there is nothing left for the operator to decide.
+   `Agent(syntax_check=...)` is injectable. `classify()` stays pure and hand-written
+   task files are not checked.
+
+Replaying the 183 steps of the 121 past plans in `~/.torra/audit`: the syntax
+check flags only the two 2026-10-11 commands, and the placeholder check one
+step, `borg list <repo> --last 1`, a real slot.
+
+> Guarded by `tests/test_shell_syntax.py` (the check never runs the command or
+> sources `BASH_ENV`, repair, refusal, injection) and
+> `tests/test_path_warnings.py::test_placeholder_tokens`,
+> `test_a_placeholder_gets_a_repair_round_that_names_it`,
+> `test_a_placeholder_still_there_after_repairs_never_reaches_the_operator`.
+
+### 2.80 A step that needs a tick and names a missing path is repaired, then warned
+
+Found 2026-10-11: the plan above targeted `/home/user/...` on a machine whose
+home is `/home/antoine`, and nothing checked. Advisory, like
+`dependency_warnings`, because a plan may create the path itself.
+
+1. **`path_warnings.missing_path_warnings(spec, exists, only)`** reads the argv
+   `SafetyClassifier.resolve` produces and names each absolute local path a
+   step uses that does not exist and that no earlier step creates (`mkdir`,
+   `touch`, `tee`, redirects, the destination of `cp`/`mv`/`ln`/`install`/
+   `rsync`, `git clone`, ...). `touches` does not excuse a path: a destructive
+   step cannot make its own target exist. Variables other than `$HOME` and
+   `$USER`, globs, `$(...)` (the resolver's `SUBST` placeholder), relative
+   paths, text-only programs, `ssh`/`scp` and remote steps are skipped.
+2. **Only steps that need a tick report** (the agent passes `only`). Replaying
+   the 121 past plans, checking every step flagged 18% of them, mostly
+   read-only existence probes (`cat /etc/motd`, `ls /var/run/ollama.pid
+   2>/dev/null`); after this change, 4% (5 plans: the real invented-path
+   `rm -r`, two under the since-moved repo, two knock-ons of §6.5's
+   `reboot-required` classifier finding). Every step still counts toward what
+   the plan creates.
+3. **In the agent:** a repair round whose guidance is to copy the request's
+   own path exactly, in single quotes, or ask, and that steps cannot pass
+   output to each other (live, "use a command that finds it" produced the
+   `<found-path>` plan of §2.79). Left over, the warnings are not a refusal:
+   `Turn.warnings` → `Plan.warnings`, printed above the steps by
+   `cli.print_plan` and shown in yellow by the TUI plan pane.
+4. **Off unless wired in.** `Agent`/`Torra(path_exists=...)` defaults to None,
+   so tests may name paths that exist only in the test; `cli.build_torra` and
+   the TUI's per-tab `Torra` pass `os.path.exists`.
+
+Seen working live 2026-10-12: it caught `devstral:24b` turning
+`old (copy)` into `old(copy)`, and a guessed `"$HOME/Downloads/Telegram (2)"`
+from `gpt-oss:20b`, which then reached the operator with the warning.
+
+**Persisted format (ask-first, additive):** `audit/*.audit.json` gains
+`warnings` on the plan and the turn. Nothing in torra reads audit files back.
+
+> Guarded by `tests/test_path_warnings.py` (creation order, leniency list,
+> `$HOME`/`$USER`, the tick filter, agent repair and warning, plan, CLI print,
+> TUI tab wiring and plan pane).
+
+### 2.81 The tick prompt says what the step will act on
+
+Real-use finding 4 of 2026-10-11, the cheap half (option B; option A, asking
+at the moment each critical step runs, is `GRADE_TO_A_PLAN.md` D8): the
+operator was asked to approve `rm -r <path>` having seen only the command.
+
+1. **`preview.describe_path`** looks one path up read-only ("directory, 2
+   files in 1 folder, 228.7 MiB, newest change 2026-09-07", "does not exist",
+   "symlink to X", "block device"). It never follows a symlink or reads file
+   contents, and stops counting a tree at 5000 entries or 1 s.
+2. **`preview.preview_targets(step)`** lists every local path the step names
+   or declares in `touches`, 8 at most; a failed lookup is reported inline.
+3. **`StepPlan.preview`** (a `cached_property`, only for steps that need a
+   tick) is looked up the first time it is asked for, so gating never touches
+   the disk. `cli.approve_at_prompt` prints it under "on disk:" before the
+   question; the TUI step card shows it.
+
+It describes the paths written in the plan: not what an earlier step will
+find, and not a live view once first shown. Replaying past plans: 11 steps
+that need a tick, at most 0.01 s each.
+
+**Persisted format (ask-first, additive):** each step in
+`audit/*.audit.json` gains `preview`.
+
+> Guarded by `tests/test_preview.py`. `tests/test_tui.py::test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs`
+> now uses a 60-row screen: the previews push the Run button lower in the
+> scrolling plan pane.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.
@@ -3387,7 +3512,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 774, must stay green
+python3 -m pytest tests/ -q                       # 1650 on 2026-10-12, must stay green
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -3908,6 +4033,20 @@ lands, so the next `drift()` run can tell fixed-going-forward apart from
 still-broken instead of averaging both into one number the way §6.1's
 current 82% necessarily does.
 
+**2026-10-11 and 2026-10-12.** The first real use since 2026-09-18 (four
+`ask` runs) found four problems in one session (§2.78-2.81). Two cheap
+measurements followed:
+
+- **Replay of the 121 past plans in `~/.torra/audit`** through the current
+  checks, no model runs: the tick rate on real traffic is 6% (11 of 183
+  steps), up from 4% before the fail-closed classifier; it found the
+  path check's 18% noise (§2.80) and one past placeholder (§2.79).
+- **Eight live plan-only runs** (scratch workdir, nothing executed): every
+  new check fired correctly at least once on `devstral:24b` or
+  `gpt-oss:20b`, except the placeholder refusal, which no model triggered
+  after the wording change. The placeholder itself and the `$HOME` gap were
+  found this way.
+
 ### 6.3 Undo coverage ceiling -- narrower than it looked, and the one real
 piece is a deliberate boundary, not a TODO
 
@@ -3967,6 +4106,23 @@ finding shrinks rather than accumulates.
 
 ### 6.5 Smaller, known
 
+- **Found 2026-10-12, open.** `cat /var/run/reboot-required`, a read-only
+  probe, rates DANGEROUS: the regex backstop's "host power state" rule
+  matches `reboot` in the file name. It errs toward asking, and live it
+  also cost two repair rounds (a "declare touches" complaint on a `cat`).
+  Loosening the backstop is a security call, left for the Phase 5 re-grade.
+- **Found 2026-10-12, left as is by the owner.** The pre-existing "the
+  `request` line is underspecified" prescreen complaint spent 2 of 3
+  model calls on a correct read-only plan (`ps aux --sort=-%mem`).
+- **Open design question (`GRADE_TO_A_PLAN.md` D8).** Ticks are collected
+  for the whole plan before step 1 runs (`Torra.execute` →
+  `_apply_approvals`), so a plan's own "list it, then delete it" check
+  cannot inform the tick. §2.81 shows what each target is; asking at the
+  moment each step runs is not built. Live, 3 of 6 plans had that
+  find-then-act shape.
+- The missing-path check (§2.80) is a heuristic: it misses paths built at
+  run time and could flag a plan that creates a path in a way it does not
+  recognise (one wasted repair round and a warning).
 - Tree watching misses a same-size same-mtime edit; the SHA256 layer catches it
 - **Reflink shadow copies on ext4 -- investigated 2026-08-26, closed as
   "already correct, nothing to fix."** ext4 (confirmed live: this

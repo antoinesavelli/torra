@@ -44,6 +44,7 @@ scorecard's `--enforce` floors must hold and the suite must stay green.
 | D5 | Stop exporting `.env` into `os.environ`. Read it with `dotenv_values()` and hand the key to `OpenRouterClient` directly. | Yes. | P3.2 |
 | D6 | Commit the untracked routine logs (`AUDIT_LOG.md`, `DEFENSIVE_SCORECARD_LOG.md`), `opencode.json` and the `.gitignore` edit. Push the 10 local commits so CI runs again. CI last ran on 2026-09-03, green. | Yes. Pushing is outward-facing, so it is the owner's action. | P4.8 |
 | D7 | The TUI is one 1,914-line file. It is peripheral tier and ungraded by the scorecard. | Out of scope for this plan unless the owner wants it. | none |
+| D8 **(open, 2026-10-12)** | Ask for each DANGEROUS/CRITICAL tick at the moment that step runs, after the earlier steps' output is shown, instead of collecting every tick before step 1 (`Torra.execute` → `_apply_approvals`). Needs three answers: what a no does mid-run (stop, with completed steps kept and their undo on the stack, is the recommendation), whether the operator must stay at the terminal for plans with ticks, and whether a crash-resume re-asks. | Wait for real-use evidence. `HANDOFF.md` §2.81 (show what each target is at the tick) is built and covers the cheap half; live, 3 of 6 plans had the find-then-act shape this would serve. | none yet |
 
 ## 3. Phases
 
@@ -281,11 +282,14 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 - **P3.6 DONE 2026-10-04 (`HANDOFF.md` §2.69; stale-after-run rather than a time label).** **Machine state is never refreshed.** It is cached once per agent and nothing passes `refresh=True`
   (`torra/agent.py:196`, acknowledged in the comment at `:207`). Mark it stale after every `execute()`,
   re-observe on the next turn, and label the block with its observation time.
-- **P3.7 DONE 2026-10-04 except repair-on-malformed-reply (`HANDOFF.md` §2.67).** **Verify first: model-loop robustness.**
+- **P3.7 DONE 2026-10-04 (`HANDOFF.md` §2.67); repair-on-malformed-reply DONE 2026-10-11 (§2.78).** **Verify first: model-loop robustness.**
   - A reply that is valid JSON but not an object raises an uncaught `AttributeError` (`agent.py:283`, `:424`).
   - Schema errors get no repair round (`agent.py:391`).
   - A dry-run `iterate` reports "verified: yes" (`iterate.py:112-114`).
   - `[skipped]` placeholders are remembered as file contents (`pipeline.py:431-433`).
+  - *As built (2026-10-11).* A `TaskSpec` validation failure is a `MalformedTaskError`, fed back to the model
+    on the shared `max_repairs` budget; out of revisions it is raised as before. Found in real use: `gpt-oss:20b`
+    put a rollback field on a step. Seen fixed live on 2026-10-12.
 - **P3.8 DONE 2026-10-04 (§2.68).** **The remote backend.** `OpenRouterClient`'s docstring understates what leaves the machine
   (`openrouter.py:30-32`): the full system prompt, machine state, file contents and command output go out. Fix
   the docstring, and run P3.1's scrub over outbound messages for remote backends only.
@@ -320,6 +324,22 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 Doc items P4.3 to P4.6 are mechanical and suit the local model (`local-model-subagent`, one atomic edit per
 call, literal before/after text). Everything in Phases 1 to 3 is judgment on the safety path, so it goes to a
 capable model with the owner's approval per item.
+
+### Found in real use, 2026-10-11 and 2026-10-12
+
+Not in the 2026-10-03 grade. The first real use since 2026-09-18, a replay of the 121 past plans in
+`~/.torra/audit` and eight live plan-only runs. All local, none pushed:
+
+| Finding | Status | Where |
+|---|---|---|
+| A step with an unknown field ended the run, no repair round | Done (P3.7) | `HANDOFF.md` §2.78 |
+| A command bash cannot parse, or a template slot such as `<found-path>`, reached the tick | Done: repaired, then refused | §2.79 |
+| A step needing a tick targeted an invented path; nothing checked | Done: repaired, then warned (advisory) | §2.80 |
+| The tick came with the command line only | Half done: the prompt shows what each path is | §2.81, D8 |
+| `cat /var/run/reboot-required` rates DANGEROUS (the backstop matches "reboot" in the file name) | Open; a classifier change, so for the re-grade below | §6.5 |
+
+Two of these add fields to `audit/*.audit.json` (`warnings`, `preview`), an ask-first format change; both are
+additive and nothing reads audit files back.
 
 ### Phase 5: independent re-grade
 

@@ -10,6 +10,8 @@ needs a tick. Three shell shapes that still ran such a program with no tick
 `LD_PRELOAD` or `BASH_ENV`) were found on 2026-10-08 and closed on 2026-10-09,
 each with a test (`HANDOFF.md` §2.75). No independent re-check has run since
 (`GRADE_TO_A_PLAN.md` Phase 5); until one does, treat the classifier as unfinished.
+The plan checks added on 2026-10-11 and 2026-10-12 (`HANDOFF.md` §2.78-2.81) have
+met real models only in plan-only runs, and none of it is pushed yet.
 
 ```bash
 pip install -e .
@@ -40,6 +42,14 @@ present    you see the plan AND every gate verdict, and approve per step
 execute    with rollback armed and preconditions rechecked between steps
 report     back into the conversation, and into telemetry
 ```
+
+Before a plan reaches you, the model gets up to two revision rounds for
+anything torra can check without running it: a task that fails validation,
+a command bash cannot parse, a template slot such as `<found-path>` left in
+a command, a destructive or system-path step, and a step needing a tick that
+names a path which does not exist. The first three end the request if they
+are still there afterwards. A missing path is only a warning, printed above
+the steps, because a plan may create the path itself.
 
 ---
 
@@ -127,6 +137,13 @@ from an earlier step, what it sets up for a later one -- not just the bare
 command. SAFE and CAUTION steps get no box at all, because asking for
 approval on `df -h` trains people to tick without reading, which is how the
 one that mattered gets ticked too.
+
+Each step that needs a tick also says what it will act on, looked up
+read-only when you first see it, for example `on disk: /srv/app/old-logs:
+directory, 41 files in 3 folders, 1.2 GiB, newest change 2026-09-07` or
+`on disk: /srv/app/old-logs: does not exist`. It never follows a symlink or reads a file, and it stops
+counting a large tree after a second. It describes the paths written in the
+plan, not what an earlier step will find.
 
 Ticking some dangerous steps and leaving others declined runs the ticked
 ones and skips the rest -- it no longer rejects the whole plan over one
@@ -503,17 +520,21 @@ wearing a percentage sign.
 
 ## Where the numbers come from
 
-All run on 2026-10-09 at commit `f974a03`.
+All run on 2026-10-12 at commit `f9c0cd6`.
 
 | Result | Measured how |
 |---|---|
-| 1534 tests, all passing | `python3 -m pytest tests/ -q` |
+| 1650 tests, all passing | `python3 -m pytest tests/ -q` |
 | 31 of 31 evasion cases classified DANGEROUS or CRITICAL; 0 of 31 routine commands needed a tick | `tests/test_gates.py::TestSafety` |
 | 150 commands that must ask (55 unknown or unproven, 9 critical, 70 from a source-reading review, 16 from the 2026-10-08 probe) all ask; 138 read-only or routine commands run unticked | `tests/test_known_programs.py` |
 | Clarifier flagged 18 of 18 ambiguous requests and 1 of 10 specific ones | `tests/test_gates.py::TestClarifier` |
+| On the 183 steps of the 121 past plans in the owner's `~/.torra/audit`: 11 need a tick (6%; 7 did when they ran); the syntax check flags 2 steps, both broken; the missing-path check flags 5 plans (4%); the placeholder check flags 1 step, a real slot | Replaying those plans through the current checks, no model runs, nothing executed |
+| Eight plan-only runs on `devstral:24b` and `gpt-oss:20b`: the schema repair, the syntax check and the missing-path check each fired correctly at least once; the placeholder refusal was not triggered | Live, against the real models, in a scratch workdir, nothing executed (6 runs at `3aae981`, 2 at `f9c0cd6`) |
 
-Every one of those came from data generated in testing, not from real use. That
-is the single largest caveat on this whole project and it is not resolved.
+The first four rows came from data generated in testing, not from real use.
+The last two touch real traffic, but it is one person's machine and a few
+hundred tasks. That is the single largest caveat on this whole project and it
+is not resolved.
 
 The six-phase prototype this package was consolidated from (`legacy/`) has
 been removed from the repository. A handful of numbers previously cited here
@@ -552,14 +573,21 @@ isn't one, so those numbers are no longer claimed here at all.
    either. The plan pane names which steps those are. See `HANDOFF.md` §6.3.
 4. **Tree watching misses a same-size same-mtime edit.** The declared-path
    SHA256 layer catches it, so `touches:` still matters.
+5. **You tick before the plan's own checks run.** Every tick is collected
+   before step 1, so in a "list it, then delete it" plan the listing cannot
+   inform the tick. The prompt now says what each target is; asking at the
+   moment each step runs is an open decision (`GRADE_TO_A_PLAN.md` D8).
+6. **A read-only probe can need a tick.** `cat /var/run/reboot-required`
+   rates DANGEROUS because the regex backstop matches "reboot" in the file
+   name. It errs toward asking. See `HANDOFF.md` §6.5.
 
 ---
 
 ## How it is built
 
 torra is designed and directed by its owner. AI coding agents write the code,
-and the test suite verifies their work. Up to commit `f974a03` (2026-10-09),
-151 of the 161 commits on `main` carry a `Co-Authored-By:` trailer naming a Claude model.
+and the test suite verifies their work. Up to commit `f9c0cd6` (2026-10-12),
+158 of the 168 commits on `main` carry a `Co-Authored-By:` trailer naming a Claude model.
 The other 10 carry no trailer, which says nothing either way about who wrote them.
 
 ---
@@ -570,6 +598,6 @@ The other 10 carry no trailer, which says nothing either way about who wrote the
 python3 -m pytest tests/ -q
 ```
 
-On 2026-10-09 (commit `f974a03`) this ran 1534 tests, all passing.
+On 2026-10-12 (commit `f9c0cd6`) this ran 1650 tests, all passing.
 Nothing needs a live Ollama, systemd, or network. Every external dependency is
 an injected callable, which is also how you wire it to the real thing.
