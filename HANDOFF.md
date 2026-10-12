@@ -3485,6 +3485,27 @@ that need a tick, at most 0.01 s each.
 > now uses a 60-row screen: the previews push the Run button lower in the
 > scrolling plan pane.
 
+### 2.82 The CRITICAL repair round may narrow a command, never the request
+
+Found 2026-10-12, the owner's first interactive run with §2.78-2.81: asked to
+delete a folder holding 3 files, `devstral:24b` was told twice to "find a
+narrower command or a safer approach" for `rm -rf` and settled on `rmdir`,
+"delete the folder if it is empty", which failed ("Directory not empty").
+The preview (§2.81) had shown the 3 files at the tick.
+
+The round stays. Its text, now `prompts.CRITICAL_REPAIR` (moved out of
+`agent.py` with `prompts.MISSING_PATH_REPAIR`, which kept `agent.py` under
+500 functional lines), says to use a narrower command only if it still does
+everything the request asks (`rm -r` without `-f`, say), and not to change
+what the request asks for to avoid the rating: the operator ticks it.
+
+One confirm run of the same request: one repair round instead of two, and
+the plan reached the tick as `rm -r '<folder>'` (DANGEROUS there, not
+CRITICAL), with the preview showing the 3 files.
+
+> Guarded by `tests/test_agent.py::test_the_critical_complaint_says_not_to_change_what_the_request_asks_for`;
+> `test_a_critical_proposal_is_repaired_before_the_operator_sees_it` still holds.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

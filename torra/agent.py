@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from . import prompts
 from .core import (
     ContextCompressor,
     ContextStep,
@@ -499,17 +500,13 @@ class Agent:
         complaints = [f"- {why}" for why in self._unrunnable(spec)]
         if missing := self._missing_paths(spec):
             complaints += [f"- {why}" for why in missing]
-            complaints.append(
-                "- Do not guess a path. If the request names it, copy it exactly, in single "
-                "quotes; otherwise use one you were shown in the machine state, or ask the "
-                "operator with intent 'ask'. Steps cannot pass output to each other: a lookup "
-                "and the action on its result belong in one command (`find ... -exec ... {} +`).")
+            complaints.append(f"- {prompts.MISSING_PATH_REPAIR}")
         for step in spec.to_steps(dry_run=True):
             verdict = self.safety.classify(step.command)
             if verdict.level.value == "critical":
                 complaints.append(
                     f"- step '{step.step_id}' is CRITICAL: {verdict.reasons[0]}. "
-                    "Find a narrower command or a safer approach.")
+                    + prompts.CRITICAL_REPAIR)
             if verdict.level.value in ("dangerous", "critical") and not step.touches:
                 complaints.append(
                     f"- step '{step.step_id}' is destructive but declares no "

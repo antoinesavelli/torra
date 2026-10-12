@@ -252,6 +252,26 @@ def test_a_critical_proposal_is_repaired_before_the_operator_sees_it() -> None:
     assert "rm -rf" not in " ".join(turn.spec.commands())
 
 
+def test_the_critical_complaint_says_not_to_change_what_the_request_asks_for() -> None:
+    """Seen live 2026-10-12: asked to delete a folder holding 3 files, devstral:24b was told twice
+    to "find a narrower command or a safer approach" for `rm -rf`, and settled on `rmdir`, which
+    cannot delete a folder that is not empty. The repair round stays; it must not trade what the
+    operator asked for against the rating."""
+    folder = "/var/lib/old (copy)"
+    transport, chats = _recording(
+        plan_reply("t", f"delete {folder}",
+                   [{"id": "rm", "run": f"rm -rf '{folder}'", "touches": [folder]}]))
+
+    build_agent(transport, max_repairs=1).converse(f"delete the folder '{folder}'")
+
+    assert len(chats) == 2, "the CRITICAL repair round is kept"
+    complaint = next(m["content"] for m in chats[1]["messages"]
+                     if m["role"] == "user" and "is CRITICAL" in m["content"])
+    assert "narrower command" in complaint
+    assert "Do not change what the request asks for" in complaint
+    assert "the operator ticks it" in complaint
+
+
 def test_a_destructive_step_without_touches_is_repaired() -> None:
     """No `touches` means no snapshot means no undo. That is worth one round."""
     agent = build_agent(scripted(

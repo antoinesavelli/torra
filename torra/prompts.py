@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["PLAN_SCHEMA", "SYSTEM_PROMPT", "untrusted_block"]
+__all__ = ["CRITICAL_REPAIR", "MISSING_PATH_REPAIR", "PLAN_SCHEMA", "SYSTEM_PROMPT",
+           "untrusted_block"]
 
 
 _ANGLES = str.maketrans({"＜": "<", "﹤": "<", "＞": ">", "﹥": ">"})
@@ -154,3 +155,21 @@ Rules that matter:
 
 Output schema:
 """ + PLAN_SCHEMA
+
+
+#: Sent back with a CRITICAL step. The round stays, but live (2026-10-12) "find a narrower command or
+#: a safer approach" alone turned "delete this folder" into `rmdir`, which cannot delete a non-empty
+#: folder: the model traded what was asked for against the rating.
+CRITICAL_REPAIR = (
+    "Use a narrower command if one still does everything the request asks (`rm -r` without `-f`, "
+    "say). Do not change what the request asks for to avoid this rating: if the request needs this "
+    "step, keep it, and the operator ticks it.")
+
+#: Sent back with a step that names a missing path (`path_warnings`). Live (2026-10-12), "use a
+#: command that finds it" produced find-then-act with a literal `<found-path>`: steps cannot pass
+#: output to each other.
+MISSING_PATH_REPAIR = (
+    "Do not guess a path. If the request names it, copy it exactly, in single quotes; otherwise use "
+    "one you were shown in the machine state, or ask the operator with intent 'ask'. Steps cannot "
+    "pass output to each other: a lookup and the action on its result belong in one command "
+    "(`find ... -exec ... {} +`).")
