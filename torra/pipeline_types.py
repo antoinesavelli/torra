@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
+from pathlib import Path
 from typing import Any
 
 from .agent import Turn
@@ -16,7 +17,13 @@ from .core import Step, StepResult, TaskSpec
 from .gates import PreconditionReport, RiskLevel, RollbackReport, UndoAction, Verdict
 from .preview import preview_targets
 
-__all__ = ["Stage", "Outcome", "StepPlan", "Plan", "RunResult"]
+__all__ = ["DEFAULT_WORKDIR", "Stage", "Outcome", "StepPlan", "Plan", "RunResult"]
+
+
+#: Where torra keeps its audit, session, resume and shadow data. Defined here rather than in
+#: pipeline.py (which re-exports it for `cli` and `tui`) to keep pipeline.py under the 500-line
+#: modularity cap; the default can still only be changed in one place.
+DEFAULT_WORKDIR = Path.home() / ".torra"
 
 
 class Stage(str, Enum):

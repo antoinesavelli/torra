@@ -56,16 +56,12 @@ from .gates import (
     VerifiedRollback,
 )
 from .pipeline_rollback import declared_undos, drop_edited_undos, sweep
-from .pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
+from .pipeline_types import DEFAULT_WORKDIR, Outcome, Plan, RunResult, Stage, StepPlan
 from .read_memory import remember_step_reads
 from .telemetry import TaskLogger
 from .telemetry.scrub import redact_tree
 
 __all__ = ["DEFAULT_WORKDIR", "Stage", "Outcome", "StepPlan", "Plan", "RunResult", "Torra"]
-
-#: Where torra keeps its audit, session, resume and shadow data. `cli` and `tui` import this
-#: rather than rebuild it, so the default can only be changed in one place.
-DEFAULT_WORKDIR = Path.home() / ".torra"
 
 
 class Torra:
