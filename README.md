@@ -1,6 +1,6 @@
 # torra
 
-[![CI](https://github.com/paramotrading/torra/actions/workflows/ci.yml/badge.svg)](https://github.com/paramotrading/torra/actions/workflows/ci.yml)
+[![CI](https://github.com/antoinesavelli/torra/actions/workflows/ci.yml/badge.svg)](https://github.com/antoinesavelli/torra/actions/workflows/ci.yml)
 
 A local model proposes. Five gates decide. You approve. Then it runs.
 
@@ -58,7 +58,7 @@ the steps, because a plan may create the path itself.
 Needs Python 3.10+, Ollama running locally with at least one model pulled.
 
 ```bash
-git clone https://github.com/paramotrading/torra.git ~/torra
+git clone https://github.com/antoinesavelli/torra.git ~/torra
 cd ~/torra
 python3 -m venv .venv
 source .venv/bin/activate
