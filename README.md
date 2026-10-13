@@ -11,7 +11,7 @@ needs a tick. Three shell shapes that still ran such a program with no tick
 each with a test (`HANDOFF.md` §2.75). No independent re-check has run since
 (`GRADE_TO_A_PLAN.md` Phase 5); until one does, treat the classifier as unfinished.
 The plan checks added on 2026-10-11 and 2026-10-12 (`HANDOFF.md` §2.78-2.81) have
-met real models only in plan-only runs, and none of it is pushed yet.
+met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 
 ```bash
 pip install -e .

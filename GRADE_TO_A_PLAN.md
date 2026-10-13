@@ -42,7 +42,7 @@ scorecard's `--enforce` floors must hold and the suite must stay green.
 | D3 | Resume file format gains `in_progress` and a per-step `command_digest` (persisted-state change). Old files lacking them mean "start fresh". | Yes. | P2.4 |
 | D4 **(decided yes, 2026-10-09)** | CLI `ask` shows the plan and asks once ("run this plan? [y/N]") before running anything, with `--yes` to skip. `ask --verify` fix rounds always ask. | Yes. Adds a human step, removes none. | P3.4 |
 | D5 | Stop exporting `.env` into `os.environ`. Read it with `dotenv_values()` and hand the key to `OpenRouterClient` directly. | Yes. | P3.2 |
-| D6 | Commit the untracked routine logs (`AUDIT_LOG.md`, `DEFENSIVE_SCORECARD_LOG.md`), `opencode.json` and the `.gitignore` edit. Push the 10 local commits so CI runs again. CI last ran on 2026-09-03, green. | Yes. Pushing is outward-facing, so it is the owner's action. | P4.8 |
+| D6 **(done, 2026-10-13)** | Commit the untracked routine logs (`AUDIT_LOG.md`, `DEFENSIVE_SCORECARD_LOG.md`), `opencode.json` and the `.gitignore` edit. Push the 10 local commits so CI runs again. CI last ran on 2026-09-03, green. Done: committed in `2ebb3a2` on 2026-10-04; pushed on 2026-10-13 to the new public repo `antoinesavelli/torra` instead of `paramotrading`; CI green at `2d5f82b`. | Yes. Pushing is outward-facing, so it is the owner's action. | P4.8 |
 | D7 | The TUI is one 1,914-line file. It is peripheral tier and ungraded by the scorecard. | Out of scope for this plan unless the owner wants it. | none |
 | D8 **(open, 2026-10-12)** | Ask for each DANGEROUS/CRITICAL tick at the moment that step runs, after the earlier steps' output is shown, instead of collecting every tick before step 1 (`Torra.execute` → `_apply_approvals`). Needs three answers: what a no does mid-run (stop, with completed steps kept and their undo on the stack, is the recommendation), whether the operator must stay at the terminal for plans with ticks, and whether a crash-resume re-asks. | Wait for real-use evidence. `HANDOFF.md` §2.81 (show what each target is at the tick) is built and covers the cheap half; live, 3 of 6 plans had the find-then-act shape this would serve. | none yet |
 
@@ -317,7 +317,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 - **P4.7 DONE as each fix landed (§2.59 to §2.70).** **HANDOFF.md.** Add the §2 invariants from P1.1, P1.2, P2.4 ("a step in flight at a crash never re-runs
   by itself") and P3.3 ("untrusted content never carries instruction authority"), each with its test. Add §5
   entries per fix and update §6.
-- **P4.8** Carry out D6.
+- **P4.8 DONE 2026-10-13.** Carry out D6.
 - **P4.9 DONE 2026-10-04 (`40bede7`).** `AUDIT_FINDINGS.md` says open findings get full write-ups there. Add one line pointing at this plan
   as the open-findings tracker instead of duplicating it, then shrink each entry as its item lands.
 
@@ -328,7 +328,7 @@ capable model with the owner's approval per item.
 ### Found in real use, 2026-10-11 and 2026-10-12
 
 Not in the 2026-10-03 grade. The first real use since 2026-09-18, a replay of the 121 past plans in
-`~/.torra/audit` and eight live plan-only runs. All local, none pushed:
+`~/.torra/audit` and eight live plan-only runs. All of it was pushed on 2026-10-13:
 
 | Finding | Status | Where |
 |---|---|---|
