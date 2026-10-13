@@ -353,6 +353,101 @@ Exit criteria:
 - `--enforce` green and the full suite passing;
 - CI green on the pushed head.
 
+#### Result, 2026-10-13: B+ (87), exit not met
+
+Graded commit `2d5f82b4399e7dcb33a6a675ee74f40508bbcf79`, checked out in a detached worktree so peer edits
+could not move it. `b7931bd` (docs only: this file, `README.md`, `RENAME_TO_TORRA.md`) landed during the
+grade and changes no code. Done by a session that wrote none of the fixes. No `/grade` skill exists on this
+machine, so the section 1 table is the rubric, same domains, weights and bands; every `file:line` below is at
+`2d5f82b`.
+
+| Domain | Weight | Was | Now | Letter | Moved since the D+ | Deductions |
+|---|---|---|---|---|---|---|
+| Purpose Fidelity | 15% | 72 | 86 | B | P1.1, P1.2, P1.3 and P3.4 closed both broken promises | -6 P5.1/P5.2 (read-only promise still leaks); -4 the clarifier asks on ~18% of requests a human calls ambiguous (`README.md:551-563`); -2 every tick precedes step 1's output (D8, `HANDOFF.md` §6.5); -2 P5.3 false ticks on read-only probes |
+| Security and Privacy | 25% | 60 | 82 | B- | cap lifted: unknown means ask (§2.60, §2.72, §2.75); every persisted string scrubbed (§2.62, §2.74, §2.76); `.env` withheld from steps (§2.68); untrusted text delimited (§2.66, §2.73) | -8 P5.1; -6 P5.2; -4 the blind red-team has not run, so fail-closed is confirmed only by this pass's sample |
+| Domain Correctness (shell/OS semantics) | 15% | 66 | 88 | B+ | process-group timeout and the ERR trap (§2.61), service undo from argv with `is-enabled` (§2.63), resolver fixes for `2>&1`, `do`/`then`, heredocs, `eval`, nesting | -5 P5.1 (bash's variable-assigning builtins not modelled); -4 P5.3 (backstop words matched inside operands); -3 P5.2 (`hostname` operand semantics) |
+| AI and Agentic | 15% | 74 | 87 | B+ | P3.3, P3.6, P3.7; repair rounds that refuse or warn (§2.78-§2.80); the CRITICAL repair narrows only the command (§2.82) | -6 live ambiguity false negatives, fix unconfirmed (`README.md:551-563`); -3 the model-bench injection scenario is not built (P3.3); -2 `Agent.converse` is CCN 20 (`torra/agent.py:311`); -2 the 10-11/12 plan checks have met real models only in plan-only runs (`README.md:13-14`) |
+| Systems and Reliability | 15% | 60 | 92 | A- | cap lifted: a rollback reverses only what ran (§2.59, `tests/test_pipeline.py:1053`, `:1100`); crash resume never re-runs a step in flight (§2.64, §2.71); bounded output, shadow-dir owner, TUI precondition (§2.61, §2.63) | -3 D8; -2 raw-device `dd`/`mkfs` and migrations need a hand-written rollback (`README.md:568-573`); -2 the missing-path check is a heuristic (§6.5); -1 tree watch misses a same-size same-mtime edit |
+| Software | 10% | 84 | 88 | B+ | 1651 tests pass, mypy clean on 44 files, ruff 0, scorecard A (GPA 3.83) | -4 `torra/gates/safety.py` is 779 functional LOC, over the 500 cap (Modularity B); -4 P5.4; -2 14 functions nested to depth 3 at CCN 10+; -2 the 1,914-line TUI (D7) |
+| Governance | 5% | 80 | 90 | A- | P4.3 to P4.9 done, D6 pushed, CI on the public repo, invariants each name a guarding test | -4 P5.4 (`AGENTS.md:173` states a CCN fact the scorecard contradicts); -3 Phase 5's red-team is not done; -3 this grade ran without a `/grade` skill, against a hand-applied rubric |
+| **Overall** | | **68 D+** | **87** | **B+** | | weighted sum 86.75 |
+
+Exit criteria:
+- every domain at 93 or more: **no**, none is;
+- no open critical or major finding: **no**, P5.1 and P5.2 are major (no critical found);
+- `--enforce` green and the full suite passing: **yes**, 1651 passed, scorecard A, exit 0;
+- CI green on the pushed head: **yes**, run 38394016110 on `2d5f82b`. `b7931bd` is not pushed.
+
+**Blind red-team: not run.** This session's attempt to brief a red-team subagent was halted by the model
+provider's content filter before any command was written or classified, and the session did not retry it.
+There are no 30 commands or verdicts to record. It still has to run, by the owner or another session, through
+`torra check` on a task file of 30 steps.
+
+**Source-reading pass: partial.** Covered: the unknown-program fallback, the unwrap limit, assignment and
+rebinding builtins, every name in `READ_ONLY_PROGRAMS` (`torra/gates/known_programs.py:25-37`) against the
+program's write options, and the regex backstop. Probes were classified in-process only; nothing ran. Not
+covered: value-taking and attached flags in the per-program judges (`known_programs.py:86-112` helpers and
+the judge table from `:400`). The unknown-program fallback holds (`frobnicate --help` asks), and a line
+within the unwrap limit is judged by what it runs.
+
+**P5.1 Bash builtins that assign a variable rebind `PATH` and `BASH_ENV` with no tick.** Major; ask-first
+(the classifier).
+- *What's wrong.* §2.75 made `export`, `declare -x`, `typeset -x`, `local` and `readonly` assignments count
+  like a leading `NAME=value`. Three other ways bash assigns a variable do not count. `read NAME` and
+  `printf -v NAME` are listed read-only, and `declare -n` binds a nameref whose target is never checked.
+  `PATH` is already exported in a step's environment, so a later bare name resolves through the new value
+  and runs a program torra never judged. That is P1.3 item 3's shape, through a different builtin.
+- *Evidence.* `ASSIGNMENT_BUILTINS` (`torra/gates/safety.py:174`) omits `read` and `printf`;
+  `_note_builtin_assignments` (`safety.py:395-399`) notes only `NAME=` operands, so `declare -n P=PATH` notes
+  `P`; `printf` and `read` are in `READ_ONLY_PROGRAMS` (`known_programs.py:29`, `:30`). Classified SAFE with
+  no tick: `read PATH <<< /tmp/x; ls`, `printf -v PATH %s /tmp/x; ls`, `declare -n P=PATH; P=/tmp/x; ls`,
+  and `read -r BASH_ENV <<< /tmp/x/env; export BASH_ENV; ls`. `mapfile` asks, as an unknown program.
+- *Proposed fix.* Treat each `read` operand name (and `-a NAME`), the `printf -v` name, and a nameref's
+  target (`declare`/`typeset`/`local -n`) as an assignment through `_note_assignment`.
+- *Regression test.* The four probes join `REBINDS_A_NAME` (`tests/test_known_programs.py:385`), failing
+  first. Harmless neighbours (`read -r line <<< x; echo "$line"`, `printf -v n %s 1`) join `STILL_RUN`
+  (`:366`) so routine use stays unticked.
+
+**P5.2 `hostname` is listed read-only but sets the host name.** Major; ask-first (the classifier).
+- *What's wrong.* With an operand, `-F`/`--file` or `-b`, `hostname` changes the system's host name. It is
+  a system-altering command a model would plausibly propose ("rename this box"), and it gets no tick.
+- *Evidence.* `hostname` is in `READ_ONLY_PROGRAMS` (`known_programs.py:31`) with no judge of its own; only
+  `hostnamectl` has one (`:444`). `hostname newbox` and `hostname -F /tmp/x/name` are SAFE; `sudo hostname
+  newbox` is CAUTION from the backstop's `sudo` row (`safety.py:227`), still no tick.
+- *Proposed fix.* Move `hostname` to a judge that is read-only with no operand and display flags only
+  (`-s -f -d -i -I -A -a -y`); an operand or any other flag asks.
+- *Regression test.* `hostname newbox`, `sudo hostname newbox`, `hostname -F /etc/hostname` and
+  `hostname --file=/x` need a tick; `hostname`, `hostname -I` and `hostname -f` stay SAFE.
+
+**P5.3 Decision on `cat /var/run/reboot-required`: a defect, minor, not acceptable as fail-closed.**
+Ask-first (it loosens a guard, so the owner decides).
+- *What's wrong.* The backstop's power-state and `rm` rows match words anywhere in the raw text, including
+  file names and search terms, even when every command resolved cleanly. The false ticks land on exactly the
+  read-only diagnostics an operator asks for ("does it need a reboot", "why did it shut down"). Over-ticking
+  trains rubber-stamping (§2.4), and live it cost two repair rounds (§6.5).
+- *Evidence.* The rows are `safety.py:221` and `:223`; `classify()` runs them on every command
+  (`safety.py:937`), though the table's own comment (`safety.py:212-213`) says it is for when parsing fails.
+  DANGEROUS today: `cat /var/run/reboot-required`, `test -f /var/run/reboot-required && echo yes`,
+  `journalctl -b -1 -n 50 | grep -i shutdown`, `systemctl status systemd-halt.service`, `last -x shutdown
+  reboot | head`, and `ls /usr/share/doc/rm-protection` (the `rm` row).
+- *Proposed fix.* Apply those two rows only when `resolve()` recorded a parse failure or hit the unwrap limit.
+  The argv layer already covers the real programs: with the power row removed on a throwaway copy, `reboot`,
+  `/sbin/shutdown -h now`, `sudo systemctl reboot`, `systemctl poweroff` and `sudo halt` all stayed
+  DANGEROUS (argv table `safety.py:103-106` and the `systemctl` judge), and only the `cat` changed, to SAFE.
+- *Regression test.* Those five stay DANGEROUS; the six read-only probes are SAFE; a line that fails to parse
+  and contains `reboot` or `rm` still asks.
+
+**P5.4 Two decision-path functions break the CCN ceiling that `AGENTS.md` says nothing breaks.** Minor.
+- *What's wrong.* `AGENTS.md:173` says no graded-tier function reaches CCN 15. The scorecard at `2d5f82b`
+  lists two: `Agent.converse` at 20 (`torra/agent.py:311`) and `describe_path` at 15 (`torra/preview.py:73`).
+  `converse` grew with the repair rounds of §2.78 to §2.82.
+- *Proposed fix.* Extract the repair-round branches of `converse` into helpers and split `describe_path`;
+  until then, correct the sentence in `AGENTS.md`.
+- *Regression test.* `defensive_coding_report.py --verbose` lists no decision-path function at CCN 15 or
+  more.
+
+**What closes Phase 5.** Fix P5.1 and P5.2, decide P5.3, run the blind red-team, then re-grade.
+
 ## 4. Projected grades (estimates)
 
 | Domain | Now | After P1 | After P2 | After P3 | After P4 + P5 |
