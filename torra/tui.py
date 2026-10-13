@@ -46,7 +46,7 @@ from textual.widgets.option_list import Option
 
 from .core import ContextStep, OllamaStatus, SessionMeta, SessionStore, detect_accelerator
 from .gates import RiskLevel, StateVerifier, UndoGenerator
-from .pipeline import Outcome, Plan, RunResult, StepPlan, Torra
+from .pipeline import DEFAULT_WORKDIR, Outcome, Plan, RunResult, StepPlan, Torra
 from .telemetry import CrashReporter, crash_summary, health_summary
 
 __all__ = ["TorraApp", "run_tui"]
@@ -809,7 +809,7 @@ class TorraApp(App):
                  workdir: Path | None = None) -> None:
         """Use the injected torra for tests (as the first tab), or build a default one."""
         super().__init__()
-        initial_torra = torra or Torra(workdir=workdir or Path.home() / ".torra")
+        initial_torra = torra or Torra(workdir=workdir or DEFAULT_WORKDIR)
         self.ollama = initial_torra.ollama
         self.backends = initial_torra.agent.backends
         self.session_store = SessionStore(initial_torra.workdir)

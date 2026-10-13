@@ -14,6 +14,8 @@ The package. Model proposes, five gates decide, the operator approves.
 | `pipeline_rollback.py` | Rollback bookkeeping for one `execute()`: classify the declared entries, skip undos for files changed outside torra, unwind the stack (`HANDOFF.md` §2.59) |
 | `iterate.py` | `iterate()`, a bounded edit -> verify -> fix loop -- ordinary `plan()`/`execute()` turns on one conversation, nothing safety-critical touched (`cli.py`'s `torra ask --verify`) |
 | `dependency_warnings.py` | Best-effort, pre-`execute()` check for an approved step depending on a declined one -- never blocks, so it isn't under `gates/` |
+| `path_warnings.py` | Best-effort, pre-`execute()` check for a step that names a local path which is not there -- reads the argv `SafetyClassifier.resolve` produces, never blocks, so it isn't under `gates/` |
+| `preview.py` | What a step will act on, looked up on disk (kind, file count, size), for the tick prompt -- read-only, never follows a symlink |
 | `read_memory.py` | A completed read-only step's real output entering the model's own context, tagged by path, and the model later saying a path no longer helps |
 | `cli.py` | Entry points: `torra`, `ask`, `plan`, `run`, `check`, `doctor`, `evidence`, `label` |
 | `tui.py` | The terminal interface: one tab per session, chat pane plus the gated plan pane, pickers to reopen a past session or choose a model |

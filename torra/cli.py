@@ -33,7 +33,7 @@ from .core import (
 from .core.process import WITHHELD_ENV
 from .gates import Clarifier, SafetyClassifier, StateVerifier
 from .iterate import Approve, iterate
-from .pipeline import Outcome, Plan, RunResult, Torra
+from .pipeline import DEFAULT_WORKDIR, Outcome, Plan, RunResult, Torra
 from .telemetry import (
     CorpusExporter,
     CrashReporter,
@@ -47,7 +47,6 @@ from .telemetry import (
 __all__ = ["build_parser", "main"]
 
 EXIT_OK, EXIT_USAGE, EXIT_BLOCKED, EXIT_FAILED = 0, 1, 2, 3
-DEFAULT_WORKDIR = Path.home() / ".torra"
 
 #: Every Outcome value maps to an exit code, including "needs_answer" --
 #: unreachable at every current .get() call site (cmd_ask's while loop

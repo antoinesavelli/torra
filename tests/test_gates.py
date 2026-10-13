@@ -835,22 +835,24 @@ class TestUndoGeneration:
 
         assert [c[1] for c in calls] == ["unmask", "disable", "stop"]
 
-    def test_package_undo_is_unsafe_by_design(self) -> None:
+    def test_package_undo_is_unsafe_by_design(self, tmp_path: Path) -> None:
         """Removing packages cascades through dependencies, so it asks first."""
         installed = {"curl", "git"}
-        generator = UndoGenerator(package_probe=lambda: set(installed))
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
+                                  package_probe=lambda: set(installed))
         action = generator.for_step(Step("i", command="sudo apt install -y nginx"))[0]
         assert action.safe is False
         installed.add("nginx")
         assert _verify(action) is False
 
-    def test_a_non_debian_package_manager_gets_no_undo(self) -> None:
+    def test_a_non_debian_package_manager_gets_no_undo(self, tmp_path: Path) -> None:
         """Found in a full-file audit: the pattern used to also match dnf
         and pacman, but the generated undo always ran `apt-get remove`
         regardless -- a working-looking UndoAction that would fail (or
         remove the wrong packages) the moment it actually ran. Naming the
         step uncovered is honest; a broken undo that looks safe is not."""
-        generator = UndoGenerator(package_probe=lambda: {"curl"})
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
+                                  package_probe=lambda: {"curl"})
         actions = generator.for_step(Step("i", command="sudo dnf install -y nginx"))
         assert actions == []
 
@@ -1357,8 +1359,9 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         assert any("cannot be auto-inverted" in s for s in generator.skipped)
 
     def test_a_captured_packages_snapshot_serializes_its_payload_sorted(
-            self) -> None:
-        generator = UndoGenerator(package_probe=lambda: {"zeta", "alpha", "mid"})
+            self, tmp_path: Path) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
+                                  package_probe=lambda: {"zeta", "alpha", "mid"})
         action = generator.capture_packages("nginx")
         assert action.snapshot is not None
         assert action.snapshot.to_dict()["payload"] == ["alpha", "mid", "zeta"]

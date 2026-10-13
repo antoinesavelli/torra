@@ -185,7 +185,7 @@ Full param + return type hints on new/edited code.
 
 ## Key Entry Points
 
-Run from `/mnt/ParamoStorage/torra` and use `.venv/bin/python` wherever a command says `python3`: system Python lacks the
+Run from `/mnt/ParamoStorage/AIModels/torra` and use `.venv/bin/python` wherever a command says `python3`: system Python lacks the
 dependencies, so `tests/` fails at collection without the venv.
 
 | Task | Command |

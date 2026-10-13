@@ -2,16 +2,15 @@
 torra
 A Pop-OS terminal agent: a local model proposes, five gates decide, you approve.
 
-Six phases built the gates and never plugged a model into them. This package is
-the consolidation of those eighteen modules into six, with the agent loop that
-was always missing.
-
-    core       execution primitives, conflict detection, context, Ollama client
+    core       execution primitives, conflict detection, context, the model backends
     gates      the five behavioural guardrails
     agent      the model loop that turns a conversation into a proposal
     pipeline   the seven stages a request travels through
     telemetry  what torra records about itself
     tui        the terminal interface
+
+`README.md` in this directory maps every file, including the small advisory modules
+(`path_warnings`, `preview`, `dependency_warnings`) that sit beside the gates.
 """
 
 from .agent import Agent, Intent, Turn

@@ -61,7 +61,11 @@ from .read_memory import remember_step_reads
 from .telemetry import TaskLogger
 from .telemetry.scrub import redact_tree
 
-__all__ = ["Stage", "Outcome", "StepPlan", "Plan", "RunResult", "Torra"]
+__all__ = ["DEFAULT_WORKDIR", "Stage", "Outcome", "StepPlan", "Plan", "RunResult", "Torra"]
+
+#: Where torra keeps its audit, session, resume and shadow data. `cli` and `tui` import this
+#: rather than rebuild it, so the default can only be changed in one place.
+DEFAULT_WORKDIR = Path.home() / ".torra"
 
 
 class Torra:
@@ -93,7 +97,7 @@ class Torra:
         """Wire the workdir, model backend, and gate implementations (all injectable)."""
         # `path_exists` switches on the agent's missing-path check (`path_warnings`); None, the
         # default, leaves it off, so a test plan may name a path that only exists in the test.
-        self.workdir = Path(workdir) if workdir is not None else Path.home() / ".torra"
+        self.workdir = Path(workdir) if workdir is not None else DEFAULT_WORKDIR
         self.audit_dir = self.workdir / "audit"
         self.audit_dir.mkdir(parents=True, exist_ok=True)
 
