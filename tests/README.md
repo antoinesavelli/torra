@@ -24,6 +24,7 @@ or network -- every external dependency is an injected callable (see
 | `test_secrets.py` | Which secret-looking strings `redact_secrets` scrubs, and which credential files need a tick to read |
 | `test_instruction_files.py` | `CLAUDE.md` stays a one-line import stub, every read-first trigger target exists and is indexed, `AGENTS.md` stays under its byte budget |
 | `test_knowledge_refs.py` | Agent-facing docs cite only `HANDOFF.md` sections, guard tests and `AGENTS.md` area-map paths that still exist |
+| `test_knowledge_questions.py` | `agents/knowledge_questions.yaml` is well formed and leaks no answer, each `expected` passes its own regexes, and every `must_contain` fact is still in the docs the question cites |
 
 ```bash
 python3 -m pytest tests/ -q              # every test passes; the count never drops

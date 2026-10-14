@@ -1,0 +1,224 @@
+# Knowledge questions: the "can a fresh agent orient correctly?" regression set.
+#
+# Pins the facts about torra most likely to rot: the invariants, the guardrails and the
+# single-owner rules. Two uses:
+#   1. tests/test_knowledge_questions.py (CI, no model): every `must_contain` regex must match
+#      the concatenated text of the question's `sources`, and the `expected` answer must itself
+#      pass its own regexes. It fails when a doc and the expected answer drift apart.
+#   2. Grading a FRESH agent's answers to `question`, given without this file, against
+#      `must_contain` (all required) and `must_not_contain` (any one marks a wrong answer).
+#
+# A question must not contain any of its own expected facts. When a fact legitimately changes,
+# update the doc that owns it AND this file in the same change.
+#
+# Fields: id, question, expected (prose, for a human or judge), must_contain (regexes,
+# case-insensitive, all required), must_not_contain (optional regexes for a wrong answer; not
+# checked against sources), sources (repo-relative files that hold the fact today).
+#
+# Regex rules: no `**`, backticks or literal line breaks. Each regex is an alternation of the
+# fact's key forms, so a correct paraphrase passes and so does the docs' own wording; separate
+# words with \s+ or \W+ and cross line breaks with [\s\S]{0,n} so re-wrapped prose and markdown
+# changes do not break them. A must_not_contain regex must anchor to a POSITIVE wrong claim:
+# "never treated as approved" is a correct answer, so negations are excluded with a lookbehind
+# such as (?<!never\s)(?<!not\s)(?<!n.t\s). Sources are the canonical owner of each fact, never
+# a plan, audit log or other temporary file.
+
+- id: undo-states
+  question: "When torra rolls back after a step goes wrong, which statuses can an undo that actually ran end in, and what does the result record about verification when the undo has no verifier?"
+  expected: "Three statuses for an undo that ran: undone, unverified (the undo ran but verification says the prior state was not restored) and failed (the undo raised); never collapsed to two. An undo with no verifier records verified=None: nothing was checked. (The code also has a cancelled status for an unsafe undo the operator declined.)"
+  must_contain:
+    - '\bunverified\b'
+    - '\bundone\b[\s\S]{0,40}\b(unverified|failed)\b|\b(unverified|failed)\b[\s\S]{0,40}\bundone\b'
+    - '\bverified\W*(=|is|set\s+to)?\W*none\b|nothing\s+(was\s+|is\s+)?checked'
+  must_not_contain:
+    - 'unverified\b[^.;]{0,50}\bno\s+verifier'
+    - '\b(there\s+are|are|has|have)\s+(only\s+|just\s+|exactly\s+)?two\s+(terminal\s+)?(states|statuses|outcomes)\b'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+
+- id: model-never-executes
+  question: "Can the planning model run shell commands, call tools or touch the filesystem directly in torra? What does it return, and what decides what happens next?"
+  expected: "No. The model returns a JSON proposal (a TaskSpec) and nothing else: no shell, no tool-call loop, no filesystem. The pipeline and its gates decide what runs, and the operator approves."
+  must_contain:
+    - 'JSON\s+(proposal|plan|only)|proposes?\s+(\w+\s+){0,2}TaskSpec|returns?\s+(\w+\s+){0,2}JSON'
+    - '\bno\s+(shell|tool)'
+    - '\b(pipeline|gates?)\b[\s\S]{0,20}\bdecides?\b'
+  must_not_contain:
+    - '\bmodel\s+(can|may|is\s+allowed\s+to)\s+(run|execute|call|invoke)\b'
+    - '\bmodel\s+(executes|runs|calls|invokes)\s+(the\s+)?(shell|commands?|tools?)\b'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+
+- id: unapproved-step
+  question: "At execute time, a step that needs confirmation is missing from the approvals map. What happens to it, and may a caller default it to approved for convenience?"
+  expected: "It is refused: unapproved means refused, never defaulted to True, not for convenience and not for unattended runs."
+  must_contain:
+    - '\brefus(ed|es)\b|\bskipped\b|\bnot\s+(run|executed)\b|\bdoes\s+not\s+run\b'
+    - '\b(never|not|isn\W?t|doesn\W?t|don\W?t|won\W?t|can\W?t|shouldn\W?t|mustn\W?t)\W+(be\W+)?(helpfully\W+)?(default(ed)?|treated\s+as\s+(approved|true)|auto-?approved)'
+  must_not_contain:
+    - '(?<!never\s)(?<!not\s)(?<!n.t\s)\bdefault(s|ed)?\s+(it\s+)?to\s+(approved|true)\b'
+    - '(?<!never\s)(?<!not\s)(?<!n.t\s)\b(treated|counted|considered)\s+as\s+approved\b'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+
+- id: safe-step-checkbox
+  question: "In the TUI, which steps render an approve checkbox, and why would giving every step one make operators less safe?"
+  expected: "Only steps at DANGEROUS or CRITICAL risk render an approve box; safe steps get no checkbox. A box on every step trains the operator to tick without reading."
+  must_contain:
+    - '\bdangerous\b[^.]{0,40}\bcritical\b|\bcritical\b[^.]{0,40}\bdangerous\b'
+    - '\bsafe\s+steps\s+(get|have|render|show)\s+(no|none|nothing)\b|\bsafe\s+steps\s+(do\s+not|never|don\W?t)\b|\bno\s+check\s*box'
+    - 'tick\w*\s+without\s+reading|rubber[- ]?stamp|train\w*\s+(the\s+)?operators?|without\s+(actually\s+)?reading|fatigue|click\w*\s+through'
+  must_not_contain:
+    - '\bonly\s+dangerous\b(?!\W+(and|or|/)\W+critical)'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+
+- id: telemetry-cannot-break-run
+  question: "What happens to a task run when a telemetry or task-logging call itself fails, for example because its directory is unusable?"
+  expected: "Nothing: telemetry can never break a run. Every telemetry method catches its own exceptions and records them, and TaskLogger.__init__ does not raise even when its directory is unusable."
+  must_contain:
+    - '(never|cannot|can\W?t|won\W?t|does\s+not|doesn\W?t)\s+(break|abort|fail|crash|stop)\w*\s+(a\s+|the\s+|any\s+)?(run|task)|\b(run|task)\W+(\w+\W+){0,3}(unaffected|carries\s+on|keeps\s+going|continues)'
+    - 'catch\w*\b[^.]{0,30}\bexceptions?|swallow\w*\b[^.]{0,40}\b(exceptions?|errors?)|degrades?\s+to\s+a\s+no-?op'
+    - '(constructor|__init__|initiali[sz]\w*|logger)[\s\S]{0,40}(doesn\W?t|does\s+not|never|won\W?t|will\s+not|cannot)\s+raise'
+  must_not_contain:
+    - '\b(telemetry|logger|logging)\s+(failures?|errors?|exceptions?)\s+(abort|stop|crash|fail|break)s?\s+the\s+run'
+    - '\bthe\s+run\s+(fails|crashes|aborts|is\s+aborted)\b'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+
+- id: declared-safe-rollback
+  question: "A hand-written task file or a model's proposal declares a rollback command with `safe: true`. Can that flag let the command skip the safety classifier, and what is the flag's only possible effect?"
+  expected: "No. A declared rollback command is still classified like any step, and the declared safe flag can only make torra more cautious than SafetyClassifier would be, never less. If the flag says safe but the classifier rates the command DANGEROUS or CRITICAL, a decision is logged and the operator is asked before it runs during rollback."
+  must_contain:
+    - '(still|also|always|anyway|nonetheless)\W+(\w+\W+){0,3}classif\w+|classif\w+\W+(\w+\W+){0,3}(anyway|regardless)|\b(cannot|can\W?t|not)\s+(skip|bypass|override|exempt)'
+    - 'more\W+(cautious|restrictive|conservative|strict)|stricter'
+  must_not_contain:
+    - '(?<!never\s)(?<!not\s)(?<!n.t\s)\b(skips|bypasses|overrides)\s+(the\s+)?(classifier|classification|safety\s+classifier)'
+    - 'safe:\s*true\s+(skips|bypasses|overrides|exempts)'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+
+- id: execute-replay
+  question: "What does Torra.execute do if it is called a second time on a RunResult whose steps already ran for real, and at exactly what moment is the field that records the run set?"
+  expected: "It refuses immediately: logs 'refused: already executed' and returns the result unchanged instead of re-running the steps. The dedicated executed field is set only immediately before a real step.run() (or when a resumed step's earlier run is recorded), never merely for entering the loop, so a plan that was rejected or blocked before any command ran stays retryable."
+  must_contain:
+    - '\brefus(es|ed)\b[\s\S]{0,60}\b(immediately|already|replay|again|re-?run)|already\W+executed'
+    - '(immediately|right|just)\s+before\s+[\s\S]{0,30}\b(real|actual|runs?\b|execut\w+)'
+  must_not_contain:
+    - '\bset\s+(at|on|when|upon|as\s+soon\s+as)\s+(the\s+)?(start|beginning|entering|entry|enter)'
+    - '(?<!never\s)(?<!not\s)(?<!n.t\s)\b(re-?runs?|replays?)\s+(all\s+|every\s+)?(of\s+)?(the\s+)?steps'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+
+- id: model-info-source
+  question: "Where does torra get a model's parameter size and its chat capability, and for which of the two may the model's name ever be used instead?"
+  expected: "From the daemon's real /api/show data (OllamaClient.model_info), which wins whenever it is present. Only the size has a fallback: when /api/show gives nothing for a model, the name is used to guess it. Chat capability is never guessed from the name: it is /api/show-only, and an unknown model defaults to chat-capable. Found live: digit-less names guessed as 0B, and an embedding-only model was routed to as a chat target."
+  must_contain:
+    - '/api/show'
+    - '\bname\b[\s\S]{0,60}\bfall\w*\s*back|\bfall\w*\s*back\b[\s\S]{0,80}\b(name|guess\w*)\b'
+    - 'chat[\s\S]{0,60}\b(never|not|only)\b[\s\S]{0,30}(guess|name|/api/show)'
+  must_not_contain:
+    - 'fall(s|ing)?\s+back\s+to\s+(the\s+)?(daemon|/api/show|ollama)'
+    - '\bthe\s+name\s+decides\b'
+    - '(?<!not\s)(?<!never\s)(?<!n.t\s)\bfrom\s+the\s+(model\s+)?name\s+first'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+    - agents/GUARDRAILS.md
+
+- id: decline-via-reject
+  question: "Which Torra method must every way of declining a plan go through, and what would go wrong if a caller tried to decline by calling execute instead?"
+  expected: "Torra.reject(). Calling execute with empty approvals does not refuse an all-safe plan, it runs it, because a step's approved flag defaults to True whenever it needs no confirmation. reject() sets the outcome to REJECTED unconditionally and goes through the same _finish() choke point as every other terminal outcome (audit record, telemetry, decision logged); bare UI state leaves no trace."
+  must_contain:
+    - 'Torra\.reject|\breject\(\)'
+    - '\bruns?\b[\s\S]{0,60}\b(all[- ]safe|safe\s+steps)|\b(all[- ]safe|safe\s+steps)\b[\s\S]{0,80}\b(runs?|execut\w+|approved|default\w*)'
+  must_not_contain:
+    - 'the\s+UI\s+(can|may)\s+(simply\s+)?(clear|drop|discard)\s+the\s+plan'
+  sources:
+    - AGENTS.md
+    - HANDOFF.md
+    - agents/GUARDRAILS.md
+
+- id: ollama-systemd-scope
+  question: "In which systemd scope does ollama.service run on this machine, and what must code do before deciding how to query or act on a systemd unit?"
+  expected: "System-wide (the system scope), not --user. Code must check a unit's scope against the real unit and never assume --user (or whichever scope was convenient to write first)."
+  must_contain:
+    - '\bsystem(-wide|\s+(scope|unit|service|level|instance|manager))\b|system-?level'
+    - '\b(check|verif|confirm|determin|inspect)\w*\b[\s\S]{0,60}\b(real|actual)\s+unit|\bnever\s+assum\w+|\b(not|\w+n\W?t)\s+assum\w+'
+  must_not_contain:
+    - '(?<!not\s)(?<!never\s)(?<!n.t\s)\bruns?\s+(under|as|in)\s+(a\s+)?(--user|the\s+user\s+(manager|session|scope)|user[- ](scope|unit|service|manager|session|level))'
+    - '\b(is|as)\s+a\s+user[- ](unit|service|scope)\b'
+  sources:
+    - AGENTS.md
+    - agents/GUARDRAILS.md
+
+- id: docs-growth-rule
+  question: "What evidence must exist before a new fact is added to docs/*.md, where is that evidence produced, and which index file must change in the same change?"
+  expected: "A measured gap: a benchmark run in scripts/dev/model_bench/ that caught a model getting the fact wrong, vague or hallucinated; never a guess. docs/README.md's table (including its Measured gap? column) is updated in the same change, and wiring any docs content into torra.agent.SYSTEM_PROMPT is a separate reviewed change."
+  must_contain:
+    - 'measured\s+gap|benchmark\w*[\s\S]{0,100}\b(wrong|vague|hallucinat\w+)'
+    - 'model_bench'
+    - 'docs\W+README'
+  must_not_contain:
+    - 'whenever\s+(it\s+)?seems\s+(useful|helpful|relevant)'
+  sources:
+    - AGENTS.md
+    - agents/GUARDRAILS.md
+    - agents/PLAYBOOKS.md
+    - docs/README.md
+
+- id: claude-md-stub
+  question: "What does CLAUDE.md in this repo contain, and where do an agent's rules and instructions actually live?"
+  expected: "CLAUDE.md is a one-line stub that only imports AGENTS.md (@AGENTS.md). AGENTS.md holds the content, with topic files under agents/; rules never go in CLAUDE.md."
+  must_contain:
+    - '@AGENTS\.md|\bimports?\b[\s\S]{0,15}\bAGENTS\.md|\bone[- ]line\b'
+    - '\b(rules|instructions|content)\b[\s\S]{0,60}\bAGENTS\.md|\bAGENTS\.md[\s\S]{0,40}\b(holds?|contains?)\b'
+  must_not_contain:
+    - 'CLAUDE\.md\s+(holds|contains|has)\s+the\s+(full\s+)?(rules|instructions|content)'
+    - '(?<!never\s)(?<!not\s)(?<!n.t\s)\bput\s+(new\s+)?rules\s+in\s+CLAUDE\.md'
+  sources:
+    - AGENTS.md
+
+- id: test-interpreter
+  question: "Which Python interpreter must be used to run this repo's test suite, and what goes wrong with the system Python?"
+  expected: ".venv/bin/python, wherever a command says python3. System Python lacks the dependencies, so tests/ fails at collection without the venv."
+  must_contain:
+    - '\.venv'
+    - 'lack\w*\s+(the\s+)?dependenc|miss\w*\s+(the\s+)?dependenc|(fail|error)\w*\s+(out\s+)?(at|during|in)\s+(test\s+)?collection|collection\s+(error|fail)'
+  must_not_contain:
+    - 'system\s+python\s+(works|is\s+(fine|enough|sufficient))'
+  sources:
+    - AGENTS.md
+
+- id: ask-first-persisted-state
+  question: "Torra's instructions name some changes that need the user's go-ahead before any action. Name the persisted-state files whose schema or format falls under that rule, and the deletion operations that do too."
+  expected: "Schema or format changes to resume/*.json, telemetry/tasks.jsonl and audit/*.audit.json need an ask first, and so does deleting files or branches."
+  must_contain:
+    - 'resume\W+(\*\.json|files?|points?)'
+    - 'tasks\.jsonl|telemetry\s+log'
+    - '\.audit\.json|audit\s+(files?|records?)'
+    - 'delet\w+\s+(\w+\s+){0,2}(files?|branch\w*)|(files?|branch\w*)\s+(or\s+)?(delet\w+|remov\w+)'
+  must_not_contain:
+    - 'delet\w+\s+(files|branches)\s+is\s+(fine|allowed|free)'
+  sources:
+    - AGENTS.md
+
+- id: classifier-evasion-bar
+  question: "When teaching SafetyClassifier to recognize a new command wrapper or shell construct, what test material must accompany that change, and what bar must the classifier keep clearing?"
+  expected: "Add the new evasion case to the TestSafety corpus (tests/test_gates.py, EVASIONS) in the same change; an unlisted evasion is indistinguishable from handled. The bar: every EVASIONS case caught, and every command in tests/test_known_programs.py classified as listed, so routine read-only work still runs without a tick."
+  must_contain:
+    - '\bEVASIONS\b|evasion\s+(case|corpus)|TestSafety'
+    - 'test_known_programs|known[_ ]programs'
+  must_not_contain:
+    - '(regex|pattern)\s+(over|on)\s+(the\s+)?raw\s+(command\s+)?text\s+(is|are)\s+(enough|sufficient)'
+  sources:
+    - AGENTS.md
+    - agents/GUARDRAILS.md
+    - agents/PLAYBOOKS.md
