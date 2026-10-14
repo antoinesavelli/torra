@@ -150,6 +150,7 @@ class ContextCompressor:
         old_tokens = sum(e.tokens for e in old)
         text = self._summarize(old)
 
+        # Live wire: HANDOFF.md §5.5
         # Degrade to terser summaries rather than making things worse. With many
         # small entries the per-entry line costs more than the content it
         # replaces, which would turn compression into a net loss.

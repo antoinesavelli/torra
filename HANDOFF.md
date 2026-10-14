@@ -4,7 +4,9 @@ For whoever or whatever picks this up next.
 
 This document assumes you are an agent or an engineer with no memory of how this
 got built. It tells you what is load-bearing, what will bite you, and what has
-already been tried and failed. Read it before changing anything in `torra/`.
+already been tried and failed. Before changing anything in `torra/`, look up the §
+your change touches: `grep -n '^### 2\.' HANDOFF.md` lists every invariant and
+`grep -n '^### 5\.' HANDOFF.md` every live wire.
 
 ---
 
@@ -554,7 +556,7 @@ self.use_inotify` alone was enough to always take the full-walk branch,
 regardless of the `detector._inotify = True` truthy stand-in the fixture
 set up right after. `_reconcile()` rebuilds `self._known` from scratch on
 every call, so the exact stale-conflict bug this test class exists to
-guard (§5's "`_known` is an accumulator... never removed a stale entry")
+guard (§5.4: the fast path must clear `_known`, not just add to it)
 **cannot reproduce there at all** -- both tests passed, but never reached
 the event-based per-path accumulate/pop logic the fix is actually in.
 
@@ -761,7 +763,7 @@ path (`append()`), despite sitting on the single most common call site
 there is -- the first message of every new tab. Hardened to match
 `append()`'s policy: log to `self.errors`, return `None`, never raise.
 
-Also touched, extending §5's existing "`execute_plan()`'s busy guard is
+Also touched, extending §5.14's existing "`execute_plan()`'s busy guard is
 not optional UI polish" note rather than duplicating it here: `busy` now
 flips synchronously on the main thread, in `execute_plan()`/
 `plan_request()` themselves, *before* the worker is even dispatched --
@@ -1702,7 +1704,7 @@ extra repair round -- traced directly (`hello` attached a stray
 `"task": {"task_id": "greeting-ack", "steps": []}` under the revised
 wording that it didn't under the current one) -- but that shape is
 already caught cleanly by the existing `_answer_dropped_a_task` check
-(§5 "The repair loop is not just for intent 'plan.'", no new failure
+(§5.9 "The repair loop is not just for intent 'plan.'", no new failure
 mode here), so it costs latency, not correctness.
 
 This doesn't close §6.1's 82% number by itself -- it fixes a different,
@@ -3433,9 +3435,9 @@ home is `/home/antoine`, and nothing checked. Advisory, like
    the 121 past plans, checking every step flagged 18% of them, mostly
    read-only existence probes (`cat /etc/motd`, `ls /var/run/ollama.pid
    2>/dev/null`); after this change, 4% (5 plans: the real invented-path
-   `rm -r`, two under the since-moved repo, two knock-ons of §6.5's
-   `reboot-required` classifier finding). Every step still counts toward what
-   the plan creates.
+   `rm -r`, two under the since-moved repo, two knock-ons of the
+   `reboot-required` classifier finding (`GRADE_TO_A_PLAN.md` P5.3)). Every
+   step still counts toward what the plan creates.
 3. **In the agent:** a repair round whose guidance is to copy the request's
    own path exactly, in single quotes, or ask, and that steps cannot pass
    output to each other (live, "use a command that finds it" produced the
@@ -3569,7 +3571,10 @@ applies to itself.
 
 Places where an obvious-looking change is wrong.
 
-**`SafetyClassifier._decode_base64`'s blob pattern must not require quotes.**
+### 5.1 `SafetyClassifier._decode_base64`'s blob pattern must not require quotes.
+
+Code: `torra/gates/safety.py` (`SafetyClassifier._decode_base64`).
+
 Base64's own alphabet has no whitespace in it, so `echo BLOB | base64 -d |
 sh` needs no quotes around `BLOB` -- it's at least as natural to write as
 the quoted form, arguably more so. The original blob-extraction regex
@@ -3587,7 +3592,11 @@ when one happens to be present, without requiring one.
 
 > Guarded by `tests/test_gates.py::TestSafety::test_an_unquoted_base64_payload_is_decoded_too`
 
-**`_strip` must know which wrapper flags consume a value.** The most
+### 5.2 `_strip` must know which wrapper flags consume a value.
+
+Code: `torra/gates/safety.py` (`WRAPPER_VALUE_FLAGS`).
+
+The most
 severe gap this project's own audits have found: `timeout -s KILL 5 kill
 -9 1` classified **SAFE outright**. `_strip` popped `timeout` as a
 wrapper, then treated `-s` as a bare boolean flag and stopped -- leaving
@@ -3615,13 +3624,20 @@ silently reintroduces this exact class of gap.
 
 > Guarded by `tests/test_gates.py::TestSafety::test_an_unquoted_base64_payload_is_decoded_too`
 
-**`ConflictDetector` reconcile schedule.** The event fast path is 5,000x cheaper
+### 5.3 `ConflictDetector` reconcile schedule.
+
+Code: `torra/core/conflict.py` (`ConflictDetector._detect_tree`, `reconcile_every`).
+
+The event fast path is 5,000x cheaper
 than walking, but inotify has three silent failure modes: queue overflow,
 directories created after watches attach, and moves in from outside. The full
 walk every `reconcile_every` checks is what makes those survivable, and
 disagreements are counted in `stats()`. Do not remove it for speed.
 
-**`_detect_tree()`'s fast path must clear `_known`, not just add to it.**
+### 5.4 `_detect_tree()`'s fast path must clear `_known`, not just add to it.
+
+Code: `torra/core/conflict.py` (`ConflictDetector._detect_tree`, `_known`).
+
 `_known` accumulates across every `detect()` call between full walks --
 that persistence is the whole point of the fast path, so a real conflict
 found on one check is still reported on the next without re-walking. But
@@ -3640,18 +3656,29 @@ default 20). The loop now does `self._known.pop(path, None)` in the
 
 > Guarded by `tests/test_core.py::TestConflictDetectorFastPath`
 
-**`ContextCompressor` degradation ladder.** With many small entries, a per-entry
+### 5.5 `ContextCompressor` degradation ladder.
+
+Code: `torra/core/context.py` (`ContextCompressor.compress`).
+
+With many small entries, a per-entry
 summary line costs more than the content it replaces, so compression becomes a
 net loss. There are three fallback tiers and a hard guard that skips the pass
 rather than making things worse. This was measured at **-484% reduction** before
 the guard existed.
 
-**`Clarifier` anchor scrubbing.** Vague-word checks run against text with the
+### 5.6 `Clarifier` anchor scrubbing.
+
+Code: `torra/gates/clarifier.py` (`Clarifier._scrub`).
+
+Vague-word checks run against text with the
 anchors blanked out. Without it, `yeet the /srv/api/old.log file` trips the
 vague-qualifier rule on the `old` inside a filename.
 
-**`_check_no_environment` must recognize a target through the anchor
-system, not a separate preposition guess.** It used to fall back to
+### 5.7 `_check_no_environment` must recognize a target through the anchor system, not a separate preposition guess.
+
+Code: `torra/gates/clarifier.py` (`Clarifier._check_no_environment`).
+
+It used to fall back to
 `\b(to|into|on)\s+\S+` for phrasing the fixed environment word list
 doesn't cover ("deploy to prod-01"). Found live: that pattern matches
 "to"/"into"/"on" followed by *any* word, not just an environment-shaped
@@ -3667,11 +3694,19 @@ of "words that don't count."
 
 > Guarded by `tests/test_gates.py::TestClarifier::test_deploy_to_fix_something_is_still_flagged`
 
-**Agent repair loop bound.** `MAX_REPAIRS = 2`. A model that will not improve
+### 5.8 Agent repair loop bound.
+
+Code: `torra/agent.py` (`Agent.MAX_REPAIRS`).
+
+`MAX_REPAIRS = 2`. A model that will not improve
 must not spin. The last proposal is still returned for real gating even after
 the budget is spent.
 
-**The repair loop is not just for intent "plan."** It used to trigger only
+### 5.9 The repair loop is not just for intent "plan."
+
+Code: `torra/agent.py` (`Agent._repair_complaint`).
+
+It used to trigger only
 when `turn.intent is Intent.PLAN`, on the assumption that "answer" needs no
 gating -- there's no task to check. Found live: a model asked to summarize
 disk usage twice replied `intent: "answer"` with a `task` object also
@@ -3690,8 +3725,11 @@ by test.
 > `test_an_answer_with_an_empty_task_scaffold_is_also_repaired`,
 > `test_a_clean_answer_with_no_task_never_wastes_a_repair_round`
 
-**`_answer_dropped_a_task` doesn't catch a placeholder with no task at
-all.** Found live, testing the knowledge library: asked whether SSH keys
+### 5.10 `_answer_dropped_a_task` doesn't catch a placeholder with no task at all.
+
+Code: `torra/agent.py` (`Agent._answer_is_a_placeholder`).
+
+Found live, testing the knowledge library: asked whether SSH keys
 were configured, a reply was `intent: "answer"`, no `task` attached at all,
 `message` = "Checking system library documentation and actual SSH key
 presence on this machine to answer your question." -- the sibling check
@@ -3708,7 +3746,11 @@ happens to open with "Checking the logs, ..." followed by an actual fact.
 > Guarded by `tests/test_agent.py::test_an_answer_that_only_promises_to_check_is_repaired`,
 > `test_a_short_answer_that_happens_to_open_with_checking_is_not_flagged`
 
-**`TorraApp.BINDINGS` must never claim `ctrl+c`.** Textual's own default
+### 5.11 `TorraApp.BINDINGS` must never claim `ctrl+c`.
+
+Code: `torra/tui.py` (`TorraApp.BINDINGS`).
+
+Textual's own default
 for that key is deliberately not "quit" -- `App.action_help_quit`'s
 docstring says so outright: "Ctrl+C is now bound to copy if an input /
 textarea is focused... this makes it possible, even likely, that a user
@@ -3723,12 +3765,20 @@ convention.
 
 > Guarded by `tests/test_tui.py::test_ctrl_c_copies_rather_than_quitting`
 
-**`_finish(write_audit=False)`.** The awaiting-approval case leaves the stage
+### 5.12 `_finish(write_audit=False)`.
+
+Code: `torra/pipeline_report.py` (`finish`, the `write_audit` parameter).
+
+The awaiting-approval case leaves the stage
 list open and writes no audit record, because the run has not happened yet. An
 earlier version appended the report stage during `plan()` and produced
 `present -> report -> execute` in the stage list.
 
-**The TUI status line's spinner.** `TorraApp._set_busy(True, ...)` starts a
+### 5.13 The TUI status line's spinner.
+
+Code: `torra/tui.py` (`TorraApp._set_busy`).
+
+`TorraApp._set_busy(True, ...)` starts a
 `set_interval(0.1, self._tick_spinner)` timer that redraws `#status` with a
 cycling frame and elapsed seconds; `_set_busy(False, ...)` stops and clears
 it. Requested live: a static "thinking..." label looks identical whether the
@@ -3741,7 +3791,11 @@ from the worker threads that plan/execute (flipping it back off), so this
 holds today, but a new caller that calls it directly from a background
 thread would break silently (Textual timers are not thread-safe to create).
 
-**`execute_plan()`'s busy guard is not optional UI polish.** Textual's
+### 5.14 `execute_plan()`'s busy guard is not optional UI polish.
+
+Code: `torra/tui.py` (`TorraApp.execute_plan`).
+
+Textual's
 `@work(thread=True, exclusive=True)` does not preempt an already-running
 thread worker -- it only stops *tracking* the old one once a new one of the
 same group starts, so a second call while the first is still mid-run
@@ -3767,8 +3821,11 @@ main thread, before the worker is even dispatched -- both only ever run on
 the main thread themselves, so there is no yield point in between for a
 second call to interleave. See §2.26.
 
-**`detect_accelerator()`'s `ollama ps` column parsing must not assume a
-fixed column count.** This function's own docstring says `ollama ps` wins
+### 5.15 `detect_accelerator()`'s `ollama ps` column parsing must not assume a fixed column count.
+
+Code: `torra/core/machine.py` (`detect_accelerator`).
+
+This function's own docstring says `ollama ps` wins
 over `nvidia-smi`/`rocm-smi` because it is the only signal that reflects
 what the daemon *actually decided*, not just what the hardware could do in
 principle -- the whole reason it exists is to catch Ollama itself falling
@@ -3790,7 +3847,11 @@ instead of column position, so it survives however many columns follow it.
 > Guarded by `tests/test_core.py::TestDetectAccelerator` -- previously zero
 > test coverage of this function existed at all.
 
-**`shell()`'s explicit `/bin/bash -c 'set -o pipefail; ...'`.** Looks like it
+### 5.16 `shell()`'s explicit `/bin/bash -c 'set -o pipefail; ...'`.
+
+Code: `torra/core/process.py` (`run_in_group`; `shell()` in `torra/core/tasks.py` delegates to it).
+
+Looks like it
 could be simplified back to `subprocess.run(command, shell=True, ...)` --
 don't. `shell=True` runs under `/bin/sh`, which is `dash` on this and most
 Debian-derived systems, and dash's pipeline exit status is only the
@@ -3800,8 +3861,11 @@ Debian-derived systems, and dash's pipeline exit status is only the
 reported `"ok": true, "output": ""` for exactly this reason. `pipefail`
 under bash is what makes a mid-pipe failure actually fail the step.
 
-**`ModelRouter._downgrade()`'s `min(self.available, key=self._params_b)`
-fallback.** When nothing in `available` passes the `runnable()` fit check,
+### 5.17 `ModelRouter._downgrade()`'s `min(self.available, key=self._params_b)` fallback.
+
+Code: `torra/gates/router.py` (`ModelRouter._pick_replacement`, called by `_downgrade`).
+
+When nothing in `available` passes the `runnable()` fit check,
 this picks the smallest pulled model rather than falling through to
 `self.default_model`. Collapsing that branch back to `self.default_model`
 looks like a harmless simplification -- it isn't, because `default_model`
@@ -3811,8 +3875,11 @@ because only 5660 MB VRAM free" that still resolved to `"model":
 "devstral"`. `self.default_model` is only correct as the *true* last
 resort, when `available` is empty or unset entirely.
 
-**The "quick" routing rule targets `devstral:24b`, not `qwen3.5:latest`,
-as of 2026-08-17.** Recovered from an abandoned worktree and re-verified
+### 5.18 The "quick" routing rule targets `devstral:24b`, not `qwen3.5:latest`, as of 2026-08-17.
+
+Code: `torra/gates/router.py` (`ROUTING_RULES`, the "quick" rule).
+
+Recovered from an abandoned worktree and re-verified
 against current `router.py` -- do not revert this to "the smallest pulled
 model" as a simplification. Live testing found `qwen3.5:latest` gave a
 content-free non-answer on 1 of 5 real disk/status checks; `devstral:24b`
@@ -3824,7 +3891,10 @@ NOT a full fix (both `devstral` and `qwen3.5` fail identically on
 VRAM). If you find yourself reaching for `qwen3.5:latest` as an obvious
 "smallest model" default anywhere in routing, read that comment first.
 
-**`UndoGenerator.cleanup()` recreates `shadow_dir` after deleting it.**
+### 5.19 `UndoGenerator.cleanup()` recreates `shadow_dir` after deleting it.
+
+Code: `torra/gates/undo.py` (`UndoGenerator.cleanup`).
+
 Simplifying it to just `shutil.rmtree(self.shadow_dir, ignore_errors=True)`
 looks harmless -- it isn't, because one `UndoGenerator` is built once per
 `Torra` and reused across every `plan()` call for the rest of the
@@ -3834,9 +3904,12 @@ recreating it would silently degrade every subsequent `capture_file` to a
 `skipped` entry for the rest of the session. Found in a full-file audit:
 `cleanup()` had zero callers anywhere before this, so 14 shadow
 directories had already accumulated on one real machine -- see
-`AUDIT_FINDINGS.md` MED-1.
+the 2026-07-29 full-file audit (MED-1).
 
-**Every `systemctl` call resolves scope first, never hardcodes `--user`.**
+### 5.20 Every `systemctl` call resolves scope first, never hardcodes `--user`.
+
+Code: `torra/gates/service_state.py` (`systemctl_scope`) and its deliberate duplicate `torra/gates/state.py` (`StateVerifier.systemctl_scope`); `UndoGenerator._systemctl_scope` (`torra/gates/undo.py`) is an alias of the first.
+
 `StateVerifier.systemctl_scope()` / `UndoGenerator._systemctl_scope()`
 (duplicated between the two, per the gates' no-cross-reference rule) probe
 `LoadState` to tell "not loaded in user scope" apart from "loaded and
@@ -3845,10 +3918,13 @@ both, which looks like a real answer but isn't one. Found live +
 confirmed in a full-file audit: `ollama.service` is a **system** unit on
 this project's own reference machine, and every hardcoded `--user` call
 (recovery advice, precondition probe, generated service rollback) was
-silently targeting the wrong systemd instance. See `AUDIT_FINDINGS.md`
-MED-2.
+silently targeting the wrong systemd instance. See the 2026-07-29
+full-file audit (MED-2).
 
-**Site-knowledge library gives the model awareness, never a new capability.**
+### 5.21 Site-knowledge library gives the model awareness, never a new capability.
+
+Code: `torra/pipeline.py` (`Torra._resolve_knowledge_dir`).
+
 `TORRA_KNOWLEDGE_DIR` (read once in `Torra.__init__`, via
 `Torra._resolve_knowledge_dir`) points `observe_machine()` at an optional
 local directory of site-specific docs (this machine's hardware, services,
@@ -3876,9 +3952,11 @@ guaranteed behavior.
 > `tests/test_pipeline.py::test_knowledge_dir_defaults_from_the_environment`
 > + 3 more.
 
-**The topic-index scan is non-recursive, but `machines/<hostname>/` is a
-named exception, added after finding it missing against the real
-library.** `_scan_knowledge_dir` originally only globbed the configured
+### 5.22 The topic-index scan is non-recursive, but `machines/<hostname>/` is a named exception, added after finding it missing against the real library.
+
+Code: `torra/core/machine.py` (`_scan_knowledge_dir`).
+
+`_scan_knowledge_dir` originally only globbed the configured
 directory's own top level, on the reasoning that subdirectories are
 implementation detail (`fixes/`, `raw/`, `lists/`-style capture data) --
 true for the library that motivated the mechanism above, but not for the
@@ -3918,8 +3996,11 @@ just extra content.
 > `test_observe_machine_uses_the_real_hostname_to_find_its_machine_folder`,
 > `test_render_greps_the_machine_subfolder_too_not_just_the_root`
 
-**`_finish()` must snapshot `result.decisions` *after* `_summarize()`, not
-before.** Found live, testing the knowledge library above: a question that
+### 5.23 `_finish()` must snapshot `result.decisions` *after* `_summarize()`, not before.
+
+Code: `torra/pipeline_report.py` (`finish`, the `decisions.trail()` call).
+
+Found live, testing the knowledge library above: a question that
 triggered a real (transient) summarize failure completed with an empty
 `result.summary` and, worse, no record anywhere of why -- `_summarize()`
 does log a "summary failed" decision on the exception path (§2.11), but
@@ -3936,8 +4017,11 @@ the audit write, after summarize has had its chance to log.
 > (extended to assert the failure reason survives into both `result.decisions`
 > and the written audit file, not just that the run still completes).
 
-**`approve_at_prompt`'s Ctrl+C must abort the whole loop, not just the
-current step.** Found by an independent audit: on `EOFError`/
+### 5.24 `approve_at_prompt`'s Ctrl+C must abort the whole loop, not just the current step.
+
+Code: `torra/cli.py` (`approve_at_prompt`).
+
+Found by an independent audit: on `EOFError`/
 `KeyboardInterrupt` it used to set only the current step's answer to `"n"`
 and keep looping, prompting again for the next CONFIRM step -- confusing
 for an operator who expected the keystroke to bail out entirely, and
@@ -3952,8 +4036,11 @@ same as "False" (§2.3), so no explicit refusal is needed.
 
 > Guarded by `tests/test_cli.py::test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again`
 
-**Secret redaction: a multi-word value, and `Label.why`, both used to go
-to disk in the clear.** Found by an independent audit, two related gaps in
+### 5.25 Secret redaction: a multi-word value, and `Label.why`, both used to go to disk in the clear.
+
+Code: `torra/telemetry/records.py` (`REDACTIONS`, `redact_secrets`); `Label.why` is redacted in `torra/telemetry/labels.py`.
+
+Found by an independent audit, two related gaps in
 `torra/telemetry/`: (1) the `password=`/`token:`/etc. redaction pattern
 matched only one whitespace-free token (`\S+`) after the separator, so
 `"password = super secret phrase"` redacted just `"password = super"`,
@@ -4127,20 +4214,11 @@ finding shrinks rather than accumulates.
 
 ### 6.5 Smaller, known
 
-- **Found 2026-10-12, open.** `cat /var/run/reboot-required`, a read-only
-  probe, rates DANGEROUS: the regex backstop's "host power state" rule
-  matches `reboot` in the file name. It errs toward asking, and live it
-  also cost two repair rounds (a "declare touches" complaint on a `cat`).
-  Loosening the backstop is a security call, left for the Phase 5 re-grade.
+- **Open, owned by `GRADE_TO_A_PLAN.md` P5.3:** `cat /var/run/reboot-required` rates DANGEROUS (a backstop false positive).
 - **Found 2026-10-12, left as is by the owner.** The pre-existing "the
   `request` line is underspecified" prescreen complaint spent 2 of 3
   model calls on a correct read-only plan (`ps aux --sort=-%mem`).
-- **Open design question (`GRADE_TO_A_PLAN.md` D8).** Ticks are collected
-  for the whole plan before step 1 runs (`Torra.execute` →
-  `_apply_approvals`), so a plan's own "list it, then delete it" check
-  cannot inform the tick. §2.81 shows what each target is; asking at the
-  moment each step runs is not built. Live, 3 of 6 plans had that
-  find-then-act shape.
+- **Open design question, owned by `GRADE_TO_A_PLAN.md` D8:** ask each tick at the moment its step runs.
 - The missing-path check (§2.80) is a heuristic: it misses paths built at
   run time and could flag a plan that creates a path in a way it does not
   recognise (one wasted repair round and a warning).
@@ -4188,6 +4266,9 @@ finding shrinks rather than accumulates.
   number -- worse than the current honest "unknown, treat as unusable"
   default. Fix this only against real `rocm-smi` output, not by guessing
   the format from documentation.
+- **Open, the owner's.** Have a native speaker confirm the Corsican spelling of
+  *torra* (the Genoese coastal watchtower; the meaning is certain, the spelling
+  is not; moved from `RENAME_TO_TORRA.md`, retired).
 
 ### 6.6 A stopped run's resume point never expires, and the tick cannot see it -- **proposal, not built**
 

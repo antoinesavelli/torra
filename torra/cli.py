@@ -126,6 +126,7 @@ def print_dependency_warnings(plan: Plan, approvals: dict[str, bool]) -> None:
         print(f"  warning: {warning}")
 
 
+# Live wire: HANDOFF.md §5.24
 def approve_at_prompt(plan: Plan) -> dict[str, bool]:
     """Ask on stdin about every step that needs confirmation."""
     approvals: dict[str, bool] = {}

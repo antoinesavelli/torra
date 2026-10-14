@@ -603,6 +603,7 @@ class UndoGenerator:
             "skipped": list(self.skipped),
         }
 
+    # Live wire: HANDOFF.md §5.19
     def cleanup(self) -> None:
         """Delete shadow copies made so far, after a successful run. The directory is recreated empty
         because one generator serves every `plan()` of the session and the next snapshot needs it."""

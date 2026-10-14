@@ -48,6 +48,7 @@ REDACTIONS: list[tuple[str, str]] = [
     (r"(?i)([\"'][A-Za-z0-9_.-]{0,40}(?:pass(?:word|wd)?|secret|token|credentials?|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|client[_-]?secret|psk)[A-Za-z0-9_.-]{0,40}[\"']\s*[:：]\s*)([\"'])[^\"'\n]{0,500}\2",
      r"\1\2<REDACTED>\2"),
     (r"(?i)([\"']auth[\"']\s*[:：]\s*)([\"'])[^\"'\n]{0,500}\2", r"\1\2<REDACTED>\2"),
+    # Live wire: HANDOFF.md §5.25
     # \S.*$ (to end of line), not \S+ (one token): a multi-word secret like
     # "password = super secret phrase" used to redact only "password = super".
     # Over-redacting the rest of the line is far cheaper than under-redacting a

@@ -272,6 +272,7 @@ class ConflictDetector:
 
     def _detect_tree(self) -> list[Conflict]:
         """Event fast path, with a full walk on schedule."""
+        # Live wire: HANDOFF.md §5.3
         if not self.use_inotify or not self._inotify \
                 or self._since_walk >= self.reconcile_every:
             return self._reconcile()
@@ -295,6 +296,7 @@ class ConflictDetector:
             if conflict:
                 self._known[conflict.path] = conflict
             else:
+                # Live wire: HANDOFF.md §5.4
                 self._known.pop(path, None)
         return list(self._known.values())
 

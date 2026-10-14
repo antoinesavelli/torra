@@ -216,6 +216,7 @@ def run_in_group(command: str, cwd: str | None, timeout: float | None,
     # status is only the *last* command's, so `sudo something | sort | head` reports success
     # with empty output when sudo alone fails. See pipefail_wrapped for the rest.
     proc = subprocess.Popen(
+        # Live wire: HANDOFF.md §5.16
         ["/bin/bash", "-c", pipefail_wrapped(command)],
         cwd=cwd, env={k: v for k, v in os.environ.items() if k not in WITHHELD_ENV},
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

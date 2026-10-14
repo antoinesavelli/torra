@@ -171,6 +171,7 @@ def detect_accelerator(
     try:
         listing = execute("ollama ps", None, 10.0)
         for line in listing.splitlines()[1:]:
+            # Live wire: HANDOFF.md §5.15
             # The last-two-tokens trick this used to use only worked for the
             # ollama version it was written against. Found live: current
             # `ollama ps` also has CONTEXT and UNTIL columns after PROCESSOR
@@ -412,6 +413,7 @@ def _scan_knowledge_topics(root: Path) -> dict[str, str]:
     return headings
 
 
+# Live wire: HANDOFF.md §5.22
 def _scan_knowledge_dir(
         path: os.PathLike[str] | str, hostname: str = "") -> tuple[str, dict[str, str]]:
     """Top-level `.md` topics in a configured site-knowledge directory, plus

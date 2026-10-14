@@ -132,6 +132,7 @@ class Torra:
             clarifier=self.clarifier, safety=self.safety, knowledge_dir=self.knowledge_dir,
             backends=backends, path_exists=path_exists)
 
+    # Live wire: HANDOFF.md §5.21
     @staticmethod
     def _resolve_knowledge_dir(explicit: str | None) -> str | None:
         """Explicit value (incl. `""` to disable) wins; else `TORRA_KNOWLEDGE_DIR`."""

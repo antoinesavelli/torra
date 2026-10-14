@@ -186,6 +186,7 @@ CRITICAL_UNITS: tuple[str, ...] = ("display-manager", "gdm", "lightdm", "sddm", 
 HEREDOC = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n(?:.*?\n)?[ \t]*\2[ \t]*(?=\n|$)",
                      re.DOTALL)
 
+# Live wire: HANDOFF.md §5.2
 #: Flags that consume the *next* token as their own value, per wrapper --
 #: used so _strip doesn't mistake a flag's value for the start of the
 #: wrapped command. Found live: `timeout -s KILL 5 kill -9 1` left "KILL"
@@ -431,6 +432,7 @@ class SafetyClassifier:
             return None
         if require_pipe_to_shell and not re.search(r"\|\s*(sudo\s+)?(ba|z|k|da)?sh\b", command):
             return None
+        # Live wire: HANDOFF.md §5.1
         for blob in re.findall(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{8,}(?![A-Za-z0-9+/=])",
                                command):
             try:

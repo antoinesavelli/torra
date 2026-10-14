@@ -57,6 +57,7 @@ def finish(result: RunResult, started: float, agent: Agent, decisions: DecisionL
     # complete but the run is not, so the stage list is left open for
     # execute() to continue and no audit record is written yet.
     result.seconds = time.perf_counter() - started
+    # Live wire: HANDOFF.md §5.12
     if not write_audit:
         result.decisions = decisions.trail()
         return result
@@ -76,6 +77,7 @@ def finish(result: RunResult, started: float, agent: Agent, decisions: DecisionL
     # post-execution summary to the operator reading it.
     if not dry_run and result.plan and result.plan.model and result.results:
         result.summary = summarize(agent, decisions, result)
+    # Live wire: HANDOFF.md §5.23
     result.decisions = decisions.trail()
 
     # task_id_prefix (session-scoped, see HANDOFF.md §2.23/§2.26)

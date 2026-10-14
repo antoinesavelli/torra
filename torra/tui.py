@@ -762,6 +762,7 @@ class TorraApp(App):
     #status { dock: bottom; height: 1; background: $panel; padding: 0 1; }
     """
 
+    # Live wire: HANDOFF.md §5.11
     BINDINGS = [
         # Not ctrl+c: Textual's own default for that key is "help_quit",
         # which deliberately does NOT quit -- its docstring says so
@@ -1730,6 +1731,7 @@ class TorraApp(App):
         yield point between the check and the flip for a second call to
         land in. `plan_request()` has the same fix for the same reason."""
         tab = self.sessions[session_id]
+        # Live wire: HANDOFF.md §5.14
         if tab.busy:
             return
         self._reset_step_output(session_id)
@@ -1855,6 +1857,7 @@ class TorraApp(App):
         for card in pane.query(StepCard):
             card.add_class("step-card--executed")
 
+    # Live wire: HANDOFF.md §5.13
     def _set_busy(self, session_id: str, busy: bool, message: str) -> None:
         """Toggle one session's busy state and, if it's the active tab, the status line."""
         tab = self.sessions.get(session_id)

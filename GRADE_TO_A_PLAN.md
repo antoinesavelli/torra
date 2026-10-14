@@ -49,8 +49,9 @@ scorecard's `--enforce` floors must hold and the suite must stay green.
 ## 3. Phases
 
 Each item is one commit. Write the failing test first, then the fix. Then run the suite, `ruff check .`,
-`mypy torra/` and `defensive_coding_report.py --enforce`, and add a `HANDOFF.md` §5 live-wire entry naming
-the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because these files collide.
+`mypy torra/` and `defensive_coding_report.py --enforce`. Then add the next unused `### 5.N` header to
+`HANDOFF.md` with its `Code:` line and the guarding test, and put `# Live wire: HANDOFF.md §5.N` at the code
+site. Do one item at a time in `gates/` and `pipeline.py`, because these files collide.
 
 ### Phase 0: mechanical groundwork
 
@@ -308,7 +309,7 @@ the guarding test. Do one item at a time in `gates/` and `pipeline.py`, because 
 - **P4.3 DONE 2026-10-04.** `AGENTS.md:197` advertises a `--coverage` flag the scorecard script doesn't have. Remove it.
 - **P4.4 Test-count drift. DONE 2026-10-04.** "788" is hardcoded in `AGENTS.md:13`, `:178` and `:192`, `README.md:54`,
   `agents/LOOP.md:42` and `agents/GUARDRAILS.md:51`, while `tests/README.md` still says 653. Replace each with
-  "all pass; the count never drops", which is the AUDIT_FINDINGS LOW-6 lesson. `AGENTS.md` is 13,812 of its
+  "all pass; the count never drops", which is the 2026-07-29 full-file audit's LOW-6 lesson. `AGENTS.md` is 13,812 of its
   14,400-byte budget (`tests/test_instruction_files.py:12`), so edits there must stay small.
 - **P4.5 DONE 2026-10-04.** `tests/README.md` omits `test_instruction_files.py`, `test_iterate.py` and `test_read_memory.py`.
 - **P4.6 DONE 2026-10-04.** `AGENTS.md`'s code-conventions block still named `_judge`, `detect` and `execute` as CCN
@@ -336,7 +337,7 @@ Not in the 2026-10-03 grade. The first real use since 2026-09-18, a replay of th
 | A command bash cannot parse, or a template slot such as `<found-path>`, reached the tick | Done: repaired, then refused | §2.79 |
 | A step needing a tick targeted an invented path; nothing checked | Done: repaired, then warned (advisory) | §2.80 |
 | The tick came with the command line only | Half done: the prompt shows what each path is | §2.81, D8 |
-| `cat /var/run/reboot-required` rates DANGEROUS (the backstop matches "reboot" in the file name) | Open; a classifier change, so for the re-grade below | §6.5 |
+| `cat /var/run/reboot-required` rates DANGEROUS (the backstop matches "reboot" in the file name) | Open; a classifier change, so for the re-grade below | P5.3 |
 
 Two of these add fields to `audit/*.audit.json` (`warnings`, `preview`), an ask-first format change; both are
 additive and nothing reads audit files back.
@@ -363,7 +364,7 @@ machine, so the section 1 table is the rubric, same domains, weights and bands; 
 
 | Domain | Weight | Was | Now | Letter | Moved since the D+ | Deductions |
 |---|---|---|---|---|---|---|
-| Purpose Fidelity | 15% | 72 | 86 | B | P1.1, P1.2, P1.3 and P3.4 closed both broken promises | -6 P5.1/P5.2 (read-only promise still leaks); -4 the clarifier asks on ~18% of requests a human calls ambiguous (`README.md:551-563`); -2 every tick precedes step 1's output (D8, `HANDOFF.md` §6.5); -2 P5.3 false ticks on read-only probes |
+| Purpose Fidelity | 15% | 72 | 86 | B | P1.1, P1.2, P1.3 and P3.4 closed both broken promises | -6 P5.1/P5.2 (read-only promise still leaks); -4 the clarifier asks on ~18% of requests a human calls ambiguous (`README.md:551-563`); -2 every tick precedes step 1's output (D8); -2 P5.3 false ticks on read-only probes |
 | Security and Privacy | 25% | 60 | 82 | B- | cap lifted: unknown means ask (§2.60, §2.72, §2.75); every persisted string scrubbed (§2.62, §2.74, §2.76); `.env` withheld from steps (§2.68); untrusted text delimited (§2.66, §2.73) | -8 P5.1; -6 P5.2; -4 the blind red-team has not run, so fail-closed is confirmed only by this pass's sample |
 | Domain Correctness (shell/OS semantics) | 15% | 66 | 88 | B+ | process-group timeout and the ERR trap (§2.61), service undo from argv with `is-enabled` (§2.63), resolver fixes for `2>&1`, `do`/`then`, heredocs, `eval`, nesting | -5 P5.1 (bash's variable-assigning builtins not modelled); -4 P5.3 (backstop words matched inside operands); -3 P5.2 (`hostname` operand semantics) |
 | AI and Agentic | 15% | 74 | 87 | B+ | P3.3, P3.6, P3.7; repair rounds that refuse or warn (§2.78-§2.80); the CRITICAL repair narrows only the command (§2.82) | -6 live ambiguity false negatives, fix unconfirmed (`README.md:551-563`); -3 the model-bench injection scenario is not built (P3.3); -2 `Agent.converse` is CCN 20 (`torra/agent.py:311`); -2 the 10-11/12 plan checks have met real models only in plan-only runs (`README.md:13-14`) |
@@ -424,7 +425,7 @@ Ask-first (it loosens a guard, so the owner decides).
 - *What's wrong.* The backstop's power-state and `rm` rows match words anywhere in the raw text, including
   file names and search terms, even when every command resolved cleanly. The false ticks land on exactly the
   read-only diagnostics an operator asks for ("does it need a reboot", "why did it shut down"). Over-ticking
-  trains rubber-stamping (§2.4), and live it cost two repair rounds (§6.5).
+  trains rubber-stamping (§2.4), and live it cost two repair rounds (a "declare touches" complaint on a `cat`).
 - *Evidence.* The rows are `safety.py:221` and `:223`; `classify()` runs them on every command
   (`safety.py:937`), though the table's own comment (`safety.py:212-213`) says it is for when parsing fails.
   DANGEROUS today: `cat /var/run/reboot-required`, `test -f /var/run/reboot-required && echo yes`,

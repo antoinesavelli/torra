@@ -90,6 +90,7 @@ class StateVerifier:
 
     # -- probes ------------------------------------------------------------ #
 
+    # Live wire: HANDOFF.md §5.20
     @staticmethod
     def systemctl_scope(unit: str) -> str:
         """'user' when systemd's user instance knows this unit, else 'system'.

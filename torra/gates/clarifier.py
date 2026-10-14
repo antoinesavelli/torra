@@ -168,6 +168,7 @@ class Clarifier:
         before = text[:match.start()]
         return bool(re.search(r"[\w./-]{3,}", before)) and len(before.split()) >= 3
 
+    # Live wire: HANDOFF.md §5.6
     def _scrub(self, text: str) -> str:
         """Blank out every anchor, so a vague-word check doesn't misread
         the "old" inside /srv/api/old.log as a judgement."""
@@ -222,6 +223,7 @@ class Clarifier:
             f"What defines '{vague.group(0)}' here? Give an age, size, or pattern.",
             f"'{vague.group(0)}' is a judgement, not a selection rule")
 
+    # Live wire: HANDOFF.md §5.7
     @staticmethod
     def _check_no_environment(text: str, anchors: list[str]) -> Ambiguity | None:
         if not re.search(DEPLOY, text, re.IGNORECASE):

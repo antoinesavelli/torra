@@ -77,6 +77,7 @@ class Agent:
     to the model, so a vague request gets one good question instead of a
     guess -- inverting the clarifier's role without changing its logic."""
 
+    # Live wire: HANDOFF.md §5.8
     #: How many times to hand a rejection back to the model before giving up.
     MAX_REPAIRS: int = 2
 
@@ -359,6 +360,7 @@ class Agent:
                 raise MalformedTaskError(f"proposed task is malformed: {exc}") from exc
         return turn
 
+    # Live wire: HANDOFF.md §5.9
     def _repair_complaint(self, turn: Turn) -> str:
         """What, if anything, needs fixing before this turn reaches the operator."""
         if turn.intent is Intent.PLAN and turn.spec is not None:
@@ -367,6 +369,7 @@ class Agent:
             return self._answer_dropped_a_task(turn) or self._answer_is_a_placeholder(turn)
         return ""
 
+    # Live wire: HANDOFF.md §5.10
     def _answer_is_a_placeholder(self, turn: Turn) -> str:
         """Complaint when `message` describes looking something up, not the result."""
         message = turn.message.strip()
