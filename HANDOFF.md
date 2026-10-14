@@ -1110,9 +1110,9 @@ unknown, not "yes."**
 > default-True); `tests/test_agent.py::test_converse_passes_a_real_callback_for_a_thinking_capable_model`
 > + `test_converse_passes_no_callback_for_a_non_thinking_model` +
 > `test_converse_never_passes_a_callback_to_an_alt_backend`;
-> `tests/test_tui.py::test_append_thinking_mounts_and_grows_a_live_reasoning_line`
-> + `test_clear_thinking_removes_the_live_reasoning_line` +
-> `test_a_completed_plan_request_leaves_no_reasoning_line_behind`
+> `tests/test_tui.py::test_append_thinking_grows_the_thinking_tab`
+> + `test_clear_thinking_resets_the_thinking_tab` +
+> `test_reasoning_text_survives_until_the_next_question_is_asked`
 
 ### 2.32 Live step output has to reach `shell()` through a thread-local sink, not a `Step.run` parameter, because `Step` objects are built once at plan time and reused verbatim through execute
 
@@ -1871,7 +1871,7 @@ schedule.
 > the case that actually reproduced `DuplicateIds`),
 > `test_append_thinking_grows_the_thinking_tab`,
 > `test_clear_thinking_resets_the_thinking_tab`,
-> `test_a_completed_plan_request_leaves_no_reasoning_text_behind`
+> `test_reasoning_text_survives_until_the_next_question_is_asked`
 
 ### 2.44 `/auto on`: skip the Run click for a plan that already needed no tick, never for one that does
 
@@ -1904,7 +1904,7 @@ once. "Has an undo" says nothing about how bad the blast radius is
 before that undo runs.)
 
 > Guarded by `tests/test_tui.py::
-> test_auto_run_executes_a_plan_with_nothing_needing_confirmation`,
+> test_auto_run_executes_a_plan_whose_every_step_is_read_only`,
 > `test_auto_run_never_bypasses_confirmation_for_a_dangerous_step`,
 > `test_auto_run_defaults_to_off`, `test_auto_command_turns_it_on_and_off`,
 > `test_bare_auto_command_reports_state_without_toggling`,
