@@ -26,6 +26,7 @@ Measured on 2026-10-13 at `309d59f`.
 | Open work | Lives in both §6.5 and `GRADE_TO_A_PLAN.md` (at least 3 items: `reboot-required`, D8, the missing-path heuristic) | One owner per item; the other place links to it |
 | Docs known to be wrong or closed but presented as live | `CORE_RULES.yaml` (loaded by nothing, drifts, still 6 references); `AGENTS.md` describes `AUDIT_FINDINGS.md` as "known live-wire bugs" though it is a closed 2026-07-29 audit; `RENAME_TO_TORRA.md` is done | Retired or described correctly |
 | "Where does a new fact go?" | No answer anywhere; each session guesses | `agents/KNOWLEDGE.md`, one trigger row in `AGENTS.md` |
+| Growth of `HANDOFF.md` | 272 lines on 2026-07-28, 4,386 on 2026-10-14: about 1,600 lines a month. Nothing caps it, and every "add the §2 entry" obligation only adds | A new entry is Rule + Why + Guard; a test caps each new entry and the whole file |
 | Does a fresh agent actually find the right answer? | Unmeasured | A question set checked in CI (no model) and one recorded fresh-agent baseline |
 
 Already right, and kept: every one of the 82 §2 entries names a guarding test (Paramo's `AGENTS.md`
@@ -43,6 +44,7 @@ guard works.
 | K3 | How a closed doc is retired: `git rm` (git history keeps it), or move it to an `archive/` folder in the repo. | **`git rm`**, with every reference updated in the same commit. Deleting files is ask-first; each file is listed for approval in P3.1. | P3.1 |
 | K4 | §5 live-wire pointers mean comment-only edits in `torra/gates/` and `pipeline.py`, which are on the ask-first path. | **Yes**, as comment-only commits with no code change, reviewed as a diff. | P2.2 |
 | K5 | How the fresh-agent eval runs. | **Manually, once, as a baseline**, with a capable model, at most 5 questions per batch. No schedule: Paramo's weekly unattended run scores 8 to 14 of 39 (`docs/eval/GRADE_LOG.md`), and 3 of its runs were flagged for opening the answer key or never running the grader, which is noise, not signal. | P4.3 |
+| K6 | How `HANDOFF.md` stops growing about 1,600 lines a month. | **Taken 2026-10-14:** a new §2 or §5 entry is Rule + Why + Guard, with its story in the commit message. Two checks: a line cap on each new entry and a byte ceiling on the file. Every obligation to add an entry names that budget. | P2.4 |
 
 ## 3. Phases
 
@@ -122,8 +124,18 @@ Exit: `test_instruction_files.py` and P0.1 green; the new trigger resolves.
 - **P2.3 One owner for open work (K2).** Dedupe §6.5 against `GRADE_TO_A_PLAN.md`; the 3 known overlaps
   are listed in section 1. A fixed §6 item shrinks to its pointer, which this file's own rule already
   requires.
+- **P2.4 Cap growth (K6).**
+  - **Shape**, written 2026-10-14 in `agents/LOOP.md` Definition of Done #4, which the `agents/PLAYBOOKS.md`
+    steps that add an entry point at: a new §2 or §5 entry is a heading of a few words, then
+    `**Rule:**`, `**Why:**` and `**Guard:**` (§5 adds `Code:`), at most 10 non-blank lines, the story in
+    the commit message. The top of §2 and of §5 points there.
+  - **Checks** in `tests/test_knowledge_refs.py`, after P2.1: each entry numbered above §2.82 or §5.25 has
+    at most 10 non-blank lines under its header; `HANDOFF.md` stays under a byte ceiling set to its size
+    after P2.1 plus 5%. Watch each fail first (an 11-line entry, a ceiling 1 byte under the file). Then
+    Definition of Done #4 names them: when one fails, shrink the entry or §6 item the change supersedes;
+    raising the ceiling is the owner's call.
 
-Exit: P0.1 green, and no § number changed: the set of header numbers after is a superset of the set before.
+Exit: P0.1 and the P2.4 checks green, and no § number changed: the set of header numbers after is a superset of the set before.
 
 ### Phase 3: retire what misleads (ask-first, K3)
 

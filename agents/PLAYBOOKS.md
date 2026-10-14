@@ -13,10 +13,11 @@ Step lists for the recurring kinds of change.
 
 ### Adding a new gate or extending an existing one
 1. Read `torra/gates/README.md` and the relevant `HANDOFF.md` §2 entries first.
-2. Ask before changing behavior on the safety-critical path (see When to Ask vs. Act).
+2. Ask before changing behavior on the safety-critical path (`LOOP.md` MODEL step).
 3. Wire it through `pipeline.py`'s seven stages — a gate that doesn't run inside
    `Torra.execute`'s existing stage sequence is a second code path (see HANDOFF §7, question 2).
-4. Add the test, add the `HANDOFF.md` §2 entry, update `gates/README.md`.
+4. Add the test, add the `HANDOFF.md` §2 entry (shape: `LOOP.md` Definition of Done #4), update
+   `gates/README.md`.
 
 ### Adding OS domain knowledge to `docs/`
 1. Run or point to a `scripts/dev/model_bench/` benchmark showing the actual gap (wrong, vague,
@@ -33,12 +34,10 @@ Step lists for the recurring kinds of change.
 3. Move the record to where the next agent looks. Open grade findings live in
    `GRADE_TO_A_PLAN.md` and other open work in `HANDOFF.md` §6; once fixed, shrink that
    entry to its pointer — a doc that never shrinks stops being read. The fixed live wire gets
-   the next unused `### 5.N` header in `HANDOFF.md` §5 with a `Code:` line (new entries name
-   their guard test in a `> Guarded by` line), plus a `# Live wire: HANDOFF.md §5.N` comment
-   at the code site.
+   a `HANDOFF.md` §5 entry (shape: `LOOP.md` Definition of Done #4), plus a
+   `# Live wire: HANDOFF.md §5.N` comment at the code site.
 4. If the fix touches an existing `HANDOFF.md` §2 invariant, update that entry. If it creates
-   a new invariant, it also gets a §2 entry: the next unused `### 2.N` header, opening with
-   `**Rule:** ... **Guard:** ...`.
+   a new invariant, it also gets a §2 entry in the same shape.
 
 ### Before adding any feature (from `HANDOFF.md` §7 — ask in this order)
 1. Does an existing gate already cover this?

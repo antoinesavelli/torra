@@ -1,6 +1,6 @@
 # The execution loop and the full Definition of Done
 
-Detail behind the short Definition of Done in `AGENTS.md`.
+Every change here runs this loop and meets this Definition of Done.
 
 ## Execution Architecture
 
@@ -16,11 +16,13 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
    for any invariant the area touches, and the actual code — never edit from memory of a
    prior session.
 2. **MODEL** — Identify blast radius. Is this on the safety-critical path (gates, the
-   classifier, `Step.command`/`Step.run` construction, anything between "model proposes" and
-   "shell executes") or peripheral (`cli.py`, `tui.py`, a docs file)? That answer decides how
+   classifier, `Step.command`/`Step.run` construction, `Torra.execute`/`Torra.reject`, anything
+   between "model proposes" and "shell executes") or peripheral (`cli.py`, `tui.py`, `__init__.py`,
+   a docs file; tiers: `DEFENSIVE_CODING_STANDARDS.md` §0)? That answer decides how
    much rigor and how much asking-first this needs.
 3. **DECIDE** — State the plan in one sentence. Ask if it touches the safety-critical path or
-   persisted-state format; proceed if it's reversible and outside that path.
+   persisted-state format (`resume/*.json`, `telemetry/tasks.jsonl`, `audit/*.audit.json`);
+   proceed if it's reversible and outside that path.
 4. **ACT** — Smallest edit that satisfies the task. Parallel tool calls when independent.
    **Before defaulting to editing it yourself: is this mechanical/atomic-diff-sized, not a
    judgment call?** If so, check whether the on-disk local model should do it instead — see
@@ -49,8 +51,13 @@ Not complete until all hold, in the *same* change:
    same change. New top-level directory → add a `README.md` and a row to the Area Maps table
    in `AGENTS.md`.
 4. **`HANDOFF.md` §2 current** if the change touches an existing invariant, or adds a new one
-   worth the same treatment (what breaks, why it's not obvious, which test guards it). A new
-   safety-relevant invariant with no entry here is invisible to the next agent who needs it.
+   worth the same treatment. A new safety-relevant invariant with no entry here is invisible to
+   the next agent who needs it. A new §2 or §5 entry takes the next unused number and a heading of
+   a few words, then `**Rule:**` (one sentence), `**Why:**` (one or two) and `**Guard:**` (test
+   ids); a §5 entry adds its `Code:` line. At most 10 non-blank lines under the heading: the story
+   goes in the commit. `tests/test_knowledge_refs.py` checks that cap and a byte ceiling on the
+   file; when one fails, shrink the entry or §6 item the change supersedes. Raising the ceiling is
+   the owner's call.
 5. **Lint and types clean.** `ruff check .` on touched files; `mypy <touched files>` with zero
    new errors vs. the pre-change baseline.
 6. **Defensive-coding scorecard held.** `python3 scripts/dev/defensive_coding_report.py` — no

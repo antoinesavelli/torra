@@ -14,21 +14,12 @@ Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `torra.cli:main`
 (`python3 -m pytest tests/ -q`) — nothing in `tests/` touches a live Ollama, systemd, or
 network; every external dependency is an injected callable (see `tests/conftest.py`).
 
-**This is an operating-system engineering agent first, a chat UI second.** Every design
-decision here exists because the thing being gated is real shell commands against a real
-Pop!_OS box — package managers, systemd, the filesystem, boot configuration. Optimizing
-"agentic engineering" for this repo means optimizing for that domain specifically: command
-semantics have to be resolved the way a real shell resolves them, not the way a regex
-guesses; service-management assumptions have to match the actual systemd scope in play, not
-the convenient default; and the model proposing changes never gets to skip the gates that
-exist because a wrong OS-level command is not a bug you can quietly patch after the fact —
-it already ran.
-
-**If you're a paid/capable model reading this file rather than the local model about to make the
-edit, check this before you touch anything**: is the change mechanical/atomic-diff-sized, not a
-judgment call? If so, drive the local model (global `build`/`quick` agent — this repo has no
-repo-specific one) through it instead of editing yourself — see the ACT step in `agents/LOOP.md` and the
-`local-model-subagent` skill. Not applicable if you're the local model already doing the edit.
+**This is an operating-system engineering agent first, a chat UI second.** The gates hold back real
+shell commands against a real Pop!_OS box (package managers, systemd, the filesystem, boot
+configuration), and a wrong OS-level command is not a bug you patch afterwards: it already ran. So
+commands are resolved the way a real shell resolves them, not the way a regex guesses; systemd scope
+is checked against the real unit, not assumed; and the model never skips a gate. The guardrails
+that follow, with their reasons: `agents/GUARDRAILS.md`.
 
 <!-- doctrine-core:begin (source: /mnt/ParamoStorage/system-library/AGENT_DOCTRINE_CORE.md; edit there, then run check.sh agents in system-library) -->
 ## Operating doctrine (core)
@@ -80,7 +71,7 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 
 | Before you... | Read |
 |---|---|
-| plan or run a change (the loop, the full Definition of Done, what "verify" means here) | [`agents/LOOP.md`](agents/LOOP.md) |
+| plan or run a change (the loop, what is ask-first here, the Definition of Done) | [`agents/LOOP.md`](agents/LOOP.md) |
 | touch classification, routing, rollback or the gates, or decide a check is wrong | [`agents/GUARDRAILS.md`](agents/GUARDRAILS.md) |
 | extend classification, add a gate, add OS knowledge to `docs/`, fix a live-wire bug, or add any feature | [`agents/PLAYBOOKS.md`](agents/PLAYBOOKS.md) |
 | write code, add a test, cite a source of truth, or record something you learned | [`agents/CONVENTIONS.md`](agents/CONVENTIONS.md) |
@@ -124,61 +115,6 @@ replacement. If any of these is unclear before you act, read the full entry, the
 | **`execute()` cannot replay an already-executed result** — `executed` is set only immediately before a real `step.run()` or when a resumed step's earlier run is recorded, never for merely entering the loop | `test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it` + 3 more |
 | **Model size/chat-capability come from the daemon (`/api/show`), never guessed from the name** | `test_core.py::TestModelInfo`, `test_gates.py::TestModelParamsAndChatCapable` |
 | **Every way to decline a plan goes through `Torra.reject()`** — never `execute()` with empty approvals, never bare UI state | `test_pipeline.py::test_reject_never_runs_an_all_safe_plan` + 4 more |
-
-## OS-engineering guardrails (short form; full text and reasons in `agents/GUARDRAILS.md`)
-
-- **Command resolution must match how a real shell resolves it**, not a regex guess.
-  `SafetyClassifier` unwraps `sudo`/`env`/`timeout`/`nohup`/`nice`/`xargs`, recurses into
-  `sh -c`, decodes base64-to-shell, splits quotes correctly. Bar: every case in `TestSafety.EVASIONS` caught, and
-  every command in `tests/test_known_programs.py` classified as listed — don't regress it. A new wrapper or shell construct to recognize means
-  adding its evasion case to that corpus in the same change.
-- **systemd-scope assumptions must be checked against the real unit**, never assumed
-  `--user`. `ollama.service` on this exact machine runs system-wide.
-- **OS domain knowledge in `docs/*.md` grows only from a measured `scripts/dev/model_bench/`
-  gap**, never a guess.
-- **Model routing consults the live daemon (`/api/show`) before it guesses from the name.**
-- **A destructive/irreversible action never runs without an explicit human tick**, on every
-  path (TUI, CLI, direct API) that can decline or execute a plan.
-
-## Secrets
-
-Never print, log, or paste a secret value (`OPENROUTER_API_KEY`, `.env` contents) — including in
-a suggested command like `RecoveryOption.action`. To check a var is set, show presence/length:
-`test -n "$VAR" && echo "VAR is set (${#VAR} chars)" || echo "VAR is MISSING"`.
-
-## When to Ask vs. Act
-
-**Ask first:**
-- Anything on the safety-critical path: the five gates, `SafetyClassifier`, `Step.command`/
-  `Step.run` construction, `Torra.execute`/`Torra.reject`.
-- Schema/format changes to persisted state (`resume/*.json`, `telemetry/tasks.jsonl`,
-  `audit/*.audit.json`).
-- Deleting files or branches.
-- Anything that changes what happens without an explicit human approval step.
-
-**Act freely:**
-- Reading any file.
-- Editing tests.
-- Fixing lint/type errors.
-- Adding config that's additive and gated behind a flag/default preserving old behavior.
-- Peripheral-tier files (`cli.py`, `tui.py` glue, `__init__.py`) — see
-  `DEFENSIVE_CODING_STANDARDS.md` §0 for the full tier list.
-
-## Code conventions (short form; full in `agents/CONVENTIONS.md`)
-
-Line length 100 (ruff `E501` ignored). No comments unless WHY. One-line docstrings + a
-`Depends on:` line per touched module. CCN<15 ceiling (none in the graded tiers exceed it; `Torra.execute` is 14, so extract a helper
-before adding a branch).
-Full param + return type hints on new/edited code.
-
-## Definition of done (short form; full in `agents/LOOP.md`)
-
-1. `python3 -m pytest tests/ -q` — every test passes, count never drops.
-2. Per-file docstring current on every touched module.
-3. That directory's `README.md` updated if a file was added/moved/renamed.
-4. `HANDOFF.md` §2 updated if the change touches an existing invariant.
-5. `ruff check .` and `mypy <touched files>` clean, zero new errors.
-6. No version bumps, tags, or `CHANGELOG.md` entries — this repo doesn't keep them.
 
 ## Key Entry Points
 
