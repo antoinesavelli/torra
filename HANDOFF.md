@@ -4189,6 +4189,49 @@ finding shrinks rather than accumulates.
   default. Fix this only against real `rocm-smi` output, not by guessing
   the format from documentation.
 
+### 6.6 A stopped run's resume point never expires, and the tick cannot see it -- **proposal, not built**
+
+Found 2026-10-13 during a `~/.torra` state cleanup. A resume file is
+deleted only by a clean success or an attempted rollback (§2.64 point 4),
+so a run that fails or blocks with nothing to roll back keeps its file
+forever. Four had built up between 2026-07-28 and 2026-10-12. Two were in
+the format from before §2.64 (no digests, so never trusted), one had
+`completed: []`, and `delete-folder.json` vouched for `check-folder`, an
+`ls -l` of a path that no longer existed. All four were archived to
+`/mnt/ParamoStorage/archive/torra-state-cleanup-20261013.tgz` and deleted.
+
+The digest check (§2.64 point 3) keeps a stale file inert unless the new
+plan is a byte-identical retry. That case is still open:
+- Its completed steps are skipped, however old the evidence is.
+- The digest covers only the command text (§2.71).
+- `resolve_resume` runs inside `execute()`, after the ticks, so neither
+  the CLI nor the TUI tells the operator that a step will be skipped.
+
+In a find-then-act plan (§6.5, D8), the skipped step is the check the
+operator relied on when ticking the act.
+
+Proposal:
+1. **Expiry.** `resolve_resume` treats a point whose `at` is older than a
+   set age as not matching. 24h would match `STALE_SHADOW_SECONDS`. It
+   logs this and starts fresh, and the new run overwrites the file. An
+   `in_progress` mark does not expire: §2.64 point 2 stops the run because
+   that step's effect is unknown, and age does not change that. This needs
+   no format change, because every save already writes `at`.
+2. **Visible before the tick.** Also resolve at plan time, read-only with
+   no write, and show "resumes N of M steps: <ids>" on the plan in both the
+   CLI and the TUI. The tick then covers what will actually run.
+   `execute()`'s own resolution stays the authority.
+3. **A sweep, only if needed.** Delete resume files past the expiry
+   wherever the shadow reaper runs. Build this only if (1) still leaves
+   clutter that matters: (1) already makes old files inert, and a fresh run
+   with the same id overwrites them.
+
+Before building: this is on `Torra.execute`'s path and changes the resume
+decision, so it is ask-first under `AGENTS.md`. Point 1 needs `TestResume`
+cases showing that an old point is ignored and an old `in_progress` mark
+still blocks. Point 2 needs a CLI test and a TUI test showing that the plan
+carries the resume line.
+
 ---
 
 ## 7. If you are adding a feature
