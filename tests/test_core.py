@@ -203,6 +203,30 @@ def test_fallback_model_default_is_actually_pulled() -> None:
     assert OllamaClient().fallback_model == "gpt-oss:20b"
 
 
+class TestOllamaHost:
+    def test_default_when_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("TORRA_OLLAMA_HOST", raising=False)
+        assert OllamaClient().host == "http://localhost:11434"
+
+    def test_env_sets_host_and_strips_trailing_slash(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TORRA_OLLAMA_HOST", "http://127.0.0.1:11435/")
+        assert OllamaClient().host == "http://127.0.0.1:11435"
+
+    def test_explicit_host_beats_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TORRA_OLLAMA_HOST", "http://127.0.0.1:11435")
+        assert OllamaClient(host="http://other:1").host == "http://other:1"
+
+    def test_blank_env_falls_back_to_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TORRA_OLLAMA_HOST", "  ")
+        assert OllamaClient().host == OllamaClient.DEFAULT_HOST
+
+    @pytest.mark.parametrize("bad", ["127.0.0.1:11435", "ftp://x", "file:///etc/passwd"])
+    def test_non_http_host_is_refused(self, monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
+        monkeypatch.setenv("TORRA_OLLAMA_HOST", bad)
+        with pytest.raises(ValueError, match="http"):
+            OllamaClient()
+
+
 class TestExecutorObservation:
     """Read-only observation of a second, real machine ("executor") over
     SSH -- HANDOFF.md §2.52. No test here touches a live network: every

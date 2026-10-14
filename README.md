@@ -57,6 +57,11 @@ the steps, because a plan may create the path itself.
 
 Needs Python 3.10+, Ollama running locally with at least one model pulled.
 
+To use an Ollama on another machine (say through an SSH tunnel), set
+`TORRA_OLLAMA_HOST=http://127.0.0.1:11435`. Only the model calls follow it; the
+`ollama ps`/GPU check and the "restart ollama" suggestion still act on the
+machine torra runs on.
+
 ```bash
 git clone https://github.com/antoinesavelli/torra.git ~/torra
 cd ~/torra

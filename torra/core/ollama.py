@@ -7,6 +7,7 @@ client, so the whole agent stays testable without a running daemon).
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.error
@@ -56,7 +57,7 @@ class OllamaClient:
 
     def __init__(
         self,
-        host: str = DEFAULT_HOST,
+        host: str | None = None,
         timeout: float = 120.0,
         probe_timeout: float = 1.0,
         fallback_model: str = "gpt-oss:20b",
@@ -65,6 +66,12 @@ class OllamaClient:
             [str, dict[str, Any], float, Callable[[str], None]], dict[str, Any]] | None = None,
     ) -> None:
         """Configure the host, timeouts, fallback model, and an injectable transport.
+
+        `host` explicit-overrides-env, same precedent as `OpenRouterClient`'s
+        `api_key`: `None` reads `TORRA_OLLAMA_HOST` (an SSH tunnel's
+        `http://127.0.0.1:11435`, say), else `DEFAULT_HOST`. Only this client
+        follows it: the `ollama ps`/GPU probe and the "restart ollama" recovery
+        option still act on the local machine.
 
         `fallback_model` defaults to the smallest model in the current
         four-model catalog (`HANDOFF.md` §2.9's pruning), not the
@@ -84,7 +91,11 @@ class OllamaClient:
         specific failure qwen3.5:latest was found to have on "quick"-style
         requests (see `ROUTING_RULES`' own comment in `torra/gates/router.py`).
         """
-        self.host = host.rstrip("/")
+        resolved = host if host is not None else (
+            os.environ.get("TORRA_OLLAMA_HOST", "").strip() or self.DEFAULT_HOST)
+        if not resolved.startswith(("http://", "https://")):
+            raise ValueError(f"Ollama host must start with http:// or https://: {resolved!r}")
+        self.host = resolved.rstrip("/")
         self.timeout = float(timeout)
         self.probe_timeout = float(probe_timeout)
         self.fallback_model = fallback_model
