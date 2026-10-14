@@ -26,13 +26,19 @@ Step lists for the recurring kinds of change.
 4. Do not wire it into `torra.agent.SYSTEM_PROMPT` in this same change — that's a separate,
    reviewed change with its own test.
 
-### Fixing a live-wire bug (`AUDIT_FINDINGS.md` pattern)
+### Fixing a live-wire bug
 1. Reproduce the finding, don't take the writeup on faith — code drifts between when a finding
    is written and when it's picked up.
 2. Fix the cause; write the regression test that would have caught it.
-3. Remove (don't just leave stale) the finding's entry in `AUDIT_FINDINGS.md` once fixed, or
-   mark it resolved with the commit — a findings doc that never shrinks stops being read.
-4. If the fix touches an existing `HANDOFF.md` §2 invariant, update that entry.
+3. Move the record to where the next agent looks. Open grade findings live in
+   `GRADE_TO_A_PLAN.md` and other open work in `HANDOFF.md` §6; once fixed, shrink that
+   entry to its pointer — a doc that never shrinks stops being read. The fixed live wire gets
+   the next unused `### 5.N` header in `HANDOFF.md` §5 with a `Code:` line (new entries name
+   their guard test in a `> Guarded by` line), plus a `# Live wire: HANDOFF.md §5.N` comment
+   at the code site.
+4. If the fix touches an existing `HANDOFF.md` §2 invariant, update that entry. If it creates
+   a new invariant, it also gets a §2 entry: the next unused `### 2.N` header, opening with
+   `**Rule:** ... **Guard:** ...`.
 
 ### Before adding any feature (from `HANDOFF.md` §7 — ask in this order)
 1. Does an existing gate already cover this?

@@ -2320,8 +2320,9 @@ class TestContextCompressor:
     else entirely -- that check is file-level, not behavioral. Nothing
     anywhere actually verified the net-saving guarantee, the terser-fallback
     degradation, `keep_recent`, or `ContextBudgetError`, despite
-    AUDIT_FINDINGS.md's "Things checked and found correct" list claiming
-    the net-saving guard was verified. It wasn't -- not by a test, anyway.
+    the 2026-07-29 full-file audit's "Things checked and found correct" list claiming
+    the net-saving guard was verified (the retired `AUDIT_FINDINGS.md`;
+    `git log --diff-filter=D -- AUDIT_FINDINGS.md`). It wasn't -- not by a test, anyway.
     """
 
     def test_a_single_entry_over_budget_is_rejected_loudly(self) -> None:

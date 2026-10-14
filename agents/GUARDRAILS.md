@@ -17,12 +17,13 @@ wrong command runs against a real filesystem, package manager, or init system.
   the evasion case to that test corpus in the same change — an unlisted evasion is
   indistinguishable from "handled" until someone hits it live.
 - **systemd-scope assumptions must be checked against the real unit, not assumed.**
-  `AUDIT_FINDINGS.md` MED-2: service handling assumed `--user` scope everywhere; wrong for a
-  system service. On this exact machine, `pop-os`'s `ollama.service` itself is a live
-  cautionary example of scope mattering — it runs system-wide, and a `--user`-scoped
-  assumption anywhere near it would silently check or act on the wrong unit. When code decides
-  how to query or act on a systemd unit, verify scope explicitly; don't default to whichever
-  scope was convenient to write first.
+  The 2026-07-29 full-file audit (MED-2; now `HANDOFF.md` §5.20; the retired
+  `AUDIT_FINDINGS.md`, `git log --diff-filter=D -- AUDIT_FINDINGS.md`): service handling
+  assumed `--user` scope everywhere; wrong for a system service. On this exact machine,
+  `pop-os`'s `ollama.service` itself is a live cautionary example of scope mattering — it
+  runs system-wide, and a `--user`-scoped assumption anywhere near it would silently check or
+  act on the wrong unit. When code decides how to query or act on a systemd unit, verify
+  scope explicitly; don't default to whichever scope was convenient to write first.
 - **OS domain knowledge fed to the planning model grows from a measured gap, never a guess.**
   `docs/*.md` exists only for facts a real benchmark run (`scripts/dev/model_bench/`) caught a
   model getting wrong, vague, or hallucinated (see `docs/README.md`) — not from "this seems

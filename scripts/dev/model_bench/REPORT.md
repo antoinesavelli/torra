@@ -34,7 +34,7 @@ qwen3:32b needs it reduced to stay fully resident on a 24GB card, and
 context-length-driven KV-cache growth — so the router could route to 32b and
 get an unexpectedly slow, partially-CPU response with no way to fix it short
 of code changes. Worth a follow-up: an optional `num_ctx` parameter on
-`OllamaClient.chat()`, and a per-model context ceiling in `CORE_RULES.yaml`.
+`OllamaClient.chat()`, and a per-model context ceiling in `CORE_RULES.yaml` (removed later; `git log --diff-filter=D -- CORE_RULES.yaml` finds it).
 
 ## Task battery
 
@@ -88,8 +88,9 @@ depending on sampling; see "Caveats" below.
 
 ### Recommendation
 
-**Keep `CORE_RULES.yaml`'s existing routing** (`devstral` for deploy/code,
-`qwen3:32b` for debug/plan/analyze, `qwen3:8b` for quick/fallback) — the
+**Keep the routing of the time** (`devstral` for deploy/code,
+`qwen3:32b` for debug/plan/analyze, `qwen3:8b` for quick/fallback; since replaced, current
+rules in `torra/gates/router.py` `ROUTING_RULES`) — the
 measurement validates rather than contradicts it. Two concrete follow-ups:
 
 1. Add `num_ctx` support to `OllamaClient.chat()` and pin qwen3:32b to 16384

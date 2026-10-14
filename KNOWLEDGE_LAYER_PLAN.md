@@ -129,9 +129,9 @@ Exit: P0.1 green, and no § number changed: the set of header numbers after is a
 
 - **P3.1** List each candidate with its references for approval, then `git rm` it and update its
   references in the same commit. Candidates:
-  - `CORE_RULES.yaml`: loaded by nothing, drifts, 6 references;
-  - `RENAME_TO_TORRA.md`: marked done, 1 reference;
-  - `AUDIT_FINDINGS.md`: a closed audit, 9 references. It could instead shrink to a §6 pointer.
+  - `CORE_RULES.yaml`: loaded by nothing, drifts, 6 references; retired;
+  - `RENAME_TO_TORRA.md`: marked done, 1 reference; retired;
+  - `AUDIT_FINDINGS.md`: a closed audit, 9 references. It could instead shrink to a §6 pointer. Retired.
 
   This plan joins the list when its own status reads done.
 

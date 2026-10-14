@@ -83,7 +83,7 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 | plan or run a change (the loop, the full Definition of Done, what "verify" means here) | [`agents/LOOP.md`](agents/LOOP.md) |
 | touch classification, routing, rollback or the gates, or decide a check is wrong | [`agents/GUARDRAILS.md`](agents/GUARDRAILS.md) |
 | extend classification, add a gate, add OS knowledge to `docs/`, fix a live-wire bug, or add any feature | [`agents/PLAYBOOKS.md`](agents/PLAYBOOKS.md) |
-| write code, add a test, cite a source of truth, or handle `CORE_RULES.yaml` | [`agents/CONVENTIONS.md`](agents/CONVENTIONS.md) |
+| write code, add a test, cite a source of truth, or record something you learned | [`agents/CONVENTIONS.md`](agents/CONVENTIONS.md) |
 | delegate work to another model, edit a skill, or a guard fails | `/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md` |
 
 ## Area Maps — read these first (token-efficient navigation)
@@ -101,14 +101,11 @@ Read the map for the area you're touching before grepping the source tree.
 | OS domain knowledge fed to the planning model (measured gaps only) | `docs/README.md` |
 | Model-quality benchmark torra | `scripts/dev/model_bench/README.md` |
 | Agent topic files (targets of the read-first triggers above) | `agents/README.md` |
-| **Invariants that must never break, with the story behind each** | `HANDOFF.md` §2 |
-| Known live-wire bugs from the last full-codebase audit | `AUDIT_FINDINGS.md` |
+| **Invariants (§2), live wires (§5) and open work (§6), with the story behind each** | `HANDOFF.md` §2, §5, §6 |
 | How code here is graded (six dimensions, tiering, floors) | `DEFENSIVE_CODING_STANDARDS.md` |
 | Migrating off Claude Code as operator (what's built, what's scoped but not) | `CLAUDE_MIGRATION_ROADMAP.md` |
 | Plan to an A on every `/grade` domain (findings, owner decisions, phases) | `GRADE_TO_A_PLAN.md` |
-
-`CORE_RULES.yaml` is loaded by nothing and is known to drift from the code it describes —
-never treat it as ground truth for "what does this actually do."
+| Plan to make the agent docs cheap to look up and checked (decisions, phases) | `KNOWLEDGE_LAYER_PLAN.md` |
 
 ## Domain Invariants — Non-Negotiable
 

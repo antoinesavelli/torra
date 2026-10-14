@@ -14,7 +14,7 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
 
 1. **OBSERVE** — Read current state before acting: the relevant `README.md`, `HANDOFF.md` §2
    for any invariant the area touches, and the actual code — never edit from memory of a
-   prior session or from `CORE_RULES.yaml`'s stale numbers.
+   prior session.
 2. **MODEL** — Identify blast radius. Is this on the safety-critical path (gates, the
    classifier, `Step.command`/`Step.run` construction, anything between "model proposes" and
    "shell executes") or peripheral (`cli.py`, `tui.py`, a docs file)? That answer decides how
@@ -57,10 +57,7 @@ Not complete until all hold, in the *same* change:
    graded dimension drops a letter grade from the current baseline in `DEFENSIVE_CODING_STANDARDS.md`
    §2.1 (`ENFORCE_FLOORS` in the script is the enforced version of that baseline). If one drops,
    fix the regression in the same change — see that doc §2's extraction pattern for Modularity.
-7. **`CORE_RULES.yaml` is not updated as a substitute for step 2.** If a default value changes,
-   the docstring/`Depends on` and the actual code are what's authoritative; touching the YAML
-   snapshot is optional cleanup, never a stand-in for documenting the real change.
-8. **No version bumps, tags, or a `CHANGELOG.md` entry.** This is a solo, private tool with
+7. **No version bumps, tags, or a `CHANGELOG.md` entry.** This is a solo, private tool with
    no external consumers of the package as an API — `pyproject.toml`'s `version` stays fixed
    at `0.0.0` (present only because PEP 621 requires the field), there is no `torra --version`
    flag, and there are no git tags to keep current. `git log`/GitHub's own commit and compare
