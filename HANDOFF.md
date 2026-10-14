@@ -15,7 +15,7 @@ your change touches: `grep -n '^### 2\.' HANDOFF.md` lists every invariant and
 ```bash
 cd <repo> && python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # must print 774 passed
+python3 -m pytest tests/ -q          # every test passes; the count never drops
 torra doctor
 ```
 
@@ -42,6 +42,9 @@ top-level path, e.g. `from torra.gates import SafetyClassifier`. Read in this or
 
 Break any of these and the safety story collapses silently. There is a test for
 each; if you find yourself deleting one of those tests, stop.
+
+New entries take the next unused number and the shape in `agents/LOOP.md`'s
+Definition of Done; the story goes in the commit message.
 
 ### 2.1 The classified command IS the executed command
 
@@ -3699,7 +3702,7 @@ ask whether the list is the bug.**
 ## 4. How to verify a change
 
 ```bash
-python3 -m pytest tests/ -q                       # 1650 on 2026-10-12, must stay green
+python3 -m pytest tests/ -q                       # every test passes; the count never drops
 ```
 
 If you touch the clarifier, `tests/test_gates.py::TestClarifier` carries its
@@ -3734,6 +3737,9 @@ applies to itself.
 ## 5. Live wires
 
 Places where an obvious-looking change is wrong.
+
+New entries take the next unused number and the shape in `agents/LOOP.md`'s
+Definition of Done; the story goes in the commit message.
 
 ### 5.1 `SafetyClassifier._decode_base64`'s blob pattern must not require quotes.
 
@@ -4068,7 +4074,12 @@ recreating it would silently degrade every subsequent `capture_file` to a
 `skipped` entry for the rest of the session. Found in a full-file audit:
 `cleanup()` had zero callers anywhere before this, so 14 shadow
 directories had already accumulated on one real machine -- see
-the 2026-07-29 full-file audit (MED-1).
+the 2026-07-29 full-file audit (MED-1) (the retired `AUDIT_FINDINGS.md`;
+`git log --diff-filter=D -- AUDIT_FINDINGS.md`).
+
+> Guarded by `tests/test_gates.py::TestUndoGeneration`,
+> `tests/test_pipeline.py::test_a_successful_run_cleans_up_its_shadow_copies` and
+> `tests/test_pipeline.py::test_a_dry_run_keeps_its_shadow_copies`.
 
 ### 5.20 Every `systemctl` call resolves scope first, never hardcodes `--user`.
 
@@ -4083,7 +4094,11 @@ confirmed in a full-file audit: `ollama.service` is a **system** unit on
 this project's own reference machine, and every hardcoded `--user` call
 (recovery advice, precondition probe, generated service rollback) was
 silently targeting the wrong systemd instance. See the 2026-07-29
-full-file audit (MED-2).
+full-file audit (MED-2) (the retired `AUDIT_FINDINGS.md`;
+`git log --diff-filter=D -- AUDIT_FINDINGS.md`).
+
+> Guarded by `tests/test_gates.py::TestSystemctlScope` and
+> `tests/test_gates.py::TestUndoGeneration::test_service_undo_uses_the_same_scope_it_was_captured_under`.
 
 ### 5.21 Site-knowledge library gives the model awareness, never a new capability.
 
@@ -4433,6 +4448,38 @@ finding shrinks rather than accumulates.
 - **Open, the owner's.** Have a native speaker confirm the Corsican spelling of
   *torra* (the Genoese coastal watchtower; the meaning is certain, the spelling
   is not; moved from `RENAME_TO_TORRA.md`, retired).
+- **Found 2026-10-13, open, the owner's call (doc or code).** `AGENTS.md`'s
+  invariant and §2.6's prose say an undo has three states and that `undone`
+  requires the verifier to return True. The code has four statuses (`cancelled`
+  too) and returns `undone` with `verified=None` when no verifier was supplied,
+  which `RollbackReport.ok` counts as success (`torra/gates/rollback.py:159-161`,
+  `:203`). §2.6's Rule line states what the code does.
+- **Found 2026-10-13, open, the owner's call.** `AGENTS.md`'s invariant says
+  model size and chat capability are never guessed from the name.
+  `ModelRouter._params_b` does fall back to a name guess for size when
+  `/api/show` has nothing (chat capability never does). §2.9's Rule line states
+  what the code does.
+- **Found 2026-10-14, open, safety path, the owner's call.**
+  `UndoGenerator.capture_file` copies every model-declared `touches` path at
+  plan time, before approval, with no `S_ISREG` check (unlike
+  `ConflictDetector.hash_file`). By reading the code, a `touches: /dev/zero`
+  would copy without bound into the shadow directory. Not reproduced.
+- **Found 2026-10-14, open, security call.**
+  `SafetyClassifier().classify('cat /secret.env')` is SAFE: only a file named
+  exactly `.env` counts as a credential read (confirmed live by a verifier).
+- **Found 2026-10-14, open.** `unzip` now gets the false positive §2.54's prose
+  says it avoided: as a `known_programs` writer,
+  `unzip /home/user/archive.zip -d /tmp` is DANGEROUS because every operand
+  counts as a destination (§2.54's Rule line states this).
+- **Found 2026-10-14.** Several §2 entries' prose is stale (§2.8, §2.32, §2.33's
+  header, §2.36, §2.44, §2.52, §2.59). Each entry's Rule line states what the
+  code does now; the prose is kept as history.
+- **Open, the owner's.** The rename backups `harness-pre-torra-rename.bundle`
+  and `dot-harness-pre-torra.tgz` are still in `/mnt/ParamoStorage/archive/`.
+  Delete them only on the owner's say-so (from the retired `RENAME_TO_TORRA.md`).
+- **Found 2026-10-14.** A comment near `torra/gates/router.py:92` still says
+  `muse-glimmer:30b` is pulled; it is not (`ollama list`). Comment only; on the
+  gates path, so left for the owner.
 
 ### 6.6 A stopped run's resume point never expires, and the tick cannot see it -- **proposal, not built**
 
@@ -4534,7 +4581,7 @@ shadow copies    <workdir>/torra-shadow-<pid>/ (CLI/one-shot) or
                  <workdir>/torra-shadow-<session_id>/ (TUI, one per tab, see §2.23)
 sessions (TUI)   <workdir>/sessions/<session_id>/{meta.json,transcript.jsonl}
 
-test command     python3 -m pytest tests/ -q     # 774
+test command     python3 -m pytest tests/ -q     # every test passes; the count never drops
 ```
 
 ---

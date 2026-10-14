@@ -1,4 +1,4 @@
-"""CI guard: agent-facing docs cite only sections, guard tests and paths that still exist.
+"""CI guard: agent-facing docs cite only what still exists, and HANDOFF.md's growth is capped.
 
 Depends on: the root *.md, agents/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
 """
@@ -21,6 +21,16 @@ _TEST_REF = re.compile(rf"(?<![\w/.-])(?:tests/)?(test_\w+\.py)((?:::{_NAME})+)"
 _JOIN = r"(?:[ \t+,;]|and\b|\n[> \t]*(?=[^\s>])|\([^()]*\))*"
 _CHAINED = re.compile(rf"`?{_JOIN}`((?:test_|Test)\w+)(\*|\.\.\.)?`")
 _DEFINED = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(\w+)", re.M)
+# Caps on HANDOFF.md's growth: a new §2/§5 entry is short and the whole file is bounded.
+# The last entry per section that is exempt, because it holds history (plan item P2.4, K6).
+_EXEMPT_UP_TO = {"2": 82, "5": 25}
+_NEW_ENTRY_MAX_LINES = 10
+# HANDOFF.md's size after plan item P2.1 plus 5%. Raising it is the owner's call; when it
+# fails, shrink an entry or §6 item the change supersedes.
+_HANDOFF_MAX_BYTES = 313_401
+_ENTRY_HEADER = re.compile(r"^#{2,4}\s+([25])\.(\d+)(?:\.\d+)*\.?\s")
+_ANY_HEADER = re.compile(r"^#{1,6}\s")
+_BLANK = re.compile(r"^[>\s]*$")
 
 
 def _line(text: str, pos: int) -> int:
@@ -95,3 +105,47 @@ def test_every_path_in_the_agents_md_area_map_exists() -> None:
                 stale.append(f"AGENTS.md:{line} -> {token} does not exist")
     assert paths > 10, "no paths found in the Area Maps table: the test's regex likely broke"
     assert not stale, "Area Maps table points at missing paths:\n" + "\n".join(stale)
+
+
+def _handoff_entries() -> Iterator[tuple[int, str, str, int, int]]:
+    """Yield (line, header, section, number, non-blank body lines) for each §2.N and §5.N entry.
+
+    An entry runs from its header to the next header outside a code fence; the header line
+    itself is not counted, and neither is a blank or bare ">" line.
+    """
+    lines = (ROOT / "HANDOFF.md").read_text().splitlines()
+    starts, fenced = [], False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and _ANY_HEADER.match(line):
+            starts.append(i)
+    for start, end in zip(starts, [*starts[1:], len(lines)], strict=True):
+        if m := _ENTRY_HEADER.match(lines[start]):
+            body = sum(1 for text in lines[start + 1 : end] if not _BLANK.match(text))
+            yield start + 1, lines[start], m.group(1), int(m.group(2)), body
+
+
+def test_a_new_handoff_entry_stays_short() -> None:
+    entries = list(_handoff_entries())
+    assert len(entries) > 100, "no §2/§5 entries found in HANDOFF.md: _ENTRY_HEADER likely broke"
+    long = [
+        f"HANDOFF.md:{line} -> {header!r} has {body} non-blank lines"
+        for line, header, section, number, body in entries
+        if number > _EXEMPT_UP_TO[section] and body > _NEW_ENTRY_MAX_LINES
+    ]
+    assert not long, (
+        f"new entries (past §2.{_EXEMPT_UP_TO['2']} and §5.{_EXEMPT_UP_TO['5']}) are capped at "
+        f"{_NEW_ENTRY_MAX_LINES} non-blank lines under their header, the header line itself "
+        "not counted. Shorten each to its rule, its guard and the shortest why; history "
+        "belongs in git:\n" + "\n".join(long)
+    )
+
+
+def test_handoff_stays_under_its_size_ceiling() -> None:
+    size = (ROOT / "HANDOFF.md").stat().st_size
+    assert size <= _HANDOFF_MAX_BYTES, (
+        f"HANDOFF.md is {size} bytes, {size - _HANDOFF_MAX_BYTES} over _HANDOFF_MAX_BYTES "
+        f"({_HANDOFF_MAX_BYTES}): shrink an entry or §6 item this change supersedes. Raising "
+        "the ceiling is the owner's call, not the change's."
+    )
