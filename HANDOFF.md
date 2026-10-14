@@ -45,6 +45,8 @@ each; if you find yourself deleting one of those tests, stop.
 
 ### 2.1 The classified command IS the executed command
 
+**Rule:** `Step.command` (what the safety gate classifies) and `Step.run` (what executes) must be built from the same string in `TaskSpec.to_steps` and any new way of building a `Step`; the only exception is torra-authored `remote_pull`/`remote_push` text (§2.53). **Guard:** `tests/test_agent.py::test_a_plan_becomes_a_validated_taskspec`.
+
 `Step.command` is what the safety gate reads. `Step.run` is what executes. In
 `TaskSpec.to_steps` they are constructed from the same string, deliberately.
 
@@ -55,6 +57,8 @@ build a `Step`, that equivalence is the thing to preserve.
 > Guarded by `tests/test_agent.py::test_a_plan_becomes_a_validated_taskspec`
 
 ### 2.2 The model never executes anything
+
+**Rule:** The model returns JSON only, with no tool-call loop, shell or filesystem; it proposes a `TaskSpec` and the pipeline decides what happens next. **Guard:** `tests/test_pipeline.py::test_a_hand_written_file_still_works_without_a_model`.
 
 The model returns JSON. It gets no tool-call loop, no shell, no filesystem. It
 proposes a `TaskSpec` and the pipeline decides what happens next.
@@ -68,6 +72,8 @@ the one nobody tests.
 
 ### 2.3 Unapproved means refused, never defaulted
 
+**Rule:** `Torra.execute` treats a step that needs confirmation and is absent from the approvals map as refused, never as defaulted to approved. **Guard:** `tests/test_pipeline.py::test_a_dangerous_step_does_not_run_unapproved`.
+
 `Torra.execute` treats a step that needs confirmation and is absent from the
 approvals map as **refused**. Do not "helpfully" default it to True for
 convenience, unattended runs, or anything else.
@@ -75,6 +81,8 @@ convenience, unattended runs, or anything else.
 > Guarded by `tests/test_pipeline.py::test_a_dangerous_step_does_not_run_unapproved`
 
 ### 2.4 Safe steps get no checkbox
+
+**Rule:** In the TUI only DANGEROUS or CRITICAL steps render an approve checkbox; safe steps get none. **Guard:** `tests/test_tui.py::test_a_safe_plan_gets_no_checkbox`.
 
 In the TUI, only steps at DANGEROUS or CRITICAL render an approve box. Adding
 one to every step feels more careful and is the opposite: it trains the operator
@@ -84,6 +92,8 @@ to tick without reading.
 
 ### 2.5 Telemetry can never break a run
 
+**Rule:** Every telemetry method catches its own exceptions and records them, and `TaskLogger.__init__` never raises, so a logging failure can never break a run. **Guard:** `tests/test_pipeline.py::test_an_audit_write_failure_is_logged_not_raised`.
+
 Every method in `telemetry.py` catches its own exceptions and records them.
 `TaskLogger.__init__` does not raise even when its directory is unusable. A
 logger that raises during a deploy is worse than no logger.
@@ -91,6 +101,8 @@ logger that raises during a deploy is worse than no logger.
 > Guarded by `tests/test_pipeline.py`
 
 ### 2.6 An undo that cannot be proven is not "undone"
+
+**Rule:** `VerifiedRollback` keeps `undone` (verifier confirmed, or no verifier, reported as `verified=None`), `unverified` (undo ran, verifier says no), `failed` (undo raised) and `cancelled` (operator declined an unsafe undo) distinct, never collapsed; a verifier must confirm the real prior state, not something correlated with it. **Guard:** `tests/test_gates.py::TestVerifiedRollback` and `tests/test_gates.py::TestUndoGeneration::test_mkdir_undo_verify_is_false_when_the_directory_is_left_behind`.
 
 `VerifiedRollback` has three terminal states. `undone` requires the verifier to
 return True. An action with no verifier reports `verified=None`, which is honest
@@ -111,6 +123,8 @@ confirms it was restored.
 > `test_mkdir_undo_verify_is_false_when_the_directory_is_left_behind`
 
 ### 2.7 A declared rollback command is still classified
+
+**Rule:** A `rollback:` entry's `safe` flag can only make `SafetyClassifier`'s verdict more cautious, never less (`Torra.execute` classifies every rollback command), and `TaskSpec.validate()` rejects unknown fields or a missing `run` in rollback entries. **Guard:** `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified` and `tests/test_core.py::TestTaskSpecRollbackValidation`.
 
 A `rollback:` entry's `safe` flag (from a hand-written task or a model's own
 proposal) can only make a command *more* cautious than `SafetyClassifier`
@@ -143,6 +157,8 @@ the same strict "unknown field or missing `run` is a hard error" discipline
 > Guarded by `tests/test_core.py::TestTaskSpecRollbackValidation`
 
 ### 2.8 `execute()` cannot be replayed on a result that already ran for real
+
+**Rule:** `Torra.execute` refuses to replay a `RunResult` whose `executed` is True; `executed` is set only just before a real `step.run()` (or when a resumed step's earlier run is recorded), so rejected, dry-run-only and blocked-before-any-step results stay retryable. **Guard:** `tests/test_pipeline.py::test_execute_twice_on_the_same_result_does_not_replay_it` and 3 more below.
 
 `Torra.execute` refuses immediately if `result.executed` is already
 `True` -- it logs a `"refused: already executed"` decision and returns
@@ -193,6 +209,8 @@ the real output in the same list.
 
 ### 2.9 A model's size and chat capability come from the daemon, never the name
 
+**Rule:** Model size and chat capability come from the daemon's `/api/show` data whenever it is present; only size (`ModelRouter._params_b`, `Accelerator.fits`) falls back to a guess from the model name when that data is missing, and `ModelRouter._chat_capable` never guesses from the name (a model with no data defaults to chat-capable). **Guard:** `tests/test_core.py::TestModelInfo` and `tests/test_gates.py::TestModelParamsAndChatCapable`, and 3 more below.
+
 `ModelRouter._params_b` and `_chat_capable` consult `model_params_b` /
 `model_chat_capable` (real `/api/show` data, `OllamaClient.model_info`)
 before falling back to guessing from the model's name. `Accelerator.fits`
@@ -225,6 +243,8 @@ this invariant not holding.
 > `tests/test_agent.py::test_observe_populates_the_routers_real_model_sizes`
 
 ### 2.10 Every way to decline a plan goes through the pipeline, and only once
+
+**Rule:** Every way to decline a plan goes through `Torra.reject()`, never `execute()` with empty approvals; `reject()` finishes via `_finish()` and refuses once `result.executed` is True. **Guard:** `tests/test_pipeline.py::test_reject_never_runs_an_all_safe_plan` and 4 more below.
 
 `Torra.reject(result)` exists specifically because `execute(result,
 {})` is **not** a safe way to implement "decline this plan": a step's
@@ -262,6 +282,8 @@ after the fact.
 
 ### 2.11 The post-execution summary call can report, never act
 
+**Rule:** The post-execution `summarize()` call can only report: its reply is plain text (`json_mode=False`, never parsed into a `TaskSpec`), it runs only when `plan.model` is set, and an exception in it is caught without failing the run. **Guard:** `tests/test_agent.py::test_summarize_sends_step_output_as_plain_text_not_json` and 4 more below.
+
 `pipeline_report.summarize()` (called once from `_finish()`, after a model-authored
 plan has actually executed) is the only place execution results are ever fed
 back to the model. It exists to close a real gap -- `_print_execution_report`
@@ -287,6 +309,8 @@ repeatedly found and removed elsewhere -- see §7, question 2.
 
 ### 2.12 Every filename built from `task_id` goes through `safe_filename`
 
+**Rule:** Every filename built from `task_id` (the resume file and the audit file) goes through `pipeline_report.safe_filename()`, and any new place that turns `task_id` or another model-supplied string into a filename must use it too, so it cannot write outside its directory. **Guard:** `tests/test_pipeline.py::test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir`.
+
 `task_id` is fully model- or human-controlled: `TaskSpec.validate()` does
 `task_id=str(data["task_id"])` with no character restriction at all, and a
 model's own JSON `task` object supplies it directly (`Agent._parse` only
@@ -308,6 +332,8 @@ character set by hand.
 
 ### 2.13 A step's DOM id in the TUI is never built from `step_id` itself
 
+**Rule:** A step's DOM id in the TUI is built from the card's 1-based index, never from `step_id`; `_approvals()` reads the real id from `StepCard.plan_step.step.step_id`. **Guard:** `tests/test_tui.py::test_a_step_id_with_a_space_does_not_crash_the_plan_pane`.
+
 `StepCard.compose()`'s approval `Checkbox` needs a Textual DOM id, and DOM
 ids must match `[A-Za-z0-9_-]+` -- `sp.step.step_id` is arbitrary model- or
 human-chosen text with no such restriction (a space, period, or colon is
@@ -328,6 +354,8 @@ DOM id as a relay in the first place.
 > Guarded by `tests/test_tui.py::test_a_step_id_with_a_space_does_not_crash_the_plan_pane`
 
 ### 2.14 `TaskRecord.approved` requires every step to be `True`, not merely not-`False`
+
+**Rule:** `TaskRecord.approved` is true only when every step's `approved` is `True`; `None` (never reached approval, for example a BLOCKED plan) records as not approved. **Guard:** `tests/test_pipeline.py::test_a_precondition_blocked_plan_is_not_recorded_as_approved` and 1 more below.
 
 Same underlying principle as §2.3 ("unapproved means refused, never
 defaulted to True"), recurring in the telemetry read path instead of the
@@ -351,6 +379,8 @@ rely on, and it would already have been wrong.
 > `test_a_normally_completed_plan_is_still_recorded_as_approved`
 
 ### 2.15 `TaskSpec.validate()` type-checks every field, not just presence
+
+**Rule:** `TaskSpec.validate()` type-checks every field: `touches`/`watch_roots` must be lists, `estimated_seconds` a number and a rollback `safe` a real boolean, each raising `TaskSpecError` at validation time. **Guard:** `tests/test_core.py::TestTaskSpecStepValidation` and `tests/test_core.py::TestTaskSpecRollbackValidation::test_a_quoted_string_safe_value_is_rejected`.
 
 Found by an independent audit of `tasks.py`, reproduced live, three related
 gaps in the one gate between an arbitrary mapping (hand-written YAML or a
@@ -389,6 +419,8 @@ it is gone.
 
 ### 2.16 A watched path is opened only after confirming it's a regular file
 
+**Rule:** `ConflictDetector.hash_file()` and `_scan_knowledge_dir()` open a declared path only after `stat.S_ISREG(path.stat().st_mode)` confirms a regular file (symlinks followed), skipping FIFOs, devices, sockets and directories; any new place that opens a model- or operator-declared path must add the same check first (`UndoGenerator.capture_file` does not have it). **Guard:** `tests/test_core.py::TestHashFileSkipsNonRegularFiles` and `tests/test_core.py::TestKnowledgeLibrary::test_a_fifo_named_dot_md_is_skipped_instead_of_hanging`.
+
 Found by an independent security audit, reproduced live: `ConflictDetector.hash_file()`
 opened whatever `Path.open("rb")` was pointed at with no check on what kind
 of filesystem entry it actually was. Opening a FIFO for reading with no
@@ -418,6 +450,8 @@ codebase's threat model.
 
 ### 2.17 `OllamaClient` validates response *shape*, not just transport success
 
+**Rule:** `OllamaClient.model_info()` and `chat()` validate the response shape inside the same `try` as the transport call, so a wrong-shaped reply yields `{}` or `OllamaError`, never a raw exception. **Guard:** `tests/test_core.py::TestModelInfo::test_a_response_of_the_wrong_shape_returns_an_empty_dict_not_a_crash` and `tests/test_core.py::TestChatResponseShape`.
+
 Found by an independent security audit, reproduced live: `model_info()` and
 `chat()` each wrapped only the transport call in `try/except`; everything
 that parsed the response body afterward (`data.get(...)`, `"completion" in
@@ -445,6 +479,8 @@ promised, instead of a new, undocumented failure mode past it.
 > `TestChatResponseShape` (3 cases)
 
 ### 2.18 `resolve()` recurses into command substitutions, and IFS is a separator
+
+**Rule:** `SafetyClassifier.resolve()` recurses into every `$(...)` and backtick span (decoding base64 there without needing `| sh`) and treats `${IFS}`/`$IFS` as a space; any newly found way text becomes the running command is added as another source `resolved` accumulates from. **Guard:** `tests/test_gates.py::TestSafety::test_command_substitution_and_ifs_evasions_are_critical_not_just_gated` and `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`.
 
 The single most severe finding an independent audit found this session,
 against `SafetyClassifier` -- the primary defense, the thing standing
@@ -494,6 +530,8 @@ this one was.
 
 ### 2.19 A dry run never reaches `summarize()`
 
+**Rule:** A dry run never reaches `summarize()`: `_finish()` takes a `dry_run` flag and skips the summary call, so fabricated `[dry-run]` step output is never presented as a result. **Guard:** `tests/test_pipeline.py::test_a_dry_run_never_gets_a_summary`.
+
 Found by an independent audit, reproduced live: `_run_one_step()` fabricates
 `"[dry-run] <command>"` as every step's "output" under a dry run -- nothing
 was actually checked. `_finish()`'s summarize gate checked only
@@ -520,6 +558,8 @@ answer from.
 
 ### 2.20 The degraded-status model fallback consults chat-capability, not just the name
 
+**Rule:** `Agent._degraded_fallback()` filters candidates through `ModelRouter._chat_capable()` before taking listing order, and uses the full list only when no candidate is known chat-capable. **Guard:** `tests/test_agent.py::test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat`.
+
 Found by an independent audit, reproduced live: `Agent.converse()`'s
 degraded/unknown-status fallback (`self.ollama.last_status.value !=
 "healthy"`, true on essentially every session's first turn) falls through
@@ -545,6 +585,8 @@ metadata is missing.
 > Guarded by `tests/test_agent.py::test_degraded_fallback_skips_a_model_the_router_knows_cannot_chat`
 
 ### 2.21 `TestConflictDetectorFastPath` was not testing the fast path
+
+**Rule:** A guard test must actually reach the branch it names: `TestConflictDetectorFastPath` builds the detector with `use_inotify=True` (stubbing `_start_inotify`) so `_detect_tree()` takes the event path; check a fix's test by breaking the fix. **Guard:** `tests/test_core.py::TestConflictDetectorFastPath`.
 
 Found while raising `torra/core/conflict.py`'s test coverage (59% -> 74%,
 the single worst-covered file in the tree), not by reading the test in
@@ -579,6 +621,8 @@ it) rather than trusting the test's own docstring.
 > event branch: `tests/test_core.py::TestConflictDetectorFastPath`
 
 ### 2.22 `su -c` and Perl's bareword `unlink` both evaded the classifier
+
+**Rule:** `su` is in `INTERPRETERS`, so `resolve()` recurses into `su -c` payloads, and the script-source check matches Perl's bareword `unlink` (`\bunlink\b`); plain `su - user` stays SAFE. **Guard:** `tests/test_gates.py::TestSafety::test_su_c_wrapping_a_nested_interpreter_call_is_still_caught` and `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`.
 
 Found live 2026-08-12, then recovered from an abandoned `git worktree`
 that was never merged into `main` -- the fix sat idle for weeks while
@@ -615,6 +659,8 @@ os.system(...)` both classify as needing confirmation.
 > (now 26/26), `test_su_c_wrapping_a_nested_interpreter_call_is_still_caught`
 
 ### 2.23 Multiple `Torra` instances sharing a `workdir` need session-scoped `undo=` and `task_id_prefix`
+
+**Rule:** Every caller building more than one `Torra` on the same `workdir` passes a session-scoped `undo=UndoGenerator(shadow_dir=...)` and a distinct `task_id_prefix`; telemetry, `audit` and `resume` directories stay shared. **Guard:** `tests/test_pipeline.py::test_two_torras_sharing_a_workdir_do_not_collide_on_shadow_files` and `tests/test_agent.py::test_task_id_prefix_reaches_the_default_task_id`.
 
 Found during design review for multi-tab TUI sessions, before any tab code
 existed -- these are latent collisions that only matter once more than one
@@ -655,6 +701,8 @@ over-scope by giving every session its own subtree of `workdir`.
 
 ### 2.24 A tab's plan/execute worker must capture its `session_id` at dispatch time, not read "active" at completion time
 
+**Rule:** Each TUI tab's plan/execute worker callbacks take `session_id` as an explicit argument captured at dispatch, never reading `self.active_session_id` to pick which session's state to change; a busy tab cannot be closed. **Guard:** `tests/test_tui.py::test_plan_request_runs_in_a_per_session_worker_group` and `tests/test_tui.py::test_close_tab_refuses_a_busy_tab`.
+
 The TUI's tabs each run their own `Torra.plan()`/`.execute()` in a
 background thread (`tui.py`'s `plan_request`/`execute_plan`, via
 `self.run_worker(..., group=f"session-{session_id}")`). The easy mistake --
@@ -682,6 +730,8 @@ would otherwise `KeyError` on lookup.
 
 ### 2.25 A session's name is arbitrary text -- it cannot be handed to Textual's `Tab`/`TabPane` as a raw string
 
+**Rule:** A session name is free text and must be wrapped in `textual.content.Content(...)` before it reaches Textual's `TabPane` or `Tab.label`, never passed as a raw string. **Guard:** `tests/test_tui.py::test_the_first_request_names_the_session`.
+
 Found live while wiring tab auto-naming from the first request: a session's
 tab title (`SessionMeta.name`, defaulted from the first ~40 characters of
 whatever the operator typed) is ordinary free text -- "list files in
@@ -704,6 +754,8 @@ call sites: `_build_tab_pane`'s initial `TabPane(Content(title), ...)` and
 > Guarded by `tests/test_tui.py::test_the_first_request_names_the_session`
 
 ### 2.26 A `Torra`/`Agent` reused across many turns needs per-turn scoping it never needed before
+
+**Rule:** A `Torra`/`Agent` reused across turns needs per-turn scoping: non-plan audit ids carry `task_id_prefix` and `_turn_counter` (fast-forwarded on reopen), `DecisionLog.clear()` runs at the start of `plan()`, a reopened transcript is re-compressed to budget, and `SessionStore.rename()` never raises. **Guard:** `tests/test_pipeline.py::test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file` and `tests/test_pipeline.py::test_a_new_plan_call_starts_a_fresh_decision_trail`, and 6 more below.
 
 Found by a full-codebase audit run immediately after §2.23-2.25 shipped,
 specifically because that feature is the first place in the codebase where
@@ -782,6 +834,8 @@ leaving a real gap for a fast second click or Ctrl+D to land in).
 > `test_plan_request_sets_busy_synchronously_before_the_worker_starts`
 
 ### 2.27 An alternate model backend must be strictly opt-in, and `torra tui` had its own, separate `Torra` construction path
+
+**Rule:** An alternate backend (`openrouter/...`) is used only when the operator names it (`ModelRouter` can never pick one) and is registered unconditionally so a missing key fails loudly; every tab's `Torra` inherits `backends`, and `model_override` is never persisted. **Guard:** `tests/test_cli.py::test_build_torra_registers_openrouter_even_without_the_env_var` and `tests/test_tui.py::test_an_unconfigured_openrouter_override_fails_clearly_not_silently`, and 6 more below.
 
 `Agent.resolve_backend()` (`torra/agent.py`) is the only place a request's
 model string can route to something other than `self.ollama` --
@@ -866,6 +920,8 @@ drops back to local-only routing, the conservative failure mode (defaults
 
 ### 2.28 A `tests/test_tui.py` test that dispatches a Textual worker must wait for it before its `async with app.run_test()` block ends
 
+**Rule:** A `tests/test_tui.py` test whose last real action dispatches a Textual worker ends with `await app.workers.wait_for_complete()`, not a bare `pilot.pause(N)`, except after a deliberate mid-flight assertion. **Guard:** `tests/test_tui.py::test_execute_plan_sets_busy_synchronously_before_the_worker_starts` (an example; no single test guards this pattern).
+
 CI failed on two separate pushes for two different tests, both green locally
 every time -- not a coincidence, one root cause. `run_worker(...)` (async or
 `thread=True`) schedules work that keeps running *after* the line that
@@ -933,6 +989,8 @@ synchronization point.
 
 ### 2.29 `TorraApp._handle_exception` is the only hook that ever sees a TUI-side crash, and `App.run()` never re-raises past it
 
+**Rule:** `TorraApp._handle_exception` is the only hook that sees a TUI-side crash (`App.run()` never re-raises); its override records a redacted crash through `CrashReporter` inside its own `try/except`, then always calls `super()._handle_exception`. **Guard:** `tests/test_tui.py::test_handle_exception_records_a_crash_and_still_calls_super` and `tests/test_tui.py::test_handle_exception_still_calls_super_if_the_reporter_itself_raises`, and 3 more below.
+
 Confirmed by reading Textual's own `app.py`, not inferred: `App._handle_exception()`
 (its own docstring: "Always results in the app exiting") is the sole place
 any unhandled exception anywhere inside a running TUI -- workers, event
@@ -986,6 +1044,8 @@ from running.
 > `test_main_with_no_subcommand_that_crashes_logs_site_tui`
 
 ### 2.30 A nested `TabbedContent` inside a tab breaks every unscoped "the one TabbedContent/Tabs/TabPane" assumption `tui.py` had gotten away with
+
+**Rule:** With nested `TabbedContent`, `_session_id_of` matches only the session-level `TabPane` by its `tab-` id prefix, tab content is attached via `compose_add_child()`, and call sites query `#sessions` explicitly rather than an unscoped `TabbedContent`/`Tabs`. **Guard:** `tests/test_tui.py::test_click_inside_the_sidebars_plan_tab_resolves_the_right_session` and 3 more below.
 
 Found during design review for the sidebar-tabs feature (the right-hand
 pane's `PlanPane` became a `TabbedContent` with Plan/Evidence tabs), before
@@ -1064,6 +1124,8 @@ functions, `health_summary` reduced to a thin orchestrator).
 
 ### 2.31 Streaming reasoning tokens to the TUI must default to silence, not to asking
 
+**Rule:** Streaming reasoning defaults to silence: `thinking_capable` is False when unknown, `on_thinking` reaches only a local backend the router measured capable, `on_thinking=None` sends the original request unchanged, and reasoning text is never persisted. **Guard:** `tests/test_core.py::TestChatThinking` and `tests/test_agent.py::test_converse_never_passes_a_callback_to_an_alt_backend`, and 7 more below.
+
 The TUI shows a live "the model is thinking" block in the chat pane while a
 turn is planning, for models that actually expose reasoning tokens
 (`deepseek-r1`-style). The whole feature rests on one asymmetry that is easy
@@ -1117,6 +1179,8 @@ unknown, not "yes."**
 > `test_reasoning_text_survives_until_the_next_question_is_asked`
 
 ### 2.32 Live step output has to reach `shell()` through a thread-local sink, not a `Step.run` parameter, because `Step` objects are built once at plan time and reused verbatim through execute
+
+**Rule:** Live step output reaches `shell()` through a thread-local `shell_output_sink`, entered only around a real (non-dry-run) `sp.step.run()`; `Step.run`'s call signature stays unchanged and stdout/stderr stay captured separately. **Guard:** `tests/test_core.py::TestShellOutputSink` and `tests/test_pipeline.py::test_on_output_receives_live_chunks_tagged_with_the_step_id`, and 5 more below.
 
 The TUI's other blind spot besides §2.31's reasoning tokens: while a real
 step runs, the operator saw a `running...` spinner and nothing else --
@@ -1207,6 +1271,8 @@ run's already-finalized one.
 > `test_a_rerun_starts_a_fresh_output_line_not_a_continuation`
 
 ### 2.33 A resume point must be cleared on *any* terminal outcome, not just success, or a retry can skip steps a rollback just undid
+
+**Rule:** A resume point is trusted only if its `task_id` and `total` match, its `completed` ids are a positional prefix of the plan's step ids, and (§2.64) each completed step's command digest matches; it is deleted on a real success or whenever a rollback was attempted (§2.64: not on a block or failure that rolled nothing back), and a dry run never writes it. **Guard:** `tests/test_pipeline.py::TestResume` and 1 more below.
 
 `ResumePoint.load()` had no caller anywhere in the codebase until this
 entry (§6.4's "fixed" pointer) -- `torra/core/resume.py`'s own
@@ -1300,6 +1366,8 @@ explicitly rather than inherit it from this one.
 
 ### 2.34 `CorpusExporter.drift()` was scoring the clarifier's isolated verdict, not what actually happened to the operator -- 72% "false positives" were really ~17%, and that same fix exposed an 84% false-negative rate the old measurement had no way to see
 
+**Rule:** `CorpusExporter.drift()` scores what actually happened to the operator (each labeled request's logged attempts via `TaskRecord.clarifier_blocked`, counted per occurrence), not a fresh `clarifier.detect()` verdict; the measured 84% false-negative rate was not fixed there (§2.35). **Guard:** `tests/test_telemetry.py::TestDrift` and `tests/test_telemetry.py::TestDrift::test_occurrences_are_counted_per_real_attempt_not_per_unique_text`.
+
 First real-traffic labeling pass this project has ever done (2026-08-26,
 57 of 100 logged requests, `torra label`): `drift()` reported a 72%
 live false-positive rate against a 10% synthetic baseline -- "DRIFT: the
@@ -1369,6 +1437,8 @@ existing sibling shape).
 
 ### 2.35 `Accelerator.fits()` didn't know Ollama evicts its one resident model to make room -- the actual mechanism behind §2.34's 84% false-negative rate
 
+**Rule:** `Accelerator.fits()` credits the resident model's VRAM back to free VRAM only when `max_loaded_models == 1` is confirmed from the daemon and the resident model is not the one being checked; unknown (`0`) or more than one gets no credit. **Guard:** `tests/test_core.py::TestDetectAccelerator::test_fits_credits_the_resident_models_vram_when_single_model_confirmed` and `tests/test_core.py::TestDetectAccelerator::test_fits_gives_no_credit_without_a_confirmed_single_model_daemon`, and 2 more below.
+
 §2.34 found the number; this entry is the root cause, chased down live
 rather than guessed. `ModelRouter` already had the right idea:
 unmatched, ambiguous requests route to `qwen3:32b` specifically because
@@ -1437,6 +1507,8 @@ route to all along.
 > double-counted when the resident model is the one being checked
 
 ### 2.36 `pipefail` catches a real upstream failure and an entirely benign `head`-truncated pipeline the same way -- found by reading real traffic, not by auditing code
+
+**Rule:** `shell()` forgives a pipeline's non-zero exit only when its final stage exited 0 and every earlier non-zero stage was exactly 141 (SIGPIPE), computed from `${PIPESTATUS[@]}` captured first by `pipefail_wrapped`; any other upstream failure still fails. **Guard:** `tests/test_core.py::TestShellSigpipeForgiveness::test_a_genuine_upstream_failure_through_sort_and_head_still_raises` and `tests/test_core.py::TestShellSigpipeForgiveness::test_a_non_sigpipe_failure_on_a_middle_stage_still_raises`, and 2 more below.
 
 Found mining the same real traffic §2.34/§2.35 came from, not a code
 audit: a real operator hit the identical failure four times in a row
@@ -1510,6 +1582,8 @@ command shape, no permission surprises to depend on.
 
 ### 2.37 `.env` loading is explicit-path, not `load_dotenv()`'s own default search, and never overrides a real `export`
 
+**Rule:** `.env` is loaded by `cli.py`'s `_load_env_file()` from the repo root by explicit path (never `load_dotenv()`'s working-directory search) and never overrides a variable already set in the real environment. **Guard:** `tests/test_cli.py::TestLoadEnvFile`.
+
 Added so `OPENROUTER_API_KEY` (and anything else) can live in a `.env`
 file at the repo root instead of shell config -- `cli.py`'s
 `_load_env_file()`, called first thing in `main()`, before argument
@@ -1542,6 +1616,8 @@ OpenRouter section for the expected key), never a real value committed anywhere.
 > that the function works in isolation)
 
 ### 2.38 The launch greeting stopped listing models inline; `f2` opens a picker instead, filtered through the same `router._chat_capable()` the routing path itself trusts
+
+**Rule:** The `f2` model picker lists only models that pass `router._chat_capable()` plus the hand-verified `VERIFIED_OPENROUTER_MODELS`; `None` (dismissed) is a no-op and `""` (automatic routing) clears the override through `_set_model_override`. **Guard:** `tests/test_tui.py::test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override` and `tests/test_tui.py::test_choosing_automatic_routing_clears_an_existing_override`, and 2 more below.
 
 `_greet()`'s healthy branch used to dump `self.ollama.models()` as a raw,
 unfiltered comma list -- including embedding-only models like
@@ -1590,6 +1666,8 @@ the picker's list in the first place.
 > `test_f2_lists_the_verified_openrouter_models_and_they_are_selectable`
 
 ### 2.39 `ctrl+m` was bound to the picker in §2.38 and shipped -- it never worked, because it's the terminal's own alias for Enter, and `pilot.press()` can't catch that class of bug
+
+**Rule:** No `TorraApp` binding may use a key that is a terminal alias (`ctrl+m` is Enter); the model picker is on `f2`, and a test checks `BINDINGS` against `textual.keys.KEY_ALIASES`. **Guard:** `tests/test_tui.py::test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias`.
 
 Found live, from a user report ("ctrl+m shortcut not working"), after the
 binding had already merged and its own tests were green. `ctrl+m` is the
@@ -1642,6 +1720,8 @@ different, wider fix than this section covers.
 > test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias`
 
 ### 2.40 Attempting to close §6.1's 82% live-ask gap: one approach measured worse and was reverted, one measured real and shipped -- rule 6's "Do not plan a task" was quietly forbidding torra from doing its own job
+
+**Rule:** `SYSTEM_PROMPT` rule 6 must not forbid planning for a question the observed state cannot answer: a safe read-only step is proposed instead of telling the operator to run it; a repair check on any flagged clarifier gap was measured worse and reverted. **Guard:** `tests/test_agent.py::test_rule_6_no_longer_flatly_forbids_planning_for_a_question`.
 
 Two different-shaped attempts at the §6.1 finding (the model asks for only
 ~18% of requests a human calls genuinely ambiguous), in order:
@@ -1721,6 +1801,8 @@ more real post-fix traffic, then re-measure.
 
 ### 2.41 A step's `description` reached nowhere the operator could see it -- neither CLI surface ever printed the field at all
 
+**Rule:** A step's `description` should say why the step exists, and both CLI surfaces (`print_plan()` and `approve_at_prompt()`) print it unless it is empty or only repeats `run`. **Guard:** `tests/test_cli.py::test_print_plan_shows_a_steps_description` and `tests/test_cli.py::test_approve_at_prompt_shows_the_steps_description`, and 2 more below.
+
 Found from direct feedback: the plan pane read as a bare list of shell
 commands with no explanation of why each one was there. Investigating
 turned up two separate gaps, not one:
@@ -1762,6 +1844,8 @@ measurement is the wrong move here too.
 > `test_approve_at_prompt_does_not_print_a_description_that_only_repeats_run`
 
 ### 2.42 `execute()` used to reject an entire plan over one declined step -- now it skips just that step, plus a best-effort warning when an approved step looks like it depended on one
+
+**Rule:** `execute()` returns REJECTED only when zero steps are approved; a declined step is skipped as `[skipped] not approved:` without setting `executed`, its undo is not staged, and `Torra.dependency_warnings` warns about dependent steps but never blocks. **Guard:** `tests/test_pipeline.py::test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one` and `tests/test_pipeline.py::test_declining_every_step_in_a_multi_step_plan_still_rejects_all_of_it`, and 7 more below.
 
 Found from direct feedback: ticking some dangerous steps and leaving
 others unticked ran nothing at all, not even the steps that were already
@@ -1834,6 +1918,8 @@ so filing it there would misrepresent what it does.
 
 ### 2.43 The live reasoning stream moved from one inline chat line to its own sidebar tab -- found live: rapid chunks racing two `remove()`-then-`mount()` calls crashed with `DuplicateIds`
 
+**Rule:** `ThinkingPane` mounts one `Static` at `compose()` and updates it in place with the synchronous `Static.update()`; it never does `remove_children()` then `mount()` per token, which raced into `DuplicateIds`. **Guard:** `tests/test_tui.py::test_many_rapid_thinking_chunks_do_not_race` and 3 more below.
+
 Direct feedback: a single dimmed line inline in the chat, replaced in
 place on every token, was unreadable past a sentence or two -- a real
 reasoning chain runs to hundreds of lines. Moved to a third sidebar tab
@@ -1877,6 +1963,8 @@ schedule.
 
 ### 2.44 `/auto on`: skip the Run click for a plan that already needed no tick, never for one that does
 
+**Rule:** `/auto on` runs a plan without a Run click only when no step needs a tick, never a DANGEROUS or CRITICAL one (narrowed by §2.62: only when every step classifies SAFE); `auto_run` defaults off and is not persisted. **Guard:** `tests/test_tui.py::test_auto_run_never_bypasses_confirmation_for_a_dangerous_step` and `tests/test_tui.py::test_auto_run_defaults_to_off`, and 4 more below.
+
 Direct feedback: even an all-SAFE/CAUTION plan (already auto-approved by
 `Verdict.needs_confirmation`, no checkbox rendered at all) still required
 a manual Run click in the TUI -- the CLI's `torra ask` never had this
@@ -1913,6 +2001,8 @@ before that undo runs.)
 > `test_auto_command_rejects_a_garbage_argument`
 
 ### 2.45 Session and Model got their own sidebar tabs alongside Plan (relabeled "Actions") and Thinking -- persistent siblings of the `ctrl+o`/`f2` modals, not replacements
+
+**Rule:** The Session and Model sidebar tabs are persistent siblings of the `ctrl+o`/`f2` modals and call the same handlers; with more than one tab open, sidebar queries are scoped through `self._tab_pane(session_id)`, never a bare `#sidebar`. **Guard:** `tests/test_tui.py::test_selecting_a_session_in_the_sidebar_tab_switches_to_it` and `tests/test_tui.py::test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`, and 4 more below.
 
 Direct feedback: reaching a past session or a model choice always meant a
 modal overlay (`SessionPicker`/`ModelPicker`), even though the sidebar
@@ -1962,6 +2052,8 @@ app-level query, once more than one tab might be open.
 > `test_selecting_automatic_routing_in_the_sidebar_model_tab_clears_the_override`
 
 ### 2.46 A read-only step's real output now enters the model's own memory, tagged by path -- and it can say a path no longer helps
+
+**Rule:** A step's real output enters the model's context only when it declares `reads` and completed for real (not dry-run, failed or skipped), tagged by those paths and delimited as untrusted data (§2.66); `forget` drops a path. **Guard:** `tests/test_pipeline.py::test_a_completed_read_steps_output_feeds_back_into_agent_context` and `tests/test_pipeline.py::test_a_dry_run_never_feeds_read_output_into_context`, and 6 more below.
 
 Direct feedback, in two parts: "let me see what files it's accessing," and
 (once investigating that surfaced a real gap) "let the model drop content
@@ -2036,6 +2128,8 @@ future import.
 
 ### 2.47 Run stayed clickable (and green) after a real run completed -- a second click never re-ran anything for real, but it did reprint the whole prior transcript, reading as "the run repeated"
 
+**Rule:** The TUI asks via `ConfirmDialog` before dispatching Run on a plan whose `executed` is already True and short-circuits `_execute_plan_body` instead of reprinting the transcript; `Torra.execute()` and `_refuse_replay` are untouched. **Guard:** `tests/test_tui.py::test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript`.
+
 `Torra.execute()` already refused to actually replay commands on an
 already-executed `RunResult` (`_refuse_replay`, keyed on
 `result.executed`, §2.8) -- that part was never broken. What was broken:
@@ -2086,6 +2180,8 @@ method. Three pieces, all in `torra/tui.py`:
 > and that confirming adds exactly one.
 
 ### 2.48 A sixth sidebar tab, Metrics: spend, token use, model/hardware stats, and which files a session's read-only steps have actually fed into the model
+
+**Rule:** The Metrics sidebar tab labels per-session figures (`Agent.stats()`) separately from client counters shared by all tabs ('since app start'), and probes model info fresh rather than showing a cached guess. **Guard:** `tests/test_tui.py::test_the_sidebar_metrics_tab_shows_session_stats_and_files_read` and 1 more below.
 
 Requested alongside the `reads`/`forget` memory mechanism (§2.46) --
 that entry covers *what the model can see*; this one covers *what the
@@ -2150,6 +2246,8 @@ one-fact-per-line way as everything else in this tab.
 > the updated `test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled`.
 
 ### 2.49 Every Qwen-origin model in the four-model catalog was swapped for a non-Chinese equivalent (operator request), and the swap itself broke the live `ollama.service` twice
+
+**Rule:** The routing catalog holds no Qwen-origin models: `gpt-oss:20b` for debug/plan/analyze, the ambiguous fallback and `OllamaClient.fallback_model`, `devstral-small-2:24b` for code; `muse-glimmer:30b` was benchmarked, dropped and removed. **Guard:** `tests/test_gates.py::TestRouting` and `tests/test_core.py::test_fallback_model_default_is_actually_pulled`, and 2 more below.
 
 Operator request, not a measured gap: no Chinese-origin models in the
 routing catalog. Chosen from public benchmarks (SWE-bench Verified,
@@ -2254,6 +2352,8 @@ architecture.
 
 ### 2.50 A live indicator sat where nobody was looking -- moved next to the prompt, plus a real way to abandon an in-flight plan request
 
+**Rule:** The busy indicator `#busy-line` sits directly above the prompt, and Escape abandons an in-flight plan request UI-side only (`SessionTab.generation` discards the late result); a running `execute_plan()` never responds to Escape. **Guard:** `tests/test_tui.py::test_escape_stops_an_in_flight_plan_request_and_discards_its_late_result` and `tests/test_tui.py::test_escape_does_nothing_while_idle_or_while_a_run_is_executing`, and 1 more below.
+
 Two complaints, same root cause: the only busy feedback was the shared
 `#status` line, docked at the very bottom of the whole screen *below*
 the sidebar -- far from the prompt input an operator is actually
@@ -2301,6 +2401,8 @@ changed to make that possible.
 
 ### 2.51 An interpreter payload that reopens a path it already read classified SAFE -- no notion of "this overwrites a file it just loaded"
 
+**Rule:** An interpreter `-c` payload that reopens a quoted path-shaped literal it already used is DANGEROUS (`_repeated_path_literal`), matched on the repeated literal rather than per-library method names; refined by §2.55. **Guard:** `tests/test_gates.py::TestSafety::test_an_interpreter_overwriting_a_file_it_also_read_is_not_silently_safe`.
+
 Found via `scripts/dev/model_bench/domain_exploration.py`'s xlsx-edit
 scenario (2026-08-28, `devstral:24b`): asked to edit an existing
 spreadsheet, the model proposed one `python3 -c` step --
@@ -2328,6 +2430,8 @@ odfpy, plain `open()`) is doing the overwriting.
 > test_an_interpreter_overwriting_a_file_it_also_read_is_not_silently_safe`.
 
 ### 2.52 Read-only observation of a second, real machine ("executor") over SSH -- explicitly not remote execution
+
+**Rule:** Executor SSH access is read-only observation: nothing the model writes becomes an `ssh` command, `observe_executor` is called only from `Agent`'s default observer, and with `TORRA_EXECUTOR_HOST` unset no SSH is attempted; remote writes exist only as §2.53's torra-built steps. **Guard:** `tests/test_core.py::TestExecutorObservation` and 4 more below.
 
 Operator asked whether torra could "reach across to executor if needed."
 Two ways to do that exist, with very different risk: read-only observability
@@ -2394,6 +2498,8 @@ proposed.
 > real-network verification instead.
 
 ### 2.53 Editing a file on `executor`: pull-edit-push, never model-authored `ssh`, an unconditional CRITICAL floor, and a real snapshot-based undo
+
+**Rule:** A file on `executor` is edited only by pull-edit-push: `remote_pull`/`remote_push` text is torra-authored (never model-authored `ssh`), a push is CRITICAL unconditionally, and a failed pre-push snapshot leaves it uncovered (`capture_remote_file` returns `None`), never a faked undo. **Guard:** `tests/test_core.py::TestRemoteEditSteps` and `tests/test_pipeline.py::TestRemotePushEscalation`, and 1 more below.
 
 Follow-up to §2.52's read-only observation: the operator asked for actual
 edits, not just visibility. Two designs exist, with very different risk --
@@ -2520,6 +2626,8 @@ back to its original content. Both runs used a real, disposable
 
 ### 2.54 `zip` repacking a document over its own path was the sibling gap to §2.51 -- xlsx/odt are both zip containers, and `zip` had no dispatch rule at all
 
+**Rule:** `zip` is dispatched with `tee`/`cp`/`mv` (`_judge_tee_cp_mv_zip`), so zipping onto a protected path is DANGEROUS; `unzip` has no `_judge` rule but, as a `known_programs` writer (§2.60), runs CAUTION, or DANGEROUS when any operand, the archive included, is protected; relative document paths are covered by §2.55. **Guard:** `tests/test_gates.py::TestSafetyCoverageEdges::test_zip_repacking_over_an_existing_home_directory_file_is_dangerous` and `tests/test_gates.py::TestSafetyCoverageEdges::test_zip_to_an_unprotected_path_is_not_escalated`.
+
 §2.51 closed the single-interpreter-script overwrite shape
 (`load_workbook('x.xlsx') ... .save('x.xlsx')`). The other natural way to
 edit a document that's actually a zip container (xlsx and odt both are) is
@@ -2556,6 +2664,8 @@ guessing, exactly what HANDOFF.md §3 already warns against.
 > same way `mv`/`cp` do).
 
 ### 2.55 Testing §2.51/§2.54 against real xlsx files, not just crafted corpus strings, found a false positive, a relative-path blind spot, and one unrelated pre-existing false positive
+
+**Rule:** `_repeated_path_literal` flags only differently named calls on one path (`_call_signature`), a write onto a relative document-container path (`DOCUMENT_CONTAINER_EXTENSIONS`, e.g. `zip -r budget.xlsx`) is DANGEROUS, and `_mask_quoted` keeps a `>` inside quotes from reading as a redirect. **Guard:** `tests/test_gates.py::TestSafety::test_reading_the_same_path_twice_is_not_an_overwrite` and `tests/test_gates.py::TestSafety::test_zip_repack_over_a_relative_document_path_is_still_dangerous`, and 5 more below.
 
 Actually running xlsx-editing commands (not just classifying strings) is
 what surfaced all three -- the kind of gap a corpus of hand-written test
@@ -2612,6 +2722,8 @@ untouched.
 
 ### 2.56 Two operator-facing TUI asks: the Thinking tab cleared the instant an answer landed, and a plan needing approval had no signal anywhere near the prompt
 
+**Rule:** The Thinking tab is cleared at the start of the next `plan_request()`, not when a turn ends, and a plan needing approval writes a flag to `#busy-line` via `_flag_needs_approval`. **Guard:** `tests/test_tui.py::test_reasoning_text_survives_until_the_next_question_is_asked` and `tests/test_tui.py::test_a_plan_needing_approval_flags_the_busy_line`.
+
 **Thinking tab timing.** `_clear_thinking` ran at the end of every turn --
 success (`_planned`), error (`_plan_request_body`'s except branch), and
 Escape-abandon (`action_stop_thinking`) all wiped it the moment that turn
@@ -2642,6 +2754,8 @@ never goes through `_set_busy` at all.
 > and `test_a_plan_needing_approval_flags_the_busy_line`.
 
 ### 2.57 Model pickers grouped local vs. remote (paid), got a best-case-uses legend, and stopped re-announcing a no-op re-pick
+
+**Rule:** `ModelPane` and `ModelPicker` share `_model_options()` (disabled group headers, local before remote-paid) and a curated `MODEL_DESCRIPTIONS` legend (no entry shows no blurb); `_set_model_override` is a no-op when the value is unchanged. **Guard:** `tests/test_tui.py::test_the_model_picker_groups_local_and_remote_with_a_legend` and `tests/test_tui.py::test_repicking_the_current_model_is_a_no_op`, and 3 more below.
 
 Three related operator-facing asks against `ModelPane`/`ModelPicker`
 (the sidebar tab and the `f2` modal, which deliberately render identical
@@ -2698,6 +2812,8 @@ requested value already matches.
 
 ### 2.58 A completed real run left every step row looking exactly like it had before anything happened
 
+**Rule:** After a real first-time completion `_mark_run_used` dims every step card (`.step-card--executed`) and greys the Run button, relabeling it 'Run (again)'. **Guard:** `tests/test_tui.py::test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript`.
+
 `_mark_run_used` (§2.47: Run greys out and refuses to silently replay)
 only ever touched the Run button's own colour. The step cards it applies
 to -- the actual proposed commands, their verdicts, their checkboxes --
@@ -2719,6 +2835,8 @@ non-dry, first-time completion).
 > extended with the label and step-card-dimming assertions.
 
 ### 2.59 A rollback only reverses what torra itself did, in this attempt
+
+**Rule:** A rollback reverses only what torra did this attempt: `_arm_step` pushes a step's undos just before it runs (never in a dry run), declared rollbacks run only if a step was armed (§2.71), and `drop_edited_undos` skips files changed outside torra. **Guard:** `tests/test_pipeline.py::test_a_block_before_any_step_ran_does_not_overwrite_the_external_edit` and `tests/test_pipeline.py::test_a_block_before_step_two_reverts_step_one_and_never_step_two`, and 6 more below.
 
 `Torra.execute` used to push every approved step's derived undos, and the
 plan's declared rollback entries, onto the undo stack before step one ran.
@@ -2767,6 +2885,8 @@ in helpers.
 
 ### 2.60 A command torra cannot prove read-only needs a tick
 
+**Rule:** Unknown means ask: a resolved command with no rule finding is judged by `known_programs.trust()` -- read-only stays SAFE, bounded writers are CAUTION, known writers on protected paths and unknown programs are DANGEROUS; lists grow only from a measured false positive. **Guard:** `tests/test_known_programs.py::test_anything_unrecognised_or_not_provably_harmless_asks` and `tests/test_known_programs.py::test_trust_names_the_three_outcomes`, and 1 more below.
+
 `SafetyClassifier` used to start from SAFE and only raise a verdict when a
 rule matched, so any program no rule named ran with no tick on every path.
 A probe on 2026-10-03 classified all of these SAFE: `blkdiscard
@@ -2812,6 +2932,8 @@ tick. Four older assertions that pinned SAFE for `zip`, `dd of=file` and
 
 ### 2.61 A step stops at its first real error, and a timeout stops everything the step started
 
+**Rule:** A step stops at its first real error (ERR trap under `pipefail`, SIGPIPE 141 still forgiven) and runs in its own session, so a timeout or Ctrl-C kills the whole process group; stdin is `/dev/null` and output is capped per stream (first and last 256 KiB). **Guard:** `tests/test_core.py::TestShellStopsAtTheFirstRealError` and `tests/test_pipeline.py::test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back`, and 2 more below.
+
 Three gaps in how a step's command ran (`torra/core/process.py`):
 
 1. **A masked failure passed.** The wrapper set `pipefail` but not errexit,
@@ -2840,6 +2962,8 @@ Three gaps in how a step's command ran (`torra/core/process.py`):
 > `tests/test_pipeline.py::test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back`.
 
 ### 2.62 State kept across plans, and secrets written to disk, were both wider than one run
+
+**Rule:** State is scoped to one plan and persisted text is scrubbed: `ConflictDetector.baseline()` starts empty each plan, persisted strings pass `redact_secrets`, `torra ask --non-interactive` stops unless `--yes` (a `--dry-run` is exempt), and `/auto on` runs only plans whose every step is SAFE. **Guard:** `tests/test_core.py::TestBaselineIsPerPlan` and `tests/test_tui.py::test_auto_run_waits_for_a_click_when_the_plan_changes_something`, and 10 more below.
 
 Found by the 2026-10-04 full audit, not live.
 
@@ -2897,6 +3021,8 @@ Found by the 2026-10-04 full audit, not live.
 
 ### 2.63 A service undo restores what the step changed, and a shadow directory's owner is recorded, not guessed
 
+**Rule:** A service undo restores both active and `is-enabled` state for every named unit and never stops a unit whose state was `unknown`; each shadow directory's owner pid is recorded in a sibling `<name>.owner` file, not guessed from its name. **Guard:** `tests/test_gates.py::TestUndoGeneration` and `tests/test_tui.py::test_every_tab_gets_the_default_disk_precondition`.
+
 Three gaps in the undo layer:
 
 1. **The unit was read from a fixed shape.** `systemctl enable --now nginx`
@@ -2930,6 +3056,8 @@ disk precondition the CLI installs. Tabs after the first had none.
 
 ### 2.64 A step in flight at a crash is never re-run by itself, and a resume only vouches for steps whose command is unchanged
 
+**Rule:** A step is marked `in_progress` in the resume file before it runs (`begin_step`/`end_step`), and while that file still matches the plan an interrupted step blocks the next attempt instead of re-running; completed steps are vouched for only when their command digests match, and a file that no longer matches is ignored (fresh start). **Guard:** `tests/test_pipeline.py::TestResume` and 1 more below.
+
 The resume file recorded a step only after it finished, and matched steps by
 id alone. Two consequences: a step that was running when the process died
 looked never attempted and ran again (a deploy, a migration, a package
@@ -2960,6 +3088,8 @@ for the same step id resumed past it.
 
 ### 2.65 A remote file is read and restored as exact bytes (the push path too, §2.73), and a plan's undo coverage counts only snapshots that exist
 
+**Rule:** Remote file reads (the executor snapshot and `remote_pull`) use `base64 -w0` and write bytes, so trailing newlines and non-UTF-8 content survive; `UndoGenerator.coverage()` credits a step's `touches` only if every touched path has a snapshot (service, package and mkdir steps are covered by their own derived undo). **Guard:** `tests/test_gates.py::TestCaptureRemoteFile` and `tests/test_gates.py::TestUndoGeneration::test_a_step_whose_snapshot_was_skipped_is_reported_uncovered`.
+
 1. **The remote read lost bytes.** `build_ssh_runner` returns stripped output,
    and the executor snapshot (`capture_remote_file`) and `remote_pull` both
    read with `cat`, so a file's trailing newline was dropped and non-UTF-8
@@ -2979,6 +3109,8 @@ for the same step id resumed past it.
 > `TestUndoGeneration::test_a_step_whose_snapshot_was_skipped_is_reported_uncovered`.
 
 ### 2.66 Text nobody at the keyboard wrote reaches the model as delimited data, never with the operator's or the system's authority
+
+**Rule:** File contents the model read and `ask --verify` output reach the model only as a `user`-role `untrusted_block` with closing tags defanged, never as `system` or bare operator text (machine state is a system message wrapped as `<machine-state>`, §2.73); every proposal still travels the gates. **Guard:** `tests/test_read_memory.py::test_file_contents_enter_context_as_delimited_data_not_system_text` and `tests/test_iterate.py::test_verify_output_reaches_the_model_as_delimited_data`.
 
 Two paths put untrusted text into the model's conversation with more authority
 than it earned:
@@ -3012,6 +3144,8 @@ needs a live model run.
 
 ### 2.67 Three small honesty gaps in the model loop
 
+**Rule:** `Agent._extract_json` accepts only a JSON object (else the first balanced object, else `AgentError`), a dry-run `ask --verify` leaves `verified` false, and `remember_step_reads` skips `[skipped]` and `[resumed]` placeholders. **Guard:** `tests/test_agent.py::test_a_json_reply_that_is_not_an_object_is_an_agent_error_not_a_crash` and 2 more below.
+
 1. **A reply that was valid JSON but not an object crashed planning.**
    `json.loads("[]")` is a list, and `.get` on it raised an uncaught
    `AttributeError`. `Agent._extract_json` now accepts only an object, falls
@@ -3031,6 +3165,8 @@ needs a live model run.
 > `tests/test_read_memory.py::test_skipped_and_resumed_placeholders_are_not_remembered_as_file_contents`.
 
 ### 2.68 A step does not inherit secrets from the `.env`, and secret-looking text is scrubbed (by pattern) before it leaves for a remote model
+
+**Rule:** Step subprocesses do not inherit variables that came only from the `.env` file (`process.WITHHELD_ENV`), and every message to `OpenRouterClient` goes through `redact_secrets` first, which narrows exposure but is pattern-based. **Guard:** `tests/test_core.py::TestStepsDoNotInheritSecretsFromTheEnvFile` and `tests/test_core.py::TestOpenRouterClient::test_secrets_are_scrubbed_from_what_leaves_the_machine`, and 1 more below.
 
 1. **Every step inherited the `.env`.** `_load_env_file` exports the repo's
    `.env` into `os.environ`, and every step subprocess inherited the whole
@@ -3054,6 +3190,8 @@ needs a live model run.
 
 ### 2.69 The observed machine state is refreshed after a run that could have changed it
 
+**Rule:** `Torra._arm_step` clears the cached observed machine state just before any real (non-dry) step runs, so the next `converse()` observes again; a dry run leaves it alone. **Guard:** `tests/test_pipeline.py::test_a_real_run_marks_the_observed_machine_state_stale`.
+
 `Agent.observe()` caches the machine's state (disk, services, models) once, and
 nothing ever passed `refresh=True`, so the turn after a deploy or a package
 install reasoned from facts that step had just changed, while rule 9 of the
@@ -3067,6 +3205,8 @@ read-only probes on the next turn.
 > Guarded by `tests/test_pipeline.py::test_a_real_run_marks_the_observed_machine_state_stale`.
 
 ### 2.70 The regex backstop no longer reads `--rm` as `rm`, and the new safety code was mutation-tested
+
+**Rule:** The regex backstop matches `rm` only as a command word (`(?<![-\w])rm\b`), so `docker run --rm` is CAUTION, not file deletion; new safety code is mutation-tested and CI fails below 96% overall or 97% safety-path coverage. **Guard:** `tests/test_known_programs.py::test_kill_docker_and_redirect_levels` and 1 more below.
 
 1. **`docker run --rm img` was DANGEROUS.** The backstop pattern `\brm\b`
    matched inside the flag `--rm`, so one of the commonest container idioms
@@ -3094,6 +3234,8 @@ read-only probes on the next turn.
 > service-state tests.
 
 ### 2.71 Every way a run stops goes through one conflict check before the sweep
+
+**Rule:** Every way a run stops runs `detect()` before the rollback sweep and drops undos of files changed outside torra; declared cleanup runs only if a real step was armed and the sweep found no external edit, and a successful dry run never deletes the resume file. **Guard:** `tests/test_pipeline.py::TestTheSweepNeverOverwritesAnEditItCanSee` and `tests/test_gates.py::TestServiceStateHelpers`, and 1 more below.
 
 An independent review of §2.59 and §2.64 found they held for the paths they
 named and not for the others.
@@ -3137,6 +3279,8 @@ holds the pipes open until the timeout.
 > `tests/test_gates.py::TestServiceStateHelpers`.
 
 ### 2.72 The classifier was hardened against what a source-reading review got past it
+
+**Rule:** `SafetyClassifier` matches options by abbreviation and attached value, unwraps indirect runners (`<(...)`, `su -c`, `bash -lc`) or leaves them as an unknown program that asks (`env -S`), and asks on credential reads and on writes after a `cd` into a system directory; gaps are closed structurally, not per command. **Guard:** `tests/test_known_programs.py::test_a_reviewed_bypass_now_asks` and `tests/test_known_programs.py::test_a_routine_command_the_hardening_must_not_catch_still_runs`, and 2 more below.
 
 A blind red-team (63 commands, written without seeing the code) found nothing.
 A reviewer who read `safety.py` and `known_programs.py` found about seventy
@@ -3189,6 +3333,8 @@ strings are not parsed; case and symlink spellings of a protected path rely on
 
 ### 2.73 Untrusted text, model replies and remote files, after the independent review
 
+**Rule:** `untrusted_block` defangs every tag (`file`, `command-output`, `machine-state`) in any case, spacing or fullwidth form; `summarize` wraps each step's output as `<command-output>`, the system-role compressor summary says "file contents omitted" for a file entry, and the system-role machine-state message wraps its text as `<machine-state>`; `core/jsonreply.py` bounds model replies; `remote_push` reads bytes and pulled base64 is decoded with `validate=True`. **Guard:** `tests/test_untrusted.py::test_nothing_inside_a_block_can_close_it_or_open_a_forged_one` and `tests/test_remote_files.py::test_a_push_uploads_the_local_file_byte_for_byte`, and 1 more below.
+
 The same review that found the classifier gaps (§2.72) found these.
 
 1. **The data-block defanging was lowercase only.** `untrusted_block` now
@@ -3232,6 +3378,8 @@ a model.
 ---
 
 ### 2.74 Second review round: what a credential read is, what the audit file holds, and what a hostile model field can do
+
+**Rule:** `reads_credentials` also catches `key=value` operands, globs, `/proc/*/environ`, history files and cloud-config directories; the audit JSON is scrubbed by `redact_tree`; a hostile task field is a validation error, not a traceback. **Guard:** `tests/test_pipeline.py::test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk` and `tests/test_review_round_two.py::test_the_remaining_credential_reads_ask`.
 
 A second independent pass over the §2.66-2.73 work found residue, fixed here:
 
@@ -3282,6 +3430,8 @@ is reported, not repaired.
 
 ### 2.75 What the resolver cannot see, and what renames a trusted command, needs a tick
 
+**Rule:** A depth-limit hit in `resolve()` sets `unwrap_limit_hit` and makes the line DANGEROUS; `hash` is judged by `trust()` (`_avoiding("p")`), and `export`/`declare`/`typeset`/`local`/`readonly` assignments go through `_note_assignment` so `RISKY_ENV` sees them. **Guard:** `tests/test_known_programs.py::test_a_line_nested_past_the_unwrap_limit_asks` and `tests/test_known_programs.py::test_rebinding_what_a_command_name_runs_asks`, and 2 more below.
+
 Found 2026-10-08 by probing §2.60's "unknown means ask" from outside the corpora
 (`GRADE_TO_A_PLAN.md` P1.3). Three shapes still classified SAFE:
 
@@ -3310,6 +3460,8 @@ belongs in a test that builds it (`_nested`), not only a fixed string.
 
 ### 2.76 An id may hold no secret, and the task log scrubs every field
 
+**Rule:** `TaskSpec.validate` refuses a `task_id` or step id that `redact_secrets` would change (`_validate_id`) without repeating it in the message, and `TaskLogger.record` runs `redact_tree` over the whole record. **Guard:** `tests/test_core.py::TestTaskSpecBasicValidation::test_an_id_that_holds_a_secret_is_refused_without_repeating_it` and `tests/test_telemetry.py::TestRedaction::test_every_string_field_is_scrubbed_not_just_the_free_text_ones`, and 2 more below.
+
 Found 2026-10-09 checking `GRADE_TO_A_PLAN.md` P3.1. The model writes
 `task_id` and step ids, and nothing constrained them. A key-shaped id
 reached `tasks.jsonl` (`TaskLogger.record` scrubbed only `request` and
@@ -3333,6 +3485,8 @@ reached `tasks.jsonl` (`TaskLogger.record` scrubbed only `request` and
 > and `tests/test_pipeline.py::test_a_model_written_id_that_holds_a_secret_names_no_file_and_reaches_no_file`.
 
 ### 2.77 `torra ask` asks once before anything runs, and a no goes through `reject()`
+
+**Rule:** Interactive `torra ask` asks 'run this plan?' once before any step runs, and anything but yes declines through `Torra.reject()`; `--yes` skips that question but never a DANGEROUS tick, and `--verify` shows every round and a fix round always asks. **Guard:** `tests/test_cli.py::test_ask_interactive_asks_once_and_a_no_rejects_the_plan` and `tests/test_iterate.py::test_a_declined_round_goes_through_reject_and_stops`, and 7 more below.
 
 Decision D4 in `GRADE_TO_A_PLAN.md` (P3.4). Interactive `ask` printed the
 plan and then ran every SAFE and CAUTION step with no question; `ask
@@ -3364,6 +3518,8 @@ are unchanged.
 
 ### 2.78 A task that fails validation gets a repair round, not a dead end
 
+**Rule:** A task that fails `TaskSpec.validate` raises `MalformedTaskError`, and `converse()` feeds the validator's message back for a repair round on the shared `max_repairs` budget; out of revisions the error is raised, and a corrected plan still gets the risk screen. **Guard:** `tests/test_agent.py::test_a_step_with_an_unknown_field_gets_a_repair_round_not_a_dead_end` and `tests/test_agent.py::test_a_task_that_stays_malformed_is_still_an_error_once_repairs_run_out`, and 2 more below.
+
 Found 2026-10-11 in the first real use since 2026-09-18 (`GRADE_TO_A_PLAN.md`
 P3.7, the part left open). `gpt-oss:20b` put `safe`, a field of a `rollback`
 entry, on a step, and `ask` ended after one model call with "unknown
@@ -3386,6 +3542,8 @@ rollback entry in one round.
 > `test_a_repaired_schema_error_still_gets_the_risk_screen`.
 
 ### 2.79 A step that cannot do what it means is repaired, then refused, never shown
+
+**Rule:** A step bash cannot parse (`shell_syntax_error`, `bash -n`) or that holds a template slot such as `<found-path>` (`placeholder_tokens`) is repaired on the shared budget and then raises `MalformedTaskError`, never reaching the operator. **Guard:** `tests/test_path_warnings.py::test_a_placeholder_gets_a_repair_round_that_names_it` and `tests/test_path_warnings.py::test_a_placeholder_still_there_after_repairs_never_reaches_the_operator`, and 2 more below.
 
 Found 2026-10-11: `devstral:24b` proposed `ls -l /home/user/Downloads/Telegram (2)`
 and `rm -r` on the same unquoted path. Both are syntax errors in bash, the
@@ -3418,6 +3576,8 @@ step, `borg list <repo> --last 1`, a real slot.
 > `test_a_placeholder_still_there_after_repairs_never_reaches_the_operator`.
 
 ### 2.80 A step that needs a tick and names a missing path is repaired, then warned
+
+**Rule:** A tick-needing step that names a missing absolute local path no earlier step creates gets a repair round, then a non-blocking warning (`Turn.warnings`/`Plan.warnings`); off unless `path_exists` is wired in. **Guard:** `tests/test_path_warnings.py::test_a_missing_path_is_named_with_its_step` and `tests/test_path_warnings.py::test_a_plan_naming_a_missing_path_gets_a_repair_round`.
 
 Found 2026-10-11: the plan above targeted `/home/user/...` on a machine whose
 home is `/home/antoine`, and nothing checked. Advisory, like
@@ -3461,6 +3621,8 @@ from `gpt-oss:20b`, which then reached the operator with the warning.
 
 ### 2.81 The tick prompt says what the step will act on
 
+**Rule:** A step that needs a tick carries a lazy `StepPlan.preview` (read-only `preview.describe_path`, never following symlinks, capped at 5000 entries or 1 s) that the tick prompt shows under 'on disk:'; gating never touches the disk. **Guard:** `tests/test_preview.py::test_a_step_that_needs_a_tick_carries_a_preview` and `tests/test_preview.py::test_the_tick_prompt_shows_what_the_step_will_act_on_before_it_asks`.
+
 Real-use finding 4 of 2026-10-11, the cheap half (option B; option A, asking
 at the moment each critical step runs, is `GRADE_TO_A_PLAN.md` D8): the
 operator was asked to approve `rm -r <path>` having seen only the command.
@@ -3488,6 +3650,8 @@ that need a tick, at most 0.01 s each.
 > scrolling plan pane.
 
 ### 2.82 The CRITICAL repair round may narrow a command, never the request
+
+**Rule:** The CRITICAL repair round (`prompts.CRITICAL_REPAIR`) may offer a narrower command only if it still does everything the request asks, and must not change what the request asks for. **Guard:** `tests/test_agent.py::test_the_critical_complaint_says_not_to_change_what_the_request_asks_for` and 1 more below.
 
 Found 2026-10-12, the owner's first interactive run with §2.78-2.81: asked to
 delete a folder holding 3 files, `devstral:24b` was told twice to "find a
