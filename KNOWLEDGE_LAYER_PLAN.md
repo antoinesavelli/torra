@@ -1,7 +1,7 @@
 # Plan: a knowledge layer an agent can use cheaply and trust
 
 Written 2026-10-13, after a `~/.torra` state cleanup prompted the question "is `HANDOFF.md` the most
-efficient way to hold what agents need to know?" **Status (2026-10-13): executing.** The owner accepted
+efficient way to hold what agents need to know?" **Status (2026-10-14): done; section 5 has the results and what is left for the owner.** The owner accepted
 K1 to K5 as recommended. The work runs on Claude subagents routed as the `subagent-fanout` skill now says:
 readers on Sonnet at medium effort, builders on Sonnet at xhigh, verifiers on Opus at high. The model is Paramo's knowledge layer
 (`/mnt/ParamoStorage/Paramo/docs/agents/KNOWLEDGE_ROUTING.md`), cut down to torra's size. Its own
@@ -166,3 +166,33 @@ Exit: P4.2 green; the baseline is recorded.
   stop and ask; Paramo's 979-line `audit_docs.py` is the cautionary example.
 - **A question set that rots.** It is under the same rule it tests: change a fact, change its question in
   the same commit (P4.2 fails otherwise).
+
+## 5. Results (2026-10-14)
+
+Commits, torra: plan `0c9b4ca`; P0 `78dab7f`; P1.3, P2.2, P2.3 `d106b32`; P4.1, P4.2 `a210abb`,
+`b3dbc9a`, `29d9679`; P1.1, P1.2, P3.1 `7c5b314`; P2.1 `98142fe`; P2.4 and the last HANDOFF fixes
+`cddfc67`. system-library: the routing `5218bd4`, quirk #7 resolved `b3d9691`, the run recorded in the
+skill `a7b199d`. The run itself: `AIModels/findings/2026-10-14-claude-role-routing-torra-knowledge-layer.md`.
+
+| Target (section 1) | Result |
+|---|---|
+| Look up one rule | `grep -A2 '^### 2.N' HANDOFF.md`: the Rule and its Guard in 3 lines, for all 82; live wires are `### 5.1`-`### 5.25`, each with a `Code:` line, and 26 `# Live wire` comments point back |
+| Citations resolve, enforced | `tests/test_knowledge_refs.py`. It found 5 stale guard names, not the 1 section 1 counted (3 were bare names chained after a citation) |
+| One owner per open item | §6.5's two duplicates are links to `GRADE_TO_A_PLAN.md`; the registry says who owns what |
+| Misleading docs | `CORE_RULES.yaml`, `RENAME_TO_TORRA.md`, `AUDIT_FINDINGS.md` retired; quirk #7 resolved |
+| Where a new fact goes | `agents/CONVENTIONS.md` "Where new information goes", beside the registry that already existed there (P1.1 was planned as a new `agents/KNOWLEDGE.md`; a second registry would have broken the one-owner rule) |
+| Fresh agents answer correctly | 15/15 before (0c9b4ca) and after (cddfc67), 132,405 then 128,548 tokens, 16 then 13 tool calls: no measurable change on this set. The live runs found 3 grading regexes too narrow for a correct answer; fixed |
+| Growth | HANDOFF.md went from 260,937 to 298,477 bytes (Rule lines, `Code:` lines, §6.5 findings); it is now capped at 313,401 and new entries at 10 lines (P2.4) |
+
+Two Opus verifiers per batch found 14 of the 82 first-draft Rule lines contradicting the code. The
+Rules now state what the code does, and the stale prose is kept as history. They also found four
+findings that are the owner's call, now in HANDOFF.md §6.5:
+- the undo-status invariant text versus the code (`cancelled`, and `undone` with no verifier);
+- the size-from-name fallback versus AGENTS.md's invariant;
+- `UndoGenerator.capture_file` has no regular-file check (safety path);
+- `cat /secret.env` classifies SAFE.
+
+Also open: the §6.6 resume-expiry proposal, and retiring this plan itself (P3.1; deleting a file is
+ask-first). Deviations: worktrees started from an old commit, the scratchpad was lost across a restart,
+two verifiers hit the session rate limit, and a peer session edited AGENTS.md, `agents/LOOP.md`,
+`agents/PLAYBOOKS.md` and this plan at the same time (its hunks were kept intact; see the findings file).
