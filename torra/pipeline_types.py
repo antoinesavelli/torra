@@ -160,7 +160,7 @@ class RunResult:
     # broad and blocked the ordinary "tick the box, click Run again" retry
     # after a rejection.
     executed: bool = False
-    #: Set by `Torra._summarize()` once execution has produced at least one
+    #: Set by `pipeline_report.summarize()` once execution has produced at least one
     #: real result -- the model's own account of what its steps found, since
     #: nothing upstream of `_finish()` ever reads step output back. Empty when
     #: there was nothing to run, no model was in the loop, or the call failed.

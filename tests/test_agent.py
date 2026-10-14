@@ -12,7 +12,15 @@ from typing import Any
 import pytest
 from conftest import plan_reply, scripted
 
-from torra.agent import SYSTEM_PROMPT, Agent, AgentError, Intent, Turn
+from torra import agent_types
+from torra.agent import (
+    SYSTEM_PROMPT,
+    Agent,
+    AgentError,
+    Intent,
+    MalformedTaskError,
+    Turn,
+)
 from torra.core import (
     MachineState,
     OllamaClient,
@@ -1391,3 +1399,10 @@ def test_a_string_in_the_questions_list_still_survives_and_other_values_are_stri
     raw = '{"intent": "ask", "message": "?", "questions": ["a", 2]}'
 
     assert agent._parse("r", raw, "m", "why", [], [], False).questions == ["a", "2"]
+
+
+def test_agent_re_exports_the_one_data_model_agent_types_defines() -> None:
+    """`from torra.agent import Turn` and friends must keep meaning the agent_types classes."""
+    assert (Turn, Intent, AgentError, MalformedTaskError) == (
+        agent_types.Turn, agent_types.Intent, agent_types.AgentError,
+        agent_types.MalformedTaskError)

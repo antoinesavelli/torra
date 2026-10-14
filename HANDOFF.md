@@ -260,7 +260,7 @@ after the fact.
 
 ### 2.11 The post-execution summary call can report, never act
 
-`Torra._summarize()` (called once from `_finish()`, after a model-authored
+`pipeline_report.summarize()` (called once from `_finish()`, after a model-authored
 plan has actually executed) is the only place execution results are ever fed
 back to the model. It exists to close a real gap -- `_print_execution_report`
 never showed step output, so "read the docs and tell me" completed with
@@ -283,7 +283,7 @@ repeatedly found and removed elsewhere -- see §7, question 2.
 > `test_a_hand_written_plan_gets_no_summary_and_consults_no_model`,
 > `test_a_failed_summarize_call_does_not_break_the_run`
 
-### 2.12 Every filename built from `task_id` goes through `_safe_filename`
+### 2.12 Every filename built from `task_id` goes through `safe_filename`
 
 `task_id` is fully model- or human-controlled: `TaskSpec.validate()` does
 `task_id=str(data["task_id"])` with no character restriction at all, and a
@@ -294,7 +294,7 @@ with no sanitizing, right next to `_finish()`'s audit-file path in the same
 class, which already sanitized. A `task_id` of `"../../../../tmp/evil"`
 wrote a real file outside `workdir/resume/` on any run where a later step
 failed before `_finish_success()`'s cleanup ran (that only fires on a fully
-successful run). `_safe_filename()` (a static helper both call sites now
+successful run). `pipeline_report.safe_filename()` (one helper both call sites now
 share) replaces every character outside alnum/`-`/`_`/`.` -- `/` is the
 only character that can turn one path component into several, and with it
 gone a leftover `..` is just a funny filename, not a traversal. If you add
@@ -490,7 +490,7 @@ this one was.
 > Guarded by `tests/test_gates.py::TestSafety::test_every_evasion_is_caught`
 > (26/26; see §2.22 for the other two), `test_command_substitution_and_ifs_evasions_are_critical_not_just_gated`
 
-### 2.19 A dry run never reaches `_summarize()`
+### 2.19 A dry run never reaches `summarize()`
 
 Found by an independent audit, reproduced live: `_run_one_step()` fabricates
 `"[dry-run] <command>"` as every step's "output" under a dry run -- nothing

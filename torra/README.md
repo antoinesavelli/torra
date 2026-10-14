@@ -8,9 +8,11 @@ The package. Model proposes, five gates decide, the operator approves.
 | [`core/`](core/README.md) | Task/step primitives, conflict detection, context compression, the Ollama client |
 | [`telemetry/`](telemetry/README.md) | Task logging, human labels, drift and loophole audits |
 | `agent.py` | The model loop: conversation to validated `TaskSpec`, never a shell |
+| `agent_types.py` | The data model `Agent` produces: `Turn`, `Intent`, `AgentError`, `MalformedTaskError` (re-exported by `agent.py`) |
 | `prompts.py` | `PLAN_SCHEMA`/`SYSTEM_PROMPT` -- the literal text handed to the model, split out of `agent.py` |
 | `pipeline.py` | `Torra`, the seven-stage orchestrator, the only thing that decides what runs |
 | `pipeline_types.py` | The data model `Torra` produces: `Stage`, `Outcome`, `StepPlan`, `Plan`, `RunResult` |
+| `pipeline_report.py` | Stage 7, report: the model's summary, the audit file and the telemetry record for one `RunResult` (`Torra._finish` delegates here) |
 | `pipeline_rollback.py` | Rollback bookkeeping for one `execute()`: classify the declared entries, skip undos for files changed outside torra, unwind the stack (`HANDOFF.md` §2.59) |
 | `iterate.py` | `iterate()`, a bounded edit -> verify -> fix loop -- ordinary `plan()`/`execute()` turns on one conversation, nothing safety-critical touched (`cli.py`'s `torra ask --verify`) |
 | `dependency_warnings.py` | Best-effort, pre-`execute()` check for an approved step depending on a declined one -- never blocks, so it isn't under `gates/` |

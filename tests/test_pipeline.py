@@ -28,6 +28,7 @@ from torra.gates import (
     VerifiedRollback,
 )
 from torra.pipeline import Torra
+from torra.pipeline_report import safe_filename
 from torra.pipeline_rollback import declared_undos, sweep
 from torra.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 
@@ -1781,6 +1782,12 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
         "every resume write should target the sanitized path inside workdir/resume/"
 
 
+def test_safe_filename_leaves_no_path_separator() -> None:
+    """The one helper the audit and resume paths share (HANDOFF.md §2.12)."""
+    assert safe_filename("../../evil-poc") == ".._.._evil-poc"
+    assert safe_filename("agent-3_ok.v2") == "agent-3_ok.v2"
+
+
 def test_knowledge_dir_defaults_from_the_environment(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """cli.py/tui.py construct Torra() with no knowledge_dir argument at
@@ -1861,7 +1868,7 @@ def test_a_dry_run_never_gets_a_summary(make_torra, tmp_path: Path) -> None:
     nothing was actually checked. Summarizing that fabricated text got a
     confident, plausible-sounding answer with zero real evidence behind
     it, indistinguishable from a genuine post-execution summary. A dry
-    run must never reach _summarize() at all, not just label the result
+    run must never reach summarize() at all, not just label the result
     as a preview."""
     target = tmp_path / "data.txt"
     target.write_text("one\ntwo\nthree\n", encoding="utf-8")

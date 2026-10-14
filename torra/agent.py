@@ -4,7 +4,8 @@ Depends on: torra.core (ContextCompressor, ContextStep, MachineState, ModelBacke
 OllamaClient, Step, StepResult, TaskSpec, observe_machine, resolve_backend,
 build_ssh_runner, observe_executor, resolve_executor_config), torra.gates
 (Clarifier, ModelRouter, SafetyClassifier), torra.prompts (PLAN_SCHEMA,
-SYSTEM_PROMPT), torra.read_memory (ReadMemory).
+SYSTEM_PROMPT), torra.read_memory (ReadMemory), torra.agent_types (Turn, Intent,
+AgentError, MalformedTaskError -- the data model this module produces, re-exported here).
 
 The design rule throughout: the model produces a TaskSpec and nothing else. It
 does not execute, it does not get a shell, it does not decide what is safe. It
@@ -19,11 +20,10 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 
 from . import prompts
+from .agent_types import AgentError, Intent, MalformedTaskError, Turn
 from .core import (
     ContextCompressor,
     ContextStep,
@@ -50,70 +50,6 @@ from .prompts import PLAN_SCHEMA, SYSTEM_PROMPT, untrusted_block
 from .read_memory import ReadMemory
 
 __all__ = ["Intent", "Turn", "Agent", "AgentError", "PLAN_SCHEMA", "SYSTEM_PROMPT"]
-
-
-class AgentError(RuntimeError):
-    """Raised when the model cannot produce a usable proposal."""
-
-
-class MalformedTaskError(AgentError):
-    """The proposed task failed TaskSpec validation. The one AgentError a revision round can fix:
-    the validator's message names the field and lists the valid ones."""
-
-
-class Intent(str, Enum):
-    """What the agent decided to do with a turn."""
-
-    ANSWER = "answer"        # a question, no system change needed
-    ASK = "ask"              # underspecified, needs the operator
-    PLAN = "plan"            # enough information, here is a proposal
-    REFUSE = "refuse"        # will not do this
-
-
-@dataclass
-class Turn:
-    """One exchange: what the operator said and what the agent decided."""
-
-    request: str
-    intent: Intent
-    message: str = ""
-    questions: list[str] = field(default_factory=list)
-    spec: TaskSpec | None = None
-    model: str = ""
-    routing_reason: str = ""
-    clarifier_gaps: list[str] = field(default_factory=list)
-    anchors: list[str] = field(default_factory=list)
-    machine_observed: bool = False
-    repairs: int = 0
-    seconds: float = 0.0
-    raw: str = ""
-    #: Paths of previously-read files the model says no longer help --
-    #: `Agent.converse()` acts on this against `_read_context` right after
-    #: parsing (§2.46). Kept on `Turn`, not consumed and discarded, so the
-    #: audit trail records what the model chose to forget, not just that
-    #: something happened to `self.context`.
-    forget: list[str] = field(default_factory=list)
-    #: Advisory notes still standing once repairs ran out (a missing path); shown, never a gate.
-    warnings: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serializable dict form, for the audit trail."""
-        return {
-            "request": self.request,
-            "intent": self.intent.value,
-            "message": self.message,
-            "questions": list(self.questions),
-            "spec": self.spec.to_dict() if self.spec else None,
-            "model": self.model,
-            "routing_reason": self.routing_reason,
-            "clarifier_gaps": list(self.clarifier_gaps),
-            "anchors": list(self.anchors),
-            "machine_observed": self.machine_observed,
-            "repairs": self.repairs,
-            "seconds": round(self.seconds, 3),
-            "forget": list(self.forget),
-            "warnings": list(self.warnings),
-        }
 
 
 def _observe_with_executor(
@@ -308,6 +244,22 @@ class Agent:
                 if model_available(self.ollama.fallback_model, candidates)
                 else candidates[0])
 
+    def _route(self, request: str, model: str | None, ambiguous: bool) -> tuple[str, str, bool]:
+        """(model, routing reason, whether it names an alternate backend) for one turn."""
+        choice = self.router.select(request, ambiguous=ambiguous)
+        chosen = model or choice.model
+        # self.router never returns a prefixed model, so an alt-backend
+        # choice only ever comes from an explicit operator override -- the
+        # degraded-daemon fallback below is entirely about the *local
+        # Ollama catalog's* availability and must not run for one, or it
+        # would try to swap an explicit OpenRouter choice for a local model.
+        is_alt_backend = any(chosen.startswith(f"{p}/") for p in self.backends)
+        if not is_alt_backend and self.ollama.last_status.value != "healthy":
+            available = self.ollama.models()
+            if available and not model_available(chosen, available):
+                chosen = self._degraded_fallback(available)
+        return chosen, choice.reason, is_alt_backend
+
     def converse(self, request: str, model: str | None = None,
                 on_thinking: Callable[[str], None] | None = None) -> Turn:
         """Take one operator message and decide what to do with it.
@@ -329,19 +281,7 @@ class Agent:
         gaps = [f"{a.code}: {a.why}" for a in clarification.ambiguities]
         anchors = clarification.anchors
 
-        choice = self.router.select(request, ambiguous=bool(gaps))
-        chosen = model or choice.model
-        # self.router never returns a prefixed model, so an alt-backend
-        # choice only ever comes from an explicit operator override -- the
-        # degraded-daemon fallback below is entirely about the *local
-        # Ollama catalog's* availability and must not run for one, or it
-        # would try to swap an explicit OpenRouter choice for a local model.
-        is_alt_backend = any(chosen.startswith(f"{p}/") for p in self.backends)
-        if not is_alt_backend and self.ollama.last_status.value != "healthy":
-            available = self.ollama.models()
-            if available and not model_available(chosen, available):
-                chosen = self._degraded_fallback(available)
-
+        chosen, reason, is_alt_backend = self._route(request, model, bool(gaps))
         backend, real_model = self.resolve_backend(chosen)
         stream_cb = (on_thinking if on_thinking is not None
                     and not is_alt_backend and self.router._thinking_capable(real_model)
@@ -351,7 +291,7 @@ class Agent:
         def attempt(reply: str) -> tuple[Turn | None, str, MalformedTaskError | None]:
             """Parse one reply: the turn (None if the task failed validation) and what to fix."""
             try:
-                parsed = self._parse(request, reply, chosen, choice.reason, gaps, anchors,
+                parsed = self._parse(request, reply, chosen, reason, gaps, anchors,
                                      bool(self.state))
             except MalformedTaskError as exc:
                 return None, f"- {exc}", exc
@@ -386,11 +326,7 @@ class Agent:
         if turn.spec is not None:
             turn.warnings = self._missing_paths(turn.spec)
         turn.seconds = time.perf_counter() - started
-        if turn.forget:
-            self.read_memory.forget(turn.forget)
-        self._remember(turn)
-        self.turns.append(turn)
-        return turn
+        return self._record(turn)
 
     def _parse(self, request: str, raw: str, model: str, routing_reason: str,
                gaps: Sequence[str], anchors: Sequence[str], observed: bool) -> Turn:
@@ -537,11 +473,7 @@ class Agent:
                               turn.routing_reason, turn.clarifier_gaps,
                               turn.anchors, turn.machine_observed)
         revised.repairs = turn.repairs + 1
-        if revised.forget:
-            self.read_memory.forget(revised.forget)
-        self._remember(revised)
-        self.turns.append(revised)
-        return revised
+        return self._record(revised)
 
     def answer_questions(self, turn: Turn, answers: Sequence[str],
                          model: str | None = None) -> Turn:
@@ -579,6 +511,14 @@ class Agent:
             real_model, [{"role": "user", "content": prompt}], json_mode=False).strip()
 
     # -- conversation ------------------------------------------------------ #
+
+    def _record(self, turn: Turn) -> Turn:
+        """Drop what the turn says to forget, then add it to the context window and `turns`."""
+        if turn.forget:
+            self.read_memory.forget(turn.forget)
+        self._remember(turn)
+        self.turns.append(turn)
+        return turn
 
     def _remember(self, turn: Turn) -> None:
         """Add the exchange to the compressed context window."""

@@ -84,6 +84,11 @@ def describe_path(path: str, limit: int = 5000, seconds: float = 1.0,
             return name
     if not stat.S_ISDIR(info.st_mode):
         return f"file, {_size(info.st_size)}, modified {_day(info.st_mtime)}"
+    return _describe_dir(path, limit, seconds, clock)
+
+
+def _describe_dir(path: str, limit: int, seconds: float, clock: Callable[[], float]) -> str:
+    """What the directory at `path` holds, as counted by `_walk`."""
     files, folders, size, newest, stopped, unreadable = _walk(path, limit, seconds, clock)
     if not files and not folders and not stopped:
         return "empty directory" + (", some folders unreadable" if unreadable else "")
