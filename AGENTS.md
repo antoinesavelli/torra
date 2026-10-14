@@ -96,7 +96,6 @@ Read the map for the area you're touching before grepping the source tree.
 | How code here is graded (six dimensions, tiering, floors) | `DEFENSIVE_CODING_STANDARDS.md` |
 | Migrating off Claude Code as operator (what's built, what's scoped but not) | `CLAUDE_MIGRATION_ROADMAP.md` |
 | Plan to an A on every `/grade` domain (findings, owner decisions, phases) | `GRADE_TO_A_PLAN.md` |
-| Plan to make the agent docs cheap to look up and checked (decisions, phases) | `KNOWLEDGE_LAYER_PLAN.md` |
 
 ## Domain Invariants — Non-Negotiable
 

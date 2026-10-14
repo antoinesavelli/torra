@@ -52,12 +52,13 @@ Not complete until all hold, in the *same* change:
    in `AGENTS.md`.
 4. **`HANDOFF.md` §2 current** if the change touches an existing invariant, or adds a new one
    worth the same treatment. A new safety-relevant invariant with no entry here is invisible to
-   the next agent who needs it. A new §2 or §5 entry takes the next unused number and a heading of
-   a few words, then `**Rule:**` (one sentence), `**Why:**` (one or two) and `**Guard:**` (test
-   ids); a §5 entry adds its `Code:` line. At most 10 non-blank lines under the heading: the story
-   goes in the commit. `tests/test_knowledge_refs.py` checks that cap and a byte ceiling on the
-   file; when one fails, shrink the entry or §6 item the change supersedes. Raising the ceiling is
-   the owner's call.
+   the next agent who needs it. A § number is never reused or renumbered (code cites them); a
+   retired entry stays as a one-line stub. A new §2 or §5 entry takes the next unused number and
+   a heading of a few words, then `**Rule:**` (one sentence), `**Why:**` (one or two) and
+   `**Guard:**` (test ids); a §5 entry adds its `Code:` line. At most 10 non-blank lines under the
+   heading: the story goes in the commit. `tests/test_knowledge_refs.py` checks that cap and a
+   byte ceiling on the file; when one fails, shrink the entry or §6 item the change supersedes.
+   Raising the ceiling is the owner's call.
 5. **Lint and types clean.** `ruff check .` on touched files; `mypy <touched files>` with zero
    new errors vs. the pre-change baseline.
 6. **Defensive-coding scorecard held.** `python3 scripts/dev/defensive_coding_report.py` — no

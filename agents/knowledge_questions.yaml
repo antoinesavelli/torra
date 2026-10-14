@@ -7,6 +7,8 @@
 #      pass its own regexes. It fails when a doc and the expected answer drift apart.
 #   2. Grading a FRESH agent's answers to `question`, given without this file, against
 #      `must_contain` (all required) and `must_not_contain` (any one marks a wrong answer).
+#      Baseline, 2026-10-14 (a capable model, at most 5 questions per batch): 15/15 at 0c9b4ca
+#      and at cddfc67.
 #
 # A question must not contain any of its own expected facts. When a fact legitimately changes,
 # update the doc that owns it AND this file in the same change.
