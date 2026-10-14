@@ -71,9 +71,9 @@ staged. Found a hunk you didn't write? Stop and find out whose it is.
 **Context is spend.** Every turn re-reads the whole conversation: batch independent calls in one turn, grep before reading and read only the lines needed, cap command output (`head`, `grep -m`, `--stat`), and offer a handoff to a fresh session at a task boundary once context is large.
 
 Full doctrine, read the section on demand (`/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md`):
-*Code conventions* and *Testing* before writing code · *Concurrent sessions* before staging or
-committing · *Before you ACT* and *Subagents* before delegating · *Cost and resources* before a paid
-pull or heavy job · *Skills fix themselves* when a skill misfires · and whenever a guard fails.
+*Code conventions* and *Testing* before code, *Writing* before a doc · *Concurrent sessions* before
+you stage or commit · *Before you ACT* and *Subagents* before delegating · *Cost and resources* before
+a paid or heavy job · *Skills fix themselves* if a skill misfires · when a guard fails.
 <!-- doctrine-core:end -->
 
 ## Read-first triggers (do these BEFORE the action)
