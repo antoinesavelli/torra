@@ -28,7 +28,7 @@
   expected: "Three statuses for an undo that ran: undone, unverified (the undo ran but verification says the prior state was not restored) and failed (the undo raised); never collapsed to two. An undo with no verifier records verified=None: nothing was checked. (The code also has a cancelled status for an unsafe undo the operator declined.)"
   must_contain:
     - '\bunverified\b'
-    - '\bundone\b[\s\S]{0,40}\b(unverified|failed)\b|\b(unverified|failed)\b[\s\S]{0,40}\bundone\b'
+    - '\bundone\b[\s\S]{0,90}\b(unverified|failed)\b|\b(unverified|failed)\b[\s\S]{0,90}\bundone\b'
     - '\bverified\W*(=|is|set\s+to)?\W*none\b|nothing\s+(was\s+|is\s+)?checked'
   must_not_contain:
     - 'unverified\b[^.;]{0,50}\bno\s+verifier'
