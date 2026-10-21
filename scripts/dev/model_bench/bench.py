@@ -59,11 +59,15 @@ class CallMetrics:
         return self.eval_count / self.eval_seconds if self.eval_seconds else 0.0
 
 
-def make_metrics_transport(sink: list[CallMetrics]):
-    """A transport for OllamaClient that records CallMetrics for every call."""
+def make_metrics_transport(sink: list[CallMetrics], host: str = OLLAMA_HOST):
+    """A transport for OllamaClient that records CallMetrics for every call.
+
+    `host` is where the calls go. The client's own `host` is not used once a transport is
+    set, so a caller pointing at another machine must pass it here too.
+    """
 
     def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
-        url = f"{OLLAMA_HOST}{path}"
+        url = f"{host}{path}"
         started = time.perf_counter()
         if payload:
             num_ctx = MODEL_NUM_CTX.get(payload.get("model", ""))
