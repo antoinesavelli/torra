@@ -1,5 +1,7 @@
 """Hand-written plans for calibrating the planner/verifier prototype, independent of any planner.
 
+Depends on: torra.core (TaskSpec, to validate each plan).
+
 GOOD plans use only specifics their request gives or ordinary system defaults, and need no
 rollback torra cannot derive itself; the verifier should find no blocker in them. BAD plans
 each carry one defect the verifier should block, of the kind named in `expect_kind`.

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Prototype: does a second, fast model catch anything the deterministic gates miss?
+"""Prototype: does a second model catch anything the deterministic gates miss?
 
-Depends on: bench.py (MetricsTransport, task battery), torra.agent, torra.core,
-torra.gates. The existing torra has no LLM-based verifier -- SafetyClassifier and
-Clarifier are pattern/structure based, not semantic. This asks whether a cheap second
-opinion (qwen3:8b) reviewing a larger planner's (devstral's) output adds real signal:
-catching a plan that is schema-valid and gate-clean but semantically wrong (wrong
-service, hallucinated path, doesn't actually address the request).
+Depends on: bench.py (metrics transport), tasks.py (task battery), fixed_plans.py
+(calibration plans), torra.agent, torra.core, torra.gates. The existing torra has no
+LLM-based verifier -- SafetyClassifier and Clarifier are pattern/structure based, not
+semantic. This asks whether a verifier model (default devstral:24b) reviewing a planner's
+(default qwen3.5:9b) output adds real signal: catching a plan that is schema-valid and
+gate-clean but semantically wrong (wrong service, hallucinated path, doesn't actually
+address the request). The verifier returns structured findings; code decides the veto.
 """
 
 from __future__ import annotations
