@@ -5,19 +5,19 @@
 State as of 2026-10-14: 9b planner (`qwen3.5:9b`) with a 24b verifier (`devstral:24b`); structured
 findings, veto decided in code. One run: fixed set 7/7 good passed and 2/2 bad blocked, live clean
 plans 1/8 vetoed, planted path caught 5/8. The git-recoverable exemption was added after the fixed
-set showed a wrong veto, so that 7/7 is partly tuned. Not committed.
+set showed a wrong veto, so that 7/7 is partly tuned. Committed 2026-10-21 (`61b6886`).
 
 - [ ] Repeat `--fixed-only` 3 to 5 times and report the spread of the 7/7 and 2/2.
-- [ ] Fix the `invented_specific` false positive on description text: a quote that appears only in
+- [x] Fix the `invented_specific` false positive on description text: a quote that appears only in
       a step's `description`, not in its `run`/`touches`/`reads`, should not block (seen with
-      "Pop!_OS repositories" on `t4-install-and-enable`).
+      "Pop!_OS repositories" on `t4-install-and-enable`). Done: `executable_text`, pinned by
+      `--self-check`; not yet re-measured on a live run.
 - [ ] Look at the 3 missed planted-path controls (docker-prune, install-and-enable, timer); two
       reviews timed out or named other things.
 - [ ] Add a short note on the swapped roles, structured findings and fixed set to
       `scripts/dev/model_bench/REPORT.md`, replacing "Torra has no LLM-based verifier today".
-- [ ] Commit `planner_verifier.py`, `fixed_plans.py` and the results JSONs by explicit path (the
-      tree also holds unrelated uncommitted changes to `AGENTS.md`, `AUDIT_LOG.md` and
-      `DEFENSIVE_SCORECARD_LOG.md`).
+- [x] Commit `planner_verifier.py`, `fixed_plans.py` and the results JSONs by explicit path.
+      Done: `61b6886` (with the `bench.py` host argument it needs), docs in `50dafc6`.
 
 ## Both projects on the workstation
 
