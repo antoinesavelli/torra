@@ -1,7 +1,13 @@
 # Plan: an A on every graded domain
 
-Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. **Plan only: nothing here is
-implemented yet.** Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
+Status: active
+
+Owner decisions pending: D8 (section 2)
+
+Last verified: 2d5f82b on 2026-10-13 (the Phase 5 re-grade, section 3)
+
+Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. **Phases 0 to 4 are done or
+withdrawn; the Phase 5 re-grade (B+, exit not met) left P5.1 to P5.4 and the blind red-team open.** Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
 construction, `Torra.execute`, persisted-state formats), so each one needs the owner's go-ahead before its
 change lands. Section 2 lists the decisions to take first.
 

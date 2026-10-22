@@ -1,5 +1,11 @@
 # Migrating off Claude Code as the main operator
 
+Status: active
+
+Owner decisions pending: none
+
+Last verified: 61b6886 on 2026-10-21
+
 Written 2026-09-03. The operator's goal: stop leaning on Claude Code (or any
 paid hosted model) as the day-to-day driver across these machines, using
 torra instead. The gap breaks into four buckets. One is built (this

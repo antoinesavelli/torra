@@ -1,4 +1,4 @@
-"""CI guard: agent-facing docs cite only what still exists, and HANDOFF.md's growth is capped.
+"""CI guard: agent-facing docs cite only what still exists, HANDOFF.md's growth is capped, and plans open with their status.
 
 Depends on: the root *.md, agents/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
 """
@@ -148,4 +148,24 @@ def test_handoff_stays_under_its_size_ceiling() -> None:
         f"HANDOFF.md is {size} bytes, {size - _HANDOFF_MAX_BYTES} over _HANDOFF_MAX_BYTES "
         f"({_HANDOFF_MAX_BYTES}): shrink an entry or §6 item this change supersedes. Raising "
         "the ceiling is the owner's call, not the change's."
+    )
+
+
+# agents/CONVENTIONS.md, "A multi-step plan": the three lines every plan opens with.
+_PLAN_HEADER = (
+    re.compile(r"^Status: (active|done)$", re.M),
+    re.compile(r"^Owner decisions pending: \S", re.M),
+    re.compile(r"^Last verified: [0-9a-f]{7,40} on \d{4}-\d{2}-\d{2}\b", re.M),
+)
+
+
+def test_every_plan_opens_with_its_status_header() -> None:
+    """A plan with no status or verified-at sha reads as live long after it went stale."""
+    missing = []
+    for plan in sorted([*ROOT.glob("*_PLAN.md"), *ROOT.glob("*_ROADMAP.md")]):
+        head = "\n".join(plan.read_text().splitlines()[:12])
+        missing += [f"{plan.name}: {p.pattern}" for p in _PLAN_HEADER if not p.search(head)]
+    assert not missing, (
+        "plan header lines missing from the first 12 lines (agents/CONVENTIONS.md, "
+        "'A multi-step plan'):\n" + "\n".join(missing)
     )
