@@ -131,7 +131,10 @@ that creates a new small file for a modest amount of code.
 - **Every new module must be imported by at least one test file**, detected by scanning test
   files for actual `import`/`from ... import`/`patch()` targets — not by filename convention
   (`test_<name>.py` existing proves nothing if it doesn't import the module). A module only
-  reachable indirectly through another class's facade still needs its own direct test.
+  reachable indirectly through another class's facade still needs its own direct test. A name
+  the package's `__init__.py` re-exports from the module counts as a direct import (`from
+  torra.gates import SafetyClassifier` covers `safety.py`); importing the package itself covers
+  nothing.
 - Grade = % of decision-path modules with at least one test-side import, banded 80/65/50/35%
   (or read straight `coverage` line-% if you're running with instrumentation — same bands).
 - New behavior → new test, in the *same* change, not a follow-up. This is the single rule

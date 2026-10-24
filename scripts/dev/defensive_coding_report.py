@@ -135,15 +135,15 @@ def max_nesting_depth(node: ast.AST, depth: int = 0) -> int:
     return best
 
 
-def function_nesting(files: list[Path]) -> dict[str, dict[str, int]]:
-    """Nesting depth of every top-level-in-class-or-module function, by qualified name."""
-    out: dict[str, dict[str, int]] = {}
+def function_nesting(files: list[Path]) -> dict[str, dict[int, int]]:
+    """Nesting depth of every function, keyed by file then `def` line (radon's lineno)."""
+    out: dict[str, dict[int, int]] = {}
     for path in files:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        per_file: dict[str, int] = {}
+        per_file: dict[int, int] = {}
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                per_file[node.name] = max_nesting_depth(node)
+                per_file[node.lineno] = max_nesting_depth(node)
         out[str(path)] = per_file
     return out
 
@@ -192,11 +192,11 @@ def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
         depths = nesting.get(filepath, {})
         for block in blocks:
             total_fns += 1
-            if block["complexity"] >= 10 and depths.get(block["name"], 0) >= 3:
+            depth = depths.get(block["lineno"], 0)
+            if block["complexity"] >= 10 and depth >= 3:
                 tangled.append(
                     f"{Path(filepath).relative_to(REPO_ROOT)}:{block['lineno']} "
-                    f"{block['name']} (CCN {block['complexity']}, depth "
-                    f"{depths.get(block['name'], 0)})")
+                    f"{block['name']} (CCN {block['complexity']}, depth {depth})")
     tangled_pct = (len(tangled) / total_fns * 100) if total_fns else 0.0
     tangled_grade = band(tangled_pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
 
@@ -295,7 +295,7 @@ def module_name_of(path: Path) -> str:
 
 
 def test_imported_modules() -> set[str]:
-    """Every torra.* dotted path referenced by an import/from-import in tests/."""
+    """Every dotted path a tests/ import names; `from a.b import c` records a.b and a.b.c."""
     imported: set[str] = set()
     for path in TESTS_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -304,7 +304,23 @@ def test_imported_modules() -> set[str]:
                 imported.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module)
+                imported.update(f"{node.module}.{alias.name}" for alias in node.names)
     return imported
+
+
+def reexported_names(path: Path) -> set[str]:
+    """Dotted package.name paths the sibling __init__.py re-exports from this module."""
+    init = path.parent / "__init__.py"
+    if path == init or not init.exists():
+        return set()
+    package = module_name_of(init)
+    tree = ast.parse(init.read_text(encoding="utf-8"), filename=str(init))
+    return {f"{package}.{alias.asname or alias.name}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and ((node.level == 1 and node.module == path.stem)
+                 or node.module == module_name_of(path))
+            for alias in node.names}
 
 
 def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
@@ -316,12 +332,10 @@ def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     imported = test_imported_modules()
     uncovered: list[str] = []
     for path in decision_files:
-        name = module_name_of(path)
-        # A module is covered if tests import it directly, or import its
-        # parent package (which re-exports it) -- see each __init__.py.
-        covered = any(name == m or name.startswith(m + ".") or m.startswith(name)
-                      for m in imported)
-        if not covered:
+        # A re-exported name counts (`from torra.gates import SafetyClassifier`
+        # tests safety.py's own code); the bare package does not, or a single
+        # `from torra import cli` would cover every module in torra/.
+        if module_name_of(path) not in imported and not reexported_names(path) & imported:
             uncovered.append(str(path.relative_to(REPO_ROOT)))
 
     covered_count = len(decision_files) - len(uncovered)
