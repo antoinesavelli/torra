@@ -3723,6 +3723,14 @@ CRITICAL), with the preview showing the 3 files.
 
 **Guard:** `tests/test_known_programs.py::test_a_write_through_an_operator_or_a_line_variable_names_its_target`, `tests/test_known_programs.py::test_a_redirect_target_known_only_at_run_time_asks`, `tests/test_known_programs.py::test_the_bar_of_a_noclobber_redirect_is_not_a_pipe`.
 
+### 2.89 Every shell payload's redirects are checked
+
+**Rule:** `resolve()` records each shell text it parses (the line, every `sh -c`, `eval`, `$(...)` and base64 payload) with its own assignments in `shell_texts`, and `classify()` runs `_check_redirect` on each; a payload's data-only heredoc bodies are dropped first, the line's are not.
+
+**Why:** A payload is quoted in the line, so the masked scan skipped it: `sh -c 'echo x > /etc/passwd'` and `sudo sh -c 'echo 1 > /proc/sys/vm/drop_caches'` were SAFE or CAUTION. Replaying 73,582 distinct commands moved 52 verdicts, all up, 37 of them `bash -c '... > /dev/tcp/...'` port checks.
+
+**Guard:** `tests/test_known_programs.py::test_a_redirect_inside_a_shell_payload_is_checked`, `tests/test_known_programs.py::test_a_payload_redirect_is_judged_like_any_other_and_reported_once`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

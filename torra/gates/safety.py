@@ -136,8 +136,9 @@ SAFE_REDIRECT_TARGETS: frozenset[str] = frozenset({
 WORD_ENDS = ";|&()<>"
 #: `$'...'`, ANSI-C quoting: bash decodes the backslash escapes inside, so `$'\x2fetc'` is /etc.
 ANSI_C_QUOTED = re.compile(r"\$'((?:[^'\\]|\\.)*)'")
-#: A `$` that starts an expansion (a name, `${`, `$(`, a special parameter) or a backtick; a lone `$` is literal.
-EXPANSION = re.compile(r"\$[\w{(@*#?$!-]|`")
+#: A `$` that starts an expansion (a name, `${`, `$(`, a special parameter), a backtick, or the placeholder
+#: `_blank_substitutions` leaves for a `$(...)`; a lone `$` is literal.
+EXPANSION = re.compile(r"\$[\w{(@*#?$!-]|`|SUBST")
 
 #: xlsx/docx/pptx/odt/ods/odp are all zip containers -- `PROTECTED_PREFIXES`
 #: only recognizes absolute system locations, so a step with a declared
@@ -258,7 +259,9 @@ class SafetyClassifier:
         self.parse_failures: list[str] = []
         self.env_risks: list[str] = []
         self.unwrap_limit_hit = False
-        self.line_env: dict[str, str] = {}  # `NAME=value` assignments of the top-level line
+        #: Every shell text resolve() parsed (the line, each `sh -c`/`eval`/`$(...)`/base64 payload) with
+        #: its own `NAME=value` assignments, so classify() checks the redirects of each (HANDOFF.md §2.89).
+        self.shell_texts: list[tuple[str, dict[str, str]]] = []
 
     # -- resolution -------------------------------------------------------- #
 
@@ -556,8 +559,9 @@ class SafetyClassifier:
         resolved += self._resolve_substitutions(command, depth)
 
         env: dict[str, str] = {}
-        if depth == 0:
-            self.line_env = env  # filled below; `_check_redirect` expands targets with it
+        # env is filled below. A payload's data-only heredoc bodies are dropped first, so the message
+        # in `git commit -m "$(cat <<'EOF' ... EOF)"` is not read as shell; the line itself is kept whole.
+        self.shell_texts.append((command if depth == 0 else self._strip_heredocs(command), env))
         for segment in self.split_segments(self._blank_substitutions(self._strip_heredocs(command))):
             segment = self._unparen(self._expand_ifs(segment))
             argv = self._substitute(self._strip(self._tokenize(segment), env), env)
@@ -920,7 +924,12 @@ class SafetyClassifier:
             at += 1
         return at
 
-    def _check_redirect(self, text: str) -> list[tuple[RiskLevel, str]]:
+    def _check_redirects(self) -> list[tuple[RiskLevel, str]]:
+        """`_check_redirect` over every shell text resolve() parsed, each finding once: a payload is
+        quoted in the line that carries it, so the line's own scan never sees its `>`."""
+        return list(dict.fromkeys(f for text, env in self.shell_texts for f in self._check_redirect(text, env)))
+
+    def _check_redirect(self, text: str, env: dict[str, str]) -> list[tuple[RiskLevel, str]]:
         """Redirect-target risk: a concern neither _judge nor BACKSTOP looks
         at. Captures the operator (`>`/`>>`) alongside the target -- found
         in a full-file audit: classification was already correct for `>>`,
@@ -941,7 +950,7 @@ class SafetyClassifier:
             op, target = redirect.group(), self._redirect_word(text[redirect.end():])
             if target is None:
                 return [(RiskLevel.DANGEROUS, "redirect target torra cannot read")]
-            target = self._expand(target, self.line_env)
+            target = self._expand(target, env)
             if op == ">&" and re.fullmatch(r"\d*-?", target):
                 continue  # `2>&1`, `>&2`, `>&-`: a descriptor, not a file
             if target in SAFE_REDIRECT_TARGETS:
@@ -985,6 +994,7 @@ class SafetyClassifier:
         # silently downgrade what another layer already caught.
         text = (command or "").strip()
         self.parse_failures = []
+        self.shell_texts = []
         self.env_risks = []
         self.unwrap_limit_hit = False
         reasons: list[str] = []
@@ -998,7 +1008,7 @@ class SafetyClassifier:
                                f"[argv: {' '.join(rc.argv[:6])}]")
                 levels.append(level)
 
-        for level, why in self._check_backstop(text) + self._check_redirect(text):
+        for level, why in self._check_backstop(text) + self._check_redirects():
             levels.append(level)
             reasons.append(f"{level.value.upper()}: {why}")
 

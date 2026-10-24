@@ -194,6 +194,40 @@ def test_a_redirect_target_known_only_at_run_time_asks(command: str) -> None:
     assert verdict.needs_confirmation, (command, verdict.level, verdict.reasons)
 
 
+#: 2026-10-24: only the top-level line's redirects were checked; every payload resolve() unwraps was not.
+REDIRECTS_INSIDE_A_PAYLOAD = [
+    ("sh -c 'echo x > /etc/passwd'", "overwrites /etc/passwd"),
+    ("sudo sh -c 'echo 1 > /proc/sys/vm/drop_caches'", "overwrites /proc/sys/vm/drop_caches"),
+    ("sudo sh -c \"echo x >> /etc/sysctl.d/99.conf\"", "appends to /etc/sysctl.d/99.conf"),
+    ("bash -c 'X=/etc; echo x > $X/passwd'", "overwrites /etc/passwd"),
+    ("sh -c \"echo x > '/etc/passwd'\"", "overwrites /etc/passwd"),
+    ("bash -lc 'echo x >& /etc/passwd'", "overwrites /etc/passwd"),
+    ("sh -c 'sh -c \"echo x > /etc/passwd\"'", "overwrites /etc/passwd"),
+    ("eval 'echo x > /etc/passwd'", "overwrites /etc/passwd"),
+    ("eval \"echo x > ~/.bashrc\"", "overwrites ~/.bashrc"),
+    ("echo ZWNobyB4ID4gL2V0Yy9wYXNzd2Q= | base64 -d | sh", "overwrites /etc/passwd"),
+    ("echo \"$(echo x > /etc/passwd)\"", "overwrites /etc/passwd"),
+]
+
+
+@pytest.mark.parametrize(("command", "write"), REDIRECTS_INSIDE_A_PAYLOAD)
+def test_a_redirect_inside_a_shell_payload_is_checked(command: str, write: str) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert f"CRITICAL: redirect {write}" in verdict.reasons, (command, verdict.level, verdict.reasons)
+
+
+def test_a_payload_redirect_is_judged_like_any_other_and_reported_once() -> None:
+    assert SafetyClassifier().classify("sh -c 'ls 2>/dev/null'").level is RiskLevel.SAFE
+    assert SafetyClassifier().classify("sh -c 'ls > /tmp/out'").level is RiskLevel.CAUTION
+    assert SafetyClassifier().classify("sh -c 'echo x > $UNSET/passwd'").needs_confirmation
+    message = "git commit -m \"$(cat <<'EOF'\nfix: drawdown > ~0.133 and x > /etc/hosts\nEOF\n)\""
+    assert not [r for r in SafetyClassifier().classify(message).reasons if "redirect" in r]  # heredoc to cat: data
+    assert SafetyClassifier().classify("sh -c 'bash <<EOF\necho x > /etc/x\nEOF'").level is RiskLevel.CRITICAL
+    assert SafetyClassifier().classify("sh -c 'echo x > /tmp/$(id -u).log'").needs_confirmation
+    reasons = SafetyClassifier().classify("echo $(echo x > /etc/passwd)").reasons
+    assert reasons.count("CRITICAL: redirect overwrites /etc/passwd") == 1, reasons
+
+
 def test_the_bar_of_a_noclobber_redirect_is_not_a_pipe() -> None:
     assert SafetyClassifier.split_segments("echo x >| f; ls") == ["echo x >| f", "ls"]
 
