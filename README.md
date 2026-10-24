@@ -8,8 +8,10 @@ A local model proposes. Five gates decide. You approve. Then it runs.
 needs a tick. Three shell shapes that still ran such a program with no tick
 (deeply nested `sh -c` or `$(...)`, `hash -p`, and an exported `PATH`,
 `LD_PRELOAD` or `BASH_ENV`) were found on 2026-10-08 and closed on 2026-10-09,
-each with a test (`HANDOFF.md` §2.75). No independent re-check has run since
-(`GRADE_TO_A_PLAN.md` Phase 5); until one does, treat the classifier as unfinished.
+each with a test (`HANDOFF.md` §2.75). The Phase 5 source read (`GRADE_TO_A_PLAN.md`)
+found more of that shape (`read PATH`, `printf -v PATH`, namerefs) and `hostname newbox`
+running unticked; closed on 2026-10-23 (§2.83, §2.84). Its blind red-team has not
+run; until it does, treat the classifier as unfinished.
 The plan checks added on 2026-10-11 and 2026-10-12 (`HANDOFF.md` §2.78-2.81) have
 met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 

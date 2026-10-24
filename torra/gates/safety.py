@@ -1,6 +1,7 @@
 """SAFETY_FIRST: resolves what a command will actually run, then classifies it.
 
-Depends on: torra.gates.known_programs (what torra can vouch for as read-only).
+Depends on: torra.gates.known_programs (what torra can vouch for as read-only),
+torra.gates.assignments (which variables a call assigns).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
+from .assignments import UNSEEN, assigned_names
 from .known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY, reads_credentials, trust
 
 __all__ = ["RiskLevel", "ResolvedCommand", "Verdict", "SafetyClassifier"]
@@ -170,9 +172,6 @@ PATH LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT BASH_ENV ENV PAGER MANPAGER EDITOR VISU
 IFS PYTHONPATH PYTHONSTARTUP PYTHONHOME PERL5OPT PERL5LIB RUBYOPT NODE_OPTIONS SSH_ASKPASS
 LESSOPEN LESSCLOSE
 """.split())
-#: Builtins whose `NAME=value` arguments set a variable exactly as a leading assignment does.
-ASSIGNMENT_BUILTINS: frozenset[str] = frozenset({"export", "declare", "typeset", "local", "readonly"})
-ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\+?=")
 #: Programs that report only names, sizes and existence, never a file's contents: pointing them at a
 #: credentials file reveals no secret.
 METADATA_ONLY: frozenset[str] = frozenset({"ls", "dir", "vdir", "stat", "test", "[", "[[", "du", "df",
@@ -390,14 +389,13 @@ class SafetyClassifier:
 
     def _note_assignment(self, name: str) -> None:
         """Record a variable whose value changes what a later command runs."""
-        if name in RISKY_ENV or name.startswith("GIT_"):
+        if name in RISKY_ENV or name.startswith("GIT_") or name == UNSEEN:
             self.env_risks.append(name)
 
     def _note_builtin_assignments(self, argv: list[str]) -> None:
-        """`export PATH=/x`, `declare -x BASH_ENV=/x`: the same assignment, spelled as a builtin."""
-        if argv[0] in ASSIGNMENT_BUILTINS:
-            for match in filter(None, (ASSIGNMENT.match(a) for a in argv[1:])):
-                self._note_assignment(match.group(1))
+        """`export PATH=/x`, `read PATH`, `for PATH in /x`: every assignment besides a leading `NAME=`."""
+        for name in assigned_names(argv):
+            self._note_assignment(name)
 
     @staticmethod
     def _unparen(segment: str) -> str:
@@ -547,9 +545,11 @@ class SafetyClassifier:
         for segment in self.split_segments(self._blank_substitutions(self._strip_heredocs(command))):
             segment = self._unparen(self._expand_ifs(segment))
             argv = self._substitute(self._strip(self._tokenize(segment), env), env)
-            if not argv or argv[0] in STRUCTURE_ONLY:
+            if not argv:
                 continue
-            self._note_builtin_assignments(argv)
+            self._note_builtin_assignments(argv)  # before the skip: `for PATH in /x` assigns
+            if argv[0] in STRUCTURE_ONLY:
+                continue
             resolved += self._unwrap(argv, segment, depth)
         return resolved
 

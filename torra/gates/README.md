@@ -9,6 +9,7 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 |---|---|
 | `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and the per-program rules (`git`, `curl`, `python -c`) that decide which. Anything absent asks (`HANDOFF.md` §2.60) |
 | `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it |
+| `assignments.py` | Which variables a call assigns besides a leading `NAME=value` (`export`/`declare`, `read`, `printf -v`, namerefs, `for`, `${NAME:=x}`), so `safety.py` can note a changed `PATH`; a name built at run time asks (`HANDOFF.md` §2.83) |
 | `state.py` | VERIFY_STATE: `StateVerifier`, preconditions rechecked between steps, TTL cached |
 | `script_rules.py` | Recognising the sed and awk programs torra runs without a tick: a parser that accepts only simple sed commands, and an awk check that blanks string literals first (`HANDOFF.md` §2.72) |
 | `service_state.py` | Reading and restoring systemd unit state for a step's undo: which units a `systemctl` step names, a unit's scope, active and enabled state, and the verbs that put both back (`HANDOFF.md` §2.63) |

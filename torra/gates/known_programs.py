@@ -28,7 +28,7 @@ expand unexpand rev tr grep egrep fgrep zgrep zcat bzcat xzcat basename dirname
 readlink realpath stat du df diff cmp md5sum sha1sum sha224sum sha256sum
 sha384sum sha512sum b2sum cksum jq seq yes sleep echo printf true false test [ [[ : pwd cd type
 which whereis umask export set unset read local declare shift exit return break continue
-wait alias id whoami groups who w last users logname tty uname hostname arch nproc cal
+wait alias id whoami groups who w last users logname tty uname arch nproc cal
 uptime free ps pgrep pidof pstree top htop vmstat iostat mpstat pidstat lsof lscpu lsblk lspci
 lsusb lsmod lshw lsattr getfacl getent locale getconf findmnt blkid netstat ping
 traceroute tracepath dig nslookup host whois modinfo apt-cache dpkg-query lsb_release aa-status
@@ -381,6 +381,10 @@ _NMCLI_WRITES = frozenset("up down add modify delete edit clone import reload co
                           "set on off hotspot".split())
 
 
+_HOSTNAME_SHOWS = frozenset("--alias --domain --fqdn --long --all-fqdns --ip-address --all-ip-addresses "
+                            "--short --yp --nis --help --version".split())
+
+
 def _nmcli(argv: Sequence[str]) -> str | None:
     words = set(argv[1:])
     return READ_ONLY if words & {"show", "status", "list"} and not words & _NMCLI_WRITES else None
@@ -504,6 +508,8 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "arecord": lambda argv: READ_ONLY if {"-l", "-L"} & set(argv[1:]) else None,
     "fdisk": _disk_listing, "sfdisk": _disk_listing, "parted": _disk_listing, "sgdisk": _disk_listing,
     "printenv": _printenv,
+    # An operand, `-F` or `-b` sets the host name; display flags only print it.
+    "hostname": lambda argv: None if _operands(argv) else _positive("adfAiIsyhV", _HOSTNAME_SHOWS)(argv),
     "gcc": _only_version, "g++": _only_version, "cc": _only_version, "clang": _only_version,
     "rustc": _only_version, "cargo": _only_version, "java": _only_version,
     "mokutil": _positive("", frozenset({"--sb-state", "--list-enrolled", "--list-new",

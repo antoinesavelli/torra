@@ -1,6 +1,7 @@
 """Fail-closed classification (HANDOFF.md §2.60): what runs unticked, what is flagged, what asks.
 
-Depends on: torra.gates (RiskLevel, SafetyClassifier), torra.gates.known_programs (trust).
+Depends on: torra.gates (RiskLevel, SafetyClassifier), torra.gates.known_programs (trust),
+torra.gates.assignments (assigned_names).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from collections.abc import Callable
 import pytest
 
 from torra.gates import RiskLevel, SafetyClassifier
+from torra.gates.assignments import UNSEEN, assigned_names
 from torra.gates.known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY, trust
 
 #: Realistic diagnostics. Every one must classify SAFE, or a classifier that fails closed would
@@ -376,7 +378,11 @@ STILL_RUN = [
     "apt install nginx", "systemctl restart nginx", "env FOO=1 ls", "FOO=1 ls",
     "xxd file", "tree -L 2", "file x", "rg pattern .",
     "hash", "hash -r", "hash -t ls", "export FOO=1", "export PATH", "declare -x FOO=bar",
-    "local x=1",
+    "local x=1", "read -r line <<< x; echo \"$line\"", "printf -v n %s 1", "read -r line < /tmp/f",
+    "read -r a b <<< \"$v\"", "read -sp 'Password: ' pw", "read -t 5 -n1 c", "declare -n ref=items",
+    "printf '%s\\n' \"$PATH\"", "export FOO=$HOME", "hostname", "hostname -I", "hostname -f",
+    "hostname --fqdn", "for f in *.log; do wc -l \"$f\"; done", "echo ${X:-default}",
+    "while read -r line; do echo \"$line\"; done < f",
 ]
 
 
@@ -387,7 +393,22 @@ REBINDS_A_NAME = [
     "export PATH=/tmp/x:$PATH; ls", "export LD_PRELOAD=/tmp/x.so; ls", "export PATH+=:/tmp/x",
     "declare -x BASH_ENV=/tmp/x; bash -c ls", "typeset -x PATH=/tmp/x", "readonly PATH=/tmp/x",
     "local PATH=/tmp/x", "export GIT_SSH_COMMAND=/tmp/x; git fetch",
+    # P5.1 (2026-10-13): `read`, `printf -v` and namerefs assign too, and so does a name built at run time.
+    "read PATH <<< /tmp/x; ls", "printf -v PATH %s /tmp/x; ls", "declare -n P=PATH; P=/tmp/x; ls",
+    "read -r BASH_ENV <<< /tmp/x/env; export BASH_ENV; ls", "printf -vPATH %s /tmp/x; ls",
+    "read -raPATH <<< /tmp/x; ls", "read -a PATH <<< /tmp/x", "read -p '<' PATH <<< /tmp/x",
+    "read x < f PATH", "declare PATH[0]=/tmp/x; ls", "read 'PATH[0]' <<< /tmp/x; ls",
+    "declare -n P; P=PATH; P=/tmp/x; ls", "local -n P=$1", "export $(echo PATH)=/tmp/x; ls",
+    "declare $X; ls", "export {PATH,Y}=/tmp/x; ls", "declare P{A,}TH=/tmp/x; ls",
+    "read {PATH,y} <<< '/tmp/x b'; ls", "printf -v $(echo PATH) %s /tmp/x",
+    "for PATH in /tmp/x; do ls; done", ": ${LD_PRELOAD:=/tmp/x.so}; export LD_PRELOAD; ls",
+    "echo \"${BASH_ENV=/tmp/e}\"; export BASH_ENV; bash -c ls",
 ]
+
+#: GRADE_TO_A_PLAN.md P5.2 (2026-10-13): `hostname` was listed read-only, but an operand, `-F` or
+#: `-b` sets the host name.
+SETS_THE_HOST_NAME = ["hostname newbox", "sudo hostname newbox", "hostname -F /etc/hostname",
+                      "hostname --file=/x", "hostname -b newbox", "hostname -s newbox"]
 
 
 def _sh_c(command: str) -> str:
@@ -425,7 +446,21 @@ def test_nesting_within_the_unwrap_limit_is_still_judged_by_what_it_runs() -> No
     assert classifier.classify(_nested("kill -9 -1", classifier.max_depth)).level is RiskLevel.CRITICAL
 
 
-@pytest.mark.parametrize("command", BYPASSES)
+def test_assigned_names_reads_each_way_a_builtin_sets_a_variable() -> None:
+    assert assigned_names(["read", "-r", "-a", "arr", "x", "<<<", "$v"]) == ["arr", "x"]
+    assert assigned_names(["read", "-p", "$p", "x", "2>/dev/null"]) == ["x"]
+    assert assigned_names(["printf", "-vPATH", "%s", "/x"]) == ["PATH"]
+    assert assigned_names(["printf", "%s", "PATH"]) == []
+    assert assigned_names(["declare", "-gn", "P=PATH[0]"]) == ["P", "PATH"]
+    assert assigned_names(["local", "-n", "P"]) == [UNSEEN]
+    assert assigned_names(["export", "-n", "PATH", "FOO+=x"]) == ["FOO"]
+    assert assigned_names(["export", "SUBST=/x", "A=$B"]) == [UNSEEN, "A"]
+    assert assigned_names(["ls", "PATH=x"]) == []
+    assert assigned_names(["for", "f", "in", "a"]) == ["f"]
+    assert assigned_names([":", "${A:=1}${B=2}", "${C:-3}"]) == ["A", "B"]
+
+
+@pytest.mark.parametrize("command", BYPASSES + SETS_THE_HOST_NAME)
 def test_a_reviewed_bypass_now_asks(command: str) -> None:
     verdict = SafetyClassifier().classify(command)
     assert verdict.needs_confirmation, (command, verdict.level, verdict.reasons)

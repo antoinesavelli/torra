@@ -397,8 +397,12 @@ covered: value-taking and attached flags in the per-program judges (`known_progr
 the judge table from `:400`). The unknown-program fallback holds (`frobnicate --help` asks), and a line
 within the unwrap limit is judged by what it runs.
 
-**P5.1 Bash builtins that assign a variable rebind `PATH` and `BASH_ENV` with no tick.** Major; ask-first
-(the classifier).
+**P5.1 ~~Bash builtins that assign a variable rebind `PATH` and `BASH_ENV` with no tick.~~ DONE 2026-10-23
+(`HANDOFF.md` §2.83).** Major; ask-first (the classifier), approved by the owner 2026-10-23. The four probes
+ask now, and so do the shapes the fix's own re-read found: subscripts (`declare PATH[0]=/x`), attached
+values (`printf -vPATH`, `read -raPATH`), a nameref with no target yet, a name built by `$`, braces or a
+substitution, `for PATH in /x`, and `${LD_PRELOAD:=/x.so}`. Replaying the 184 distinct logged commands
+moved no verdict.
 - *What's wrong.* §2.75 made `export`, `declare -x`, `typeset -x`, `local` and `readonly` assignments count
   like a leading `NAME=value`. Three other ways bash assigns a variable do not count. `read NAME` and
   `printf -v NAME` are listed read-only, and `declare -n` binds a nameref whose target is never checked.
@@ -415,7 +419,9 @@ within the unwrap limit is judged by what it runs.
   first. Harmless neighbours (`read -r line <<< x; echo "$line"`, `printf -v n %s 1`) join `STILL_RUN`
   (`:366`) so routine use stays unticked.
 
-**P5.2 `hostname` is listed read-only but sets the host name.** Major; ask-first (the classifier).
+**P5.2 ~~`hostname` is listed read-only but sets the host name.~~ DONE 2026-10-23 (`HANDOFF.md` §2.84).**
+Major; ask-first (the classifier), approved by the owner 2026-10-23. Judged as proposed below; a redirect
+token counts as an operand there, as for `mount`, so `hostname -I > f` asks too.
 - *What's wrong.* With an operand, `-F`/`--file` or `-b`, `hostname` changes the system's host name. It is
   a system-altering command a model would plausibly propose ("rename this box"), and it gets no tick.
 - *Evidence.* `hostname` is in `READ_ONLY_PROGRAMS` (`known_programs.py:31`) with no judge of its own; only

@@ -3433,7 +3433,7 @@ is reported, not repaired.
 
 ### 2.75 What the resolver cannot see, and what renames a trusted command, needs a tick
 
-**Rule:** A depth-limit hit in `resolve()` sets `unwrap_limit_hit` and makes the line DANGEROUS; `hash` is judged by `trust()` (`_avoiding("p")`), and `export`/`declare`/`typeset`/`local`/`readonly` assignments go through `_note_assignment` so `RISKY_ENV` sees them. **Guard:** `tests/test_known_programs.py::test_a_line_nested_past_the_unwrap_limit_asks` and `tests/test_known_programs.py::test_rebinding_what_a_command_name_runs_asks`, and 2 more below.
+**Rule:** A depth-limit hit in `resolve()` sets `unwrap_limit_hit` and makes the line DANGEROUS; `hash` is judged by `trust()` (`_avoiding("p")`), and `export`/`declare`/`typeset`/`local`/`readonly` assignments go through `_note_assignment` so `RISKY_ENV` sees them (every other way bash assigns: §2.83). **Guard:** `tests/test_known_programs.py::test_a_line_nested_past_the_unwrap_limit_asks` and `tests/test_known_programs.py::test_rebinding_what_a_command_name_runs_asks`, and 2 more below.
 
 Found 2026-10-08 by probing §2.60's "unknown means ask" from outside the corpora
 (`GRADE_TO_A_PLAN.md` P1.3). Three shapes still classified SAFE:
@@ -3674,6 +3674,22 @@ CRITICAL), with the preview showing the 3 files.
 
 > Guarded by `tests/test_agent.py::test_the_critical_complaint_says_not_to_change_what_the_request_asks_for`;
 > `test_a_critical_proposal_is_repaired_before_the_operator_sees_it` still holds.
+
+### 2.83 Every way bash assigns a variable counts, and a name built at run time asks
+
+**Rule:** `assignments.assigned_names` hands `_note_assignment` each name a call sets besides a leading `NAME=value` (`export`/`declare`/`typeset`/`local`/`readonly` operands with subscripts, `read` names and `-a`, `printf -v`, a nameref's target, a `for` variable, `${NAME:=x}`), and a name the line builds at run time (`$`, a substitution, braces, a glob, a nameref with no target yet) is `UNSEEN` and asks.
+
+**Why:** §2.75 counted only `NAME=` operands, so `read PATH <<< /x; ls`, `printf -v PATH`, `declare -n P; P=PATH; P=/x`, `for PATH in /x` and `: ${LD_PRELOAD:=/x.so}; export LD_PRELOAD` ran a program torra never judged (`GRADE_TO_A_PLAN.md` P5.1, plus the shapes its fix's re-read found). Replaying the 184 distinct logged commands moved no verdict.
+
+**Guard:** `tests/test_known_programs.py::test_rebinding_what_a_command_name_runs_asks`, `tests/test_known_programs.py::test_assigned_names_reads_each_way_a_builtin_sets_a_variable`, and the `read`/`printf`/`for` rows in `STILL_RUN`.
+
+### 2.84 `hostname` with an operand or a setting flag needs a tick
+
+**Rule:** `hostname` is judged in `known_programs.PREDICATES`, read-only only with no operand and display flags (`-a -A -d -f -i -I -s -y`, their long forms, `-h`, `-V`); an operand, `-F`/`--file` or `-b` sets the host name and asks.
+
+**Why:** It sat in `READ_ONLY_PROGRAMS`, so "rename this box" as `hostname newbox` ran with no tick (`GRADE_TO_A_PLAN.md` P5.2). A redirect token counts as an operand, as for `mount`, so `hostname -I > f` asks too.
+
+**Guard:** `tests/test_known_programs.py::test_a_reviewed_bypass_now_asks` (`SETS_THE_HOST_NAME`) and the `hostname` rows in `STILL_RUN`.
 
 ## 3. Things already tried that failed
 
