@@ -3691,6 +3691,14 @@ CRITICAL), with the preview showing the 3 files.
 
 **Guard:** `tests/test_known_programs.py::test_a_reviewed_bypass_now_asks` (`SETS_THE_HOST_NAME`) and the `hostname` rows in `STILL_RUN`.
 
+### 2.85 The Claude Code hook asks on CRITICAL and never answers "allow"
+
+**Rule:** `scripts/claude_code_hook.py` answers "ask" for a CRITICAL verdict or a command the classifier raises on, passes a DANGEROUS verdict's concrete rules to Claude as context, and otherwise prints nothing; it never answers "allow", and an unreadable event or a torra that cannot load lets Claude Code's own rules decide, with a warning.
+
+**Why:** It runs before every Bash call in every Claude Code session on this machine (wired 2026-10-24, `~/.claude/settings.json`). An "allow" would skip Claude Code's own permission rules, and asking at DANGEROUS would prompt on 41.6% of 84,078 measured commands, mostly Python scripts, `ruff`, `mypy` and `gh`.
+
+**Guard:** `tests/test_claude_code_hook.py::test_the_hook_never_answers_allow`, `tests/test_claude_code_hook.py::test_a_critical_command_asks_with_torras_reasons`, `tests/test_claude_code_hook.py::test_a_command_the_classifier_chokes_on_asks`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

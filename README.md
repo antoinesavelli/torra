@@ -515,6 +515,7 @@ wearing a percentage sign.
 | `torra/cli.py` | entry points |
 | `torra/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
+| `scripts/claude_code_hook.py` | a Claude Code `PreToolUse` hook: torra's classifier judges each Bash command Claude runs; CRITICAL asks in Claude Code's prompt, it never answers "allow", and verdicts needing a tick go to `~/.torra/claude_code/verdicts.jsonl` (`HANDOFF.md` §2.85). Wired in `~/.claude/settings.json` as a `Bash` matcher running `.venv/bin/python -I scripts/claude_code_hook.py` by absolute path |
 | `tests/` | the test suite, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
