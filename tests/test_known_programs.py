@@ -21,7 +21,8 @@ READ_ONLY_COMMANDS = [
     "ls -la /etc", "cat /proc/meminfo | head -5", "grep -rn TODO src/ | wc -l", "df -h", "free -m",
     "du -sh /var/log/* 2>/dev/null | sort -h | tail -5",
     "(cd /tmp && ls 2>/dev/null)", "echo $(ls /x 2>/dev/null)", "diff <(sort a 2>/dev/null) b",
-    "ls 2> \"/dev/null\"", "echo x > '/dev/null'",
+    "ls 2> \"/dev/null\"", "echo x > '/dev/null'", "ls 2>&1", "echo hi >&2", "ls 2>&-", "ls 3>&1-",
+    "ls >& /dev/null", "D=/dev/null; ls > $D",
     "ps aux | grep -v grep | grep ollama", "journalctl -u ollama -n 50 --no-pager",
     "journalctl -b -p err --since today", "dmesg -T | tail -20", "dmesg --level=err,warn",
     "systemctl status ollama", "systemctl --user list-units --failed", "systemctl is-active nginx",
@@ -60,6 +61,8 @@ BOUNDED_WRITE_COMMANDS = [
     "python3 -m pytest tests/ -q", "systemctl reload nginx", "kill 1234", "pip install requests",
     "rsync -a src/ /tmp/dst/", "sed -i 's/a/b/' notes.txt", "su - postgres", "gzip /tmp/x.log",
     "git stash", "git branch feature", "echo x > \"/tmp/out\"", "echo x > 'out.txt'",
+    "ls >& out.log", "echo x >| out.txt", "S=/tmp/s; ls > $S/out", "ls > out_$i.txt",
+    "XY=/tmp; X=/etc; echo x > $XY/p", "echo x >$<b",
 ]
 
 #: Writing to a system path needs a tick even for a known writer.
@@ -165,6 +168,34 @@ def test_an_appending_quoted_target_and_an_unreadable_one() -> None:
     for quoted_text in ("echo \"a > /etc/passwd\"", "python3 -c 'print(1 > 2)'"):
         assert SafetyClassifier().classify(quoted_text).level is RiskLevel.SAFE, quoted_text
     assert not SafetyClassifier().classify("echo x >/<id>").needs_confirmation  # a bare `/` is unwritable
+
+
+#: 2026-10-24: `>&FILE` and `>|` were not parsed as writes, and a target built from a variable was not judged.
+WRITES_THROUGH_AN_OPERATOR_OR_A_VARIABLE = [
+    ("echo x >& /etc/passwd", "/etc/passwd"), ("echo x >&/etc/passwd", "/etc/passwd"),
+    ("echo x 1>&/etc/passwd", "/etc/passwd"), ("echo x >& \"/etc/passwd\"", "/etc/passwd"),
+    ("echo x >| /etc/passwd", "/etc/passwd"), ("echo x >|/etc/passwd", "/etc/passwd"),
+    ("X=/etc; echo x > $X/passwd", "/etc/passwd"), ("X=/etc; echo x > \"${X}/passwd\"", "/etc/passwd"),
+    ("H=$HOME; echo x >> $H/.bashrc", "$HOME/.bashrc"),
+]
+
+
+@pytest.mark.parametrize(("command", "target"), WRITES_THROUGH_AN_OPERATOR_OR_A_VARIABLE)
+def test_a_write_through_an_operator_or_a_line_variable_names_its_target(command: str, target: str) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert any(r.startswith("CRITICAL: redirect") and r.endswith(target) for r in verdict.reasons), verdict.reasons
+
+
+@pytest.mark.parametrize("command", ["echo x > $X/passwd", "echo x > \"$X\"", "echo x > ${X:-/etc}/passwd",
+                                     "echo x > $(echo /etc)/passwd", "echo x > `echo /etc`/passwd",
+                                     "echo x >& $F"])
+def test_a_redirect_target_known_only_at_run_time_asks(command: str) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert verdict.needs_confirmation, (command, verdict.level, verdict.reasons)
+
+
+def test_the_bar_of_a_noclobber_redirect_is_not_a_pipe() -> None:
+    assert SafetyClassifier.split_segments("echo x >| f; ls") == ["echo x >| f", "ls"]
 
 
 def test_an_unknown_program_says_why_it_asks() -> None:

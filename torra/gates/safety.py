@@ -136,6 +136,8 @@ SAFE_REDIRECT_TARGETS: frozenset[str] = frozenset({
 WORD_ENDS = ";|&()<>"
 #: `$'...'`, ANSI-C quoting: bash decodes the backslash escapes inside, so `$'\x2fetc'` is /etc.
 ANSI_C_QUOTED = re.compile(r"\$'((?:[^'\\]|\\.)*)'")
+#: A `$` that starts an expansion (a name, `${`, `$(`, a special parameter) or a backtick; a lone `$` is literal.
+EXPANSION = re.compile(r"\$[\w{(@*#?$!-]|`")
 
 #: xlsx/docx/pptx/odt/ods/odp are all zip containers -- `PROTECTED_PREFIXES`
 #: only recognizes absolute system locations, so a step with a declared
@@ -234,6 +236,12 @@ BACKSTOP: list[tuple[str, RiskLevel, str]] = [
 ]
 
 
+def _part_of_a_redirect(command: str, i: int) -> bool:
+    """`&` in `2>&1` or `&>file`, `|` in `>|` (overriding noclobber): an operator's, not a separator."""
+    ch, before, after = command[i], command[i - 1:i], command[i + 1:i + 2]
+    return (ch == "&" and (before in (">", "<") or after == ">")) or (ch == "|" and before == ">")
+
+
 class SafetyClassifier:
     """Classifies what a command will actually run, not what it looks like.
 
@@ -250,6 +258,7 @@ class SafetyClassifier:
         self.parse_failures: list[str] = []
         self.env_risks: list[str] = []
         self.unwrap_limit_hit = False
+        self.line_env: dict[str, str] = {}  # `NAME=value` assignments of the top-level line
 
     # -- resolution -------------------------------------------------------- #
 
@@ -290,8 +299,8 @@ class SafetyClassifier:
                 buf = []
                 i += 2
                 continue
-            elif ch == "&" and (command[i - 1:i] in (">", "<") or command[i + 1:i + 2] == ">"):
-                buf.append(ch)  # a redirect (`2>&1`, `&>file`), not a background separator
+            elif _part_of_a_redirect(command, i):
+                buf.append(ch)
             elif ch in (";", "|", "&", "\n"):
                 segments.append("".join(buf))
                 buf = []
@@ -547,6 +556,8 @@ class SafetyClassifier:
         resolved += self._resolve_substitutions(command, depth)
 
         env: dict[str, str] = {}
+        if depth == 0:
+            self.line_env = env  # filled below; `_check_redirect` expands targets with it
         for segment in self.split_segments(self._blank_substitutions(self._strip_heredocs(command))):
             segment = self._unparen(self._expand_ifs(segment))
             argv = self._substitute(self._strip(self._tokenize(segment), env), env)
@@ -889,10 +900,12 @@ class SafetyClassifier:
     @staticmethod
     def _redirect_word(rest: str) -> str | None:
         """The word bash reads at the start of `rest`: quotes removed, `$'..'` escapes decoded, ended
-        by a blank or an unquoted `;|&()<>`. None when it cannot be read (an unclosed quote, a bad escape)."""
+        by a blank or an unquoted `;|&()<>`. A `$(` becomes a backtick, so the substitution stays in the
+        word instead of ending it. None when it cannot be read (an unclosed quote, a bad escape)."""
         try:
             rest = ANSI_C_QUOTED.sub(lambda m: shlex.quote(codecs.decode(m.group(1), "unicode_escape")), rest)
-            lexer = shlex.shlex(rest.replace('$"', '"'), posix=True, punctuation_chars=WORD_ENDS)
+            rest = rest.replace('$"', '"').replace("$(", "`")
+            lexer = shlex.shlex(rest, posix=True, punctuation_chars=WORD_ENDS)
             lexer.whitespace_split, lexer.commenters = True, ""
             return lexer.get_token() or ""
         except ValueError:
@@ -921,25 +934,44 @@ class SafetyClassifier:
         (quotes removed) -- masking only blanks in-quote characters, so
         positions are identical in both strings."""
         masked = self._mask_quoted(text)
-        # Only an unquoted `>` redirects, but its target is read from the original text the way
-        # bash reads the word: `> "/etc/passwd"` writes /etc/passwd (HANDOFF.md §2.86, §2.87).
-        for redirect in re.finditer(r">{1,2}", masked):
-            target = self._redirect_word(text[redirect.end():])
+        writes_a_file = False
+        # Only an unquoted `>`, `>>`, `>|` or `>&` redirects, but its target is read from the original
+        # text the way bash reads the word: `> "/etc/passwd"` writes /etc/passwd (HANDOFF.md §2.86-§2.88).
+        for redirect in re.finditer(r">[>|&]?", masked):
+            op, target = redirect.group(), self._redirect_word(text[redirect.end():])
             if target is None:
                 return [(RiskLevel.DANGEROUS, "redirect target torra cannot read")]
+            target = self._expand(target, self.line_env)
+            if op == ">&" and re.fullmatch(r"\d*-?", target):
+                continue  # `2>&1`, `>&2`, `>&-`: a descriptor, not a file
             if target in SAFE_REDIRECT_TARGETS:
                 # A stream sink or documented no-op; nothing is overwritten. Blanked so the
                 # generic check below ignores it too, while a later redirect is still judged.
                 end = self._masked_word_end(masked, redirect.end())
                 masked = masked[:redirect.start()] + " " * (end - redirect.start()) + masked[end:]
                 continue
-            # A bare `/` cannot be written ("Is a directory"); markdown like `<dir>/<name>` reads as one.
-            if target not in ("", "/") and self._protected(target):
-                verb = "appends to" if redirect.group() == ">>" else "overwrites"
-                return [(RiskLevel.CRITICAL, f"redirect {verb} {target}")]
-        if re.search(r">(?!&)\s*[^>\s]", masked):
+            found = self._judge_redirect_target(op, target)
+            if found:
+                return [found]
+            writes_a_file = writes_a_file or op == ">&"
+        if writes_a_file or re.search(r">(?!&)\s*[^>\s]", masked):
             return [(RiskLevel.CAUTION, "output redirect that overwrites")]
         return []
+
+    @staticmethod
+    def _expand(word: str, env: dict[str, str]) -> str:
+        """`$NAME` and `${NAME}` replaced by a value the line assigned; any other expansion is left as it is."""
+        return re.sub(r"\$(?:\{(\w+)\}|(\w+))", lambda m: env.get(m.group(1) or m.group(2), m.group(0)), word)
+
+    def _judge_redirect_target(self, op: str, target: str) -> tuple[RiskLevel, str] | None:
+        """CRITICAL for a system path, DANGEROUS for a target only known at run time, else None."""
+        if target in ("", "/"):
+            return None  # a bare `/` cannot be written ("Is a directory"); markdown `<dir>/<name>` reads as one
+        if self._protected(target):
+            return RiskLevel.CRITICAL, f"redirect {'appends to' if op == '>>' else 'overwrites'} {target}"
+        if EXPANSION.search(target) and target.startswith(("$", "`", "/")):
+            return RiskLevel.DANGEROUS, f"redirect target {target} is only known at run time"
+        return None
 
     def classify(self, command: str) -> Verdict:
         """Classify a command by resolving it, with regex as the backstop."""

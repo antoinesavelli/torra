@@ -3715,6 +3715,14 @@ CRITICAL), with the preview showing the 3 files.
 
 **Guard:** `tests/test_known_programs.py::test_a_quoted_redirect_target_is_read_as_bash_reads_it` and `tests/test_known_programs.py::test_an_appending_quoted_target_and_an_unreadable_one`.
 
+### 2.88 `>&FILE` and `>|` write, and a redirect target is expanded from the line
+
+**Rule:** `_check_redirect` judges `>|` and `>&` (a file unless the word is a descriptor, `2>&1`, `>&-`) like `>`; `split_segments` keeps the `|` of `>|`; a target's `$NAME` is expanded from the line's own assignments (`line_env`), and one still built at run time from `/`, `$` or a backtick asks.
+
+**Why:** `echo x >& /etc/passwd` was SAFE, `>| /etc/passwd` asked only because `/etc/passwd` became a program, and `X=/etc; echo x > $X/passwd` was CAUTION. Replaying 73,499 distinct commands moved 38 verdicts, all up (6 in heredoc bodies).
+
+**Guard:** `tests/test_known_programs.py::test_a_write_through_an_operator_or_a_line_variable_names_its_target`, `tests/test_known_programs.py::test_a_redirect_target_known_only_at_run_time_asks`, `tests/test_known_programs.py::test_the_bar_of_a_noclobber_redirect_is_not_a_pipe`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.
