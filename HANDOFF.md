@@ -3699,6 +3699,14 @@ CRITICAL), with the preview showing the 3 files.
 
 **Guard:** `tests/test_claude_code_hook.py::test_the_hook_never_answers_allow`, `tests/test_claude_code_hook.py::test_a_critical_command_asks_with_torras_reasons`, `tests/test_claude_code_hook.py::test_a_command_the_classifier_chokes_on_asks`.
 
+### 2.86 A redirect target ends where bash ends the word
+
+**Rule:** `_check_redirect` takes the target up to a blank or an unquoted `;|&()<>`, so `(ls 2>/dev/null)`, `$(... 2>/dev/null)` and `<(... 2>/dev/null)` write `/dev/null`, and `(echo x > /etc/passwd)` is CRITICAL for `/etc/passwd`; `}` stays part of the word.
+
+**Why:** The target used to run on through `)`, so `/dev/null)` was not a safe sink and every such line was CRITICAL, surfaced by the Claude Code hook (§2.85). Replaying 73,319 distinct commands moved 150 verdicts, all down from CRITICAL, none up.
+
+**Guard:** `tests/test_known_programs.py::test_a_redirect_target_ends_where_bash_ends_the_word` and the subshell rows in `READ_ONLY_COMMANDS` and `CRITICAL`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

@@ -20,6 +20,7 @@ from torra.gates.known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY
 READ_ONLY_COMMANDS = [
     "ls -la /etc", "cat /proc/meminfo | head -5", "grep -rn TODO src/ | wc -l", "df -h", "free -m",
     "du -sh /var/log/* 2>/dev/null | sort -h | tail -5",
+    "(cd /tmp && ls 2>/dev/null)", "echo $(ls /x 2>/dev/null)", "diff <(sort a 2>/dev/null) b",
     "ps aux | grep -v grep | grep ollama", "journalctl -u ollama -n 50 --no-pager",
     "journalctl -b -p err --since today", "dmesg -T | tail -20", "dmesg --level=err,warn",
     "systemctl status ollama", "systemctl --user list-units --failed", "systemctl is-active nginx",
@@ -95,6 +96,7 @@ CRITICAL = [
     "blkdiscard /dev/nvme0n1", "mkswap /dev/sda1", "sgdisk --zap-all /dev/sda", "kill -9 -1",
     "cryptsetup luksFormat /dev/sda1", "eval \"chmod -R 777 /etc\"", "echo x >> ~/.bashrc",
     "kill -s KILL -1", "kill 0",
+    "(echo x > /etc/passwd)", "echo $(cat x > /etc/hosts)", "(cat a >> ~/.bashrc)",
 ]
 
 
@@ -126,6 +128,13 @@ def test_anything_unrecognised_or_not_provably_harmless_asks(command: str) -> No
 def test_the_worst_of_them_are_critical(command: str) -> None:
     verdict = SafetyClassifier().classify(command)
     assert verdict.level is RiskLevel.CRITICAL, (command, verdict.level, verdict.reasons)
+
+
+def test_a_redirect_target_ends_where_bash_ends_the_word() -> None:
+    """Unquoted `(`, `)`, `<` and `>` end a word, so `(ls 2>/dev/null)` writes /dev/null (2026-10-24)."""
+    assert "CRITICAL: redirect overwrites /etc/passwd" in SafetyClassifier().classify(
+        "(echo x > /etc/passwd)").reasons
+    assert SafetyClassifier().classify("ls >/dev/null}").level is RiskLevel.CRITICAL  # `}` is part of it
 
 
 def test_an_unknown_program_says_why_it_asks() -> None:

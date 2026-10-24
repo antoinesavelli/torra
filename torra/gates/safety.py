@@ -895,8 +895,10 @@ class SafetyClassifier:
         in-quote characters, so an unquoted match's span is identical in
         both strings."""
         masked = self._mask_quoted(text)
+        # The target ends where bash ends the word, at a blank or an unquoted `;|&()<>`: in
+        # `(ls 2>/dev/null)` it is /dev/null, not `/dev/null)` (read as CRITICAL until 2026-10-24).
         for redirect in re.finditer(
-                r"(>{1,2})\s*(/[^\s;|&]+|~[^\s;|&]*|\$\{?HOME\}?[^\s;|&]*)", masked):
+                r"(>{1,2})\s*(/[^\s;|&()<>]+|~[^\s;|&()<>]*|\$\{?HOME\}?[^\s;|&()<>]*)", masked):
             target = text[redirect.start(2):redirect.end(2)]
             if target in SAFE_REDIRECT_TARGETS:
                 # A stream sink or documented no-op; nothing is overwritten. Blanked so the
