@@ -7,6 +7,7 @@ torra.gates.assignments (which variables a call assigns).
 from __future__ import annotations
 
 import base64
+import codecs
 import posixpath
 import re
 import shlex
@@ -131,6 +132,10 @@ PROTECTED_PREFIXES: tuple[str, ...] = (
 SAFE_REDIRECT_TARGETS: frozenset[str] = frozenset({
     "/dev/null", "/dev/zero", "/dev/full", "/dev/stdout", "/dev/stderr",
 })
+#: Characters that end a shell word when unquoted (besides blanks).
+WORD_ENDS = ";|&()<>"
+#: `$'...'`, ANSI-C quoting: bash decodes the backslash escapes inside, so `$'\x2fetc'` is /etc.
+ANSI_C_QUOTED = re.compile(r"\$'((?:[^'\\]|\\.)*)'")
 
 #: xlsx/docx/pptx/odt/ods/odp are all zip containers -- `PROTECTED_PREFIXES`
 #: only recognizes absolute system locations, so a step with a declared
@@ -881,6 +886,27 @@ class SafetyClassifier:
         return [(level, f"{why} [regex backstop]") for pattern, level, why in BACKSTOP
                 if re.search(pattern, text, re.IGNORECASE)]
 
+    @staticmethod
+    def _redirect_word(rest: str) -> str | None:
+        """The word bash reads at the start of `rest`: quotes removed, `$'..'` escapes decoded, ended
+        by a blank or an unquoted `;|&()<>`. None when it cannot be read (an unclosed quote, a bad escape)."""
+        try:
+            rest = ANSI_C_QUOTED.sub(lambda m: shlex.quote(codecs.decode(m.group(1), "unicode_escape")), rest)
+            lexer = shlex.shlex(rest.replace('$"', '"'), posix=True, punctuation_chars=WORD_ENDS)
+            lexer.whitespace_split, lexer.commenters = True, ""
+            return lexer.get_token() or ""
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _masked_word_end(masked: str, at: int) -> int:
+        """Where the word after `at` ends in quote-masked text, whose quoted characters are already blank."""
+        while at < len(masked) and masked[at] in " \t":
+            at += 1
+        while at < len(masked) and not masked[at].isspace() and masked[at] not in WORD_ENDS:
+            at += 1
+        return at
+
     def _check_redirect(self, text: str) -> list[tuple[RiskLevel, str]]:
         """Redirect-target risk: a concern neither _judge nor BACKSTOP looks
         at. Captures the operator (`>`/`>>`) alongside the target -- found
@@ -890,24 +916,26 @@ class SafetyClassifier:
         Matches against `_mask_quoted(text)`, not the raw text: a bare `>`
         has no meaning inside a shell quote, and this used to fire on any
         `>` character anywhere, including a Python comparison operator
-        inside a `-c` payload's own quotes. Targets are still sliced from
-        the original `text` at the same span -- masking only blanks
-        in-quote characters, so an unquoted match's span is identical in
-        both strings."""
+        inside a `-c` payload's own quotes. The target is then read from
+        the original `text` after that operator, as bash reads the word
+        (quotes removed) -- masking only blanks in-quote characters, so
+        positions are identical in both strings."""
         masked = self._mask_quoted(text)
-        # The target ends where bash ends the word, at a blank or an unquoted `;|&()<>`: in
-        # `(ls 2>/dev/null)` it is /dev/null, not `/dev/null)` (read as CRITICAL until 2026-10-24).
-        for redirect in re.finditer(
-                r"(>{1,2})\s*(/[^\s;|&()<>]+|~[^\s;|&()<>]*|\$\{?HOME\}?[^\s;|&()<>]*)", masked):
-            target = text[redirect.start(2):redirect.end(2)]
+        # Only an unquoted `>` redirects, but its target is read from the original text the way
+        # bash reads the word: `> "/etc/passwd"` writes /etc/passwd (HANDOFF.md §2.86, §2.87).
+        for redirect in re.finditer(r">{1,2}", masked):
+            target = self._redirect_word(text[redirect.end():])
+            if target is None:
+                return [(RiskLevel.DANGEROUS, "redirect target torra cannot read")]
             if target in SAFE_REDIRECT_TARGETS:
                 # A stream sink or documented no-op; nothing is overwritten. Blanked so the
                 # generic check below ignores it too, while a later redirect is still judged.
-                masked = (masked[:redirect.start()] + " " * (redirect.end() - redirect.start())
-                          + masked[redirect.end():])
+                end = self._masked_word_end(masked, redirect.end())
+                masked = masked[:redirect.start()] + " " * (end - redirect.start()) + masked[end:]
                 continue
-            if self._protected(target):
-                verb = "appends to" if redirect.group(1) == ">>" else "overwrites"
+            # A bare `/` cannot be written ("Is a directory"); markdown like `<dir>/<name>` reads as one.
+            if target not in ("", "/") and self._protected(target):
+                verb = "appends to" if redirect.group() == ">>" else "overwrites"
                 return [(RiskLevel.CRITICAL, f"redirect {verb} {target}")]
         if re.search(r">(?!&)\s*[^>\s]", masked):
             return [(RiskLevel.CAUTION, "output redirect that overwrites")]

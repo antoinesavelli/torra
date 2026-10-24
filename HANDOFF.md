@@ -3707,6 +3707,14 @@ CRITICAL), with the preview showing the 3 files.
 
 **Guard:** `tests/test_known_programs.py::test_a_redirect_target_ends_where_bash_ends_the_word` and the subshell rows in `READ_ONLY_COMMANDS` and `CRITICAL`.
 
+### 2.87 A quoted redirect target is read the way bash reads it
+
+**Rule:** `_check_redirect` finds each unquoted `>` on the masked text, then reads its target from the original with `_redirect_word` (quotes removed, `$'..'` decoded), so `> "/etc/passwd"` is CRITICAL; an unreadable target asks, and a bare `/` (unwritable) is not judged.
+
+**Why:** The target was sliced from text `_mask_quoted` had blanked, so a quoted path rated CAUTION and ran with no tick. Replaying 73,412 distinct commands moved 19 verdicts, all up; 18 were real quoted writes, 1 a heredoc body (bodies are scanned, a known over-tick).
+
+**Guard:** `tests/test_known_programs.py::test_a_quoted_redirect_target_is_read_as_bash_reads_it` and `tests/test_known_programs.py::test_an_appending_quoted_target_and_an_unreadable_one`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

@@ -21,6 +21,7 @@ READ_ONLY_COMMANDS = [
     "ls -la /etc", "cat /proc/meminfo | head -5", "grep -rn TODO src/ | wc -l", "df -h", "free -m",
     "du -sh /var/log/* 2>/dev/null | sort -h | tail -5",
     "(cd /tmp && ls 2>/dev/null)", "echo $(ls /x 2>/dev/null)", "diff <(sort a 2>/dev/null) b",
+    "ls 2> \"/dev/null\"", "echo x > '/dev/null'",
     "ps aux | grep -v grep | grep ollama", "journalctl -u ollama -n 50 --no-pager",
     "journalctl -b -p err --since today", "dmesg -T | tail -20", "dmesg --level=err,warn",
     "systemctl status ollama", "systemctl --user list-units --failed", "systemctl is-active nginx",
@@ -58,7 +59,7 @@ BOUNDED_WRITE_COMMANDS = [
     "tar xzf a.tgz -C /tmp/x", "touch /tmp/marker", "mkdir -p /tmp/x/y", "cp a.txt b.txt",
     "python3 -m pytest tests/ -q", "systemctl reload nginx", "kill 1234", "pip install requests",
     "rsync -a src/ /tmp/dst/", "sed -i 's/a/b/' notes.txt", "su - postgres", "gzip /tmp/x.log",
-    "git stash", "git branch feature",
+    "git stash", "git branch feature", "echo x > \"/tmp/out\"", "echo x > 'out.txt'",
 ]
 
 #: Writing to a system path needs a tick even for a known writer.
@@ -135,6 +136,35 @@ def test_a_redirect_target_ends_where_bash_ends_the_word() -> None:
     assert "CRITICAL: redirect overwrites /etc/passwd" in SafetyClassifier().classify(
         "(echo x > /etc/passwd)").reasons
     assert SafetyClassifier().classify("ls >/dev/null}").level is RiskLevel.CRITICAL  # `}` is part of it
+
+
+#: 2026-10-24: `_mask_quoted` blanked a quoted target, so each of these rated CAUTION and ran unticked.
+QUOTED_TARGETS = [
+    ("echo x > \"/etc/passwd\"", "/etc/passwd"), ("echo x > '/etc/passwd'", "/etc/passwd"),
+    ("echo x >\"/etc/cron.d/x\"", "/etc/cron.d/x"), ("echo x > /etc/\"passwd\"", "/etc/passwd"),
+    ("echo x > \"$HOME/.bashrc\"", "$HOME/.bashrc"), ("echo x > \"${HOME}\"/.bashrc", "${HOME}/.bashrc"),
+    ("echo x > \"/etc/pass\"wd", "/etc/passwd"), ("echo x > /et\"c/passwd\"", "/etc/passwd"),
+    ("echo x > \"/etc/my file\"", "/etc/my file"), ("printf '%s' x>\"/etc/x\"", "/etc/x"),
+    ("echo x > $'/etc/passwd'", "/etc/passwd"), ("echo x > $'\\x2fetc\\057passwd'", "/etc/passwd"),
+    ("echo x > /e$'tc'/passwd", "/etc/passwd"), ("echo x > $\"/etc/passwd\"", "/etc/passwd"),
+    ("echo x > /etc/pass\\wd", "/etc/passwd"),
+]
+
+
+@pytest.mark.parametrize(("command", "target"), QUOTED_TARGETS)
+def test_a_quoted_redirect_target_is_read_as_bash_reads_it(command: str, target: str) -> None:
+    verdict = SafetyClassifier().classify(command)
+    assert f"CRITICAL: redirect overwrites {target}" in verdict.reasons, (command, verdict.reasons)
+
+
+def test_an_appending_quoted_target_and_an_unreadable_one() -> None:
+    assert "CRITICAL: redirect appends to /etc/hosts" in SafetyClassifier().classify(
+        "echo x >> \"/etc/hosts\"").reasons
+    for unreadable in ("echo x > \"/etc/passwd", "echo x > $'\\x'"):
+        assert SafetyClassifier().classify(unreadable).needs_confirmation, unreadable
+    for quoted_text in ("echo \"a > /etc/passwd\"", "python3 -c 'print(1 > 2)'"):
+        assert SafetyClassifier().classify(quoted_text).level is RiskLevel.SAFE, quoted_text
+    assert not SafetyClassifier().classify("echo x >/<id>").needs_confirmation  # a bare `/` is unwritable
 
 
 def test_an_unknown_program_says_why_it_asks() -> None:
