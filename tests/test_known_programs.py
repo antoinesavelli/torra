@@ -52,6 +52,10 @@ READ_ONLY_COMMANDS = [
     "VERSION=$(git rev-parse --short HEAD)", "command -v ollama", "mount",
     "aplay -l", "git config --global core.excludesfile", "dpkg --audit",
     "nmcli -t -f NAME,TYPE,DEVICE con show --active", "fsstat /dev/nvme0n1", "dd if=/dev/sda bs=512 count=1 | xxd",
+    "ruff check --no-fix .", "ruff check --no-fix torra/ tests/ --statistics",
+    "ruff check --no-fix --select E,F --output-format=concise x.py",
+    "ruff format --check .", "ruff format --diff torra/gates/known_programs.py",
+    "ruff check --no-fix . && ruff format --check .", "torra check task.yaml", "torra check -v examples/task.yaml",
 ]
 
 #: Known writers with a bounded effect: they run, flagged CAUTION.
@@ -63,6 +67,7 @@ BOUNDED_WRITE_COMMANDS = [
     "git stash", "git branch feature", "echo x > \"/tmp/out\"", "echo x > 'out.txt'",
     "ls >& out.log", "echo x >| out.txt", "S=/tmp/s; ls > $S/out", "ls > out_$i.txt",
     "XY=/tmp; X=/etc; echo x > $XY/p", "echo x >$<b",
+    "pytest tests/ -q",  # flagged CAUTION, never unticked-silent: not a read-only form
 ]
 
 #: Writing to a system path needs a tick even for a known writer.
@@ -93,6 +98,18 @@ ASKS = [
     "./ls", "ssh-keygen -t ed25519", "nmcli con up home", "git config user.name x",
     "aplay song.wav", "mokutil --import key.der",
     "for x in a b; do blkdiscard /dev/$x; done", "echo ok; blkdiscard /dev/sda",
+    "ruff check .", "ruff check --statistics x.py", "ruff check --no-fix --fix x.py",
+    "ruff check --fix x.py", "ruff check --unsafe-fixes x.py", "ruff check --fix-only x.py",
+    "ruff check --add-noqa x.py", "ruff check --watch", "ruff check -w", "ruff check --frobnicate x.py",
+    "ruff check --config ruff.toml .", "ruff check --extension py:jinja .",
+    "ruff check --output-file out.txt .", "ruff check --cache-dir /tmp/c .", "ruff check --diff .",
+    "ruff format x.py", "ruff format .", "ruff format --check --config ruff.toml .",
+    "ruff format --check --frobnicate .", "ruff", "ruff --isolated check .", "ruff server",
+    "ruff check -- --fix", "mypy torra/", "python3 -m mypy torra/",
+    "python -m ruff check --fix .", "python3 -m pytest.__main__", "bin/ruff check .",
+    ".venv/bin/ruff check .", ".venv/bin/torra check task.yaml", "torra run task.yaml",
+    "torra ask 'x'", "torra check", "torra check a.yaml b.yaml", "torra --workdir /tmp check t.yaml",
+    "torra check --workdir /tmp t.yaml",
 ]
 
 #: The worst of them are CRITICAL, not just gated.
@@ -339,6 +356,22 @@ SPELLINGS = [
     (["git", "-C", "/repo", "push", "origin", "main"], None),
     (["git", "-C", "/repo", "pull"], BOUNDED_WRITE), (["git", "-c", "a=b", "log"], None),
     (["git", "--git-dir", "/x/.git", "push"], None),
+    (["ruff", "check", "--no-fix", "."], READ_ONLY),
+    (["ruff", "check", "-q", "--no-fix", "--select=E", "x.py"], READ_ONLY),
+    (["ruff", "check", "."], None), (["ruff", "check", "-q", "--select=E", "x.py"], None),
+    (["ruff", "check", "--fix", "x.py"], None), (["ruff", "check", "--fix-only"], None),
+    (["ruff", "check", "-e", "."], None), (["ruff", "check", "--statistics", "-w"], None),
+    (["ruff", "check", "--add-noqa=x"], None), (["ruff", "check", "--output-file=o", "."], None),
+    (["ruff", "format", "--check", "."], READ_ONLY), (["ruff", "format", "--diff", "."], READ_ONLY),
+    (["ruff", "format", "."], None), (["ruff", "format", "--check", "--config=x", "."], None),
+    (["ruff"], None), (["ruff", "--version"], None), (["ruff", "-q", "check", "."], None),
+    (["torra", "check", "t.yaml"], READ_ONLY), (["torra", "check", "t.yaml", "-v"], READ_ONLY),
+    (["torra", "check", "t.yaml", "--verbose"], READ_ONLY), (["torra", "check"], None),
+    (["torra", "check", "a", "b"], None), (["torra", "run", "t.yaml"], None),
+    (["torra", "--workdir", "/tmp", "check", "t.yaml"], None), (["torra"], None),
+    (["torra", "check", "t.yaml", "--dry-run"], None),
+    (["bin/ruff", "check", "."], None), ([".venv/bin/torra", "check", "t.yaml"], None),
+    (["/usr/bin/ruff", "check", "--no-fix", "."], READ_ONLY),
 ]
 
 

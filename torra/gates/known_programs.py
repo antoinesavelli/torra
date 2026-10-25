@@ -385,6 +385,38 @@ _HOSTNAME_SHOWS = frozenset("--alias --domain --fqdn --long --all-fqdns --ip-add
                             "--short --yp --nis --help --version".split())
 
 
+#: Flags that only choose what `ruff` looks at or how it prints. Anything else (`--fix`, `--watch`,
+#: `--add-noqa`, `--output-file`, `--cache-dir`, `--config`, `--extension`) is not on the list.
+_RUFF_CHECK_FLAGS = frozenset("""
+--no-fix --statistics --exit-zero --no-cache --quiet --verbose --silent --isolated --preview --output-format
+--select --ignore --extend-select --target-version
+""".split())
+_RUFF_FORMAT_FLAGS = frozenset("""
+--check --diff --no-cache --quiet --verbose --silent --isolated --preview --exit-non-zero-on-format
+--line-length --target-version
+""".split())
+
+
+def _ruff(argv: Sequence[str]) -> str | None:
+    """`ruff check --no-fix` and `ruff format --check|--diff` with only listed flags; plain `format` writes.
+
+    `ruff check` without `--no-fix` writes fixes when the project config sets `fix = true`."""
+    rest = ["ruff", *argv[2:]]
+    if argv[1:2] == ["check"] and "--no-fix" in _long(rest):
+        return _positive("qsnv", _RUFF_CHECK_FLAGS)(rest)
+    if argv[1:2] == ["format"] and {"--check", "--diff"} & _long(rest):
+        return _positive("qsnv", _RUFF_FORMAT_FLAGS)(rest)
+    return None
+
+
+def _torra(argv: Sequence[str]) -> str | None:
+    """`torra check FILE [-v]` only reads the task file and prints its verdicts (cli.cmd_check)."""
+    rest = argv[2:]
+    if argv[1:2] != ["check"] or len(_operands(["torra", *rest])) != 1:
+        return None
+    return READ_ONLY if set(rest) - set(_operands(["torra", *rest])) <= {"-v", "--verbose"} else None
+
+
 def _nmcli(argv: Sequence[str]) -> str | None:
     words = set(argv[1:])
     return READ_ONLY if words & {"show", "status", "list"} and not words & _NMCLI_WRITES else None
@@ -510,6 +542,7 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "printenv": _printenv,
     # An operand, `-F` or `-b` sets the host name; display flags only print it.
     "hostname": lambda argv: None if _operands(argv) else _positive("adfAiIsyhV", _HOSTNAME_SHOWS)(argv),
+    "ruff": _ruff, "torra": _torra,
     "gcc": _only_version, "g++": _only_version, "cc": _only_version, "clang": _only_version,
     "rustc": _only_version, "cargo": _only_version, "java": _only_version,
     "mokutil": _positive("", frozenset({"--sb-state", "--list-enrolled", "--list-new",
