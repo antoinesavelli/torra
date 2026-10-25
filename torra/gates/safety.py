@@ -212,6 +212,9 @@ UNTRUSTED_SOURCE_FLAGS: frozenset[str] = frozenset({
 })
 #: An operand (or an attached flag value) that names a remote or VCS source rather than a package
 #: name: an http/ftp/git/file URL, or a pip-style VCS ref such as `git+https://...`.
+#: pip's short options that take a value (`pip install --help`, pip 26). In a cluster the first of
+#: them takes the rest of the word or the next one, so `-Uqf ./w` and `-ihttps://x` name a source.
+PIP_VALUE_SHORT = "Ccefirt"
 UNTRUSTED_SOURCE_OPERAND = re.compile(
     r"(?i)^(?:(?:git|hg|svn|bzr)\+[a-z]+://|(?:https?|ftps?|git|file)://)")
 
@@ -775,6 +778,12 @@ class SafetyClassifier:
         return []
 
     @staticmethod
+    def _pip_short_source(rest: list[str]) -> bool:
+        """A short-option cluster whose first value-taking letter is `-i` (index) or `-f` (find-links)."""
+        clusters = (a[1:] for a in rest if a.startswith("-") and not a.startswith("--"))
+        return any(next((ch for ch in c if ch in PIP_VALUE_SHORT), "") in ("i", "f") for c in clusters)
+
+    @staticmethod
     def _judge_package_install(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
         """A package install from a non-default source runs code torra cannot vouch for.
 
@@ -793,7 +802,8 @@ class SafetyClassifier:
         flag_names = {a.split("=", 1)[0] for a in rest if a.startswith("-")}
         flag_values = [a.split("=", 1)[1] for a in rest if a.startswith("-") and "=" in a]
         untrusted = bool(flag_names & UNTRUSTED_SOURCE_FLAGS) or any(
-            UNTRUSTED_SOURCE_OPERAND.match(a) for a in operands + flag_values)
+            UNTRUSTED_SOURCE_OPERAND.match(a) for a in operands + flag_values) or (
+            program in ("pip", "pip3") and SafetyClassifier._pip_short_source(rest))
         if untrusted:
             return [(RiskLevel.DANGEROUS,
                      f"{program} install from a non-default source (custom index, URL, or VCS) "

