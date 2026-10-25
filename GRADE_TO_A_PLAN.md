@@ -432,7 +432,10 @@ token counts as an operand there, as for `mount`, so `hostname -I > f` asks too.
 - *Regression test.* `hostname newbox`, `sudo hostname newbox`, `hostname -F /etc/hostname` and
   `hostname --file=/x` need a tick; `hostname`, `hostname -I` and `hostname -f` stay SAFE.
 
-**P5.3 Decision on `cat /var/run/reboot-required`: a defect, minor, not acceptable as fail-closed.**
+**P5.3 ~~Decision on `cat /var/run/reboot-required`: a defect, minor, not acceptable as fail-closed.~~ DONE
+2026-10-25 (`HANDOFF.md` §2.90), owner-approved: the power-state and `rm` rows apply only to an unparsed line;
+the six probes run unticked, the five power commands and `rm` still ask; 183 of 74,712 replayed verdicts
+moved, all down.**
 Ask-first (it loosens a guard, so the owner decides).
 - *What's wrong.* The backstop's power-state and `rm` rows match words anywhere in the raw text, including
   file names and search terms, even when every command resolved cleanly. The false ticks land on exactly the

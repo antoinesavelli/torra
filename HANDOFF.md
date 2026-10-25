@@ -3731,6 +3731,14 @@ CRITICAL), with the preview showing the 3 files.
 
 **Guard:** `tests/test_known_programs.py::test_a_redirect_inside_a_shell_payload_is_checked`, `tests/test_known_programs.py::test_a_payload_redirect_is_judged_like_any_other_and_reported_once`.
 
+### 2.90 The power-state and `rm` backstop rows apply only to a line torra could not parse
+
+**Rule:** The two `BACKSTOP` rows in `UNPARSED_ONLY` ("host power state", "file deletion") fire only when `resolve()` recorded a parse failure or hit the unwrap limit; a parsed `reboot`, `shutdown`, `halt`, `systemctl poweroff` or `rm` is judged by its argv rule.
+
+**Why:** They matched a bare word in any operand, so `cat /var/run/reboot-required`, `last -x shutdown` and `ls .../rm-protection` needed a tick (`GRADE_TO_A_PLAN.md` P5.3, owner-approved 2026-10-25). Replaying 74,712 distinct commands moved 183 verdicts, all down, none of them running one of those programs.
+
+**Guard:** `tests/test_known_programs.py::test_a_power_command_or_an_rm_still_asks_parsed_or_not` and the P5.3 rows in `READ_ONLY_COMMANDS`.
+
 ## 3. Things already tried that failed
 
 Do not re-derive these. They cost measurement to discover.

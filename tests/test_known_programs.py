@@ -23,6 +23,10 @@ READ_ONLY_COMMANDS = [
     "(cd /tmp && ls 2>/dev/null)", "echo $(ls /x 2>/dev/null)", "diff <(sort a 2>/dev/null) b",
     "ls 2> \"/dev/null\"", "echo x > '/dev/null'", "ls 2>&1", "echo hi >&2", "ls 2>&-", "ls 3>&1-",
     "ls >& /dev/null", "D=/dev/null; ls > $D",
+    # P5.3 (2026-10-25): the power-state and `rm` backstop rows matched these by a word in an operand.
+    "cat /var/run/reboot-required", "test -f /var/run/reboot-required && echo yes",
+    "journalctl -b -1 -n 50 | grep -i shutdown", "systemctl status systemd-halt.service",
+    "last -x shutdown reboot | head", "ls /usr/share/doc/rm-protection",
     "ps aux | grep -v grep | grep ollama", "journalctl -u ollama -n 50 --no-pager",
     "journalctl -b -p err --since today", "dmesg -T | tail -20", "dmesg --level=err,warn",
     "systemctl status ollama", "systemctl --user list-units --failed", "systemctl is-active nginx",
@@ -243,6 +247,15 @@ def test_a_payload_redirect_is_judged_like_any_other_and_reported_once() -> None
     assert SafetyClassifier().classify("sh -c 'echo x > /tmp/$(id -u).log'").needs_confirmation
     reasons = SafetyClassifier().classify("echo $(echo x > /etc/passwd)").reasons
     assert reasons.count("CRITICAL: redirect overwrites /etc/passwd") == 1, reasons
+
+
+@pytest.mark.parametrize("command", ["reboot", "/sbin/shutdown -h now", "sudo systemctl reboot",
+                                     "systemctl poweroff", "sudo halt", "rm notes.txt",
+                                     "echo 'unclosed; reboot", "echo 'unclosed; rm notes.txt"])
+def test_a_power_command_or_an_rm_still_asks_parsed_or_not(command: str) -> None:
+    """P5.3: those backstop rows now fire only on a parse failure; the argv rules cover a parsed line."""
+    verdict = SafetyClassifier().classify(command)
+    assert verdict.needs_confirmation, (command, verdict.level, verdict.reasons)
 
 
 def test_the_bar_of_a_noclobber_redirect_is_not_a_pipe() -> None:

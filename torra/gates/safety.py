@@ -260,6 +260,10 @@ BACKSTOP: list[tuple[str, RiskLevel, str]] = [
     (r"\bsudo\b", RiskLevel.CAUTION, "privilege escalation"),
     (r"\bsystemctl\s+(start|restart|enable)\b", RiskLevel.CAUTION, "service state change"),
 ]
+#: Rows that match a bare word anywhere, so a file name or a search term (`cat /var/run/reboot-required`)
+#: trips them; they apply only when resolve() could not parse the line, as the argv rules judge the real
+#: `reboot`, `shutdown`, `systemctl poweroff` and `rm` once it can (GRADE_TO_A_PLAN.md P5.3, HANDOFF.md §2.90).
+UNPARSED_ONLY: frozenset[str] = frozenset({"host power state", "file deletion"})
 
 
 def _part_of_a_redirect(command: str, i: int) -> bool:
@@ -949,10 +953,10 @@ class SafetyClassifier:
         return []
 
     @staticmethod
-    def _check_backstop(text: str) -> list[tuple[RiskLevel, str]]:
+    def _check_backstop(text: str, unparsed: bool) -> list[tuple[RiskLevel, str]]:
         """Regex backstop: catches whatever resolve() failed to parse."""
         return [(level, f"{why} [regex backstop]") for pattern, level, why in BACKSTOP
-                if re.search(pattern, text, re.IGNORECASE)]
+                if (unparsed or why not in UNPARSED_ONLY) and re.search(pattern, text, re.IGNORECASE)]
 
     @staticmethod
     def _redirect_word(rest: str) -> str | None:
@@ -1061,7 +1065,8 @@ class SafetyClassifier:
                                f"[argv: {' '.join(rc.argv[:6])}]")
                 levels.append(level)
 
-        for level, why in self._check_backstop(text) + self._check_redirects():
+        unparsed = bool(self.parse_failures) or self.unwrap_limit_hit
+        for level, why in self._check_backstop(text, unparsed) + self._check_redirects():
             levels.append(level)
             reasons.append(f"{level.value.upper()}: {why}")
 
