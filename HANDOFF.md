@@ -3741,11 +3741,11 @@ CRITICAL), with the preview showing the 3 files.
 
 ### 2.91 A package install from a non-default source needs a tick, however its option is spelled
 
-**Rule:** `_judge_package_install` makes an install DANGEROUS when a flag in `UNTRUSTED_SOURCE_FLAGS`, a URL or VCS operand, or (pip) a short cluster whose first value-taking letter in `PIP_VALUE_SHORT` is `-i` or `-f` names the source; a plain default-index or local install stays CAUTION.
+**Rule:** `_judge_package_install` makes an install DANGEROUS when a flag in `UNTRUSTED_SOURCE_FLAGS`, a URL or VCS operand, or (pip) a short cluster whose first value-taking letter in `PIP_VALUE_SHORT` is `-i` or `-f`, or any prefix of a `PIP_SOURCE_LONG` option (`--find`, `--extra-ind=`), names the source; setting `PIP_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PIP_FIND_LINKS` or `PIP_CONFIG_FILE` is a `RISKY_ENV` assignment. A plain default-index or local install stays CAUTION.
 
-**Why:** The 2026-10-25 blind red-team's one miss was `pip install --index-url http://...` at CAUTION (`8e487d6`); the re-grade then found `-ihttps://...` and `-f ./wheels` still unticked (N1), as only long names were listed.
+**Why:** The 2026-10-25 blind red-team's one miss was `pip install --index-url http://...` at CAUTION (`8e487d6`); the re-grade then found `-ihttps://...` and `-f ./wheels` still unticked (N1), as only long names were listed. pip's optparse also takes any unambiguous long prefix, and pip reads every option from `PIP_<NAME>`. Both were still unticked. A prefix pip calls ambiguous (`--f`) exits 2, so flagging it costs only a tick.
 
-**Guard:** `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_install_from_an_untrusted_index_needs_a_tick`, `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_short_source_option_needs_a_tick_however_it_is_spelled`.
+**Guard:** `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_install_from_an_untrusted_index_needs_a_tick`, `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_short_source_option_needs_a_tick_however_it_is_spelled`, `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_source_needs_a_tick_when_abbreviated_or_set_in_the_environment`.
 
 ## 3. Things already tried that failed
 

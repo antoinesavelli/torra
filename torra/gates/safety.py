@@ -178,7 +178,7 @@ STRUCTURE_ONLY: frozenset[str] = frozenset({"for", "done", "fi", "in", "}", ")"}
 RISKY_ENV: frozenset[str] = frozenset("""
 PATH LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT BASH_ENV ENV PAGER MANPAGER EDITOR VISUAL BROWSER SHELL
 IFS PYTHONPATH PYTHONSTARTUP PYTHONHOME PERL5OPT PERL5LIB RUBYOPT NODE_OPTIONS SSH_ASKPASS
-LESSOPEN LESSCLOSE
+LESSOPEN LESSCLOSE PIP_INDEX_URL PIP_EXTRA_INDEX_URL PIP_FIND_LINKS PIP_CONFIG_FILE
 """.split())
 #: Programs that report only names, sizes and existence, never a file's contents: pointing them at a
 #: credentials file reveals no secret.
@@ -215,6 +215,8 @@ UNTRUSTED_SOURCE_FLAGS: frozenset[str] = frozenset({
 #: pip's short options that take a value (`pip install --help`, pip 26). In a cluster the first of
 #: them takes the rest of the word or the next one, so `-Uqf ./w` and `-ihttps://x` name a source.
 PIP_VALUE_SHORT = "Ccefirt"
+#: pip's source options in full; its optparse also takes any unambiguous prefix (`--find`, `--extra-ind`).
+PIP_SOURCE_LONG: tuple[str, ...] = ("--index-url", "--extra-index-url", "--find-links")
 UNTRUSTED_SOURCE_OPERAND = re.compile(
     r"(?i)^(?:(?:git|hg|svn|bzr)\+[a-z]+://|(?:https?|ftps?|git|file)://)")
 
@@ -778,10 +780,12 @@ class SafetyClassifier:
         return []
 
     @staticmethod
-    def _pip_short_source(rest: list[str]) -> bool:
-        """A short-option cluster whose first value-taking letter is `-i` (index) or `-f` (find-links)."""
+    def _pip_source_option(rest: list[str]) -> bool:
+        """A short cluster whose first value-taking letter is `-i`/`-f`, or a prefix of a source long option."""
         clusters = (a[1:] for a in rest if a.startswith("-") and not a.startswith("--"))
-        return any(next((ch for ch in c if ch in PIP_VALUE_SHORT), "") in ("i", "f") for c in clusters)
+        longs = (a.split("=", 1)[0] for a in rest if a.startswith("--") and len(a.split("=", 1)[0]) > 2)
+        return any(next((ch for ch in c if ch in PIP_VALUE_SHORT), "") in ("i", "f") for c in clusters) or any(
+            s.startswith(f) for f in longs for s in PIP_SOURCE_LONG)
 
     @staticmethod
     def _judge_package_install(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
@@ -803,7 +807,7 @@ class SafetyClassifier:
         flag_values = [a.split("=", 1)[1] for a in rest if a.startswith("-") and "=" in a]
         untrusted = bool(flag_names & UNTRUSTED_SOURCE_FLAGS) or any(
             UNTRUSTED_SOURCE_OPERAND.match(a) for a in operands + flag_values) or (
-            program in ("pip", "pip3") and SafetyClassifier._pip_short_source(rest))
+            program in ("pip", "pip3") and SafetyClassifier._pip_source_option(rest))
         if untrusted:
             return [(RiskLevel.DANGEROUS,
                      f"{program} install from a non-default source (custom index, URL, or VCS) "
