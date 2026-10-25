@@ -190,6 +190,31 @@ LISTING_TOOLS: frozenset[str] = frozenset({"fdisk", "sfdisk", "parted", "sgdisk"
 CRITICAL_UNITS: tuple[str, ...] = ("display-manager", "gdm", "lightdm", "sddm", "networkmanager",
                                    "network-manager", "systemd-logind", "ssh", "sshd", "dbus")
 
+#: Package managers whose `install` runs code from whatever source it is pointed at. A plain
+#: install from the manager's default index is the ordinary workflow (CAUTION), but an install
+#: aimed at a non-default source -- a custom/plain-HTTP index, a URL, a VCS ref, a sideloaded
+#: local archive via `--dangerous` -- is supply-chain / RCE territory and must ask for a tick.
+#: Found by the 2026-10-24 Phase-5 blind red-team: `pip install --index-url http://<host> pkg`
+#: classified CAUTION and so ran without confirmation (the one miss in 30).
+PACKAGE_INSTALLERS: frozenset[str] = frozenset({
+    "pip", "pip3", "npm", "pnpm", "yarn", "gem", "cargo",
+    "apt", "apt-get", "dnf", "pacman", "snap",
+})
+#: An install subcommand (`npm i`, `yarn add`, `npm ci` included), told apart from a package
+#: literally named "install" only by position -- here we only need to know one is present.
+INSTALL_VERBS: frozenset[str] = frozenset({"install", "i", "add", "ci"})
+#: Long flags that aim an install at a source other than the manager's default index/registry:
+#: pip's index/find-links, a custom registry (npm/yarn/cargo), gem's/cargo's source, cargo's
+#: `--git`, snap's sideload `--dangerous`. Their mere presence means "not the default source".
+UNTRUSTED_SOURCE_FLAGS: frozenset[str] = frozenset({
+    "--index-url", "--extra-index-url", "--find-links", "--registry", "--source",
+    "--git", "--index", "--clear-sources", "--dangerous",
+})
+#: An operand (or an attached flag value) that names a remote or VCS source rather than a package
+#: name: an http/ftp/git/file URL, or a pip-style VCS ref such as `git+https://...`.
+UNTRUSTED_SOURCE_OPERAND = re.compile(
+    r"(?i)^(?:(?:git|hg|svn|bzr)\+[a-z]+://|(?:https?|ftps?|git|file)://)")
+
 HEREDOC = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n(?:.*?\n)?[ \t]*\2[ \t]*(?=\n|$)",
                      re.DOTALL)
 
@@ -653,6 +678,8 @@ class SafetyClassifier:
             (program == "git", lambda: self._judge_git(argv)),
             (program in ("apt", "apt-get", "dnf", "pacman", "snap"),
              lambda: self._judge_package_manager(argv)),
+            (program in PACKAGE_INSTALLERS,
+             lambda: self._judge_package_install(program, argv)),
             (program in ("python", "python3", "perl", "ruby", "node"),
              lambda: self._judge_script_source(program, argv)),
             (program == "kill", lambda: self._judge_kill(argv)),
@@ -741,6 +768,32 @@ class SafetyClassifier:
             return [(RiskLevel.DANGEROUS, "an install that also removes a package (name-)")]
         if any(a in ("install", "upgrade", "update", "full-upgrade") for a in argv[1:]):
             return [(RiskLevel.CAUTION, "package change")]
+        return []
+
+    @staticmethod
+    def _judge_package_install(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        """A package install from a non-default source runs code torra cannot vouch for.
+
+        `install` runs the fetched package's build/setup code as the invoking user, so pointing
+        it at a custom index, a URL, a VCS ref, or a sideloaded archive is supply-chain / RCE
+        territory and must ask for a tick -- not run at the CAUTION a plain default-index install
+        gets. A plain `pip install <name>` (or a local `pip install .` / `-e .`) stays CAUTION:
+        it is the ordinary workflow, and over-blocking it would train the operator to wave every
+        install through. Returning `[]` here lets that normal path fall through to its usual
+        CAUTION; only a non-default source is escalated.
+        """
+        rest = argv[1:]
+        operands = [a for a in rest if not a.startswith("-")]
+        if not INSTALL_VERBS & set(operands):
+            return []
+        flag_names = {a.split("=", 1)[0] for a in rest if a.startswith("-")}
+        flag_values = [a.split("=", 1)[1] for a in rest if a.startswith("-") and "=" in a]
+        untrusted = bool(flag_names & UNTRUSTED_SOURCE_FLAGS) or any(
+            UNTRUSTED_SOURCE_OPERAND.match(a) for a in operands + flag_values)
+        if untrusted:
+            return [(RiskLevel.DANGEROUS,
+                     f"{program} install from a non-default source (custom index, URL, or VCS) "
+                     "-- runs fetched code, a supply-chain / RCE risk")]
         return []
 
     @staticmethod
