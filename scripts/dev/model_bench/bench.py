@@ -4,12 +4,14 @@
 Depends on: torra.agent (Agent, Intent), torra.core (OllamaClient, observe_machine),
 torra.gates (SafetyClassifier, Clarifier, RiskLevel). Talks to a locally running
 `ollama serve` over HTTP. A custom transport wraps every call to capture latency and
-token counts without touching torra code.
+token counts without touching torra code. Reads TORRA_OLLAMA_HOST and FUCONE_RUN_DIR;
+an Ollama outage aborts the run non-zero with no results written.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import sys
 import time
@@ -28,7 +30,7 @@ from torra.agent import Agent, AgentError, Intent  # noqa: E402
 from torra.core import OllamaClient, OllamaError, observe_machine  # noqa: E402
 from torra.gates import Clarifier, RiskLevel, SafetyClassifier  # noqa: E402
 
-OLLAMA_HOST = "http://127.0.0.1:11434"
+OLLAMA_HOST = os.environ.get("TORRA_OLLAMA_HOST", "").strip() or "http://127.0.0.1:11434"
 RESULTS_PATH = Path(__file__).resolve().parent / "results.json"
 
 #: The models torra's router actually sends work to today (`ROUTING_RULES`).
@@ -93,6 +95,27 @@ def make_metrics_transport(sink: list[CallMetrics], host: str = OLLAMA_HOST):
         return result
 
     return transport
+
+
+def is_infra_error(exc: BaseException | None) -> bool:
+    """True when Ollama itself failed (HTTP 5xx, refused, timeout), not the model's answer."""
+    while exc is not None:
+        if isinstance(exc, urllib.error.HTTPError):
+            return exc.code >= 500
+        if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError)):
+            return True
+        exc = exc.__cause__
+    return False
+
+
+def write_results(data: object) -> Path:
+    """Write JSON via temp file + os.replace into FUCONE_RUN_DIR when set, else RESULTS_PATH."""
+    run_dir = os.environ.get("FUCONE_RUN_DIR")
+    path = Path(run_dir) / RESULTS_PATH.name if run_dir else RESULTS_PATH
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
 
 
 def gpu_residency(model: str) -> str:
@@ -190,6 +213,8 @@ def grade_task(task: Task, agent: Agent, metrics: list[CallMetrics],
     try:
         turn = agent.converse(task.request, model=model)
     except (AgentError, OllamaError) as exc:
+        if is_infra_error(exc):
+            raise
         result.error = f"{type(exc).__name__}: {exc}"
         result.total_wall_seconds = time.perf_counter() - started
         return result
@@ -268,10 +293,8 @@ def main() -> int:
 
     summarize(all_results)
 
-    RESULTS_PATH.write_text(
-        json.dumps([vars(r) for r in all_results], indent=2, default=str),
-        encoding="utf-8")
-    print(f"\nFull results written to {RESULTS_PATH}")
+    path = write_results([vars(r) for r in all_results])
+    print(f"\nFull results written to {path}")
     return 0
 
 

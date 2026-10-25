@@ -27,6 +27,7 @@ or network -- every external dependency is an injected callable (see
 | `test_claude_code_hook.py` | The Claude Code PreToolUse hook: CRITICAL asks, a concrete DANGEROUS rule informs, it never answers "allow", the verdict log is scrubbed and capped, and each failure fails the way `HANDOFF.md` §2.85 says |
 | `test_defensive_coding_report.py` | The scorecard's Testing rule (a re-exported name covers its module, the bare package covers nothing) and its Modularity nesting join (by `def` line, not by name) |
 | `test_knowledge_questions.py` | `agents/knowledge_questions.yaml` is well formed and leaks no answer, each `expected` passes its own regexes, and every `must_contain` fact is still in the docs the question cites |
+| `test_model_bench.py` | `scripts/dev/model_bench` as a fucone job: `TORRA_OLLAMA_HOST` endpoint, an Ollama outage aborts instead of becoming a row, results land in `FUCONE_RUN_DIR`, the reader refuses an incomplete battery |
 
 ```bash
 python3 -m pytest tests/ -q              # every test passes; the count never drops

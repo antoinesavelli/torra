@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -400,11 +399,10 @@ def self_check() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    default_host = os.environ.get("TORRA_OLLAMA_HOST", "").strip() or OLLAMA_HOST
     ap.add_argument("--planner", default=PLANNER_MODEL)
     ap.add_argument("--verifier", default=VERIFIER_MODEL)
-    ap.add_argument("--planner-host", default=default_host)
-    ap.add_argument("--verifier-host", default=default_host)
+    ap.add_argument("--planner-host", default=OLLAMA_HOST)
+    ap.add_argument("--verifier-host", default=OLLAMA_HOST)
     ap.add_argument("--control", action="store_true",
                     help="also verify a copy of each plan with a hallucinated step planted in it")
     ap.add_argument("--fixed", action="store_true",

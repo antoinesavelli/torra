@@ -1,0 +1,13 @@
+# Jobs fucone (/mnt/ParamoStorage/fucone) may run here; one is run only once listed in fucone's policy.yaml.
+version: 1
+tasks:
+  - id: model-bench
+    kind: eval
+    argv: [.venv/bin/python, scripts/dev/model_bench/bench.py]
+    cwd: .
+    env: {}
+    models: [gpt-oss:20b, devstral:24b, devstral-small-2:24b]
+    timeout: 2h
+    resumable: true
+    ollama_env: TORRA_OLLAMA_HOST
+    reader: {run: [.venv/bin/python, scripts/dev/model_bench/read_results.py]}
