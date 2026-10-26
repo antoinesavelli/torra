@@ -50,6 +50,10 @@ asyncio_mode = "auto"
 target-version = "py312"
 line-length = 100
 
+[tool.ruff.format]
+# Docs keep their code blocks as written; ruff 0.16 would reformat the Python inside any .md file.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 select = [
     "E", "W",   # pycodestyle
