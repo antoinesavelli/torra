@@ -95,5 +95,5 @@ check the last column, which is the miswrite that causes the rot.
 ## Memory
 
 See AGENT_DOCTRINE.md. Project memory lives in
-`~/.claude/projects/-mnt-ParamoStorage-AIModels-torra/memory/`. A memory can drift from the system
+`~/.claude/projects/-mnt-ParamoStorage-corsu-torra/memory/`. A memory can drift from the system
 it describes, like any description: check it against the code before acting on it.

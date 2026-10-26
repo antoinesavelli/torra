@@ -1,4 +1,4 @@
-# Jobs fucone (/mnt/ParamoStorage/fucone) may run here; one is run only once listed in fucone's policy.yaml.
+# Jobs fucone (/mnt/ParamoStorage/corsu/fucone) may run here; one is run only once listed in fucone's policy.yaml.
 version: 1
 tasks:
   - id: model-bench
