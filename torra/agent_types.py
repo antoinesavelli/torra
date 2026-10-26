@@ -6,7 +6,7 @@ Depends on: torra.core (TaskSpec).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from .core import TaskSpec
@@ -23,7 +23,7 @@ class MalformedTaskError(AgentError):
     the validator's message names the field and lists the valid ones."""
 
 
-class Intent(str, Enum):
+class Intent(StrEnum):
     """What the agent decided to do with a turn."""
 
     ANSWER = "answer"        # a question, no system change needed

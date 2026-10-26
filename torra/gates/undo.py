@@ -15,7 +15,7 @@ import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ from .service_state import (
 __all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
 
 
-class SnapshotKind(str, Enum):
+class SnapshotKind(StrEnum):
     """What kind of prior state a snapshot captured."""
 
     FILE_CONTENT = "file_content"

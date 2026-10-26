@@ -13,7 +13,7 @@ import re
 import shlex
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from .assignments import UNSEEN, assigned_names
@@ -22,7 +22,7 @@ from .known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY, reads_cre
 __all__ = ["RiskLevel", "ResolvedCommand", "Verdict", "SafetyClassifier"]
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     """How much damage a command can do if it is wrong."""
 
     SAFE = "safe"

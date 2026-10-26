@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from .tasks import OllamaError
@@ -22,7 +22,7 @@ from .tasks import OllamaError
 __all__ = ["OllamaStatus", "RecoveryOption", "OllamaClient"]
 
 
-class OllamaStatus(str, Enum):
+class OllamaStatus(StrEnum):
     """Result of a health probe."""
 
     HEALTHY = "healthy"

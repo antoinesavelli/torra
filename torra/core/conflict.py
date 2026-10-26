@@ -11,14 +11,14 @@ import os
 import stat
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 __all__ = ["ConflictKind", "Conflict", "ConflictDetector"]
 
 
-class ConflictKind(str, Enum):
+class ConflictKind(StrEnum):
     """How a tracked path diverged from its baseline."""
 
     MODIFIED = "modified"

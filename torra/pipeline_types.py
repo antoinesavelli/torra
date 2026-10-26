@@ -7,7 +7,7 @@ torra.gates (PreconditionReport, RiskLevel, RollbackReport, UndoAction, Verdict)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -26,7 +26,7 @@ __all__ = ["DEFAULT_WORKDIR", "Stage", "Outcome", "StepPlan", "Plan", "RunResult
 DEFAULT_WORKDIR = Path.home() / ".torra"
 
 
-class Stage(str, Enum):
+class Stage(StrEnum):
     """The seven stages, in order."""
 
     CONVERSE = "converse"
@@ -38,7 +38,7 @@ class Stage(str, Enum):
     REPORT = "report"
 
 
-class Outcome(str, Enum):
+class Outcome(StrEnum):
     """Terminal state of one request."""
 
     ANSWERED = "answered"                # a question, nothing to run
