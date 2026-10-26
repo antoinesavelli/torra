@@ -3,12 +3,12 @@
 Depends on: torra.gates.safety (and its parts safety_types, safety_tables, safety_resolve,
 safety_judge), torra.gates.known_programs (and its parts program_basics, program_tables),
 torra.gates.undo (and its parts undo_types, undo_shadow, undo_remote), torra.pipeline (and its
-part pipeline_steps).
+part pipeline_steps), torra.agent (and its part agent_checks).
 """
 
 from __future__ import annotations
 
-from torra import pipeline, pipeline_steps
+from torra import agent, agent_checks, pipeline, pipeline_steps
 from torra.gates import (
     known_programs,
     program_basics,
@@ -61,3 +61,9 @@ def test_torra_keeps_execute_and_inherits_the_step_loop() -> None:
     assert pipeline.Torra.__mro__[1] is pipeline_steps.StepRunner
     assert "execute" in vars(pipeline.Torra) and "execute" not in vars(pipeline_steps.StepRunner)
     assert {"_run_steps", "_arm_step", "_sweep_rollback"} <= set(vars(pipeline_steps.StepRunner))
+
+
+def test_agent_inherits_its_plan_checks() -> None:
+    assert agent.Agent.__mro__[1] is agent_checks.PlanChecks
+    assert agent.Agent._extract_json is agent_checks.PlanChecks._extract_json
+    assert {"_prescreen", "_repair_complaint"} <= set(vars(agent_checks.PlanChecks))

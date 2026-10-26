@@ -8,6 +8,7 @@ The package. Model proposes, five gates decide, the operator approves.
 | [`core/`](core/README.md) | Task/step primitives, conflict detection, context compression, the Ollama client |
 | [`telemetry/`](telemetry/README.md) | Task logging, human labels, drift and loophole audits |
 | `agent.py` | The model loop: conversation to validated `TaskSpec`, never a shell |
+| `agent_checks.py` | `PlanChecks`, what `Agent` inherits to check a model reply: placeholder answers, a dropped task, unrunnable steps, and the pre-screen that sends a bad plan back for one revision |
 | `agent_types.py` | The data model `Agent` produces: `Turn`, `Intent`, `AgentError`, `MalformedTaskError` (re-exported by `agent.py`) |
 | `prompts.py` | `PLAN_SCHEMA`/`SYSTEM_PROMPT` -- the literal text handed to the model, split out of `agent.py` |
 | `pipeline.py` | `Torra`, the seven-stage orchestrator, the only thing that decides what runs |
