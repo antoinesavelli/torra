@@ -1,7 +1,7 @@
 """A plan that acts on a path that is not there should say so before the operator is asked.
 
 Seen live 2026-10-11 (real-use finding 2): devstral:24b planned `rm -r /home/user/Downloads/Telegram (2)`.
-The home was `/home/antoine` and the folder was `td-setup-linux-x64-7.2 (2).7`; nothing checked, the plan
+The home was `/home/alex` and the folder was `td-setup-linux-x64-7.2 (2).7`; nothing checked, the plan
 reached the operator, and it failed only when step 1 ran. The check is advisory, like
 `dependency_warnings`: a path can be made by an earlier step, so it never blocks.
 """
@@ -180,7 +180,7 @@ def test_a_remote_step_is_left_alone() -> None:
 
 
 def test_home_is_expanded_before_asking(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HOME", "/home/antoine")
+    monkeypatch.setenv("HOME", "/home/alex")
     seen: list[str] = []
 
     def exists(path: str) -> bool:
@@ -188,16 +188,16 @@ def test_home_is_expanded_before_asking(monkeypatch: pytest.MonkeyPatch) -> None
         return True
 
     assert missing_path_warnings(_spec(_step("ls ~/Downloads")), exists=exists) == []
-    assert seen == ["/home/antoine/Downloads"]
+    assert seen == ["/home/alex/Downloads"]
 
 
 @pytest.mark.parametrize(
     "run, expected",
     [
-        ('rm -r "$HOME/Downloads/Telegram (2)"', "/home/antoine/Downloads/Telegram (2)"),
-        ("ls ${HOME}/x", "/home/antoine/x"),
-        ("du -sh /home/$USER", "/home/antoine"),
-        ("ls /home/${USER}/notes", "/home/antoine/notes"),
+        ('rm -r "$HOME/Downloads/Telegram (2)"', "/home/alex/Downloads/Telegram (2)"),
+        ("ls ${HOME}/x", "/home/alex/x"),
+        ("du -sh /home/$USER", "/home/alex"),
+        ("ls /home/${USER}/notes", "/home/alex/notes"),
     ],
 )
 def test_home_and_user_are_expanded_like_a_tilde(
@@ -205,8 +205,8 @@ def test_home_and_user_are_expanded_like_a_tilde(
 ) -> None:
     """Seen live 2026-10-12: gpt-oss:20b writes `"$HOME/Downloads/..."`, which the check skipped,
     so a guessed folder name went unflagged. Steps run as the operator, so these are known."""
-    monkeypatch.setenv("HOME", "/home/antoine")
-    monkeypatch.setenv("USER", "antoine")
+    monkeypatch.setenv("HOME", "/home/alex")
+    monkeypatch.setenv("USER", "alex")
     seen: list[str] = []
 
     def exists(path: str) -> bool:

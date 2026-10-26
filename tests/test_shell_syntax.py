@@ -27,7 +27,7 @@ from torra.core.process import shell_syntax_error
     "command",
     [
         "ls -l /srv/api",
-        "ls -l '/home/antoine/Downloads/Telegram (2)'",
+        "ls -l '/home/alex/Downloads/Telegram (2)'",
         "du -ah /home/$USER | sort -rh | head -n 20",
         "find /srv -type d -name '*Telegram (2)*'",
         "if [ -d /srv ]; then echo yes; fi",

@@ -9,7 +9,7 @@ it cannot tell: an unknown program's absolute-path arguments are checked, a crea
 are trusted. A miss costs the operator a failed first step, which is what it cost before.
 
 Seen live 2026-10-11: devstral:24b planned `rm -r /home/user/Downloads/Telegram (2)` for a
-machine whose home is `/home/antoine`. Declaring the path in `touches` does not excuse it: a
+machine whose home is `/home/alex`. Declaring the path in `touches` does not excuse it: a
 destructive step cannot make its own target exist.
 """
 

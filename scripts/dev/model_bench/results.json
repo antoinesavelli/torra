@@ -463,7 +463,7 @@
       "docker ps --format \"{{.ID}}\\t{{.Names}}\\t{{.Image}}\\t{{.Status}}\"",
       "docker ps -a -f status=exited --format \"{{.ID}}\\t{{.Names}}\\t{{.Image}}\"",
       "docker images --format \"{{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.CreatedSince}}\"",
-      "{ docker ps -a --format \"{{.ID}}\\t{{.Names}}\\t{{.Image}}\\t{{.Status}}\"; echo \"---IMAGES---\"; docker images --format \"{{.Repository}}\\t{{.Tag}}\\t{{.ID}}\"; } > /mnt/ParamoStorage/torra/scripts/dev/model_bench/docker_inventory_before_prune.txt",
+      "{ docker ps -a --format \"{{.ID}}\\t{{.Names}}\\t{{.Image}}\\t{{.Status}}\"; echo \"---IMAGES---\"; docker images --format \"{{.Repository}}\\t{{.Tag}}\\t{{.ID}}\"; } > /srv/torra/scripts/dev/model_bench/docker_inventory_before_prune.txt",
       "docker container prune -f",
       "docker image prune -a -f"
     ],

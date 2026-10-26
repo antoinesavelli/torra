@@ -82,12 +82,12 @@ def test_ollama_models_dir_is_observed() -> None:
 
     def runner(command: str, cwd: str | None, timeout: float | None) -> str:
         if command == OLLAMA_MODELS_DIR_PROBE:
-            return "/mnt/ParamoStorage/ollama-models\n"
+            return "/mnt/data/ollama-models\n"
         return ""
 
     state = observe_machine(ollama=fake_ollama(["devstral:latest"]), runner=runner)
-    assert state.ollama_models_dir == "/mnt/ParamoStorage/ollama-models"
-    assert "local models directory: /mnt/ParamoStorage/ollama-models" in state.render()
+    assert state.ollama_models_dir == "/mnt/data/ollama-models"
+    assert "local models directory: /mnt/data/ollama-models" in state.render()
 
 
 def test_a_failed_probe_does_not_abort_observation() -> None:

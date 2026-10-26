@@ -254,7 +254,7 @@ def test_print_plan_shows_a_steps_description(
             "steps": [
                 {
                     "id": "df",
-                    "run": "df -h /mnt/ParamoStorage",
+                    "run": "df -h /mnt/data",
                     "description": "confirms free space before the larger copy in the next step",
                 }
             ],
@@ -276,7 +276,7 @@ def test_print_plan_does_not_repeat_the_command_as_a_description(
         {
             "task_id": "t",
             "request": "check disk usage",
-            "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage"}],
+            "steps": [{"id": "df", "run": "df -h /mnt/data"}],
         },
         source="test",
     )
@@ -286,7 +286,7 @@ def test_print_plan_does_not_repeat_the_command_as_a_description(
     cli.print_plan(plan)
 
     out = capsys.readouterr().out
-    assert out.count("df -h /mnt/ParamoStorage") == 1
+    assert out.count("df -h /mnt/data") == 1
 
 
 # --------------------------------------------------------------------------- #

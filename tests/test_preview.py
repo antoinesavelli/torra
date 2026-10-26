@@ -191,10 +191,10 @@ def test_what_cannot_be_known_is_left_out() -> None:
 def test_home_is_previewed_like_a_tilde(monkeypatch: pytest.MonkeyPatch) -> None:
     """gpt-oss:20b writes `"$HOME/Downloads/..."` (seen live 2026-10-12); the operator should see
     what is there, not nothing."""
-    monkeypatch.setenv("HOME", "/home/antoine")
+    monkeypatch.setenv("HOME", "/home/alex")
 
     assert preview_targets(_step('rm -r "$HOME/x"'), describe=_fake) == [
-        "/home/antoine/x: </home/antoine/x>"
+        "/home/alex/x: </home/alex/x>"
     ]
 
 

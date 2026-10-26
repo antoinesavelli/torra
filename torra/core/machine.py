@@ -366,7 +366,7 @@ OBSERVE_COMMANDS: list[tuple[str, str]] = [
     ("kernel", "uname -r"),
     ("uptime", "uptime -p"),
     # A hardcoded path list (was "df -h / /home") goes stale the moment a
-    # mount is added or removed -- found live: asked about /mnt/ParamoStorage,
+    # mount is added or removed -- found live: asked about /mnt/data,
     # the model correctly refused to guess rather than answer for an unlisted
     # mount, but the real gap was that mount never being observed at all.
     # Filtering by fs type instead of naming paths keeps every real mount

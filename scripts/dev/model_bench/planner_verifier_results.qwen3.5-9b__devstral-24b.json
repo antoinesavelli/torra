@@ -186,7 +186,7 @@
           "kind": "robustness",
           "severity": "minor",
           "step_id": "check-env-vars",
-          "quote": "/mnt/ParamoStorage/AIModels/torra/.env",
+          "quote": "/srv/torra/.env",
           "detail": "The plan does not handle the case where the .env file might be located in a different directory.",
           "downgraded": ""
         },
@@ -194,7 +194,7 @@
           "kind": "robustness",
           "severity": "minor",
           "step_id": "check-app-startup-script",
-          "quote": "/mnt/ParamoStorage/AIModels/torra/api/start.sh",
+          "quote": "/srv/torra/api/start.sh",
           "detail": "The plan does not handle the case where the startup script might be located in a different directory.",
           "downgraded": ""
         }
@@ -444,7 +444,7 @@
           "kind": "invented_specific",
           "severity": "blocker",
           "step_id": "check-env-vars",
-          "quote": "/mnt/ParamoStorage/AIModels/torra/.env",
+          "quote": "/srv/torra/.env",
           "detail": "The request does not specify the exact path to the .env file, and this path is not an ordinary system default.",
           "downgraded": "promoted from minor: quote is in the plan only"
         },
@@ -452,7 +452,7 @@
           "kind": "invented_specific",
           "severity": "blocker",
           "step_id": "check-app-startup-script",
-          "quote": "/mnt/ParamoStorage/AIModels/torra/api/start.sh",
+          "quote": "/srv/torra/api/start.sh",
           "detail": "The request does not specify the exact path to the startup script, and this path is not an ordinary system default.",
           "downgraded": "promoted from minor: quote is in the plan only"
         },

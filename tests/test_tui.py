@@ -493,8 +493,8 @@ async def test_reject_records_the_decision(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_bracket_text_does_not_crash_the_chat_pane(tmp_path: Path) -> None:
     """Found live: `rich.markup` parses `[...]` as style tags. A request as
-    ordinary as "what's the free space in [/mnt/ParamoStorage]?" reads
-    `[/mnt/ParamoStorage]` as a *closing* tag with no opener and raises
+    ordinary as "what's the free space in [/mnt/data]?" reads
+    `[/mnt/data]` as a *closing* tag with no opener and raises
     MarkupError deep in Textual's compositor -- an unhandled exception that
     kills the whole app. User-visible text (the typed request, the model's
     own message) must render as literal text, brackets included, not be
@@ -504,19 +504,19 @@ async def test_bracket_text_does_not_crash_the_chat_pane(tmp_path: Path) -> None
         scripted(
             {
                 "intent": "answer",
-                "message": "checked [/mnt/ParamoStorage], 189G used of 814G",
+                "message": "checked [/mnt/data], 189G used of 814G",
             }
         ),
     )
     async with app.run_test() as pilot:
         await pilot.pause()
-        app.query_one("#prompt", Input).value = "what's the free space in [/mnt/ParamoStorage]?"
+        app.query_one("#prompt", Input).value = "what's the free space in [/mnt/data]?"
         await pilot.press("enter")
         await pilot.pause(0.4)
 
         assert app.is_running, "the app crashed on bracket-containing text"
         text = screen_text(app)
-        assert "[/mnt/ParamoStorage]" in text, (
+        assert "[/mnt/data]" in text, (
             "the bracketed path should render literally, not be swallowed as markup"
         )
 
