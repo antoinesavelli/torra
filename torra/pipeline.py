@@ -102,10 +102,12 @@ class Torra(StepRunner):
         # independently.
         executor_config = resolve_executor_config()
         self._executor_runner = (
-            build_ssh_runner(*executor_config) if executor_config is not None else None)
+            build_ssh_runner(*executor_config) if executor_config is not None else None
+        )
         self.undo = undo or UndoGenerator(
             shadow_dir=self.workdir / f"torra-shadow-{os.getpid()}",
-            executor_runner=self._executor_runner)
+            executor_runner=self._executor_runner,
+        )
         self.rollback = rollback or VerifiedRollback()
         self.conflicts = conflicts or ConflictDetector()
         self.decisions = decisions or DecisionLog()
@@ -121,9 +123,14 @@ class Torra(StepRunner):
         self.knowledge_dir = self._resolve_knowledge_dir(knowledge_dir)
 
         self.agent = agent or Agent(
-            ollama=self.ollama, router=self.router,
-            clarifier=self.clarifier, safety=self.safety, knowledge_dir=self.knowledge_dir,
-            backends=backends, path_exists=path_exists)
+            ollama=self.ollama,
+            router=self.router,
+            clarifier=self.clarifier,
+            safety=self.safety,
+            knowledge_dir=self.knowledge_dir,
+            backends=backends,
+            path_exists=path_exists,
+        )
 
     # Live wire: HANDOFF.md §5.21
     @staticmethod
@@ -133,8 +140,12 @@ class Torra(StepRunner):
 
     # -- stage 1 to 3: the model ------------------------------------------- #
 
-    def plan(self, request: str, model: str | None = None,
-            on_thinking: Callable[[str], None] | None = None) -> RunResult:
+    def plan(
+        self,
+        request: str,
+        model: str | None = None,
+        on_thinking: Callable[[str], None] | None = None,
+    ) -> RunResult:
         """Stages converse, observe and propose. Runs nothing."""
         # Returns a RunResult whose outcome is AWAITING_APPROVAL when a gated
         # plan is attached, or ANSWERED / NEEDS_ANSWER / REFUSED / BACKEND_DOWN.
@@ -165,12 +176,14 @@ class Torra(StepRunner):
         result.turn = turn
         result.stages = [Stage.CONVERSE.value, Stage.OBSERVE.value]
         self.decisions.log(
-            Stage.CONVERSE.value, f"intent {turn.intent.value}",
-            turn.message or f"{turn.model} decided this needs "
-                            f"{turn.intent.value}; structural gaps found: "
-                            f"{turn.clarifier_gaps or 'none'}",
-            {"model": turn.model, "routing": turn.routing_reason,
-             "repairs": turn.repairs})
+            Stage.CONVERSE.value,
+            f"intent {turn.intent.value}",
+            turn.message
+            or f"{turn.model} decided this needs "
+            f"{turn.intent.value}; structural gaps found: "
+            f"{turn.clarifier_gaps or 'none'}",
+            {"model": turn.model, "routing": turn.routing_reason, "repairs": turn.repairs},
+        )
 
         if turn.intent is Intent.ANSWER:
             result.outcome = Outcome.ANSWERED
@@ -190,14 +203,16 @@ class Torra(StepRunner):
         if result.plan.preconditions and not result.plan.preconditions.passed:
             result.outcome = Outcome.BLOCKED
             result.abort_reason = "preconditions failed: " + ", ".join(
-                r.name for r in result.plan.preconditions.blocking_failures)
+                r.name for r in result.plan.preconditions.blocking_failures
+            )
             return self._finish(result, started)
 
         result.stages.append(Stage.PRESENT.value)
         return self._finish(result, started, write_audit=False)
 
-    def _backend_down(self, result: RunResult, started: float,
-                      model: str | None, exc: OllamaError) -> RunResult:
+    def _backend_down(
+        self, result: RunResult, started: float, model: str | None, exc: OllamaError
+    ) -> RunResult:
         """`plan()`'s OllamaError handler, split out to keep `plan()` itself
         under the CCN ceiling. Two different fallbacks for two different
         purposes: `model or ""` picks the backend that actually failed (an
@@ -210,9 +225,11 @@ class Torra(StepRunner):
         result.abort_reason = str(exc)
         backend, _ = self.agent.resolve_backend(model or "")
         self.decisions.log(
-            Stage.CONVERSE.value, "backend unreachable", str(exc),
-            {"recovery": [o.to_dict() for o in
-                          backend.recovery_options(model or "unknown")]})
+            Stage.CONVERSE.value,
+            "backend unreachable",
+            str(exc),
+            {"recovery": [o.to_dict() for o in backend.recovery_options(model or "unknown")]},
+        )
         return self._finish(result, started)
 
     # -- stage 4: gate ----------------------------------------------------- #
@@ -223,8 +240,12 @@ class Torra(StepRunner):
         # pre-screens its own proposals, but that is a courtesy to save the
         # operator's attention, not a substitute for this.
         steps = spec.to_steps(executor_runner=self._executor_runner)
-        plan = Plan(spec=spec, model=turn.model if turn else "",
-                    repairs=turn.repairs if turn else 0, warnings=list(turn.warnings) if turn else [])
+        plan = Plan(
+            spec=spec,
+            model=turn.model if turn else "",
+            repairs=turn.repairs if turn else 0,
+            warnings=list(turn.warnings) if turn else [],
+        )
 
         for step in steps:
             verdict = self.safety.classify(step.command)
@@ -235,17 +256,22 @@ class Torra(StepRunner):
             undos = self.undo.for_step(step)
             plan.steps.append(StepPlan(step=step, verdict=verdict, undos=undos))
             self.decisions.log(
-                Stage.GATE.value, f"{step.step_id}: {verdict.level.value}",
+                Stage.GATE.value,
+                f"{step.step_id}: {verdict.level.value}",
                 "; ".join(verdict.reasons[:3]),
-                {"command": step.command, "undos": len(undos)})
+                {"command": step.command, "undos": len(undos)},
+            )
 
         plan.coverage = self.undo.coverage(steps)
         plan.preconditions = self.verifier.run()
         self.decisions.log(
             Stage.GATE.value,
             "preconditions passed" if plan.preconditions.passed else "preconditions FAILED",
-            "; ".join(f"{r.name}={'ok' if r.passed else 'FAIL'}"
-                      for r in plan.preconditions.results) or "none registered")
+            "; ".join(
+                f"{r.name}={'ok' if r.passed else 'FAIL'}" for r in plan.preconditions.results
+            )
+            or "none registered",
+        )
 
         # baseline() alone is the enforcement point -- execute()'s per-step
         # checks compare against it once real time has passed. A detect()
@@ -256,11 +282,13 @@ class Torra(StepRunner):
         self.conflicts.baseline(tracked, roots=spec.watch_roots or None)
 
         self.decisions.log(
-            Stage.GATE.value, f"plan worst level {plan.worst_level.value}",
+            Stage.GATE.value,
+            f"plan worst level {plan.worst_level.value}",
             f"{len(plan.needs_confirmation)} step(s) need confirmation; "
             f"undo coverage {plan.coverage.get('coverage_ratio', 0):.0%}; "
             f"uncovered: {plan.uncovered or 'none'}",
-            {"tracked_paths": tracked})
+            {"tracked_paths": tracked},
+        )
         return plan
 
     #: Public: `Torra.dependency_warnings(plan, approvals)`. Delegates to
@@ -270,9 +298,13 @@ class Torra(StepRunner):
 
     # -- stage 6: execute -------------------------------------------------- #
 
-    def execute(self, result: RunResult, approvals: dict[str, bool] | None = None,
-                dry_run: bool = False,
-                on_output: Callable[[str, str], None] | None = None) -> RunResult:
+    def execute(
+        self,
+        result: RunResult,
+        approvals: dict[str, bool] | None = None,
+        dry_run: bool = False,
+        on_output: Callable[[str, str], None] | None = None,
+    ) -> RunResult:
         """Run an approved plan, updating and returning the same RunResult.
         Broken into the phase helpers below, called from here in order.
 
@@ -300,16 +332,16 @@ class Torra(StepRunner):
         refused = self._apply_approvals(plan, approvals or {})
         if refused and not any(sp.approved for sp in plan.steps):
             result.outcome = Outcome.REJECTED
-            result.abort_reason = ("not approved: "
-                                   + ", ".join(sp.step.step_id for sp in refused))
-            self.decisions.log(Stage.PRESENT.value, "plan rejected",
-                               result.abort_reason)
+            result.abort_reason = "not approved: " + ", ".join(sp.step.step_id for sp in refused)
+            self.decisions.log(Stage.PRESENT.value, "plan rejected", result.abort_reason)
             return self._finish(result, started)
         if refused:
             self.decisions.log(
-                Stage.PRESENT.value, "partial approval",
+                Stage.PRESENT.value,
+                "partial approval",
                 f"{len(refused)} step(s) declined and will be skipped: "
-                + ", ".join(sp.step.step_id for sp in refused))
+                + ", ".join(sp.step.step_id for sp in refused),
+            )
 
         held = self._stage_rollback(plan)
 
@@ -324,15 +356,29 @@ class Torra(StepRunner):
         resolution = resolve_resume(
             plan.spec.task_id,
             {sp.step.step_id: command_digest(sp.step.command) for sp in plan.steps},
-            len(plan.steps), resume_path, dry_run)
+            len(plan.steps),
+            resume_path,
+            dry_run,
+        )
         if resolution.note:
             self.decisions.log(
                 Stage.EXECUTE.value,
-                "resuming from a prior attempt" if resolution.resumed_steps
-                else "resume point ignored", resolution.note)
+                "resuming from a prior attempt"
+                if resolution.resumed_steps
+                else "resume point ignored",
+                resolution.note,
+            )
 
-        failed = self._run_steps(plan, result, dry_run, resolution.resume, resume_path,
-                                 on_output, resolution.resumed_steps, resolution.interrupted)
+        failed = self._run_steps(
+            plan,
+            result,
+            dry_run,
+            resolution.resume,
+            resume_path,
+            on_output,
+            resolution.resumed_steps,
+            resolution.interrupted,
+        )
 
         if failed:
             self._sweep_rollback(result, resume_path, held)
@@ -345,10 +391,12 @@ class Torra(StepRunner):
         """Refuse a second execute() call on a result that already ran for
         real. Keyed on `result.executed`, not `outcome` -- see §2.8."""
         self.decisions.log(
-            Stage.EXECUTE.value, "refused: already executed",
+            Stage.EXECUTE.value,
+            "refused: already executed",
             f"this plan already reached outcome '{result.outcome.value}'; "
             "ignoring the repeat execute() call rather than re-running "
-            "its commands")
+            "its commands",
+        )
         result.decisions = self.decisions.trail()
         return result
 
@@ -356,8 +404,9 @@ class Torra(StepRunner):
     def _apply_approvals(plan: Plan, decisions: dict[str, bool]) -> list[StepPlan]:
         """Mark every step approved or refused; return the refused ones."""
         for sp in plan.steps:
-            sp.approved = (True if not sp.needs_confirmation
-                           else bool(decisions.get(sp.step.step_id, False)))
+            sp.approved = (
+                True if not sp.needs_confirmation else bool(decisions.get(sp.step.step_id, False))
+            )
         return [sp for sp in plan.steps if sp.approved is False]
 
     def _stage_rollback(self, plan: Plan) -> list[UndoAction]:
@@ -367,9 +416,11 @@ class Torra(StepRunner):
         held = declared_undos(plan.spec, self.safety, self.decisions)
         approved = [sp for sp in plan.steps if sp.approved]
         self.decisions.log(
-            Stage.PRESENT.value, "approved",
+            Stage.PRESENT.value,
+            "approved",
             f"{len(approved)} step(s) approved, "
-            f"{sum(len(sp.undos) for sp in approved) + len(held)} undo(s) ready")
+            f"{sum(len(sp.undos) for sp in approved) + len(held)} undo(s) ready",
+        )
         return held
 
     def reject(self, result: RunResult) -> RunResult:
@@ -379,8 +430,10 @@ class Torra(StepRunner):
         is already True, so a late click can't overwrite a real outcome."""
         if result.executed:
             self.decisions.log(
-                Stage.PRESENT.value, "refused: already executed",
-                "a real run already began; cannot retroactively un-run it")
+                Stage.PRESENT.value,
+                "refused: already executed",
+                "a real run already began; cannot retroactively un-run it",
+            )
             result.decisions = self.decisions.trail()
             return result
         started = time.perf_counter() - result.seconds
@@ -391,8 +444,13 @@ class Torra(StepRunner):
 
     # -- convenience ------------------------------------------------------- #
 
-    def run(self, request: str, approve: Callable[[Plan], dict[str, bool]] | None = None,
-            model: str | None = None, dry_run: bool = False) -> RunResult:
+    def run(
+        self,
+        request: str,
+        approve: Callable[[Plan], dict[str, bool]] | None = None,
+        model: str | None = None,
+        dry_run: bool = False,
+    ) -> RunResult:
         """Plan and execute in one call; omitting `approve` refuses anything gated."""
         result = self.plan(request, model=model)
         if result.outcome is not Outcome.AWAITING_APPROVAL or result.plan is None:
@@ -400,22 +458,33 @@ class Torra(StepRunner):
         approvals = approve(result.plan) if approve else {}
         return self.execute(result, approvals, dry_run=dry_run)
 
-    def answer(self, result: RunResult, answers: Sequence[str],
-               model: str | None = None) -> RunResult:
+    def answer(
+        self, result: RunResult, answers: Sequence[str], model: str | None = None
+    ) -> RunResult:
         """Answer a NEEDS_ANSWER result and re-plan."""
         if result.turn is None:
             return result
-        combined = "; ".join(f"{q} -> {a}" for q, a in
-                             zip(result.turn.questions, answers, strict=True) if a)
+        combined = "; ".join(
+            f"{q} -> {a}" for q, a in zip(result.turn.questions, answers, strict=True) if a
+        )
         return self.plan(f"{result.request} [clarified: {combined}]", model=model)
 
     # -- stage 7: report --------------------------------------------------- #
 
-    def _finish(self, result: RunResult, started: float,
-                write_audit: bool = True, dry_run: bool = False) -> RunResult:
+    def _finish(
+        self, result: RunResult, started: float, write_audit: bool = True, dry_run: bool = False
+    ) -> RunResult:
         """Stage report (`pipeline_report.finish`). Always runs, even after an early exit."""
-        return finish(result, started, self.agent, self.decisions, self.audit_dir,
-                      self.telemetry, write_audit, dry_run)
+        return finish(
+            result,
+            started,
+            self.agent,
+            self.decisions,
+            self.audit_dir,
+            self.telemetry,
+            write_audit,
+            dry_run,
+        )
 
     def stats(self) -> dict[str, Any]:
         """Everything torra knows about this session."""

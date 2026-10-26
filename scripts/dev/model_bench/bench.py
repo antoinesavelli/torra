@@ -77,21 +77,23 @@ def make_metrics_transport(sink: list[CallMetrics], host: str = OLLAMA_HOST):
                 payload.setdefault("options", {})["num_ctx"] = num_ctx
             data = json.dumps(payload).encode("utf-8")
             request = urllib.request.Request(
-                url, data=data, method="POST",
-                headers={"Content-Type": "application/json"})
+                url, data=data, method="POST", headers={"Content-Type": "application/json"}
+            )
         else:
             request = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.loads(response.read().decode("utf-8") or "{}")
         wall = time.perf_counter() - started
         if path == "/api/chat":
-            sink.append(CallMetrics(
-                wall_seconds=wall,
-                eval_count=result.get("eval_count", 0),
-                eval_seconds=result.get("eval_duration", 0) / 1e9,
-                prompt_eval_count=result.get("prompt_eval_count", 0),
-                load_seconds=result.get("load_duration", 0) / 1e9,
-            ))
+            sink.append(
+                CallMetrics(
+                    wall_seconds=wall,
+                    eval_count=result.get("eval_count", 0),
+                    eval_seconds=result.get("eval_duration", 0) / 1e9,
+                    prompt_eval_count=result.get("prompt_eval_count", 0),
+                    load_seconds=result.get("load_duration", 0) / 1e9,
+                )
+            )
         return result
 
     return transport
@@ -163,8 +165,7 @@ class TaskResult:
 
     @property
     def tokens_per_second(self) -> float:
-        return (self.total_eval_tokens / self.total_eval_seconds
-                if self.total_eval_seconds else 0.0)
+        return self.total_eval_tokens / self.total_eval_seconds if self.total_eval_seconds else 0.0
 
 
 def run_model(model: str) -> list[TaskResult]:
@@ -172,16 +173,20 @@ def run_model(model: str) -> list[TaskResult]:
     print(f"\n{'=' * 70}\n{model}\n{'=' * 70}")
 
     metrics: list[CallMetrics] = []
-    ollama = OllamaClient(host=OLLAMA_HOST, timeout=300.0,
-                          transport=make_metrics_transport(metrics))
+    ollama = OllamaClient(
+        host=OLLAMA_HOST, timeout=300.0, transport=make_metrics_transport(metrics)
+    )
 
     warmup_started = time.perf_counter()
     state = observe_machine(ollama=ollama)
-    agent = Agent(ollama=ollama, clarifier=Clarifier(), safety=SafetyClassifier(),
-                  observer=lambda: state)
+    agent = Agent(
+        ollama=ollama, clarifier=Clarifier(), safety=SafetyClassifier(), observer=lambda: state
+    )
     agent.observe()  # populates router.accelerator/available from the observed state
-    print(f"  machine observed in {time.perf_counter() - warmup_started:.1f}s, "
-          f"accelerator: {state.accelerator.render()}")
+    print(
+        f"  machine observed in {time.perf_counter() - warmup_started:.1f}s, "
+        f"accelerator: {state.accelerator.render()}"
+    )
 
     results: list[TaskResult] = []
     for task in TASKS:
@@ -193,18 +198,21 @@ def run_model(model: str) -> list[TaskResult]:
         results.append(r)
         status = "OK " if r.ok else "ERR"
         verdict = "PASS" if r.intent_correct else "FAIL"
-        print(f"  [{status}] t{task.tier} {task.id:28} intent={r.intent or '?':8} "
-              f"{verdict}  {r.total_wall_seconds:5.1f}s  {r.tokens_per_second:5.1f} tok/s  "
-              f"gpu={r.gpu_residency}  repairs={r.repairs}"
-              + (f"  ERROR: {r.error}" if r.error else ""))
+        print(
+            f"  [{status}] t{task.tier} {task.id:28} intent={r.intent or '?':8} "
+            f"{verdict}  {r.total_wall_seconds:5.1f}s  {r.tokens_per_second:5.1f} tok/s  "
+            f"gpu={r.gpu_residency}  repairs={r.repairs}"
+            + (f"  ERROR: {r.error}" if r.error else "")
+        )
         if residency_before != "not loaded" and "100%" not in residency_before:
-            print(f"    WARNING: GPU residency was {residency_before} before this call "
-                 "-- may include CPU offload")
+            print(
+                f"    WARNING: GPU residency was {residency_before} before this call "
+                "-- may include CPU offload"
+            )
     return results
 
 
-def grade_task(task: Task, agent: Agent, metrics: list[CallMetrics],
-               model: str) -> TaskResult:
+def grade_task(task: Task, agent: Agent, metrics: list[CallMetrics], model: str) -> TaskResult:
     """Run one task through the real Agent (model pinned explicitly) and grade the result."""
     before = len(metrics)
     started = time.perf_counter()
@@ -238,7 +246,8 @@ def grade_task(task: Task, agent: Agent, metrics: list[CallMetrics],
             result.rollback_ok = bool(turn.spec.rollback)
         if task.expect_risky_step:
             result.risky_step_ok = any(
-                lv in (RiskLevel.DANGEROUS, RiskLevel.CRITICAL) for lv in levels)
+                lv in (RiskLevel.DANGEROUS, RiskLevel.CRITICAL) for lv in levels
+            )
 
     result.total_wall_seconds = time.perf_counter() - started
     call_metrics = metrics[before:]
@@ -267,14 +276,14 @@ def summarize(all_results: list[TaskResult]) -> None:
 
         print(f"\n{model}")
         print(f"  errors            : {errors}/{n}")
-        print(f"  intent correct    : {intent_correct}/{n}"
-             f" ({intent_correct/n*100:.0f}%)")
-        print(f"  schema valid      : {schema_valid}/{n}"
-             f" ({schema_valid/n*100:.0f}%)")
+        print(f"  intent correct    : {intent_correct}/{n} ({intent_correct / n * 100:.0f}%)")
+        print(f"  schema valid      : {schema_valid}/{n} ({schema_valid / n * 100:.0f}%)")
         print(f"  total repairs     : {repairs}")
         if latencies:
-            print(f"  latency           : mean {statistics.mean(latencies):.1f}s, "
-                 f"median {statistics.median(latencies):.1f}s, max {max(latencies):.1f}s")
+            print(
+                f"  latency           : mean {statistics.mean(latencies):.1f}s, "
+                f"median {statistics.median(latencies):.1f}s, max {max(latencies):.1f}s"
+            )
         if tps:
             print(f"  tokens/sec        : mean {statistics.mean(tps):.1f}")
         if rollback_checks:

@@ -105,7 +105,8 @@ def test_a_slow_walk_stops_at_the_time_limit(tmp_path: Path) -> None:
 
 
 def test_an_unreadable_folder_is_reported_not_raised(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = _tree(tmp_path / "d")
     real = os.scandir
 
@@ -124,9 +125,16 @@ def test_a_device_is_named_as_one() -> None:
     assert stat.S_ISCHR(os.stat("/dev/null").st_mode)
 
 
-@pytest.mark.parametrize("size, shown", [
-    (0, "0 B"), (1023, "1023 B"), (1024, "1.0 KiB"), (5 * 1024 ** 2, "5.0 MiB"),
-    (3 * 1024 ** 3, "3.0 GiB")])
+@pytest.mark.parametrize(
+    "size, shown",
+    [
+        (0, "0 B"),
+        (1023, "1023 B"),
+        (1024, "1.0 KiB"),
+        (5 * 1024**2, "5.0 MiB"),
+        (3 * 1024**3, "3.0 GiB"),
+    ],
+)
 def test_sizes_use_binary_units(tmp_path: Path, size: int, shown: str) -> None:
     file = tmp_path / "f"
     with open(file, "wb") as handle:
@@ -141,8 +149,10 @@ def test_sizes_use_binary_units(tmp_path: Path, size: int, shown: str) -> None:
 
 
 def _step(run: str, **fields: Any) -> Step:
-    spec = TaskSpec.validate({"task_id": "t", "request": "r",
-                              "steps": [{"id": "s", "run": run, **fields}]}, source="test")
+    spec = TaskSpec.validate(
+        {"task_id": "t", "request": "r", "steps": [{"id": "s", "run": run, **fields}]},
+        source="test",
+    )
     return spec.to_steps(dry_run=True)[0]
 
 
@@ -184,12 +194,14 @@ def test_home_is_previewed_like_a_tilde(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("HOME", "/home/antoine")
 
     assert preview_targets(_step('rm -r "$HOME/x"'), describe=_fake) == [
-        "/home/antoine/x: </home/antoine/x>"]
+        "/home/antoine/x: </home/antoine/x>"
+    ]
 
 
 def test_a_remote_step_has_no_local_preview() -> None:
-    step = _step("ignored", kind="remote_pull", remote_path="/etc/app.conf",
-                 touches=["/tmp/app.conf"])
+    step = _step(
+        "ignored", kind="remote_pull", remote_path="/etc/app.conf", touches=["/tmp/app.conf"]
+    )
 
     assert preview_targets(step, describe=_fake) == []
 
@@ -208,7 +220,8 @@ def test_a_failing_lookup_does_not_break_the_prompt() -> None:
         raise OSError("stale handle")
 
     assert preview_targets(_step("rm /srv/a"), describe=broken) == [
-        "/srv/a: cannot be inspected (stale handle)"]
+        "/srv/a: cannot be inspected (stale handle)"
+    ]
 
 
 def test_named_paths_keeps_order_and_drops_repeats() -> None:
@@ -222,8 +235,10 @@ def test_named_paths_keeps_order_and_drops_repeats() -> None:
 
 def _plan_for(tmp_path: Path, run: str):
     torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
-    spec = TaskSpec.validate({"task_id": "t", "request": "r", "steps": [
-        {"id": "s", "run": run, "touches": []}]}, source="test")
+    spec = TaskSpec.validate(
+        {"task_id": "t", "request": "r", "steps": [{"id": "s", "run": run, "touches": []}]},
+        source="test",
+    )
     return torra._gate(spec)
 
 
@@ -234,8 +249,9 @@ def test_a_step_that_needs_a_tick_carries_a_preview(tmp_path: Path) -> None:
 
     step = plan.steps[0]
     assert step.needs_confirmation
-    assert step.preview == [f"{root}: directory, 3 files in 1 folder, 7.0 KiB, "
-                            "newest change 2026-10-03"]
+    assert step.preview == [
+        f"{root}: directory, 3 files in 1 folder, 7.0 KiB, newest change 2026-10-03"
+    ]
     assert plan.to_dict()["steps"][0]["preview"] == step.preview
 
 
@@ -247,8 +263,10 @@ def test_a_step_that_needs_no_tick_has_no_preview(tmp_path: Path) -> None:
 
 
 def test_the_preview_is_looked_up_once_when_first_asked(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import torra.pipeline_types as types
+
     calls: list[Any] = []
 
     def counting(step: Any, **kwargs: Any) -> list[str]:
@@ -264,7 +282,8 @@ def test_the_preview_is_looked_up_once_when_first_asked(
 
 
 def test_the_tick_prompt_shows_what_the_step_will_act_on_before_it_asks(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     root = _tree(tmp_path / "victim")
     plan = _plan_for(tmp_path, f"rm -r {root}")
     shown_when_asked: list[str] = []
@@ -284,7 +303,8 @@ def test_the_tick_prompt_shows_what_the_step_will_act_on_before_it_asks(
 
 
 def test_the_prompt_prints_no_preview_block_for_a_step_with_nothing_to_show(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     plan = _plan_for(tmp_path, "systemctl restart nginx")
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
 
@@ -299,8 +319,16 @@ async def test_the_plan_card_shows_the_preview(tmp_path: Path) -> None:
     from textual.widgets import Input
 
     root = _tree(tmp_path / "victim")
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"delete {root}", [{"id": "rm", "run": f"rm -r {root}", "touches": [str(root)]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"delete {root}",
+                [{"id": "rm", "run": f"rm -r {root}", "touches": [str(root)]}],
+            )
+        ),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = f"delete {root}"

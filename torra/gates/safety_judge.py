@@ -43,7 +43,8 @@ class CommandJudge:
             return True  # the home directory, which /home already protects by its absolute path
         cleaned = posixpath.normpath(re.sub(r"/{2,}", "/", path.rstrip("/*") or "/"))
         return cleaned in PROTECTED_PREFIXES or any(
-            cleaned.startswith(p + "/") for p in PROTECTED_PREFIXES if p != "/")
+            cleaned.startswith(p + "/") for p in PROTECTED_PREFIXES if p != "/"
+        )
 
     def protects(self, path: str) -> bool:
         """Public form of `_protected`, for steps torra builds itself (a remote pull's local file)."""
@@ -83,7 +84,8 @@ class CommandJudge:
             found.append((RiskLevel.DANGEROUS, "touches a file that holds credentials"))
 
         if program in PROGRAM_RISK and not (
-                program in LISTING_TOOLS and trust(rc.argv, self._protected) == READ_ONLY):
+            program in LISTING_TOOLS and trust(rc.argv, self._protected) == READ_ONLY
+        ):
             level, why = PROGRAM_RISK[program]
             found.append((level, f"{why} via {program}"))
 
@@ -93,28 +95,32 @@ class CommandJudge:
             (program == "find", lambda: self._judge_find(argv, protected)),
             (program == "systemctl", lambda: self._judge_systemctl(argv)),
             (program == "git", lambda: self._judge_git(argv)),
-            (program in ("apt", "apt-get", "dnf", "pacman", "snap"),
-             lambda: self._judge_package_manager(argv)),
-            (program in PACKAGE_INSTALLERS,
-             lambda: self._judge_package_install(program, argv)),
-            (program in ("python", "python3", "perl", "ruby", "node"),
-             lambda: self._judge_script_source(program, argv)),
+            (
+                program in ("apt", "apt-get", "dnf", "pacman", "snap"),
+                lambda: self._judge_package_manager(argv),
+            ),
+            (program in PACKAGE_INSTALLERS, lambda: self._judge_package_install(program, argv)),
+            (
+                program in ("python", "python3", "perl", "ruby", "node"),
+                lambda: self._judge_script_source(program, argv),
+            ),
             (program == "kill", lambda: self._judge_kill(argv)),
             (program == "docker", lambda: self._judge_docker(argv)),
-            (program in ("chmod", "chown"),
-             lambda: self._judge_chmod_chown(program, protected)),
-            (program in ("tee", "cp", "mv", "zip"),
-             # `zip`'s output archive is a write target exactly like cp/mv's
-             # destination -- xlsx/odt are both zip containers, and repacking
-             # one over an existing path (extract, edit the inner XML,
-             # `zip -r original.file ...`) is as much an overwrite as `cp`/
-             # `mv` onto the same path, which this same protected-prefix
-             # check already catches. `unzip` deliberately excluded: its
-             # archive argument is a read source, not a write target, so
-             # reusing this generic operand-protected check for it would
-             # misclassify an ordinary extraction of an existing file as
-             # "writes to a system path".
-             lambda: self._judge_tee_cp_mv_zip(program, protected, overwrites_a_document)),
+            (program in ("chmod", "chown"), lambda: self._judge_chmod_chown(program, protected)),
+            (
+                program in ("tee", "cp", "mv", "zip"),
+                # `zip`'s output archive is a write target exactly like cp/mv's
+                # destination -- xlsx/odt are both zip containers, and repacking
+                # one over an existing path (extract, edit the inner XML,
+                # `zip -r original.file ...`) is as much an overwrite as `cp`/
+                # `mv` onto the same path, which this same protected-prefix
+                # check already catches. `unzip` deliberately excluded: its
+                # archive argument is a read source, not a write target, so
+                # reusing this generic operand-protected check for it would
+                # misclassify an ordinary extraction of an existing file as
+                # "writes to a system path".
+                lambda: self._judge_tee_cp_mv_zip(program, protected, overwrites_a_document),
+            ),
         ]
         for matched, call in rules:
             if matched:
@@ -130,19 +136,25 @@ class CommandJudge:
             return [(RiskLevel.CAUTION, f"{rc.program} writes files or state")]
         if verdict == PROTECTED_WRITE:
             return [(RiskLevel.DANGEROUS, f"{rc.program} writes to a system path")]
-        return [(RiskLevel.DANGEROUS,
-                 f"unrecognised program {rc.program!r}: not known to be read-only")]
+        return [
+            (RiskLevel.DANGEROUS, f"unrecognised program {rc.program!r}: not known to be read-only")
+        ]
 
     @staticmethod
-    def _judge_rm(chars: set[str], flags: list[str],
-                  protected: bool) -> list[tuple[RiskLevel, str]]:
+    def _judge_rm(
+        chars: set[str], flags: list[str], protected: bool
+    ) -> list[tuple[RiskLevel, str]]:
         recursive = "r" in chars or "R" in chars or "--recursive" in flags
         forced = "f" in chars or "--force" in flags
         if recursive and forced:
             return [(RiskLevel.CRITICAL, "recursive force delete")]
         if recursive or protected:
-            return [(RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
-                     "recursive or system-path delete")]
+            return [
+                (
+                    RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
+                    "recursive or system-path delete",
+                )
+            ]
         return [(RiskLevel.DANGEROUS, "file deletion")]
 
     @staticmethod
@@ -154,8 +166,12 @@ class CommandJudge:
     @staticmethod
     def _judge_find(argv: list[str], protected: bool) -> list[tuple[RiskLevel, str]]:
         if "-delete" in argv or "-exec" in argv:
-            return [(RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
-                     "find with -delete or -exec")]
+            return [
+                (
+                    RiskLevel.CRITICAL if protected else RiskLevel.DANGEROUS,
+                    "find with -delete or -exec",
+                )
+            ]
         return []
 
     @staticmethod
@@ -163,7 +179,8 @@ class CommandJudge:
         if any(a in ("stop", "disable", "mask") for a in argv[1:]):
             return [(RiskLevel.DANGEROUS, "service interruption")]
         if any(a in ("restart", "reload", "isolate") for a in argv[1:]) and any(
-                a.lower().removesuffix(".service") in CRITICAL_UNITS for a in argv[1:]):
+            a.lower().removesuffix(".service") in CRITICAL_UNITS for a in argv[1:]
+        ):
             return [(RiskLevel.DANGEROUS, "restarting a unit the current session depends on")]
         if any(a in ("start", "restart", "enable", "daemon-reload") for a in argv[1:]):
             return [(RiskLevel.CAUTION, "service state change")]
@@ -172,8 +189,10 @@ class CommandJudge:
     @staticmethod
     def _judge_git(argv: list[str]) -> list[tuple[RiskLevel, str]]:
         if re.search(
-                r"\breset\s+--hard\b|\bclean\s+-[a-z]*f|\bpush\s+--force\b"
-                r"|\bcheckout\s+--\s|\bstash\s+(drop|clear)\b", " ".join(argv[1:])):
+            r"\breset\s+--hard\b|\bclean\s+-[a-z]*f|\bpush\s+--force\b"
+            r"|\bcheckout\s+--\s|\bstash\s+(drop|clear)\b",
+            " ".join(argv[1:]),
+        ):
             return [(RiskLevel.DANGEROUS, "unrecoverable git operation")]
         return []
 
@@ -181,7 +200,9 @@ class CommandJudge:
     def _judge_package_manager(argv: list[str]) -> list[tuple[RiskLevel, str]]:
         if any(a in ("remove", "purge", "autoremove", "uninstall") for a in argv[1:]):
             return [(RiskLevel.DANGEROUS, "package removal")]
-        if "install" in argv[1:] and any(a.endswith("-") and not a.startswith("-") for a in argv[1:]):
+        if "install" in argv[1:] and any(
+            a.endswith("-") and not a.startswith("-") for a in argv[1:]
+        ):
             return [(RiskLevel.DANGEROUS, "an install that also removes a package (name-)")]
         if any(a in ("install", "upgrade", "update", "full-upgrade") for a in argv[1:]):
             return [(RiskLevel.CAUTION, "package change")]
@@ -191,9 +212,12 @@ class CommandJudge:
     def _pip_source_option(rest: list[str]) -> bool:
         """A short cluster whose first value-taking letter is `-i`/`-f`, or a prefix of a source long option."""
         clusters = (a[1:] for a in rest if a.startswith("-") and not a.startswith("--"))
-        longs = (a.split("=", 1)[0] for a in rest if a.startswith("--") and len(a.split("=", 1)[0]) > 2)
-        return any(next((ch for ch in c if ch in PIP_VALUE_SHORT), "") in ("i", "f") for c in clusters) or any(
-            s.startswith(f) for f in longs for s in PIP_SOURCE_LONG)
+        longs = (
+            a.split("=", 1)[0] for a in rest if a.startswith("--") and len(a.split("=", 1)[0]) > 2
+        )
+        return any(
+            next((ch for ch in c if ch in PIP_VALUE_SHORT), "") in ("i", "f") for c in clusters
+        ) or any(s.startswith(f) for f in longs for s in PIP_SOURCE_LONG)
 
     @staticmethod
     def _judge_package_install(program: str, argv: list[str]) -> list[tuple[RiskLevel, str]]:
@@ -213,13 +237,19 @@ class CommandJudge:
             return []
         flag_names = {a.split("=", 1)[0] for a in rest if a.startswith("-")}
         flag_values = [a.split("=", 1)[1] for a in rest if a.startswith("-") and "=" in a]
-        untrusted = bool(flag_names & UNTRUSTED_SOURCE_FLAGS) or any(
-            UNTRUSTED_SOURCE_OPERAND.match(a) for a in operands + flag_values) or (
-            program in ("pip", "pip3") and CommandJudge._pip_source_option(rest))
+        untrusted = (
+            bool(flag_names & UNTRUSTED_SOURCE_FLAGS)
+            or any(UNTRUSTED_SOURCE_OPERAND.match(a) for a in operands + flag_values)
+            or (program in ("pip", "pip3") and CommandJudge._pip_source_option(rest))
+        )
         if untrusted:
-            return [(RiskLevel.DANGEROUS,
-                     f"{program} install from a non-default source (custom index, URL, or VCS) "
-                     "-- runs fetched code, a supply-chain / RCE risk")]
+            return [
+                (
+                    RiskLevel.DANGEROUS,
+                    f"{program} install from a non-default source (custom index, URL, or VCS) "
+                    "-- runs fetched code, a supply-chain / RCE risk",
+                )
+            ]
         return []
 
     @staticmethod
@@ -275,7 +305,8 @@ class CommandJudge:
                 continue
             if "/" in literal or re.search(r"\.[A-Za-z0-9]{1,5}$", literal):
                 occurrences.setdefault(literal, []).append(
-                    CommandJudge._call_signature(source, m.start(), m.end()))
+                    CommandJudge._call_signature(source, m.start(), m.end())
+                )
         for literal, sigs in occurrences.items():
             if len(sigs) < 2:
                 continue
@@ -290,15 +321,23 @@ class CommandJudge:
         # and the old pattern required the dot so it never matched.
         found: list[tuple[RiskLevel, str]] = []
         source = " ".join(argv)
-        if re.search(r"rmtree|os\.remove|\bunlink\b|subprocess|os\.system"
-                     r"|unlinkSync|rmSync", source):
-            found.append((RiskLevel.DANGEROUS,
-                         f"{program} source performs filesystem or process operations"))
+        if re.search(
+            r"rmtree|os\.remove|\bunlink\b|subprocess|os\.system"
+            r"|unlinkSync|rmSync",
+            source,
+        ):
+            found.append(
+                (RiskLevel.DANGEROUS, f"{program} source performs filesystem or process operations")
+            )
         reopened = CommandJudge._repeated_path_literal(source)
         if reopened:
-            found.append((RiskLevel.DANGEROUS,
-                         f"{program} source reopens {reopened!r} -- looks like an "
-                         "in-place overwrite with no declared backup or rollback"))
+            found.append(
+                (
+                    RiskLevel.DANGEROUS,
+                    f"{program} source reopens {reopened!r} -- looks like an "
+                    "in-place overwrite with no declared backup or rollback",
+                )
+            )
         return found
 
     @staticmethod
@@ -346,7 +385,8 @@ class CommandJudge:
     def _judge_docker(argv: list[str]) -> list[tuple[RiskLevel, str]]:
         words = set(argv[1:])
         if words & {"rm", "rmi", "kill", "prune"} or (
-                "down" in words and words & {"-v", "--volumes"}):
+            "down" in words and words & {"-v", "--volumes"}
+        ):
             return [(RiskLevel.DANGEROUS, "removes containers, images or volumes")]
         if "--privileged" in words or words & {"--pid=host", "--cap-add=ALL"}:
             return [(RiskLevel.DANGEROUS, "runs a container with host-level privileges")]
@@ -363,19 +403,27 @@ class CommandJudge:
         return []
 
     @staticmethod
-    def _judge_tee_cp_mv_zip(program: str, protected: bool,
-                              overwrites_a_document: bool) -> list[tuple[RiskLevel, str]]:
+    def _judge_tee_cp_mv_zip(
+        program: str, protected: bool, overwrites_a_document: bool
+    ) -> list[tuple[RiskLevel, str]]:
         if protected:
             return [(RiskLevel.DANGEROUS, f"{program} writes to a system path")]
         if overwrites_a_document:
-            return [(RiskLevel.DANGEROUS,
-                     f"{program} writes to a path that looks like an existing office "
-                     "document (xlsx/docx/pptx/odt/ods/odp are zip containers -- a "
-                     "relative path here still isn't a protected system prefix)")]
+            return [
+                (
+                    RiskLevel.DANGEROUS,
+                    f"{program} writes to a path that looks like an existing office "
+                    "document (xlsx/docx/pptx/odt/ods/odp are zip containers -- a "
+                    "relative path here still isn't a protected system prefix)",
+                )
+            ]
         return []
 
     @staticmethod
     def _check_backstop(text: str, unparsed: bool) -> list[tuple[RiskLevel, str]]:
         """Regex backstop: catches whatever resolve() failed to parse."""
-        return [(level, f"{why} [regex backstop]") for pattern, level, why in BACKSTOP
-                if (unparsed or why not in UNPARSED_ONLY) and re.search(pattern, text, re.IGNORECASE)]
+        return [
+            (level, f"{why} [regex backstop]")
+            for pattern, level, why in BACKSTOP
+            if (unparsed or why not in UNPARSED_ONLY) and re.search(pattern, text, re.IGNORECASE)
+        ]

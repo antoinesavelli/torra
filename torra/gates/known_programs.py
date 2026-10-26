@@ -26,14 +26,23 @@ from .program_checks import _operands, _tar_paths
 from .program_tables import PREDICATES, SUBCOMMANDS
 
 __all__ = [
-    "BOUNDED_WRITE", "LAST_OPERAND_DESTINATION", "PREDICATES", "PROTECTED_WRITE", "READ_ONLY",
-    "READ_ONLY_PROGRAMS", "STANDARD_BIN_DIRS", "SUBCOMMANDS", "WRITER_PROGRAMS", "reads_credentials",
+    "BOUNDED_WRITE",
+    "LAST_OPERAND_DESTINATION",
+    "PREDICATES",
+    "PROTECTED_WRITE",
+    "READ_ONLY",
+    "READ_ONLY_PROGRAMS",
+    "STANDARD_BIN_DIRS",
+    "SUBCOMMANDS",
+    "WRITER_PROGRAMS",
+    "reads_credentials",
     "trust",
 ]
 
 
 #: Programs that cannot change files or system state whatever their arguments: they print.
-READ_ONLY_PROGRAMS = frozenset("""
+READ_ONLY_PROGRAMS = frozenset(
+    """
 ls dir vdir cat tac head tail wc nl od hexdump strings cut paste join comm column fold fmt
 expand unexpand rev tr grep egrep fgrep zgrep zcat bzcat xzcat basename dirname
 readlink realpath stat du df diff cmp md5sum sha1sum sha224sum sha256sum
@@ -44,26 +53,37 @@ uptime free ps pgrep pidof pstree top htop vmstat iostat mpstat pidstat lsof lsc
 lsusb lsmod lshw lsattr getfacl getent locale getconf findmnt blkid netstat ping
 traceroute tracepath dig nslookup host whois modinfo apt-cache dpkg-query lsb_release aa-status
 xdg-user-dir fsstat lsns lvs pvs vgs acpi glxinfo fc-list upower
-""".split())
+""".split()
+)
 
 #: Known to write files or state in a bounded way. They run flagged CAUTION, not unticked-silent.
-WRITER_PROGRAMS = frozenset("""
+WRITER_PROGRAMS = frozenset(
+    """
 tee cp touch mkdir ln install gzip gunzip bzip2 bunzip2 xz unxz zip unzip patch sync pytest
-""".split())
+""".split()
+)
 
 #: Writers whose destination is the last operand; every other writer's operands are all paths.
 LAST_OPERAND_DESTINATION = frozenset({"cp", "ln", "install", "rsync"})
 
-STANDARD_BIN_DIRS = ("/bin/", "/usr/bin/", "/sbin/", "/usr/sbin/", "/usr/local/bin/",
-                     "/usr/local/sbin/", "/snap/bin/")
+STANDARD_BIN_DIRS = (
+    "/bin/",
+    "/usr/bin/",
+    "/sbin/",
+    "/usr/sbin/",
+    "/usr/local/bin/",
+    "/usr/local/sbin/",
+    "/snap/bin/",
+)
 
 _DESTINATION_FLAGS = ("-t", "-d", "-C")
 
 
 def _program(argv0: str) -> str | None:
     """The program's name, or None when it is a path torra cannot vouch for."""
-    if "/" in argv0 and (not argv0.startswith(STANDARD_BIN_DIRS)
-                         or posixpath.normpath(argv0) != argv0):
+    if "/" in argv0 and (
+        not argv0.startswith(STANDARD_BIN_DIRS) or posixpath.normpath(argv0) != argv0
+    ):
         return None
     name = argv0.rsplit("/", 1)[-1]
     return "python" if re.fullmatch(r"python[0-9.]*", name) else name
@@ -83,7 +103,9 @@ def _lookup(program: str, argv: Sequence[str]) -> str | None:
 
 def _unresolved(path: str) -> bool:
     """A destination whose root torra cannot see (`$d`, a substitution, `/dev/$x`)."""
-    return path.startswith(("$", "SUBST")) or (path.startswith("/") and ("$" in path or "SUBST" in path))
+    return path.startswith(("$", "SUBST")) or (
+        path.startswith("/") and ("$" in path or "SUBST" in path)
+    )
 
 
 def _flag_value(tok: str, following: list[str]) -> list[str]:
@@ -97,7 +119,11 @@ def _flag_value(tok: str, following: list[str]) -> list[str]:
 
 def _flag_destinations(argv: Sequence[str]) -> list[str]:
     """Values given to a destination flag: `-t dir`, `-d/dir`, `-C dir`, `--target-directory=dir`."""
-    return [v for i, tok in enumerate(argv[1:], start=1) for v in _flag_value(tok, list(argv[i + 1:i + 2]))]
+    return [
+        v
+        for i, tok in enumerate(argv[1:], start=1)
+        for v in _flag_value(tok, list(argv[i + 1 : i + 2]))
+    ]
 
 
 def _destinations(program: str, argv: Sequence[str]) -> list[str]:
@@ -106,7 +132,9 @@ def _destinations(program: str, argv: Sequence[str]) -> list[str]:
     if program == "dd":
         return [a[3:] for a in argv[1:] if a.startswith("of=")]
     operands = _operands(argv)
-    return (operands[-1:] if program in LAST_OPERAND_DESTINATION else operands) + _flag_destinations(argv)
+    return (
+        operands[-1:] if program in LAST_OPERAND_DESTINATION else operands
+    ) + _flag_destinations(argv)
 
 
 def trust(argv: Sequence[str], protected: Callable[[str], bool]) -> str | None:
@@ -115,7 +143,8 @@ def trust(argv: Sequence[str], protected: Callable[[str], bool]) -> str | None:
     if program is None or "()" in argv[:2] or argv[0].endswith("()"):
         return None  # an unknown path, or a function definition hiding its body
     verdict = _lookup(program, argv)
-    if verdict == BOUNDED_WRITE and any(protected(d) or _unresolved(d)
-                                        for d in _destinations(program, argv)):
+    if verdict == BOUNDED_WRITE and any(
+        protected(d) or _unresolved(d) for d in _destinations(program, argv)
+    ):
         return PROTECTED_WRITE
     return verdict

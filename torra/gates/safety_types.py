@@ -22,8 +22,12 @@ class RiskLevel(StrEnum):
     CRITICAL = "critical"
 
 
-ORDER: list[RiskLevel] = [RiskLevel.SAFE, RiskLevel.CAUTION,
-                          RiskLevel.DANGEROUS, RiskLevel.CRITICAL]
+ORDER: list[RiskLevel] = [
+    RiskLevel.SAFE,
+    RiskLevel.CAUTION,
+    RiskLevel.DANGEROUS,
+    RiskLevel.CRITICAL,
+]
 
 
 @dataclass

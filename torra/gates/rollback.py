@@ -113,12 +113,16 @@ class VerifiedRollback:
             self.push(action)
         return len(actions)
 
-    def add(self, description: str, undo: Callable[[], Any], safe: bool = True,
-            verify: Callable[[], bool] | None = None,
-            step_id: str = "") -> UndoAction:
+    def add(
+        self,
+        description: str,
+        undo: Callable[[], Any],
+        safe: bool = True,
+        verify: Callable[[], bool] | None = None,
+        step_id: str = "",
+    ) -> UndoAction:
         """Push a caller-supplied undo, optionally with a verifier."""
-        return self.push(UndoAction(description, undo, safe, verify,
-                                    False, None, step_id))
+        return self.push(UndoAction(description, undo, safe, verify, False, None, step_id))
 
     def clear(self) -> None:
         """Drop the stack. Call on success, once changes are committed."""
@@ -141,11 +145,16 @@ class VerifiedRollback:
             # A crashing confirm callback is treated the same as a decline,
             # not as the undo having failed -- the undo itself never ran,
             # so "cancelled" is the honest state.
-            return RollbackResult(action.description, "cancelled",
-                                  f"confirm raised {type(exc).__name__}: {exc}", order)
+            return RollbackResult(
+                action.description,
+                "cancelled",
+                f"confirm raised {type(exc).__name__}: {exc}",
+                order,
+            )
         if not approved:
-            return RollbackResult(action.description, "cancelled",
-                                  "operator declined an unsafe undo", order)
+            return RollbackResult(
+                action.description, "cancelled", "operator declined an unsafe undo", order
+            )
         return None
 
     @staticmethod
@@ -154,11 +163,17 @@ class VerifiedRollback:
         try:
             action.undo()
         except Exception as exc:
-            return RollbackResult(action.description, "failed",
-                                  f"{type(exc).__name__}: {exc}", order)
+            return RollbackResult(
+                action.description, "failed", f"{type(exc).__name__}: {exc}", order
+            )
         if action.verify is None:
-            return RollbackResult(action.description, "undone",
-                                  "no verifier supplied, nothing was checked", order, None)
+            return RollbackResult(
+                action.description,
+                "undone",
+                "no verifier supplied, nothing was checked",
+                order,
+                None,
+            )
         try:
             ok, error = bool(action.verify()), ""
         except Exception as exc:
@@ -166,8 +181,12 @@ class VerifiedRollback:
         if ok:
             return RollbackResult(action.description, "undone", "", order, True)
         return RollbackResult(
-            action.description, "unverified",
-            error or "undo ran but the system is not back to its prior state", order, False)
+            action.description,
+            "unverified",
+            error or "undo ran but the system is not back to its prior state",
+            order,
+            False,
+        )
 
     def rollback(self) -> RollbackReport:
         """Unwind the stack newest first, verifying each undo."""
@@ -201,4 +220,5 @@ class VerifiedRollback:
 
         return RollbackReport(
             ok=all(r.status == "undone" and r.verified is not False for r in results),
-            results=results)
+            results=results,
+        )

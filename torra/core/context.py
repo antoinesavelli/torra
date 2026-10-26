@@ -99,7 +99,8 @@ class ContextCompressor:
         tokens = self._count(content)
         if tokens > self.max_tokens:
             raise ContextBudgetError(
-                f"{entry_id} needs {tokens} tokens, budget is {self.max_tokens}")
+                f"{entry_id} needs {tokens} tokens, budget is {self.max_tokens}"
+            )
         item = ContextStep(entry_id, role, content, tokens)
         self.entries.append(item)
         return item
@@ -140,8 +141,9 @@ class ContextCompressor:
         target = int(self.max_tokens * self.target_ratio)
         cut = 1
         while cut < compressible:
-            projected = (sum(e.tokens for e in self.entries[cut:])
-                         + self._count(self._summarize(self.entries[:cut])))
+            projected = sum(e.tokens for e in self.entries[cut:]) + self._count(
+                self._summarize(self.entries[:cut])
+            )
             if projected <= target:
                 break
             cut += 1
@@ -157,17 +159,29 @@ class ContextCompressor:
         if self._count(text) > old_tokens // 2:
             text = f"[COMPRESSED: {len(old)} earlier entries elided]"
         if self._count(text) >= old_tokens:
-            return CompressionResult(False, before, before, count, count, 0.0,
-                                     "skipped: summary would exceed source")
+            return CompressionResult(
+                False, before, before, count, count, 0.0, "skipped: summary would exceed source"
+            )
 
-        summary = ContextStep(f"summary::{old[0].entry_id}..{old[-1].entry_id}",
-                              "system", text, self._count(text), compressed=True)
+        summary = ContextStep(
+            f"summary::{old[0].entry_id}..{old[-1].entry_id}",
+            "system",
+            text,
+            self._count(text),
+            compressed=True,
+        )
         self.entries = [summary] + tail
         after = self.total_tokens
         self.compressions += 1
         return CompressionResult(
-            True, before, after, count, len(self.entries),
-            round((before - after) / before, 4) if before else 0.0, text)
+            True,
+            before,
+            after,
+            count,
+            len(self.entries),
+            round((before - after) / before, 4) if before else 0.0,
+            text,
+        )
 
     def maybe_compress(self) -> CompressionResult:
         """Compress only if the trigger has been crossed."""

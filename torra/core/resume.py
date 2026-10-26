@@ -28,8 +28,15 @@ from typing import Any
 
 from .tasks import TorraError
 
-__all__ = ["ResumePoint", "ResumeResolution", "resolve_resume", "command_digest", "begin_step",
-           "end_step", "interrupted_reason"]
+__all__ = [
+    "ResumePoint",
+    "ResumeResolution",
+    "resolve_resume",
+    "command_digest",
+    "begin_step",
+    "end_step",
+    "interrupted_reason",
+]
 
 
 @dataclass
@@ -64,10 +71,15 @@ class ResumePoint:
 
     def _well_typed(self) -> bool:
         """Whether every field has the type a resume decision relies on."""
-        return (isinstance(self.task_id, str) and isinstance(self.total, int)
-                and isinstance(self.in_progress, str) and isinstance(self.file_hashes, dict)
-                and isinstance(self.digests, dict) and isinstance(self.completed, list)
-                and all(isinstance(c, str) for c in self.completed))
+        return (
+            isinstance(self.task_id, str)
+            and isinstance(self.total, int)
+            and isinstance(self.in_progress, str)
+            and isinstance(self.file_hashes, dict)
+            and isinstance(self.digests, dict)
+            and isinstance(self.completed, list)
+            and all(isinstance(c, str) for c in self.completed)
+        )
 
     @classmethod
     def load(cls, path: os.PathLike[str] | str) -> ResumePoint | None:
@@ -140,8 +152,14 @@ def begin_step(resume: ResumePoint, path: os.PathLike[str] | str, step_id: str) 
     _save_quietly(resume, path)
 
 
-def end_step(resume: ResumePoint, path: os.PathLike[str] | str, step_id: str, command: str,
-             ok: bool, dry_run: bool) -> None:
+def end_step(
+    resume: ResumePoint,
+    path: os.PathLike[str] | str,
+    step_id: str,
+    command: str,
+    ok: bool,
+    dry_run: bool,
+) -> None:
     """Record a step's end. Only a real, successful step counts as completed."""
     resume.in_progress = ""
     if ok and not dry_run:
@@ -160,12 +178,19 @@ def _save_quietly(resume: ResumePoint, path: os.PathLike[str] | str) -> None:
 
 def interrupted_reason(step_id: str, path: os.PathLike[str] | str) -> str:
     """Why a run stops instead of re-running a step an earlier attempt left in flight."""
-    return (f"step {step_id!r} was running when torra stopped, so its effect is unknown; "
-            f"check what it did, then delete {path} to start the task over")
+    return (
+        f"step {step_id!r} was running when torra stopped, so its effect is unknown; "
+        f"check what it did, then delete {path} to start the task over"
+    )
 
 
-def resolve_resume(task_id: str, plan_digests: Mapping[str, str], total: int,
-                   resume_path: os.PathLike[str] | str, dry_run: bool) -> ResumeResolution:
+def resolve_resume(
+    task_id: str,
+    plan_digests: Mapping[str, str],
+    total: int,
+    resume_path: os.PathLike[str] | str,
+    dry_run: bool,
+) -> ResumeResolution:
     """Load a crash-left resume point for this exact task_id, validating it
     against the current plan before trusting a single entry in it.
 
@@ -186,27 +211,38 @@ def resolve_resume(task_id: str, plan_digests: Mapping[str, str], total: int,
         existing = ResumePoint.load(resume_path)
     except TorraError as exc:
         return ResumeResolution(
-            fresh, frozenset(), f"on-disk resume point is corrupt, starting fresh: {exc}")
+            fresh, frozenset(), f"on-disk resume point is corrupt, starting fresh: {exc}"
+        )
     if existing is None:
         return ResumeResolution(fresh, frozenset())
 
     plan_step_ids = list(plan_digests)
-    matches = (existing.task_id == task_id
-              and existing.total == total
-              and plan_step_ids[:len(existing.completed)] == existing.completed
-              and all(existing.digests.get(s) == plan_digests[s] for s in existing.completed))
+    matches = (
+        existing.task_id == task_id
+        and existing.total == total
+        and plan_step_ids[: len(existing.completed)] == existing.completed
+        and all(existing.digests.get(s) == plan_digests[s] for s in existing.completed)
+    )
     if not matches:
         return ResumeResolution(
-            fresh, frozenset(),
+            fresh,
+            frozenset(),
             "an on-disk resume point exists for this task_id but its step "
             "sequence doesn't match the current plan -- starting fresh "
-            "rather than trusting a possibly-unrelated record")
+            "rather than trusting a possibly-unrelated record",
+        )
 
-    resumed = ResumePoint(task_id=task_id, completed=list(existing.completed),
-                          total=total, file_hashes=dict(existing.file_hashes),
-                          digests=dict(existing.digests))
+    resumed = ResumePoint(
+        task_id=task_id,
+        completed=list(existing.completed),
+        total=total,
+        file_hashes=dict(existing.file_hashes),
+        digests=dict(existing.digests),
+    )
     interrupted = existing.in_progress if existing.in_progress in plan_digests else ""
-    note = (f"{len(existing.completed)}/{total} step(s) already completed in an "
-           "earlier attempt that didn't reach a clean finish; skipping them "
-           "rather than re-running")
+    note = (
+        f"{len(existing.completed)}/{total} step(s) already completed in an "
+        "earlier attempt that didn't reach a clean finish; skipping them "
+        "rather than re-running"
+    )
     return ResumeResolution(resumed, frozenset(existing.completed), note, interrupted)

@@ -52,13 +52,17 @@ class TestDrift:
 
     @staticmethod
     def _record(request: str, blocked: bool, codes: list[str] | None = None) -> TaskRecord:
-        return TaskRecord(task_id="t", request=request, at=1.0,
-                          clarifier_blocked=blocked,
-                          clarifier_codes=codes if codes is not None
-                          else (["gap"] if blocked else []))
+        return TaskRecord(
+            task_id="t",
+            request=request,
+            at=1.0,
+            clarifier_blocked=blocked,
+            clarifier_codes=codes if codes is not None else (["gap"] if blocked else []),
+        )
 
-    def _exporter(self, tmp_path: Path, ambiguous: list[str], specific: list[str]
-                  ) -> CorpusExporter:
+    def _exporter(
+        self, tmp_path: Path, ambiguous: list[str], specific: list[str]
+    ) -> CorpusExporter:
         labels = LabelStore(tmp_path / "labels.jsonl")
         for text in ambiguous:
             labels.label(text, ambiguous=True, why="vague")
@@ -72,8 +76,7 @@ class TestDrift:
         report = exporter.drift(records)
         assert "insufficient data" in report.verdict
 
-    def test_a_missed_ambiguous_request_counts_as_a_false_negative(
-            self, tmp_path: Path) -> None:
+    def test_a_missed_ambiguous_request_counts_as_a_false_negative(self, tmp_path: Path) -> None:
         ambiguous = [f"vague request {i}" for i in range(30)]
         exporter = self._exporter(tmp_path, ambiguous, [])
         # every ambiguous request's real attempt did NOT actually stop and
@@ -107,13 +110,15 @@ class TestDrift:
         exporter = self._exporter(tmp_path, ambiguous, specific)
         # every ambiguous request correctly stopped and asked (0% FN),
         # every specific request correctly proceeded without asking (0% FP)
-        records = ([self._record(text, blocked=True) for text in ambiguous]
-                  + [self._record(text, blocked=False) for text in specific])
+        records = [self._record(text, blocked=True) for text in ambiguous] + [
+            self._record(text, blocked=False) for text in specific
+        ]
         report = exporter.drift(records, baseline_fn=0.0, baseline_fp=0.10)
         assert report.verdict == "live performance is consistent with the baseline"
 
     def test_occurrences_are_counted_per_real_attempt_not_per_unique_text(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         """The same phrasing submitted multiple times with different real
         outcomes must count each attempt independently -- collapsing to
         one verdict per unique text would hide exactly the signal that
@@ -122,23 +127,26 @@ class TestDrift:
         single yes/no fact about the phrasing)."""
         specific = [f"specific {i}" for i in range(29)] + ["repeated"]
         exporter = self._exporter(tmp_path, [], specific)
-        records = ([self._record(f"specific {i}", blocked=False) for i in range(29)]
-                  + [self._record("repeated", blocked=True),
-                     self._record("repeated", blocked=True),
-                     self._record("repeated", blocked=False)])
+        records = [self._record(f"specific {i}", blocked=False) for i in range(29)] + [
+            self._record("repeated", blocked=True),
+            self._record("repeated", blocked=True),
+            self._record("repeated", blocked=False),
+        ]
 
         report = exporter.drift(records)
 
-        assert report.specific_total == 30       # unique labeled texts
+        assert report.specific_total == 30  # unique labeled texts
         assert report.specific_occurrences == 32  # 29 + 3 real attempts of "repeated"
-        assert len(report.false_positives) == 2   # both blocked attempts of "repeated"
+        assert len(report.false_positives) == 2  # both blocked attempts of "repeated"
 
     def test_an_unmatched_record_is_simply_ignored(self, tmp_path: Path) -> None:
         """A record whose request text was never labeled contributes to
         neither rate -- drift() only scores what a human actually judged."""
         exporter = self._exporter(tmp_path, ["labeled ambiguous"], [])
-        records = [self._record("labeled ambiguous", blocked=False),
-                  self._record("never labeled", blocked=True)]
+        records = [
+            self._record("labeled ambiguous", blocked=False),
+            self._record("never labeled", blocked=True),
+        ]
         report = exporter.drift(records)
         assert report.ambiguous_occurrences == 1
         assert report.specific_occurrences == 0
@@ -152,41 +160,62 @@ class TestLoopholeAudit:
     def _record(self, request: str, *, executed: bool, succeeded: bool) -> TaskRecord:
         stages = ["execute"] if executed else []
         status = "completed" if succeeded else "failed"
-        return TaskRecord(task_id="t", request=request, at=1.0,
-                          stages_completed=stages, status=status,
-                          clarifier_anchors=["absolute path"])
+        return TaskRecord(
+            task_id="t",
+            request=request,
+            at=1.0,
+            stages_completed=stages,
+            status=status,
+            clarifier_anchors=["absolute path"],
+        )
 
     def test_below_min_sample_draws_no_conclusion(self) -> None:
         report = LoopholeAudit(FakeClarifier(blocks=set())).audit(
-            [self._record("fix /etc/nginx.conf", executed=True, succeeded=True)])
+            [self._record("fix /etc/nginx.conf", executed=True, succeeded=True)]
+        )
         assert "insufficient data" in report.verdict
 
     def test_no_records_pass_the_clarifier_at_all(self) -> None:
-        records = [self._record(f"fix /etc/app{i}.conf", executed=True, succeeded=True)
-                  for i in range(30)]
+        records = [
+            self._record(f"fix /etc/app{i}.conf", executed=True, succeeded=True) for i in range(30)
+        ]
         report = LoopholeAudit(FakeClarifier(blocks={r.request for r in records})).audit(records)
         assert report.verdict == "no tasks cleared the clarifier, nothing to audit"
 
     def test_no_goalless_requests_in_the_traffic(self) -> None:
-        records = [self._record(f"fix /etc/app{i}.conf until it returns 200",
-                                executed=True, succeeded=True) for i in range(30)]
+        records = [
+            self._record(
+                f"fix /etc/app{i}.conf until it returns 200", executed=True, succeeded=True
+            )
+            for i in range(30)
+        ]
         report = LoopholeAudit(FakeClarifier(blocks=set())).audit(records)
         assert "did not occur" in report.verdict
 
     def test_goalless_requests_failing_more_recommends_acting(self) -> None:
-        goalless = [self._record(f"fix /etc/app{i}.conf", executed=True, succeeded=False)
-                   for i in range(15)]
-        with_goal = [self._record(f"fix /etc/svc{i}.conf until it returns 200",
-                                  executed=True, succeeded=True) for i in range(15)]
+        goalless = [
+            self._record(f"fix /etc/app{i}.conf", executed=True, succeeded=False) for i in range(15)
+        ]
+        with_goal = [
+            self._record(
+                f"fix /etc/svc{i}.conf until it returns 200", executed=True, succeeded=True
+            )
+            for i in range(15)
+        ]
         report = LoopholeAudit(FakeClarifier(blocks=set())).audit(goalless + with_goal)
         assert report.verdict.startswith("ACT")
         assert report.anchored_but_goalless == 15
 
     def test_goalless_requests_not_failing_more_just_keeps_measuring(self) -> None:
-        goalless = [self._record(f"fix /etc/app{i}.conf", executed=True, succeeded=True)
-                   for i in range(15)]
-        with_goal = [self._record(f"fix /etc/svc{i}.conf until it returns 200",
-                                  executed=True, succeeded=True) for i in range(15)]
+        goalless = [
+            self._record(f"fix /etc/app{i}.conf", executed=True, succeeded=True) for i in range(15)
+        ]
+        with_goal = [
+            self._record(
+                f"fix /etc/svc{i}.conf until it returns 200", executed=True, succeeded=True
+            )
+            for i in range(15)
+        ]
         report = LoopholeAudit(FakeClarifier(blocks=set())).audit(goalless + with_goal)
         assert "keep measuring" in report.verdict
 
@@ -218,14 +247,13 @@ class TestRedaction:
         scrubs before writing."""
         store = LabelStore(tmp_path / "labels.jsonl")
         entry = store.label(
-            "some request", True,
-            why="ambiguous because it says password=hunter2 with no context")
+            "some request", True, why="ambiguous because it says password=hunter2 with no context"
+        )
 
         assert "hunter2" not in entry.why
         assert "password=<REDACTED>" in entry.why
         on_disk = (tmp_path / "labels.jsonl").read_text(encoding="utf-8")
         assert "hunter2" not in on_disk
-
 
     def test_an_openrouter_key_is_redacted(self, tmp_path: Path) -> None:
         """`sk-or-v1-...` has dashes inside the key body, which the old
@@ -245,12 +273,22 @@ class TestRedaction:
         scrubbed = TaskLogger(tmp_path / "tasks.jsonl").scrub(f"Authorization: Bearer {token}")
         assert token not in scrubbed
 
-    def test_every_string_field_is_scrubbed_not_just_the_free_text_ones(self, tmp_path: Path) -> None:
+    def test_every_string_field_is_scrubbed_not_just_the_free_text_ones(
+        self, tmp_path: Path
+    ) -> None:
         """GRADE_TO_A_PLAN P3.1: ids, labels and lists of them can carry a key as well."""
         logger = TaskLogger(tmp_path / "tasks.jsonl")
         key = "sk-or-v1-" + "m1n2b3v4" * 6
-        logger.record(TaskRecord(task_id=f"t-{key}", request="r", at=1.0, model=key,
-                                 uncovered_steps=[f"s-{key}"], intent=key))
+        logger.record(
+            TaskRecord(
+                task_id=f"t-{key}",
+                request="r",
+                at=1.0,
+                model=key,
+                uncovered_steps=[f"s-{key}"],
+                intent=key,
+            )
+        )
         assert "m1n2b3v4" not in (tmp_path / "tasks.jsonl").read_text(encoding="utf-8")
 
     def test_abort_reason_is_scrubbed_before_it_is_written(self, tmp_path: Path) -> None:
@@ -258,8 +296,9 @@ class TestRedaction:
         stderr, which is exactly where a printed key ends up."""
         logger = TaskLogger(tmp_path / "tasks.jsonl")
         key = "sk-or-v1-" + "q9w8e7r6" * 6
-        logger.record(TaskRecord(task_id="t", request="r", at=1.0,
-                                 abort_reason=f"step failed: exit 1: {key}"))
+        logger.record(
+            TaskRecord(task_id="t", request="r", at=1.0, abort_reason=f"step failed: exit 1: {key}")
+        )
         assert key[:12] not in (tmp_path / "tasks.jsonl").read_text(encoding="utf-8")
 
 
@@ -283,18 +322,19 @@ class TestTaskLoggerFailureEdges:
 
     def test_scrub_truncates_text_past_the_configured_limit(self, tmp_path: Path) -> None:
         logger = TaskLogger(tmp_path / "tasks.jsonl", max_request_chars=10)
-        assert logger.scrub("a request far longer than ten characters") == \
-            "a request  ...<truncated>"
+        assert (
+            logger.scrub("a request far longer than ten characters") == "a request  ...<truncated>"
+        )
 
     def test_record_stamps_a_missing_timestamp_from_the_injected_clock(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         logger = TaskLogger(tmp_path / "tasks.jsonl", clock=lambda: 12345.0)
         record = self._record(at=0.0)
         assert logger.record(record) is True
         assert record.at == 12345.0
 
-    def test_a_write_failure_is_recorded_not_raised(
-            self, tmp_path: Path, monkeypatch) -> None:
+    def test_a_write_failure_is_recorded_not_raised(self, tmp_path: Path, monkeypatch) -> None:
         path = tmp_path / "tasks.jsonl"
         logger = TaskLogger(path)
         real_open = Path.open
@@ -335,8 +375,7 @@ class TestTaskLoggerFailureEdges:
         assert [r.task_id for r in records] == ["good-one", "good-two"]
         assert any("unreadable" in e for e in logger.errors)
 
-    def test_read_records_a_failure_instead_of_raising(
-            self, tmp_path: Path, monkeypatch) -> None:
+    def test_read_records_a_failure_instead_of_raising(self, tmp_path: Path, monkeypatch) -> None:
         path = tmp_path / "tasks.jsonl"
         logger = TaskLogger(path)
         logger.record(self._record())
@@ -414,8 +453,7 @@ class TestCrashReporterFailureEdges:
         assert "sk-abcdefghijklmnopqrstuvwx" not in record.message
         assert "<API_KEY>" in record.message
 
-    def test_a_write_failure_is_recorded_not_raised(
-            self, tmp_path: Path, monkeypatch) -> None:
+    def test_a_write_failure_is_recorded_not_raised(self, tmp_path: Path, monkeypatch) -> None:
         path = tmp_path / "crashes.jsonl"
         reporter = CrashReporter(path)
         real_open = Path.open
@@ -445,8 +483,7 @@ class TestCrashReporterFailureEdges:
         assert [r.message for r in records] == ["first", "second"]
         assert any("unreadable" in e for e in reporter.errors)
 
-    def test_read_records_a_failure_instead_of_raising(
-            self, tmp_path: Path, monkeypatch) -> None:
+    def test_read_records_a_failure_instead_of_raising(self, tmp_path: Path, monkeypatch) -> None:
         path = tmp_path / "crashes.jsonl"
         reporter = CrashReporter(path)
         reporter.record(self._error(), site="tui")
@@ -489,8 +526,7 @@ class TestLabelStoreFailureEdges:
         store = LabelStore(blocker / "labels.jsonl")  # "blocker" is a file, not a dir
         assert any("directory unusable" in e for e in store.errors)
 
-    def test_a_write_failure_is_recorded_not_raised(
-            self, tmp_path: Path, monkeypatch) -> None:
+    def test_a_write_failure_is_recorded_not_raised(self, tmp_path: Path, monkeypatch) -> None:
         path = tmp_path / "labels.jsonl"
         store = LabelStore(path)
         real_open = Path.open
@@ -529,8 +565,7 @@ class TestLabelStoreFailureEdges:
         assert list(store.all()) == ["some request"]
         assert store.errors == []
 
-    def test_a_read_failure_is_recorded_not_raised(
-            self, tmp_path: Path, monkeypatch) -> None:
+    def test_a_read_failure_is_recorded_not_raised(self, tmp_path: Path, monkeypatch) -> None:
         path = tmp_path / "labels.jsonl"
         store = LabelStore(path)
         store.label("some request", True)
@@ -569,11 +604,17 @@ class TestCorpusExporterExtras:
 
     def test_drift_report_render_includes_examples_when_present(self) -> None:
         report = DriftReport(
-            labeled_total=2, ambiguous_total=1, specific_total=1,
-            ambiguous_occurrences=1, specific_occurrences=1,
+            labeled_total=2,
+            ambiguous_total=1,
+            specific_total=1,
+            ambiguous_occurrences=1,
+            specific_occurrences=1,
             false_negatives=[("missed request", "vague")],
             false_positives=[("blocked request", "anchor_missing")],
-            fn_rate=1.0, fp_rate=1.0, verdict="DRIFT: something")
+            fn_rate=1.0,
+            fp_rate=1.0,
+            verdict="DRIFT: something",
+        )
 
         rendered = report.render()
 
@@ -583,14 +624,16 @@ class TestCorpusExporterExtras:
         assert "INTERRUPTED" in rendered
 
     def test_loophole_report_to_dict_is_serializable(self) -> None:
-        report = LoopholeReport(total=5, passed_clarifier=3, anchored_but_goalless=1,
-                                verdict="keep measuring")
+        report = LoopholeReport(
+            total=5, passed_clarifier=3, anchored_but_goalless=1, verdict="keep measuring"
+        )
         assert report.to_dict()["total"] == 5
         assert report.to_dict()["verdict"] == "keep measuring"
 
     def test_drift_report_to_dict_is_serializable(self) -> None:
-        report = DriftReport(labeled_total=2, ambiguous_total=1, specific_total=1,
-                             fn_rate=0.5, verdict="looks fine")
+        report = DriftReport(
+            labeled_total=2, ambiguous_total=1, specific_total=1, fn_rate=0.5, verdict="looks fine"
+        )
         assert report.to_dict()["labeled_total"] == 2
         assert report.to_dict()["verdict"] == "looks fine"
 
@@ -600,16 +643,16 @@ class TestLoopholeAuditEdges:
     beyond the happy paths in TestLoopholeAudit above."""
 
     def _record(self, request: str, *, anchors: list[str] | None = None) -> TaskRecord:
-        return TaskRecord(task_id="t", request=request, at=1.0,
-                          clarifier_anchors=anchors or [])
+        return TaskRecord(task_id="t", request=request, at=1.0, clarifier_anchors=anchors or [])
 
     def test_a_raising_clarifier_is_skipped_not_fatal_to_the_audit(self) -> None:
         class Explodes:
             def detect(self, request: str):
                 raise RuntimeError("boom")
 
-        records = [self._record(f"fix /etc/app{i}.conf", anchors=["absolute path"])
-                  for i in range(30)]
+        records = [
+            self._record(f"fix /etc/app{i}.conf", anchors=["absolute path"]) for i in range(30)
+        ]
         report = LoopholeAudit(Explodes()).audit(records)
 
         # Every record's detect() call raised, so none ever counted as
@@ -643,8 +686,10 @@ class TestSummary:
         assert health_summary([]) == "no tasks recorded yet"
 
     def test_health_summary_shows_every_outcome_not_just_completed(self) -> None:
-        records = [self._record(status=s) for s in
-                  ["completed", "blocked", "blocked", "refused", "backend_down", "failed"]]
+        records = [
+            self._record(status=s)
+            for s in ["completed", "blocked", "blocked", "refused", "backend_down", "failed"]
+        ]
         out = health_summary(records)
         assert "blocked          : 2" in out
         assert "refused          : 1" in out
@@ -654,8 +699,9 @@ class TestSummary:
     def test_health_summary_reports_backend_split_and_latency(self) -> None:
         records = [
             self._record(status="completed", model="devstral:24b", seconds=4.0),
-            self._record(status="completed",
-                        model="openrouter/anthropic/claude-3.5-sonnet", seconds=2.0),
+            self._record(
+                status="completed", model="openrouter/anthropic/claude-3.5-sonnet", seconds=2.0
+            ),
         ]
         out = health_summary(records)
         assert "backend: 1 local, 1 openrouter" in out
@@ -693,7 +739,9 @@ def test_a_label_line_with_a_field_from_a_later_version_still_loads(tmp_path: Pa
     path = tmp_path / "labels.jsonl"
     path.write_text(
         '{"request": "r", "ambiguous": true, "why": "", "labeled_at": 1.0, '
-        '"labeler": "a", "confidence": 0.9}\n', encoding="utf-8")
+        '"labeler": "a", "confidence": 0.9}\n',
+        encoding="utf-8",
+    )
     store = LabelStore(path)
     assert store.all()["r"].ambiguous is True
     assert store.errors == []

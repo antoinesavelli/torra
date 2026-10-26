@@ -66,23 +66,22 @@ def pipefail_wrapped(command: str) -> str:
     return (
         "set -o pipefail\n"
         "set -E\n"
-        f"trap '{_ERR_TRAP}' ERR\n"
-        + command + "\n"
-        "_rc=$? _ps=(\"${PIPESTATUS[@]}\")\n"
-        "if [ \"$_rc\" -eq 0 ]; then exit 0; fi\n"
+        f"trap '{_ERR_TRAP}' ERR\n" + command + "\n"
+        '_rc=$? _ps=("${PIPESTATUS[@]}")\n'
+        'if [ "$_rc" -eq 0 ]; then exit 0; fi\n'
         "_last=$((${#_ps[@]}-1))\n"
         "_ec=0\n"
-        "for _i in \"${_ps[@]}\"; do\n"
-        "  if [ \"$_i\" -ne 0 ]; then _ec=$_i; fi\n"
+        'for _i in "${_ps[@]}"; do\n'
+        '  if [ "$_i" -ne 0 ]; then _ec=$_i; fi\n'
         "done\n"
-        "if [ \"$_ec\" -ne 0 ] && [ \"${_ps[$_last]}\" -eq 0 ]; then\n"
+        'if [ "$_ec" -ne 0 ] && [ "${_ps[$_last]}" -eq 0 ]; then\n'
         "  _ok=1\n"
-        "  for _i in \"${_ps[@]:0:$_last}\"; do\n"
-        "    if [ \"$_i\" -ne 0 ] && [ \"$_i\" -ne 141 ]; then _ok=0; fi\n"
+        '  for _i in "${_ps[@]:0:$_last}"; do\n'
+        '    if [ "$_i" -ne 0 ] && [ "$_i" -ne 141 ]; then _ok=0; fi\n'
         "  done\n"
-        "  if [ \"$_ok\" -eq 1 ]; then _ec=0; fi\n"
+        '  if [ "$_ok" -eq 1 ]; then _ec=0; fi\n'
         "fi\n"
-        "exit \"$_ec\"\n"
+        'exit "$_ec"\n'
     )
 
 
@@ -98,9 +97,15 @@ def shell_syntax_error(command: str, timeout: float = 5.0) -> str | None:
 
     try:
         done = subprocess.run(
-            ["/bin/bash", "-n", "-c", command], capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
-            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+            ["/bin/bash", "-n", "-c", command],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     lines = done.stderr.strip().splitlines()
@@ -148,6 +153,7 @@ def _kill_group(proc: Any) -> None:
     """Stop a step and everything it started: TERM its process group, then KILL what is left."""
     import signal
     import subprocess
+
     try:
         os.killpg(proc.pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -163,9 +169,15 @@ def _kill_group(proc: Any) -> None:
     proc.wait()
 
 
-def _consume(lines: Any, kept: dict[str, _CappedText], open_streams: int, deadline: float,
-             command: str, timeout: float | None,
-             on_output: Callable[[str], None] | None) -> None:
+def _consume(
+    lines: Any,
+    kept: dict[str, _CappedText],
+    open_streams: int,
+    deadline: float,
+    command: str,
+    timeout: float | None,
+    on_output: Callable[[str], None] | None,
+) -> None:
     """Drain both reader threads' queue until each stream has closed, or raise on the deadline."""
     import queue
     import subprocess
@@ -188,8 +200,9 @@ def _consume(lines: Any, kept: dict[str, _CappedText], open_streams: int, deadli
             on_output(line)
 
 
-def run_in_group(command: str, cwd: str | None, timeout: float | None,
-                  on_output: Callable[[str], None] | None) -> str:
+def run_in_group(
+    command: str, cwd: str | None, timeout: float | None, on_output: Callable[[str], None] | None
+) -> str:
     """Run `command` under bash in its own process group; raise on a non-zero exit.
 
     The group is what makes a timeout or Ctrl-C stop the step's children too (a bare
@@ -218,9 +231,16 @@ def run_in_group(command: str, cwd: str | None, timeout: float | None,
     proc = subprocess.Popen(
         # Live wire: HANDOFF.md §5.16
         ["/bin/bash", "-c", pipefail_wrapped(command)],
-        cwd=cwd, env={k: v for k, v in os.environ.items() if k not in WITHHELD_ENV},
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace", start_new_session=True)
+        cwd=cwd,
+        env={k: v for k, v in os.environ.items() if k not in WITHHELD_ENV},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        start_new_session=True,
+    )
     assert proc.stdout is not None and proc.stderr is not None
 
     lines: queue.Queue[tuple[str, str] | None] = queue.Queue(maxsize=4096)
@@ -244,8 +264,15 @@ def run_in_group(command: str, cwd: str | None, timeout: float | None,
 
     kept = {"out": _CappedText(), "err": _CappedText()}
     try:
-        _consume(lines, kept, len(readers), _time.monotonic() + (timeout or 3600),
-                 command, timeout, on_output)
+        _consume(
+            lines,
+            kept,
+            len(readers),
+            _time.monotonic() + (timeout or 3600),
+            command,
+            timeout,
+            on_output,
+        )
     except BaseException:
         # A timeout, Ctrl-C or a failing callback: leave nothing of the step running.
         _kill_group(proc)

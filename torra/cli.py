@@ -88,21 +88,29 @@ def build_torra(workdir: Path, offline: bool = False) -> Torra:
     here (`cmd_tui`), not build its own `Torra` independently, or it
     would silently never see it either.
     """
-    ollama = (OllamaClient(transport=lambda p, pay, t: {"models": []})
-              if offline else OllamaClient())
+    ollama = OllamaClient(transport=lambda p, pay, t: {"models": []}) if offline else OllamaClient()
     backends: dict[str, ModelBackend] = {"openrouter": OpenRouterClient()}
-    return Torra(workdir=workdir, ollama=ollama, verifier=StateVerifier.default(),
-                 backends=backends, path_exists=os.path.exists)
+    return Torra(
+        workdir=workdir,
+        ollama=ollama,
+        verifier=StateVerifier.default(),
+        backends=backends,
+        path_exists=os.path.exists,
+    )
 
 
 def print_plan(plan: Plan) -> None:
     """Render a gated plan for a terminal."""
     print(f"\ntask   : {plan.spec.task_id}")
     print(f"request: {plan.spec.request}")
-    print(f"model  : {plan.model}  worst: {plan.worst_level.value}"
-          + (f"  ({plan.repairs} repair(s))" if plan.repairs else ""))
-    print(f"undo   : {plan.coverage.get('coverage_ratio', 0):.0%} coverage"
-          + (f", none for {plan.uncovered}" if plan.uncovered else ""))
+    print(
+        f"model  : {plan.model}  worst: {plan.worst_level.value}"
+        + (f"  ({plan.repairs} repair(s))" if plan.repairs else "")
+    )
+    print(
+        f"undo   : {plan.coverage.get('coverage_ratio', 0):.0%} coverage"
+        + (f", none for {plan.uncovered}" if plan.uncovered else "")
+    )
     for warning in plan.warnings:
         print(f"warning: {warning}")
     print()
@@ -157,8 +165,9 @@ def approve_at_prompt(plan: Plan) -> dict[str, bool]:
     return approvals
 
 
-def confirm_and_approve(plan: Plan, args: argparse.Namespace,
-                        always_ask: bool = False) -> dict[str, bool] | None:
+def confirm_and_approve(
+    plan: Plan, args: argparse.Namespace, always_ask: bool = False
+) -> dict[str, bool] | None:
     """Ask once before anything runs, then tick each step that needs it; None declines the plan.
 
     `--yes` skips the plan question (a `--verify` fix round asks regardless) but never ticks a
@@ -186,8 +195,7 @@ def cmd_tui(args: argparse.Namespace) -> int:
     try:
         from .tui import run_tui
     except ImportError:
-        print("error: textual is not installed. pip install textual",
-              file=sys.stderr)
+        print("error: textual is not installed. pip install textual", file=sys.stderr)
         return EXIT_USAGE
     workdir = Path(args.workdir)
     # build_torra(), not a bare Torra(workdir=...) -- that used to be
@@ -208,12 +216,12 @@ def _collect_answers(result: RunResult, non_interactive: bool) -> tuple[list[str
     it's not None.
     """
     print("\nquestions:")
-    for question in (result.turn.questions if result.turn else []):
+    for question in result.turn.questions if result.turn else []:
         print(f"  ? {question}")
     if non_interactive:
         return [], EXIT_BLOCKED
     answers = []
-    for question in (result.turn.questions if result.turn else []):
+    for question in result.turn.questions if result.turn else []:
         try:
             answers.append(input(f"  {question}\n  > ").strip())
         except (EOFError, KeyboardInterrupt):
@@ -224,8 +232,10 @@ def _collect_answers(result: RunResult, non_interactive: bool) -> tuple[list[str
 def _print_execution_report(done: RunResult) -> None:
     print(f"\noutcome: {done.outcome.value}")
     for step_result in done.results:
-        print(f"  {'ok  ' if step_result.ok else 'FAIL'} {step_result.step_id}"
-              + (f": {step_result.error}" if step_result.error else ""))
+        print(
+            f"  {'ok  ' if step_result.ok else 'FAIL'} {step_result.step_id}"
+            + (f": {step_result.error}" if step_result.error else "")
+        )
     if done.summary:
         print(f"\n{done.summary}")
     if done.abort_reason:
@@ -242,20 +252,24 @@ def _print_execution_report(done: RunResult) -> None:
         # spec was overridden to effectively unsafe) left the target file in
         # place after a deliberate failure, invisible in this summary and
         # visible only in the audit JSON's rollback.results[].status.
-        print(f"rollback: {len(done.rollback.undone)} undone, "
-              f"{len(done.rollback.unverified)} unverified, "
-              f"{len(done.rollback.cancelled)} declined, "
-              f"{len(done.rollback.failed)} failed")
+        print(
+            f"rollback: {len(done.rollback.undone)} undone, "
+            f"{len(done.rollback.unverified)} unverified, "
+            f"{len(done.rollback.cancelled)} declined, "
+            f"{len(done.rollback.failed)} failed"
+        )
     if done.audit_path:
         print(f"audit  : {done.audit_path}")
 
 
 def _approve_for_ask(args: argparse.Namespace) -> Approve:
     """Every `--verify` round shows its plan, then is confirmed the way a single `ask` is."""
+
     def approve(plan: Plan, kind: str) -> dict[str, bool] | None:
         print(f"\n[{kind} round]")
         print_plan(plan)
         return confirm_and_approve(plan, args, always_ask=kind == "fix")
+
     return approve
 
 
@@ -264,14 +278,21 @@ def cmd_ask_with_verify(torra: Torra, args: argparse.Namespace) -> int:
     iterate.py for why this is still just ordinary plan()/execute() turns
     on the same conversation, not a second way to run a command."""
     if args.non_interactive and not getattr(args, "yes", False):
-        print("--verify with --non-interactive runs model-written steps with nobody watching; "
-              "add --yes to allow it.")
+        print(
+            "--verify with --non-interactive runs model-written steps with nobody watching; "
+            "add --yes to allow it."
+        )
         return EXIT_BLOCKED
     report = iterate(
-        torra, args.request, args.verify, _approve_for_ask(args),
-        model=args.model, dry_run=args.dry_run,
+        torra,
+        args.request,
+        args.verify,
+        _approve_for_ask(args),
+        model=args.model,
+        dry_run=args.dry_run,
         max_iterations=args.max_iterations,
-        on_round=lambda r: _print_execution_report(r.last) if r.last else None)
+        on_round=lambda r: _print_execution_report(r.last) if r.last else None,
+    )
     if report.fix_attempts:
         print(f"\n{report.fix_attempts} fix attempt(s) made")
     if report.verified:
@@ -349,12 +370,17 @@ def cmd_run(args: argparse.Namespace) -> int:
     plan = torra._gate(spec)
     print_plan(plan)
 
-    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
-                       stages=["gate", "present"], plan=plan)
+    result = RunResult(
+        request=spec.request,
+        outcome=Outcome.AWAITING_APPROVAL,
+        stages=["gate", "present"],
+        plan=plan,
+    )
     if plan.preconditions and not plan.preconditions.passed:
         result.outcome = Outcome.BLOCKED
         result.abort_reason = "preconditions failed: " + ", ".join(
-            r.name for r in plan.preconditions.blocking_failures)
+            r.name for r in plan.preconditions.blocking_failures
+        )
         # Same choke point Torra.plan() uses for the identical case --
         # calling _finish() (not printing and returning) is what actually
         # writes the audit record and telemetry entry; skipping it here
@@ -386,8 +412,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     for command in spec.commands():
         verdict = safety.classify(command)
         blocked += 1 if verdict.needs_confirmation else 0
-        print(f"  {'BLOCK' if verdict.needs_confirmation else '  ok '} "
-              f"{verdict.level.value:9} {command}")
+        print(
+            f"  {'BLOCK' if verdict.needs_confirmation else '  ok '} "
+            f"{verdict.level.value:9} {command}"
+        )
         if args.verbose:
             for reason in verdict.reasons[:3]:
                 print(f"             {reason}")
@@ -398,12 +426,13 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def _check_python_and_modules() -> list[tuple[str, bool, str]]:
     checks: list[tuple[str, bool, str]] = [
-        ("python >= 3.10", sys.version_info >= (3, 10),
-         ".".join(map(str, sys.version_info[:3]))),
+        ("python >= 3.10", sys.version_info >= (3, 10), ".".join(map(str, sys.version_info[:3]))),
     ]
-    for module, note in (("yaml", "required for task files"),
-                         ("textual", "required for the terminal interface"),
-                         ("inotify_simple", "optional, falls back to full walks")):
+    for module, note in (
+        ("yaml", "required for task files"),
+        ("textual", "required for the terminal interface"),
+        ("inotify_simple", "optional, falls back to full walks"),
+    ):
         try:
             __import__(module)
             checks.append((module, True, note))
@@ -428,10 +457,8 @@ def _check_workdir_writable(workdir: Path) -> tuple[str, bool, str]:
 
 def _check_reflink() -> tuple[str, bool, str]:
     try:
-        probe = subprocess.run(["cp", "--reflink=always", "--help"],
-                               capture_output=True, timeout=5)
-        return ("cp --reflink", probe.returncode == 0,
-               "shadow snapshots may clone instead of copy")
+        probe = subprocess.run(["cp", "--reflink=always", "--help"], capture_output=True, timeout=5)
+        return ("cp --reflink", probe.returncode == 0, "shadow snapshots may clone instead of copy")
     except Exception as exc:
         return "cp --reflink", False, type(exc).__name__
 
@@ -452,8 +479,11 @@ def _check_ollama() -> tuple[str, bool, str]:
     ollama = OllamaClient()
     status = ollama.health()
     models = ollama.models() if status is OllamaStatus.HEALTHY else []
-    detail = (", ".join(models) if models
-             else status.value + (f" ({ollama.last_error})" if ollama.last_error else ""))
+    detail = (
+        ", ".join(models)
+        if models
+        else status.value + (f" ({ollama.last_error})" if ollama.last_error else "")
+    )
     return f"ollama at {ollama.host}", status is OllamaStatus.HEALTHY, detail
 
 
@@ -472,9 +502,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print(f"  {'ok  ' if ok else 'WARN'}  {name:<{width}}  {detail}")
     print(f"\n{len(checks) - failed}/{len(checks)} checks passed")
     if failed:
-        print("yaml blocks task files, textual blocks the interface, and a "
-              "missing Ollama blocks planning but not `run`. Everything else "
-              "has a documented fallback.")
+        print(
+            "yaml blocks task files, textual blocks the interface, and a "
+            "missing Ollama blocks planning but not `run`. Everything else "
+            "has a documented fallback."
+        )
     return EXIT_OK
 
 
@@ -492,8 +524,7 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     # turns and nowhere in this breakdown. A Counter over whatever intents
     # actually occurred can't go stale the way a hardcoded pair of lines did.
     print(f"tasks recorded : {len(records)}")
-    intent_labels = {"plan": "planned", "ask": "asked",
-                     "answer": "answered", "refuse": "refused"}
+    intent_labels = {"plan": "planned", "ask": "asked", "answer": "answered", "refuse": "refused"}
     intents = Counter(r.intent for r in records if r.intent)
     for intent, count in intents.most_common():
         print(f"  {intent_labels.get(intent, intent or 'unknown'):<12} : {count}")
@@ -506,8 +537,10 @@ def cmd_evidence(args: argparse.Namespace) -> int:
     print(exporter.drift(records, args.baseline_fn, args.baseline_fp).render())
     print()
     loophole = LoopholeAudit(clarifier).audit(records)
-    print(f"anchored-but-goalless: {loophole.anchored_but_goalless} of "
-         f"{loophole.passed_clarifier} passed request(s)")
+    print(
+        f"anchored-but-goalless: {loophole.anchored_but_goalless} of "
+        f"{loophole.passed_clarifier} passed request(s)"
+    )
     print(f"  verdict: {loophole.verdict}")
     if loophole.examples:
         print("  examples:")
@@ -575,7 +608,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="torra",
         description="A local model proposes, five gates decide, you approve.",
-        epilog="exit codes: 0 ok, 1 usage, 2 stopped by a gate, 3 failed")
+        epilog="exit codes: 0 ok, 1 usage, 2 stopped by a gate, 3 failed",
+    )
     parser.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
     sub = parser.add_subparsers(dest="command")
 
@@ -586,20 +620,32 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("request")
     ask.add_argument("--model")
     ask.add_argument("--dry-run", action="store_true")
-    ask.add_argument("--non-interactive", action="store_true",
-                     help="never prompt: shows the plan and stops unless --yes is also given")
-    ask.add_argument("--yes", action="store_true",
-                     help="skip the 'run this plan?' question (a --verify fix round still asks); "
-                          "with --non-interactive, run the steps that need no tick. "
-                          "Never ticks a step that needs one")
+    ask.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="never prompt: shows the plan and stops unless --yes is also given",
+    )
+    ask.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip the 'run this plan?' question (a --verify fix round still asks); "
+        "with --non-interactive, run the steps that need no tick. "
+        "Never ticks a step that needs one",
+    )
     ask.add_argument("--plan-only", action="store_true")
-    ask.add_argument("--verify",
-                     help="after the request completes, repeat this check "
-                          "(e.g. 'run pytest tests/') and, if it fails, ask "
-                          "the model to fix it and re-check -- up to "
-                          "--max-iterations times")
-    ask.add_argument("--max-iterations", type=int, default=3,
-                     help="fix attempts allowed under --verify (default: 3)")
+    ask.add_argument(
+        "--verify",
+        help="after the request completes, repeat this check "
+        "(e.g. 'run pytest tests/') and, if it fails, ask "
+        "the model to fix it and re-check -- up to "
+        "--max-iterations times",
+    )
+    ask.add_argument(
+        "--max-iterations",
+        type=int,
+        default=3,
+        help="fix attempts allowed under --verify (default: 3)",
+    )
     ask.set_defaults(func=cmd_ask)
 
     plan = sub.add_parser("plan", help="plan only, run nothing")
@@ -674,8 +720,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:  # no silent failures, even at the top level
         crash_path = Path(args.workdir) / "telemetry" / "crashes.jsonl"
         CrashReporter(crash_path).record(exc, site=f"cli:{args.command or 'unknown'}")
-        print(f"unhandled {type(exc).__name__}: {exc}\nlogged to {crash_path}",
-              file=sys.stderr)
+        print(f"unhandled {type(exc).__name__}: {exc}\nlogged to {crash_path}", file=sys.stderr)
         return EXIT_FAILED
 
 

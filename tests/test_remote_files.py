@@ -17,8 +17,21 @@ from torra.gates import RiskLevel, SafetyClassifier
 
 
 def _spec(kind: str, **fields) -> TaskSpec:
-    return TaskSpec.validate({"task_id": "t", "request": "r", "steps": [
-        {"id": "s", "kind": kind, "run": "ignored", "remote_path": "/etc/app.conf", **fields}]})
+    return TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "r",
+            "steps": [
+                {
+                    "id": "s",
+                    "kind": kind,
+                    "run": "ignored",
+                    "remote_path": "/etc/app.conf",
+                    **fields,
+                }
+            ],
+        }
+    )
 
 
 def test_a_push_uploads_the_local_file_byte_for_byte(tmp_path: Path) -> None:
@@ -28,7 +41,8 @@ def test_a_push_uploads_the_local_file_byte_for_byte(tmp_path: Path) -> None:
     local.write_bytes(original)
     sent: list[str] = []
     step = _spec("remote_push", reads=[str(local)]).to_steps(
-        executor_runner=lambda cmd, cwd, timeout: sent.append(cmd) or "")[0]
+        executor_runner=lambda cmd, cwd, timeout: sent.append(cmd) or ""
+    )[0]
 
     assert step.run is not None
     step.run()
@@ -49,7 +63,8 @@ def test_a_pull_refuses_output_that_is_not_pure_base64(tmp_path: Path) -> None:
     dest = tmp_path / "pulled"
     noisy = "Welcome to the box\n" + base64.b64encode(b"real").decode()
     step = _spec("remote_pull", touches=[str(dest)]).to_steps(
-        executor_runner=lambda cmd, cwd, timeout: noisy)[0]
+        executor_runner=lambda cmd, cwd, timeout: noisy
+    )[0]
 
     assert step.run is not None
     with pytest.raises(Exception, match="(?i)base64|padding|non-base64"):
@@ -57,8 +72,10 @@ def test_a_pull_refuses_output_that_is_not_pure_base64(tmp_path: Path) -> None:
     assert not dest.exists()
 
 
-@pytest.mark.parametrize("destination", ["/tmp/../etc/app.conf", "//etc/app.conf", "/./etc/app.conf",
-                                         "/etc/./app.conf", "~/.bashrc"])
+@pytest.mark.parametrize(
+    "destination",
+    ["/tmp/../etc/app.conf", "//etc/app.conf", "/./etc/app.conf", "/etc/./app.conf", "~/.bashrc"],
+)
 def test_a_pull_is_judged_by_where_its_destination_really_is(destination: str) -> None:
     step = SimpleNamespace(kind="remote_pull", touches=[destination])
     verdict = SimpleNamespace(level=RiskLevel.SAFE, reasons=[])

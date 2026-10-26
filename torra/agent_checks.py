@@ -39,9 +39,12 @@ class PlanChecks:
     _DEFERRAL_OPENER = re.compile(
         r"^(?:(?:i(?:'ll|'m|\s+will|\s+am)\s+)?(?:going to\s+)?"
         r"(?:check|checking|search|searching|look|looking|verify|verifying|"
-        r"determine|determining|read|reading)\b|let me\b)", re.IGNORECASE)
+        r"determine|determining|read|reading)\b|let me\b)",
+        re.IGNORECASE,
+    )
     _NAMES_THE_QUESTION = re.compile(
-        r"\b(your |this |the )?(question|request)\.?[\"')]*$", re.IGNORECASE)
+        r"\b(your |this |the )?(question|request)\.?[\"')]*$", re.IGNORECASE
+    )
 
     @staticmethod
     def _extract_json(text: str) -> dict[str, Any]:
@@ -64,14 +67,16 @@ class PlanChecks:
     def _answer_is_a_placeholder(self, turn: Turn) -> str:
         """Complaint when `message` describes looking something up, not the result."""
         message = turn.message.strip()
-        if not message or not (self._DEFERRAL_OPENER.match(message)
-                               and self._NAMES_THE_QUESTION.search(message)):
+        if not message or not (
+            self._DEFERRAL_OPENER.match(message) and self._NAMES_THE_QUESTION.search(message)
+        ):
             return ""
         return (
             "- intent was 'answer' but `message` only describes checking "
             "something, it never states what was actually found. Put the "
             "real answer directly in `message`; if you have not looked "
-            "anything up yet, use intent 'plan' to propose the step that will.")
+            "anything up yet, use intent 'plan' to propose the step that will."
+        )
 
     def _answer_dropped_a_task(self, turn: Turn) -> str:
         """Complaint when intent was 'answer' but a `task` was also silently
@@ -91,7 +96,8 @@ class PlanChecks:
             "observed machine state, not a promise to look them up -- "
             "directly in `message`, and drop `task` entirely. If you "
             "actually need to run something to produce the answer, use "
-            "intent 'plan' instead.")
+            "intent 'plan' instead."
+        )
 
     def _unrunnable(self, spec: TaskSpec) -> list[str]:
         """One line per step that cannot do what it means: bash cannot parse it, or it still holds
@@ -104,22 +110,29 @@ class PlanChecks:
                 problems.append(
                     f"step '{step.step_id}' is not valid bash and cannot run: {bad}. Quote any "
                     "path or argument that has spaces, parentheses or other shell characters in "
-                    "it, with single quotes.")
+                    "it, with single quotes."
+                )
             if slots := placeholder_tokens(step.command):
                 problems.append(
                     f"step '{step.step_id}' still has a placeholder ({', '.join(slots)}) where a "
                     "real value belongs; torra runs the text as written, and steps cannot pass "
                     "output to each other. Use the real value, or do the lookup and the action "
-                    "in one command (`find ... -exec ... {} +`).")
+                    "in one command (`find ... -exec ... {} +`)."
+                )
         return problems
 
     def _missing_paths(self, spec: TaskSpec) -> list[str]:
         """Advisory: absolute local paths that steps needing a tick name and that are not there
         (off unless wired)."""
-        return (missing_path_warnings(
-            spec, exists=self.path_exists,
-            only=lambda step: self.safety.classify(step.command).needs_confirmation)
-            if self.path_exists is not None else [])
+        return (
+            missing_path_warnings(
+                spec,
+                exists=self.path_exists,
+                only=lambda step: self.safety.classify(step.command).needs_confirmation,
+            )
+            if self.path_exists is not None
+            else []
+        )
 
     def _prescreen(self, spec: TaskSpec) -> str:
         """Check the model's own plan before an operator ever sees it."""
@@ -136,16 +149,19 @@ class PlanChecks:
             if verdict.level.value == "critical":
                 complaints.append(
                     f"- step '{step.step_id}' is CRITICAL: {verdict.reasons[0]}. "
-                    + prompts.CRITICAL_REPAIR)
+                    + prompts.CRITICAL_REPAIR
+                )
             if verdict.level.value in ("dangerous", "critical") and not step.touches:
                 complaints.append(
                     f"- step '{step.step_id}' is destructive but declares no "
                     "`touches`, so torra cannot snapshot anything to "
-                    "restore. Add the files it modifies.")
+                    "restore. Add the files it modifies."
+                )
         gaps = self.clarifier.detect(spec.request)
         if gaps:
             complaints.append(
                 "- the `request` line is underspecified: "
                 + "; ".join(f"{g.code} ({g.why})" for g in gaps)
-                + ". Restate it with concrete targets.")
+                + ". Restate it with concrete targets."
+            )
         return "\n".join(complaints)

@@ -13,8 +13,7 @@ import re
 
 _ADDRESS = re.compile(r"(?:\d+|\$|/(?:[^/\\]|\\.)*/[IM]?)")
 _AWK_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
-_AWK_UNSAFE = re.compile(
-    r"system\s*\(|\|\s*&?\s*getline|getline\s*<|\bprintf?\b[^;}\n]*(?:>|\|)")
+_AWK_UNSAFE = re.compile(r"system\s*\(|\|\s*&?\s*getline|getline\s*<|\bprintf?\b[^;}\n]*(?:>|\|)")
 
 
 def _skip_address(script: str, i: int) -> int:

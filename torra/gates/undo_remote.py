@@ -20,13 +20,16 @@ class RemoteCapture(ShadowStore):
     """`capture_remote_file`: the remote mirror of `UndoGenerator.capture_file`."""
 
     @staticmethod
-    def _read_remote_bytes(runner: Callable[[str, str | None, float | None], str],
-                           remote_path: str) -> bytes:
+    def _read_remote_bytes(
+        runner: Callable[[str, str | None, float | None], str], remote_path: str
+    ) -> bytes:
         """A remote file's exact bytes (the runner strips output, which `cat` lost newlines to)."""
         import base64
         import shlex
-        return base64.b64decode(runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0),
-                                validate=True)
+
+        return base64.b64decode(
+            runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0), validate=True
+        )
 
     def capture_remote_file(self, remote_path: str, step_id: str = "") -> UndoAction | None:
         """Snapshot one file on executor (over `self._executor_runner`) and
@@ -45,6 +48,7 @@ class RemoteCapture(ShadowStore):
         runner = self._executor_runner
 
         import shlex
+
         exists_probe = f"test -e {shlex.quote(remote_path)} && echo yes || echo no"
         try:
             exists = runner(exists_probe, None, 15.0).strip() == "yes"
@@ -53,6 +57,7 @@ class RemoteCapture(ShadowStore):
             return None
 
         if not exists:
+
             def undo_absent() -> None:
                 """Delete whatever the push created on executor."""
                 runner(f"rm -f -- {shlex.quote(remote_path)}", None, 15.0)
@@ -63,12 +68,19 @@ class RemoteCapture(ShadowStore):
                 except Exception:
                     return False
 
-            snap = Snapshot(SnapshotKind.FILE_ABSENT, remote_path,
-                            "did not exist on executor before the step")
+            snap = Snapshot(
+                SnapshotKind.FILE_ABSENT, remote_path, "did not exist on executor before the step"
+            )
             self.snapshots.append(snap)
             return UndoAction(
                 f"delete {remote_path} on executor (it did not exist before)",
-                undo_absent, True, verify_absent, True, snap, step_id)
+                undo_absent,
+                True,
+                verify_absent,
+                True,
+                snap,
+                step_id,
+            )
 
         try:
             content = self._read_remote_bytes(runner, remote_path)
@@ -85,16 +97,23 @@ class RemoteCapture(ShadowStore):
             return None
 
         dig = self.digest(shadow)
-        snap = Snapshot(SnapshotKind.FILE_CONTENT, remote_path,
-                        f"{len(content)} bytes via executor base64", str(shadow), dig)
+        snap = Snapshot(
+            SnapshotKind.FILE_CONTENT,
+            remote_path,
+            f"{len(content)} bytes via executor base64",
+            str(shadow),
+            dig,
+        )
         self.snapshots.append(snap)
 
         def undo_restore() -> None:
             """Push the shadowed bytes back to executor."""
             import base64
+
             encoded = base64.b64encode(shadow.read_bytes()).decode("ascii")
-            runner(f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}",
-                  None, 30.0)
+            runner(
+                f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}", None, 30.0
+            )
 
         def verify_restore() -> bool:
             try:
@@ -103,6 +122,12 @@ class RemoteCapture(ShadowStore):
                 return False
             return hashlib.sha256(current).hexdigest() == dig
 
-        return UndoAction(f"restore {remote_path} on executor from snapshot",
-                          undo_restore, True, verify_restore, True, snap, step_id)
-
+        return UndoAction(
+            f"restore {remote_path} on executor from snapshot",
+            undo_restore,
+            True,
+            verify_restore,
+            True,
+            snap,
+            step_id,
+        )

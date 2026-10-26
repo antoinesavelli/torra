@@ -31,18 +31,29 @@ UNVOUCHED = "DANGEROUS: unrecognised program"
 
 
 def _ask(reason: str) -> dict[str, Any]:
-    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
-                                   "permissionDecisionReason": reason}}
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": reason,
+        }
+    }
 
 
 def decide(verdict: Verdict) -> dict[str, Any]:
     """The hook's answer for one verdict; empty leaves the call to Claude Code's own rules."""
     if verdict.level is RiskLevel.CRITICAL:
         return _ask("torra: " + "; ".join(verdict.reasons))
-    specific = [r for r in verdict.reasons if r.startswith("DANGEROUS") and not r.startswith(UNVOUCHED)]
+    specific = [
+        r for r in verdict.reasons if r.startswith("DANGEROUS") and not r.startswith(UNVOUCHED)
+    ]
     if verdict.level is RiskLevel.DANGEROUS and specific:
-        return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                       "additionalContext": "torra: " + "; ".join(specific)}}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": "torra: " + "; ".join(specific),
+            }
+        }
     return {}
 
 
@@ -51,9 +62,14 @@ def record(event: dict[str, Any], verdict: Verdict, log: Path) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     if log.exists() and log.stat().st_size > MAX_LOG_BYTES:
         log.replace(log.with_name(log.name + ".1"))
-    row = {"at": datetime.now(UTC).isoformat(timespec="seconds"),
-           "session": event.get("session_id", ""), "cwd": event.get("cwd", ""), "level": verdict.level.value,
-           "command": redact_secrets(verdict.command)[:500], "reasons": [redact_secrets(r) for r in verdict.reasons]}
+    row = {
+        "at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "session": event.get("session_id", ""),
+        "cwd": event.get("cwd", ""),
+        "level": verdict.level.value,
+        "command": redact_secrets(verdict.command)[:500],
+        "reasons": [redact_secrets(r) for r in verdict.reasons],
+    }
     with log.open("a", encoding="utf-8") as out:
         out.write(json.dumps(row) + "\n")
 
@@ -66,13 +82,23 @@ def main(stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout, log: Path = L
         if not isinstance(command, str):
             raise TypeError(f"command is {type(command).__name__}, not a string")
     except (ValueError, KeyError, TypeError) as exc:
-        stdout.write(json.dumps({"systemMessage": f"torra gate could not read the hook event ({exc}); "
-                                                  "the command was not checked"}))
+        stdout.write(
+            json.dumps(
+                {
+                    "systemMessage": f"torra gate could not read the hook event ({exc}); "
+                    "the command was not checked"
+                }
+            )
+        )
         return 0
     try:
         verdict = SafetyClassifier().classify(command)
     except Exception as exc:  # noqa: BLE001 - a command that crashes the classifier is unseen, so it asks
-        stdout.write(json.dumps(_ask(f"torra could not classify this command ({type(exc).__name__}), so it asks")))
+        stdout.write(
+            json.dumps(
+                _ask(f"torra could not classify this command ({type(exc).__name__}), so it asks")
+            )
+        )
         return 0
     answer = decide(verdict)
     if verdict.needs_confirmation:

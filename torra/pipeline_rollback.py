@@ -13,8 +13,9 @@ from .gates import DecisionLog, RiskLevel, SafetyClassifier, UndoAction, Verifie
 from .pipeline_types import RunResult, Stage
 
 
-def declared_undos(spec: TaskSpec, safety: SafetyClassifier,
-                   decisions: DecisionLog) -> list[UndoAction]:
+def declared_undos(
+    spec: TaskSpec, safety: SafetyClassifier, decisions: DecisionLog
+) -> list[UndoAction]:
     """The plan's declared rollback entries, each classified the way a step is."""
     held: list[UndoAction] = []
     for description, command, undo, declared_safe in spec.rollback_actions():
@@ -26,29 +27,41 @@ def declared_undos(spec: TaskSpec, safety: SafetyClassifier,
         risky = verdict.level in (RiskLevel.DANGEROUS, RiskLevel.CRITICAL)
         if declared_safe and risky:
             decisions.log(
-                Stage.PRESENT.value, "rollback safety override",
+                Stage.PRESENT.value,
+                "rollback safety override",
                 f"'{description}' was declared safe but classifies "
                 f"{verdict.level.value}: {verdict.reasons[0]}; will ask "
                 "before running it during rollback",
-                {"command": command})
+                {"command": command},
+            )
         held.append(UndoAction(description, undo, declared_safe and not risky))
     return held
 
 
-def drop_edited_undos(rollback: VerifiedRollback, decisions: DecisionLog,
-                      found: Sequence[Conflict]) -> None:
+def drop_edited_undos(
+    rollback: VerifiedRollback, decisions: DecisionLog, found: Sequence[Conflict]
+) -> None:
     """Take off the stack the undo of every file changed outside torra, and log each."""
     changed = {c.path for c in found}
     for action in rollback.drop_where(
-            lambda a: a.snapshot is not None and a.snapshot.target in changed):
+        lambda a: a.snapshot is not None and a.snapshot.target in changed
+    ):
         decisions.log(
-            Stage.EXECUTE.value, "undo skipped",
+            Stage.EXECUTE.value,
+            "undo skipped",
             f"{action.description}: that file changed outside torra, and restoring "
-            "it would overwrite the change")
+            "it would overwrite the change",
+        )
 
 
-def sweep(rollback: VerifiedRollback, decisions: DecisionLog, result: RunResult,
-          held: Sequence[UndoAction], ran: bool, conflicts: ConflictDetector) -> None:
+def sweep(
+    rollback: VerifiedRollback,
+    decisions: DecisionLog,
+    result: RunResult,
+    held: Sequence[UndoAction],
+    ran: bool,
+    conflicts: ConflictDetector,
+) -> None:
     """Unwind the stack and record the report.
 
     Whatever stopped the run, files changed outside torra since its last check lose their undo
@@ -68,4 +81,5 @@ def sweep(rollback: VerifiedRollback, decisions: DecisionLog, result: RunResult,
             f"{len(result.rollback.unverified)} unverified, "
             f"{len(result.rollback.cancelled)} cancelled, "
             f"{len(result.rollback.failed)} failed",
-            {"results": [r.to_dict() for r in result.rollback.results]})
+            {"results": [r.to_dict() for r in result.rollback.results]},
+        )

@@ -33,11 +33,19 @@ from torra.pipeline_rollback import declared_undos, sweep
 from torra.pipeline_types import Outcome, Plan, RunResult, Stage, StepPlan
 
 SAFE_PLAN = plan_reply(
-    "write-config", "set workers to 4 in /tmp/h7/app.conf",
-    [{"id": "mkdir", "run": "mkdir -p /tmp/h7", "estimated_seconds": 2},
-     {"id": "write", "kind": "write",
-      "run": "printf 'workers = 4\\n' > /tmp/h7/app.conf",
-      "touches": ["/tmp/h7/app.conf"], "estimated_seconds": 3}])
+    "write-config",
+    "set workers to 4 in /tmp/h7/app.conf",
+    [
+        {"id": "mkdir", "run": "mkdir -p /tmp/h7", "estimated_seconds": 2},
+        {
+            "id": "write",
+            "kind": "write",
+            "run": "printf 'workers = 4\\n' > /tmp/h7/app.conf",
+            "touches": ["/tmp/h7/app.conf"],
+            "estimated_seconds": 3,
+        },
+    ],
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -48,10 +56,22 @@ SAFE_PLAN = plan_reply(
 def test_all_seven_stages_in_order(make_torra, tmp_path: Path) -> None:
     """The stage contract, which the TUI and the CLI both depend on."""
     target = tmp_path / "app.conf"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"write the worker count to {target}",
-        [{"id": "w", "kind": "write", "run": f"printf 'workers = 4\\n' > {target}",
-          "touches": [str(target)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"write the worker count to {target}",
+                [
+                    {
+                        "id": "w",
+                        "kind": "write",
+                        "run": f"printf 'workers = 4\\n' > {target}",
+                        "touches": [str(target)],
+                    }
+                ],
+            )
+        )
+    )
 
     planned = torra.plan(f"set the worker count to 4 in {target}")
     assert planned.outcome is Outcome.AWAITING_APPROVAL
@@ -65,13 +85,18 @@ def test_all_seven_stages_in_order(make_torra, tmp_path: Path) -> None:
     assert Path(done.audit_path).exists()
 
 
-def test_the_audit_records_the_model_and_the_gates(make_torra,
-                                                   tmp_path: Path) -> None:
+def test_the_audit_records_the_model_and_the_gates(make_torra, tmp_path: Path) -> None:
     """An audit that omits which model proposed what is not an audit."""
     target = tmp_path / "a.conf"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"write a marker into {target}",
-        [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"write a marker into {target}",
+                [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan(f"create {target}"), {})
     payload = json.loads(Path(done.audit_path).read_text(encoding="utf-8"))
@@ -86,8 +111,7 @@ def test_the_audit_records_the_model_and_the_gates(make_torra,
     assert {"converse", "gate", "execute"} <= stages
 
 
-def test_every_finished_turn_is_recorded_to_telemetry(make_torra,
-                                                       tmp_path: Path) -> None:
+def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: `torra.telemetry.records.TaskLogger`
     had a working `record()` and no caller anywhere in pipeline.py,
     agent.py, or tui.py -- `torra label`/`torra evidence` (cli.py)
@@ -95,10 +119,12 @@ def test_every_finished_turn_is_recorded_to_telemetry(make_torra,
     `_finish()` call that writes an audit record must also log one here,
     including turns that never reach execute() at all."""
     target = tmp_path / "marker"
-    torra = make_torra(scripted(
-        {"intent": "answer", "message": "just a question"},
-        plan_reply("t", f"touch {target}",
-                  [{"id": "touch", "run": f"touch {target}"}])))
+    torra = make_torra(
+        scripted(
+            {"intent": "answer", "message": "just a question"},
+            plan_reply("t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}]),
+        )
+    )
 
     answered = torra.plan("what is this machine")
     assert answered.outcome is Outcome.ANSWERED
@@ -113,7 +139,8 @@ def test_every_finished_turn_is_recorded_to_telemetry(make_torra,
 
 
 def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """Found in a full-file audit: TaskRecord.clarifier_anchors was
     declared but from_result() never assigned it, so every persisted
     record carried an empty list. LoopholeAudit only worked because it
@@ -121,9 +148,15 @@ def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
     checks the field itself is now populated, so the log is
     self-contained without needing that fallback."""
     target = tmp_path / "app.conf"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"write to {target}",
-        [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"write to {target}",
+                [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}],
+            )
+        )
+    )
 
     torra.execute(torra.plan(f"write to {target}"), {})
 
@@ -135,7 +168,8 @@ def test_the_telemetry_record_carries_the_anchors_the_clarifier_found(
 
 
 def test_a_precondition_blocked_plan_is_not_recorded_as_approved(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """Found by an independent audit: `_apply_plan_fields` recorded
     `approved = all(sp.approved is not False for sp in plan.steps)`. A
     plan blocked by a failed precondition never reaches execute(), so
@@ -147,9 +181,10 @@ def test_a_precondition_blocked_plan_is_not_recorded_as_approved(
     marker = tmp_path / "nope"
     verifier = StateVerifier()
     verifier.add(Precondition("impossible", lambda: False, "never passes"))
-    torra = make_torra(scripted(plan_reply(
-        "t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])),
-        verifier=verifier)
+    torra = make_torra(
+        scripted(plan_reply("t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])),
+        verifier=verifier,
+    )
 
     result = torra.plan(f"create {marker}")
 
@@ -159,11 +194,18 @@ def test_a_precondition_blocked_plan_is_not_recorded_as_approved(
 
 
 def test_a_normally_completed_plan_is_still_recorded_as_approved(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     target = tmp_path / "app.conf"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"write to {target}",
-        [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"write to {target}",
+                [{"id": "w", "run": f"touch {target}", "touches": [str(target)]}],
+            )
+        )
+    )
 
     torra.execute(torra.plan(f"write to {target}"), {})
 
@@ -175,14 +217,19 @@ def test_a_normally_completed_plan_is_still_recorded_as_approved(
 # --------------------------------------------------------------------------- #
 
 
-def test_a_dangerous_step_does_not_run_unapproved(make_torra,
-                                                  tmp_path: Path) -> None:
+def test_a_dangerous_step_does_not_run_unapproved(make_torra, tmp_path: Path) -> None:
     """The whole point. An unapproved dangerous command is refused, not defaulted."""
     victim = tmp_path / "victim.txt"
     victim.write_text("still here", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"remove {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        )
+    )
 
     planned = torra.plan(f"delete {victim}")
     assert planned.plan is not None
@@ -199,9 +246,15 @@ def test_an_approved_step_runs(make_torra, tmp_path: Path) -> None:
     """Approval is per step id, and it is honoured."""
     victim = tmp_path / "victim.txt"
     victim.write_text("goodbye", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"remove {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        )
+    )
 
     planned = torra.plan(f"delete {victim}")
     done = torra.execute(planned, approvals={"rm": True})
@@ -211,7 +264,8 @@ def test_an_approved_step_runs(make_torra, tmp_path: Path) -> None:
 
 
 def test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """The point of partial execution: one declined step used to reject
     the whole plan, including a sibling step that was already approved.
     Now the approved one runs and the declined one is skipped, not run."""
@@ -219,10 +273,18 @@ def test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one(
     delete = tmp_path / "delete.txt"
     keep.write_text("stay", encoding="utf-8")
     delete.write_text("go", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "delete two files",
-        [{"id": "rm-keep", "run": f"rm -f {keep}", "touches": [str(keep)]},
-         {"id": "rm-delete", "run": f"rm -f {delete}", "touches": [str(delete)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "delete two files",
+                [
+                    {"id": "rm-keep", "run": f"rm -f {keep}", "touches": [str(keep)]},
+                    {"id": "rm-delete", "run": f"rm -f {delete}", "touches": [str(delete)]},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan("delete two files")
     done = torra.execute(planned, approvals={"rm-keep": False, "rm-delete": True})
@@ -237,17 +299,26 @@ def test_a_mixed_approval_runs_the_approved_steps_and_skips_the_declined_one(
 
 
 def test_declining_every_step_in_a_multi_step_plan_still_rejects_all_of_it(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """Generalizes test_a_dangerous_step_does_not_run_unapproved to more
     than one step: REJECTED, with empty results, is only for the case
     where *nothing* ends up approved -- not just any single refusal."""
     v1, v2 = tmp_path / "v1.txt", tmp_path / "v2.txt"
     v1.write_text("a", encoding="utf-8")
     v2.write_text("b", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "delete two files",
-        [{"id": "rm1", "run": f"rm -f {v1}", "touches": [str(v1)]},
-         {"id": "rm2", "run": f"rm -f {v2}", "touches": [str(v2)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "delete two files",
+                [
+                    {"id": "rm1", "run": f"rm -f {v1}", "touches": [str(v1)]},
+                    {"id": "rm2", "run": f"rm -f {v2}", "touches": [str(v2)]},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan("delete two files")
     done = torra.execute(planned, approvals={})
@@ -258,7 +329,8 @@ def test_declining_every_step_in_a_multi_step_plan_still_rejects_all_of_it(
 
 
 def test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """_stage_rollback used to push every step's undo unconditionally --
     including a declined step that never ran. If an approved step further
     along then failed and triggered a rollback sweep, it would try to
@@ -270,46 +342,76 @@ def test_a_declined_steps_undo_is_not_staged_for_a_later_rollback_sweep(
     written.write_text("original", encoding="utf-8")
     declined_victim = tmp_path / "declined.txt"
     declined_victim.write_text("never touched", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "write, a declined delete, then a step that fails",
-        [{"id": "write", "kind": "write",
-          "run": f"printf 'changed\\n' > {written}", "touches": [str(written)]},
-         {"id": "rm-declined", "run": f"rm -f {declined_victim}",
-          "touches": [str(declined_victim)]},
-         {"id": "will-fail", "run": "exit 1"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "write, a declined delete, then a step that fails",
+                [
+                    {
+                        "id": "write",
+                        "kind": "write",
+                        "run": f"printf 'changed\\n' > {written}",
+                        "touches": [str(written)],
+                    },
+                    {
+                        "id": "rm-declined",
+                        "run": f"rm -f {declined_victim}",
+                        "touches": [str(declined_victim)],
+                    },
+                    {"id": "will-fail", "run": "exit 1"},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan("mixed run")
-    done = torra.execute(
-        planned, approvals={"rm-declined": False, "will-fail": True})
+    done = torra.execute(planned, approvals={"rm-declined": False, "will-fail": True})
 
     assert done.outcome is Outcome.FAILED
     assert declined_victim.exists(), "the declined step's file must be untouched"
-    assert done.rollback is not None and done.rollback.results, \
+    assert done.rollback is not None and done.rollback.results, (
         "the write step's real undo must have been staged and swept"
+    )
     descriptions = " ".join(r.description for r in done.rollback.results)
-    assert str(declined_victim) not in descriptions, \
+    assert str(declined_victim) not in descriptions, (
         "a declined step's undo must never be staged, let alone attempted"
+    )
 
 
 def test_dependency_warnings_flags_an_approved_step_using_a_declined_paths_output(
-        make_torra) -> None:
+    make_torra,
+) -> None:
     """Best-effort, not a guarantee -- a plain substring check against
     `touches`, computed before execute() so the caller can show it while
     the operator can still change their mind. The declined step must
     genuinely need confirmation, or it is never "declined" at all --
     `dependency_warnings` treats a safe step as approved regardless of
     what the approvals dict says, same as `_apply_approvals` itself."""
-    torra = make_torra(scripted(plan_reply(
-        "t", "remove then reference it",
-        [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
-          "touches": ["/tmp/scratch-dir/data.txt"]},
-         {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "remove then reference it",
+                [
+                    {
+                        "id": "rm-declined",
+                        "run": "rm -f /tmp/scratch-dir/data.txt",
+                        "touches": ["/tmp/scratch-dir/data.txt"],
+                    },
+                    {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan("remove then reference it")
-    assert planned.plan is not None and planned.plan.needs_confirmation, \
+    assert planned.plan is not None and planned.plan.needs_confirmation, (
         "rm must actually need confirmation for this test to mean anything"
+    )
     warnings = Torra.dependency_warnings(
-        planned.plan, approvals={"rm-declined": False, "use-it": True})
+        planned.plan, approvals={"rm-declined": False, "use-it": True}
+    )
 
     assert len(warnings) == 1
     assert "use-it" in warnings[0]
@@ -317,68 +419,94 @@ def test_dependency_warnings_flags_an_approved_step_using_a_declined_paths_outpu
     assert "rm-declined" in warnings[0]
 
 
-def test_dependency_warnings_is_empty_when_nothing_was_declined(
-        make_torra) -> None:
-    torra = make_torra(scripted(plan_reply(
-        "t", "two safe steps",
-        [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}])))
+def test_dependency_warnings_is_empty_when_nothing_was_declined(make_torra) -> None:
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "two safe steps",
+                [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}],
+            )
+        )
+    )
 
     planned = torra.plan("two safe steps")
 
     assert Torra.dependency_warnings(planned.plan, approvals={}) == []
 
 
-def test_dependency_warnings_is_empty_when_no_approved_step_references_the_path(
-        make_torra) -> None:
-    torra = make_torra(scripted(plan_reply(
-        "t", "unrelated steps",
-        [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/x.txt",
-          "touches": ["/tmp/scratch-dir/x.txt"]},
-         {"id": "unrelated", "run": "echo hello"}])))
+def test_dependency_warnings_is_empty_when_no_approved_step_references_the_path(make_torra) -> None:
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "unrelated steps",
+                [
+                    {
+                        "id": "rm-declined",
+                        "run": "rm -f /tmp/scratch-dir/x.txt",
+                        "touches": ["/tmp/scratch-dir/x.txt"],
+                    },
+                    {"id": "unrelated", "run": "echo hello"},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan("unrelated steps")
     assert planned.plan is not None and planned.plan.needs_confirmation
     warnings = Torra.dependency_warnings(
-        planned.plan, approvals={"rm-declined": False, "unrelated": True})
+        planned.plan, approvals={"rm-declined": False, "unrelated": True}
+    )
 
     assert warnings == []
 
 
-def test_dependency_warnings_module_works_standalone_not_just_via_torra(
-        make_torra) -> None:
+def test_dependency_warnings_module_works_standalone_not_just_via_torra(make_torra) -> None:
     """`Torra.dependency_warnings` is `staticmethod(_dependency_warnings)`
     from torra.dependency_warnings -- imported and called directly here
     so the split-out module is exercised on its own, not only through the
     Torra re-export every other test in this file goes through."""
     from torra.dependency_warnings import dependency_warnings
 
-    torra = make_torra(scripted(plan_reply(
-        "t", "remove then reference it",
-        [{"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
-          "touches": ["/tmp/scratch-dir/data.txt"]},
-         {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "remove then reference it",
+                [
+                    {
+                        "id": "rm-declined",
+                        "run": "rm -f /tmp/scratch-dir/data.txt",
+                        "touches": ["/tmp/scratch-dir/data.txt"],
+                    },
+                    {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan("remove then reference it")
-    warnings = dependency_warnings(
-        planned.plan, approvals={"rm-declined": False, "use-it": True})
+    warnings = dependency_warnings(planned.plan, approvals={"rm-declined": False, "use-it": True})
 
     assert len(warnings) == 1
     assert "use-it" in warnings[0] and "rm-declined" in warnings[0]
 
 
-def test_on_output_receives_live_chunks_tagged_with_the_step_id(
-        make_torra, tmp_path: Path) -> None:
+def test_on_output_receives_live_chunks_tagged_with_the_step_id(make_torra, tmp_path: Path) -> None:
     """The mechanism behind the TUI's live step-output view -- see
     HANDOFF.md's entry on shell_output_sink for why this has to be an
     execute()-time callback rather than something baked into the step at
     plan time."""
-    torra = make_torra(scripted(plan_reply(
-        "t", "say hello",
-        [{"id": "greet", "run": "echo hello; echo world"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", "say hello", [{"id": "greet", "run": "echo hello; echo world"}]))
+    )
 
     planned = torra.plan("say hello")
     seen: list[tuple[str, str]] = []
-    done = torra.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    done = torra.execute(
+        planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk))
+    )
 
     assert done.outcome is Outcome.COMPLETED
     assert all(step_id == "greet" for step_id, _ in seen)
@@ -386,14 +514,21 @@ def test_on_output_receives_live_chunks_tagged_with_the_step_id(
 
 
 def test_on_output_tags_each_step_with_its_own_id(make_torra, tmp_path: Path) -> None:
-    torra = make_torra(scripted(plan_reply(
-        "t", "two steps",
-        [{"id": "first", "run": "echo one"},
-         {"id": "second", "run": "echo two"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "two steps",
+                [{"id": "first", "run": "echo one"}, {"id": "second", "run": "echo two"}],
+            )
+        )
+    )
 
     planned = torra.plan("two steps")
     seen: list[tuple[str, str]] = []
-    done = torra.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    done = torra.execute(
+        planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk))
+    )
 
     assert done.outcome is Outcome.COMPLETED
     assert seen == [("first", "one\n"), ("second", "two\n")]
@@ -403,24 +538,29 @@ def test_on_output_is_never_called_for_a_dry_run(make_torra, tmp_path: Path) -> 
     """Dry-run steps never call shell() at all -- they return a
     "[dry-run] ..." placeholder directly, so there is nothing for
     shell_output_sink to intercept."""
-    torra = make_torra(scripted(plan_reply(
-        "t", "say hello", [{"id": "greet", "run": "echo hello"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", "say hello", [{"id": "greet", "run": "echo hello"}]))
+    )
 
     planned = torra.plan("say hello")
     seen: list[tuple[str, str]] = []
-    torra.execute(planned, {}, dry_run=True, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    torra.execute(
+        planned, {}, dry_run=True, on_output=lambda step_id, chunk: seen.append((step_id, chunk))
+    )
 
     assert seen == []
 
 
-def test_a_failing_step_still_streams_its_output_before_raising(
-        make_torra, tmp_path: Path) -> None:
-    torra = make_torra(scripted(plan_reply(
-        "t", "fail loudly", [{"id": "boom", "run": "echo trying; exit 1"}])))
+def test_a_failing_step_still_streams_its_output_before_raising(make_torra, tmp_path: Path) -> None:
+    torra = make_torra(
+        scripted(plan_reply("t", "fail loudly", [{"id": "boom", "run": "echo trying; exit 1"}]))
+    )
 
     planned = torra.plan("fail loudly")
     seen: list[tuple[str, str]] = []
-    done = torra.execute(planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk)))
+    done = torra.execute(
+        planned, {}, on_output=lambda step_id, chunk: seen.append((step_id, chunk))
+    )
 
     assert done.outcome is Outcome.FAILED
     assert seen == [("boom", "trying\n")]
@@ -428,9 +568,9 @@ def test_a_failing_step_still_streams_its_output_before_raising(
 
 def test_a_safe_step_needs_no_tick(make_torra, tmp_path: Path) -> None:
     """Asking for approval on `df -h` trains people to tick without reading."""
-    torra = make_torra(scripted(plan_reply(
-        "t", "report disk usage on /",
-        [{"id": "df", "run": "df -h /"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", "report disk usage on /", [{"id": "df", "run": "df -h /"}]))
+    )
 
     planned = torra.plan("report disk usage on /")
     assert planned.plan is not None
@@ -447,8 +587,9 @@ def test_reject_never_runs_an_all_safe_plan(make_torra, tmp_path: Path) -> None:
     *run* on "reject" rather than being declined. Torra.reject() must
     refuse unconditionally, independent of what would have needed a tick."""
     marker = tmp_path / "marker"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]))
+    )
 
     planned = torra.plan(f"create {marker}")
     assert planned.plan is not None and planned.plan.needs_confirmation == []
@@ -467,16 +608,27 @@ def test_reject_never_runs_an_all_safe_plan(make_torra, tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_a_failed_step_reverts_a_file_nobody_registered(make_torra,
-                                                        tmp_path: Path) -> None:
+def test_a_failed_step_reverts_a_file_nobody_registered(make_torra, tmp_path: Path) -> None:
     """No caller-supplied undo anywhere, and the file still comes back."""
     conf = tmp_path / "app.conf"
     conf.write_text("ORIGINAL\n", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"rewrite {conf} then verify the service",
-        [{"id": "write", "kind": "write", "run": f"printf 'NEW\\n' > {conf}",
-          "touches": [str(conf)]},
-         {"id": "boom", "run": "exit 7"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"rewrite {conf} then verify the service",
+                [
+                    {
+                        "id": "write",
+                        "kind": "write",
+                        "run": f"printf 'NEW\\n' > {conf}",
+                        "touches": [str(conf)],
+                    },
+                    {"id": "boom", "run": "exit 7"},
+                ],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan(f"rewrite {conf} and verify"), {})
 
@@ -486,23 +638,33 @@ def test_a_failed_step_reverts_a_file_nobody_registered(make_torra,
     assert all(r.verified is not False for r in done.rollback.results)
 
 
-def test_a_successful_run_cleans_up_its_shadow_copies(make_torra,
-                                                       tmp_path: Path) -> None:
+def test_a_successful_run_cleans_up_its_shadow_copies(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: UndoGenerator.cleanup() had no caller
     anywhere, so every run that snapshotted a file left its shadow
     directory on disk forever (14 accumulated on one real machine)."""
     conf = tmp_path / "app.conf"
     conf.write_text("original\n", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"rewrite {conf}",
-        [{"id": "write", "kind": "write", "run": f"printf 'new\\n' > {conf}",
-          "touches": [str(conf)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"rewrite {conf}",
+                [
+                    {
+                        "id": "write",
+                        "kind": "write",
+                        "run": f"printf 'new\\n' > {conf}",
+                        "touches": [str(conf)],
+                    }
+                ],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan(f"rewrite {conf}"), {})
 
     assert done.outcome is Outcome.COMPLETED
-    assert not any(torra.undo.shadow_dir.iterdir()), (
-        "a completed run left its shadow copies behind")
+    assert not any(torra.undo.shadow_dir.iterdir()), "a completed run left its shadow copies behind"
 
 
 def test_a_dry_run_keeps_its_shadow_copies(make_torra, tmp_path: Path) -> None:
@@ -511,10 +673,22 @@ def test_a_dry_run_keeps_its_shadow_copies(make_torra, tmp_path: Path) -> None:
     them for real rollback."""
     conf = tmp_path / "app.conf"
     conf.write_text("original\n", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"rewrite {conf}",
-        [{"id": "write", "kind": "write", "run": f"printf 'new\\n' > {conf}",
-          "touches": [str(conf)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"rewrite {conf}",
+                [
+                    {
+                        "id": "write",
+                        "kind": "write",
+                        "run": f"printf 'new\\n' > {conf}",
+                        "touches": [str(conf)],
+                    }
+                ],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan(f"rewrite {conf}"), {}, dry_run=True)
 
@@ -525,25 +699,32 @@ def test_a_dry_run_keeps_its_shadow_copies(make_torra, tmp_path: Path) -> None:
 
 
 def test_a_completed_read_steps_output_feeds_back_into_agent_context(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """§2.46: a step declaring `reads` gets its real output remembered,
     tagged by the path -- so a later turn can act on what it found
     instead of only remembering that the step was proposed."""
     target = tmp_path / "quirks.md"
     target.write_text("quirk #12: something specific", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "read the quirks file",
-        [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "read the quirks file",
+                [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan("read the quirks file"), {})
 
     assert done.outcome is Outcome.COMPLETED
-    assert any(str(target) in e.content and "quirk #12" in e.content
-              for e in torra.agent.context.entries)
+    assert any(
+        str(target) in e.content and "quirk #12" in e.content for e in torra.agent.context.entries
+    )
 
 
-def test_a_dry_run_never_feeds_read_output_into_context(
-        make_torra, tmp_path: Path) -> None:
+def test_a_dry_run_never_feeds_read_output_into_context(make_torra, tmp_path: Path) -> None:
     """A dry run's output is a `[dry-run] ...` placeholder, not real
     content -- feeding that into the model's memory as if it were the
     file's real content would be actively wrong, not just unhelpful.
@@ -553,9 +734,15 @@ def test_a_dry_run_never_feeds_read_output_into_context(
     correctly never fired."""
     target = tmp_path / "quirks.md"
     target.write_text("quirk #12: something specific", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "read the quirks file",
-        [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "read the quirks file",
+                [{"id": "read", "run": f"cat {target}", "reads": [str(target)]}],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan("read the quirks file"), {}, dry_run=True)
 
@@ -563,16 +750,21 @@ def test_a_dry_run_never_feeds_read_output_into_context(
     assert not any(f"[read {target}]" in e.content for e in torra.agent.context.entries)
 
 
-def test_a_failed_read_steps_output_never_feeds_into_context(
-        make_torra) -> None:
+def test_a_failed_read_steps_output_never_feeds_into_context(make_torra) -> None:
     """Checks for the distinctive `remember_read` tag, not a bare path
     substring -- the path also legitimately appears in _remember()'s own
     "Proposed: read: cat /no/such/file" summary line regardless of
     whether the step ever ran, which would make a bare substring check
     pass even when remember_read() correctly never fired."""
-    torra = make_torra(scripted(plan_reply(
-        "t", "read a file that fails",
-        [{"id": "read", "run": "cat /no/such/file", "reads": ["/no/such/file"]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "read a file that fails",
+                [{"id": "read", "run": "cat /no/such/file", "reads": ["/no/such/file"]}],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan("read a file that fails"), {})
 
@@ -580,8 +772,7 @@ def test_a_failed_read_steps_output_never_feeds_into_context(
     assert not any("[read /no/such/file]" in e.content for e in torra.agent.context.entries)
 
 
-def test_a_declared_safe_rollback_is_still_classified(make_torra,
-                                                       tmp_path: Path) -> None:
+def test_a_declared_safe_rollback_is_still_classified(make_torra, tmp_path: Path) -> None:
     """A declared `safe: true` cannot suppress a real CRITICAL classification.
 
     Before this was fixed, the exact command below ran automatically during
@@ -591,11 +782,16 @@ def test_a_declared_safe_rollback_is_still_classified(make_torra,
     """
     target = tmp_path / "should-survive"
     target.mkdir()
-    torra = make_torra(scripted(plan_reply(
-        "t", "provision then fail",
-        [{"id": "boom", "run": "exit 7"}],
-        rollback=[{"run": f"rm -rf {target}", "description": "cleanup",
-                  "safe": True}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "provision then fail",
+                [{"id": "boom", "run": "exit 7"}],
+                rollback=[{"run": f"rm -rf {target}", "description": "cleanup", "safe": True}],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan("provision then fail"), {})
 
@@ -618,40 +814,52 @@ class TestResume:
     def _resume_path(tmp_path: Path, task_id: str) -> Path:
         return tmp_path / "wd" / "resume" / f"{task_id}.json"
 
-    def test_a_resumed_run_skips_already_completed_steps(
-            self, make_torra, tmp_path: Path) -> None:
+    def test_a_resumed_run_skips_already_completed_steps(self, make_torra, tmp_path: Path) -> None:
         counter = tmp_path / "counter"
         counter.write_text("x", encoding="utf-8")  # the crashed attempt's real effect
         done = tmp_path / "done"
-        torra = make_torra(scripted(plan_reply(
-            "t", "two steps",
-            [{"id": "first", "run": f"printf x >> {counter}"},
-             {"id": "second", "run": f"touch {done}"}])))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "two steps",
+                    [
+                        {"id": "first", "run": f"printf x >> {counter}"},
+                        {"id": "second", "run": f"touch {done}"},
+                    ],
+                )
+            )
+        )
         planned = torra.plan("two steps")
 
         resume_path = self._resume_path(tmp_path, "t")
-        ResumePoint(task_id="t", completed=["first"], total=2,
-                    digests={"first": command_digest(f"printf x >> {counter}")}).save(resume_path)
+        ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=2,
+            digests={"first": command_digest(f"printf x >> {counter}")},
+        ).save(resume_path)
 
         result = torra.execute(planned, {})
 
         assert result.outcome is Outcome.COMPLETED
-        assert counter.read_text(encoding="utf-8") == "x", \
+        assert counter.read_text(encoding="utf-8") == "x", (
             "the resumed step must not have run its command again"
+        )
         assert done.exists(), "the never-attempted step must still run for real"
         assert result.executed is True
         first, second = result.results
         assert first.ok is True and first.output == "[resumed] printf x >> " + str(counter)
         assert second.output.strip() == ""  # touch prints nothing -- ran for real
 
-    def test_a_mismatched_step_sequence_is_not_trusted(
-            self, make_torra, tmp_path: Path) -> None:
+    def test_a_mismatched_step_sequence_is_not_trusted(self, make_torra, tmp_path: Path) -> None:
         """The saved resume point claims a step id this plan doesn't even
         have at that position -- evidence of an edited task file or an
         unrelated plan reusing the id, not a genuine retry."""
         marker = tmp_path / "marker"
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "real-step", "run": f"touch {marker}"}])))
+        torra = make_torra(
+            scripted(plan_reply("t", "one step", [{"id": "real-step", "run": f"touch {marker}"}]))
+        )
         planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
@@ -664,11 +872,13 @@ class TestResume:
         assert result.results[0].output != "[resumed] " + result.results[0].output
 
     def test_a_resume_point_without_digests_is_not_trusted(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         """The older format named completed steps but not what they ran."""
         marker = tmp_path / "marker"
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        torra = make_torra(
+            scripted(plan_reply("t", "one step", [{"id": "s", "run": f"touch {marker}"}]))
+        )
         planned = torra.plan("one step")
         ResumePoint(task_id="t", completed=["s"], total=1).save(self._resume_path(tmp_path, "t"))
 
@@ -677,32 +887,48 @@ class TestResume:
         assert marker.exists() and not result.results[0].output.startswith("[resumed]")
 
     def test_a_step_whose_command_changed_is_not_vouched_for(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         marker = tmp_path / "marker"
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        torra = make_torra(
+            scripted(plan_reply("t", "one step", [{"id": "s", "run": f"touch {marker}"}]))
+        )
         planned = torra.plan("one step")
-        ResumePoint(task_id="t", completed=["s"], total=1,
-                    digests={"s": command_digest("something else entirely")}
-                    ).save(self._resume_path(tmp_path, "t"))
+        ResumePoint(
+            task_id="t",
+            completed=["s"],
+            total=1,
+            digests={"s": command_digest("something else entirely")},
+        ).save(self._resume_path(tmp_path, "t"))
 
         result = torra.execute(planned, {})
 
         assert marker.exists() and not result.results[0].output.startswith("[resumed]")
 
     def test_a_step_left_in_flight_by_a_crash_is_never_rerun_automatically(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         """The process died while `second` was running: its effect is unknown, so the next
         attempt stops and says so rather than running it again."""
         done = tmp_path / "done"
-        torra = make_torra(scripted(plan_reply(
-            "t", "two steps",
-            [{"id": "first", "run": "true"},
-             {"id": "second", "run": f"touch {done}"}])))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "two steps",
+                    [{"id": "first", "run": "true"}, {"id": "second", "run": f"touch {done}"}],
+                )
+            )
+        )
         planned = torra.plan("two steps")
         resume_path = self._resume_path(tmp_path, "t")
-        ResumePoint(task_id="t", completed=["first"], total=2, in_progress="second",
-                    digests={"first": command_digest("true")}).save(resume_path)
+        ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=2,
+            in_progress="second",
+            digests={"first": command_digest("true")},
+        ).save(resume_path)
 
         result = torra.execute(planned, {})
 
@@ -713,11 +939,11 @@ class TestResume:
         assert ResumePoint.load(resume_path) is not None, "the record of what finished is kept"
 
     def test_the_resume_file_marks_a_step_in_flight_while_it_runs(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         resume_path = self._resume_path(tmp_path, "t")
         seen: list[str] = []
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "s", "run": "true"}])))
+        torra = make_torra(scripted(plan_reply("t", "one step", [{"id": "s", "run": "true"}])))
         planned = torra.plan("one step")
         real = planned.plan.steps[0].step.run  # type: ignore[union-attr]
 
@@ -732,10 +958,16 @@ class TestResume:
         assert seen == ["s"]
 
     def test_a_failed_step_clears_its_in_flight_mark_and_keeps_the_finished_ones(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         resume_path = self._resume_path(tmp_path, "t")
-        torra = make_torra(scripted(plan_reply(
-            "t", "two steps", [{"id": "ok", "run": "true"}, {"id": "bad", "run": "exit 1"}])))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t", "two steps", [{"id": "ok", "run": "true"}, {"id": "bad", "run": "exit 1"}]
+                )
+            )
+        )
 
         done = torra.execute(torra.plan("two steps"), {})
 
@@ -743,11 +975,11 @@ class TestResume:
         point = ResumePoint.load(resume_path)
         assert point is not None and point.in_progress == "" and point.completed == ["ok"]
 
-    def test_a_mismatched_total_is_not_trusted(
-            self, make_torra, tmp_path: Path) -> None:
+    def test_a_mismatched_total_is_not_trusted(self, make_torra, tmp_path: Path) -> None:
         marker = tmp_path / "marker"
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        torra = make_torra(
+            scripted(plan_reply("t", "one step", [{"id": "s", "run": f"touch {marker}"}]))
+        )
         planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
@@ -760,11 +992,11 @@ class TestResume:
         assert result.outcome is Outcome.COMPLETED
         assert not result.results[0].output.startswith("[resumed]")
 
-    def test_a_corrupt_resume_point_is_ignored_not_fatal(
-            self, make_torra, tmp_path: Path) -> None:
+    def test_a_corrupt_resume_point_is_ignored_not_fatal(self, make_torra, tmp_path: Path) -> None:
         marker = tmp_path / "marker"
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        torra = make_torra(
+            scripted(plan_reply("t", "one step", [{"id": "s", "run": f"touch {marker}"}]))
+        )
         planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
@@ -777,28 +1009,31 @@ class TestResume:
         assert marker.exists()
 
     def test_a_dry_run_never_writes_a_resume_point(
-            self, make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         calls = []
-        monkeypatch.setattr(ResumePoint, "save",
-                            lambda self, path: calls.append(path))
-        torra = make_torra(scripted(plan_reply(
-            "t", "two steps",
-            [{"id": "a", "run": "true"}, {"id": "b", "run": "true"}])))
+        monkeypatch.setattr(ResumePoint, "save", lambda self, path: calls.append(path))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t", "two steps", [{"id": "a", "run": "true"}, {"id": "b", "run": "true"}]
+                )
+            )
+        )
         planned = torra.plan("two steps")
 
         torra.execute(planned, {}, dry_run=True)
 
-        assert calls == [], \
-            "a dry run must never persist a resume point -- a crash mid-preview " \
+        assert calls == [], (
+            "a dry run must never persist a resume point -- a crash mid-preview "
             "must not later look like steps that genuinely ran"
+        )
 
-    def test_a_dry_run_ignores_an_existing_resume_point(
-            self, make_torra, tmp_path: Path) -> None:
+    def test_a_dry_run_ignores_an_existing_resume_point(self, make_torra, tmp_path: Path) -> None:
         """A dry run previews every step regardless of what a resume point
         claims -- silently skipping some would defeat the point of asking
         "what would this plan do"."""
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "s", "run": "echo hi"}])))
+        torra = make_torra(scripted(plan_reply("t", "one step", [{"id": "s", "run": "echo hi"}])))
         planned = torra.plan("one step")
 
         resume_path = self._resume_path(tmp_path, "t")
@@ -809,16 +1044,29 @@ class TestResume:
         assert result.results[0].output == "[dry-run] echo hi"
 
     def test_a_failed_run_with_rollback_deletes_the_resume_point(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         """A resume point surviving a rollback would let a later retry skip
         steps whose effects were just undone -- worse than not resuming at
         all. `_sweep_rollback` clears it the same as a clean success does."""
         target = tmp_path / "f.txt"
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step",
-            [{"id": "write", "kind": "write", "run": f"printf x > {target}",
-              "touches": [str(target)]},
-             {"id": "fail", "run": "false"}])))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "one step",
+                    [
+                        {
+                            "id": "write",
+                            "kind": "write",
+                            "run": f"printf x > {target}",
+                            "touches": [str(target)],
+                        },
+                        {"id": "fail", "run": "false"},
+                    ],
+                )
+            )
+        )
         planned = torra.plan("one step")
 
         result = torra.execute(planned, {})
@@ -827,10 +1075,12 @@ class TestResume:
         assert not self._resume_path(tmp_path, "t").exists()
 
     def test_a_completed_run_leaves_no_resume_point_for_a_future_retry_to_find(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         marker = tmp_path / "marker"
-        torra = make_torra(scripted(plan_reply(
-            "t", "one step", [{"id": "s", "run": f"touch {marker}"}])))
+        torra = make_torra(
+            scripted(plan_reply("t", "one step", [{"id": "s", "run": f"touch {marker}"}]))
+        )
         planned = torra.plan("one step")
 
         torra.execute(planned, {})
@@ -838,8 +1088,7 @@ class TestResume:
         assert not self._resume_path(tmp_path, "t").exists()
 
 
-def test_execute_twice_on_the_same_result_does_not_replay_it(make_torra,
-                                                              tmp_path: Path) -> None:
+def test_execute_twice_on_the_same_result_does_not_replay_it(make_torra, tmp_path: Path) -> None:
     """Found live in an audit log: stages [...,"execute","report","execute"]
     and two result entries for one step. The TUI's Run button stays
     clickable mid-run, so a double-click dispatched execute() twice on the
@@ -847,9 +1096,9 @@ def test_execute_twice_on_the_same_result_does_not_replay_it(make_torra,
     second time. A read-only `du` is merely wasteful to repeat; anything
     that mutates state would not be."""
     marker = tmp_path / "marker"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]))
+    )
 
     planned = torra.plan(f"create {marker}")
     once = torra.execute(planned, {})
@@ -865,8 +1114,7 @@ def test_execute_twice_on_the_same_result_does_not_replay_it(make_torra,
     assert len(refusals) == 1
 
 
-def test_ticking_the_box_after_a_rejection_still_runs(make_torra,
-                                                       tmp_path: Path) -> None:
+def test_ticking_the_box_after_a_rejection_still_runs(make_torra, tmp_path: Path) -> None:
     """Found live right after the guard above shipped: a plan clicked Run
     before its checkbox was ticked gets REJECTED (nothing ran, by design --
     see 2.3), the operator ticks the box and clicks Run again, and the
@@ -875,9 +1123,15 @@ def test_ticking_the_box_after_a_rejection_still_runs(make_torra,
     REJECTED is a terminal outcome too even though zero commands ran."""
     victim = tmp_path / "victim.txt"
     victim.write_text("still here", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"remove {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        )
+    )
 
     planned = torra.plan(f"delete {victim}")
     rejected = torra.execute(planned, approvals={})
@@ -890,8 +1144,7 @@ def test_ticking_the_box_after_a_rejection_still_runs(make_torra,
     assert not victim.exists()
 
 
-def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_torra,
-                                                              tmp_path: Path) -> None:
+def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit of the TUI's own presentation layer: the
     Reject button was never disabled after a run completed (unlike
     Run/Dry-run), and Torra.reject() had no guard against being called
@@ -901,8 +1154,9 @@ def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_torra,
     actively misrepresenting a run that may have had real, destructive
     side effects."""
     marker = tmp_path / "marker"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]))
+    )
 
     done = torra.execute(torra.plan(f"touch {marker}"), {})
     assert done.outcome is Outcome.COMPLETED
@@ -918,13 +1172,13 @@ def test_reject_refuses_to_overwrite_a_plan_that_already_ran(make_torra,
     assert len(refusals) == 1
 
 
-def test_reject_still_works_on_a_plan_that_never_ran(make_torra,
-                                                      tmp_path: Path) -> None:
+def test_reject_still_works_on_a_plan_that_never_ran(make_torra, tmp_path: Path) -> None:
     """The ordinary case must keep working: nothing executed yet, so
     Reject is free to actually reject."""
     marker = tmp_path / "marker"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]))
+    )
 
     planned = torra.plan(f"touch {marker}")
     rejected = torra.reject(planned)
@@ -933,14 +1187,13 @@ def test_reject_still_works_on_a_plan_that_never_ran(make_torra,
     assert not marker.exists()
 
 
-def test_a_dry_run_does_not_block_the_real_run_that_follows(make_torra,
-                                                             tmp_path: Path) -> None:
+def test_a_dry_run_does_not_block_the_real_run_that_follows(make_torra, tmp_path: Path) -> None:
     """Previewing a plan with Dry run must not count as "already executed"
     -- that would block the real Run a dry run is meant to precede."""
     marker = tmp_path / "marker"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]))
+    )
 
     planned = torra.plan(f"create {marker}")
     dry = torra.execute(planned, {}, dry_run=True)
@@ -954,8 +1207,7 @@ def test_a_dry_run_does_not_block_the_real_run_that_follows(make_torra,
     assert len(real.results) == 1
 
 
-def test_gate_does_not_redundantly_walk_watch_roots(make_torra,
-                                                    tmp_path: Path) -> None:
+def test_gate_does_not_redundantly_walk_watch_roots(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: _gate() called conflicts.detect() right
     after conflicts.baseline() on the same object -- detect() re-reads
     exactly the state baseline() just captured, so it always returned []],
@@ -967,28 +1219,37 @@ def test_gate_does_not_redundantly_walk_watch_roots(make_torra,
     watched = tmp_path / "watched"
     watched.mkdir()
     detector = ConflictDetector(use_inotify=False)
-    torra = make_torra(scripted(plan_reply(
-        "t", "touch a file", [{"id": "w", "run": "true"}],
-        watch_roots=[str(watched)])), conflicts=detector)
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t", "touch a file", [{"id": "w", "run": "true"}], watch_roots=[str(watched)]
+            )
+        ),
+        conflicts=detector,
+    )
 
     torra.plan("touch a file")
 
     assert detector.full_walks == 0, "baseline() alone must not trigger a _reconcile() walk"
 
 
-def test_a_precondition_flip_stops_execution(make_torra,
-                                             tmp_path: Path) -> None:
+def test_a_precondition_flip_stops_execution(make_torra, tmp_path: Path) -> None:
     """The probe-12 scenario: a service dies at step one, step two must not run."""
     marker = tmp_path / "should-not-exist"
     state = {"up": True}
     verifier = StateVerifier()
-    verifier.add(Precondition("svc", lambda: state["up"], "must stay up",
-                              ttl_seconds=0))
+    verifier.add(Precondition("svc", lambda: state["up"], "must stay up", ttl_seconds=0))
 
-    torra = make_torra(scripted(plan_reply(
-        "t", "restart the api and then write a marker",
-        [{"id": "kill", "run": "true"},
-         {"id": "second", "run": f"touch {marker}"}])), verifier=verifier)
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "restart the api and then write a marker",
+                [{"id": "kill", "run": "true"}, {"id": "second", "run": f"touch {marker}"}],
+            )
+        ),
+        verifier=verifier,
+    )
 
     planned = torra.plan("restart ollama.service on popos-01 and verify")
     state["up"] = False
@@ -999,8 +1260,7 @@ def test_a_precondition_flip_stops_execution(make_torra,
     assert not marker.exists()
 
 
-def test_a_block_before_any_step_ran_is_still_retryable(make_torra,
-                                                         tmp_path: Path) -> None:
+def test_a_block_before_any_step_ran_is_still_retryable(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit, not live: `executed` used to be set
     unconditionally before the step loop, so a plan BLOCKED by a
     precondition or conflict check on step one -- before a single command
@@ -1012,11 +1272,11 @@ def test_a_block_before_any_step_ran_is_still_retryable(make_torra,
     marker = tmp_path / "marker"
     state = {"up": True}
     verifier = StateVerifier()
-    verifier.add(Precondition("svc", lambda: state["up"], "must stay up",
-                              ttl_seconds=0))
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])), verifier=verifier)
+    verifier.add(Precondition("svc", lambda: state["up"], "must stay up", ttl_seconds=0))
+    torra = make_torra(
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+        verifier=verifier,
+    )
 
     planned = torra.plan(f"create {marker}")
     state["up"] = False
@@ -1037,10 +1297,18 @@ def test_an_external_edit_stops_the_run(make_torra, tmp_path: Path) -> None:
     conf.write_text("original", encoding="utf-8")
     marker = tmp_path / "second-ran"
 
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {conf} then write a marker",
-        [{"id": "first", "run": "true", "touches": [str(conf)]},
-         {"id": "second", "run": f"touch {marker}", "touches": [str(conf)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"touch {conf} then write a marker",
+                [
+                    {"id": "first", "run": "true", "touches": [str(conf)]},
+                    {"id": "second", "run": f"touch {marker}", "touches": [str(conf)]},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan(f"update {conf} in two steps")
     conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
@@ -1052,7 +1320,8 @@ def test_an_external_edit_stops_the_run(make_torra, tmp_path: Path) -> None:
 
 
 def test_a_block_before_any_step_ran_does_not_overwrite_the_external_edit(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """HANDOFF.md §2.59. Every approved step's undo used to be staged before
     step one ran, so a conflict block went through the rollback sweep and
     copied the plan-time snapshot back over the very edit the conflict check
@@ -1060,10 +1329,18 @@ def test_a_block_before_any_step_ran_does_not_overwrite_the_external_edit(
     conf = tmp_path / "shared.conf"
     conf.write_text("original", encoding="utf-8")
     marker = tmp_path / "second-ran"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"touch {conf} then write a marker",
-        [{"id": "first", "run": "true", "touches": [str(conf)]},
-         {"id": "second", "run": f"touch {marker}", "touches": [str(conf)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"touch {conf} then write a marker",
+                [
+                    {"id": "first", "run": "true", "touches": [str(conf)]},
+                    {"id": "second", "run": f"touch {marker}", "touches": [str(conf)]},
+                ],
+            )
+        )
+    )
 
     planned = torra.plan(f"update {conf} in two steps")
     conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
@@ -1076,18 +1353,35 @@ def test_a_block_before_any_step_ran_does_not_overwrite_the_external_edit(
 
 
 def test_a_block_before_step_two_reverts_step_one_and_never_step_two(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """Undos are staged just before their own step runs, so a block at step
     two reverses step one and leaves step two's file exactly as found."""
     a, b = tmp_path / "a.txt", tmp_path / "b.txt"
     a.write_text("a-original", encoding="utf-8")
     b.write_text("b-original", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "write a then b",
-        [{"id": "one", "kind": "write",
-          "run": f"printf 'a-new' > {a} && printf 'EXTERNAL' > {b}", "touches": [str(a)]},
-         {"id": "two", "kind": "write",
-          "run": f"printf 'b-new' > {b}", "touches": [str(b)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "write a then b",
+                [
+                    {
+                        "id": "one",
+                        "kind": "write",
+                        "run": f"printf 'a-new' > {a} && printf 'EXTERNAL' > {b}",
+                        "touches": [str(a)],
+                    },
+                    {
+                        "id": "two",
+                        "kind": "write",
+                        "run": f"printf 'b-new' > {b}",
+                        "touches": [str(b)],
+                    },
+                ],
+            )
+        )
+    )
 
     planned = torra.plan("write a then b")
     done = torra.execute(planned, {})
@@ -1102,8 +1396,11 @@ def test_a_blocked_dry_run_runs_no_undos(make_torra, tmp_path: Path) -> None:
     """A dry run changes nothing, so a block during one has nothing to undo."""
     conf = tmp_path / "shared.conf"
     conf.write_text("original", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "edit conf", [{"id": "only", "run": "true", "touches": [str(conf)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply("t", "edit conf", [{"id": "only", "run": "true", "touches": [str(conf)]}])
+        )
+    )
 
     planned = torra.plan("edit conf")
     conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
@@ -1114,18 +1411,23 @@ def test_a_blocked_dry_run_runs_no_undos(make_torra, tmp_path: Path) -> None:
     assert done.rollback is None
 
 
-def test_a_declared_rollback_does_not_run_when_no_step_ran(
-        make_torra, tmp_path: Path) -> None:
+def test_a_declared_rollback_does_not_run_when_no_step_ran(make_torra, tmp_path: Path) -> None:
     """A declared rollback compensates for steps; with none run it is a
     cleanup of work that never happened (a declared `rm -rf` of a directory
     that already held someone's files, say)."""
     conf = tmp_path / "shared.conf"
     conf.write_text("original", encoding="utf-8")
     marker = tmp_path / "cleanup-ran"
-    torra = make_torra(scripted(plan_reply(
-        "t", "edit conf",
-        [{"id": "only", "run": "true", "touches": [str(conf)]}],
-        rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "edit conf",
+                [{"id": "only", "run": "true", "touches": [str(conf)]}],
+                rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}],
+            )
+        )
+    )
 
     planned = torra.plan("edit conf")
     conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
@@ -1135,15 +1437,20 @@ def test_a_declared_rollback_does_not_run_when_no_step_ran(
     assert not marker.exists()
 
 
-def test_a_declared_rollback_still_runs_when_a_real_step_failed(
-        make_torra, tmp_path: Path) -> None:
+def test_a_declared_rollback_still_runs_when_a_real_step_failed(make_torra, tmp_path: Path) -> None:
     """The other side of the rule above: once a step has run, the declared
     cleanup is wanted, and it still runs before the derived undos."""
     marker = tmp_path / "cleanup-ran"
-    torra = make_torra(scripted(plan_reply(
-        "t", "fail",
-        [{"id": "boom", "run": "exit 1"}],
-        rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "fail",
+                [{"id": "boom", "run": "exit 1"}],
+                rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}],
+            )
+        )
+    )
 
     done = torra.execute(torra.plan("fail"), {})
 
@@ -1152,18 +1459,31 @@ def test_a_declared_rollback_still_runs_when_a_real_step_failed(
 
 
 def test_a_conflict_after_a_step_ran_does_not_overwrite_the_edited_file(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """A human edits a file torra's own earlier step wrote. Restoring the
     plan-time snapshot would destroy that edit, so the file's undo is dropped
     and the decision log says so."""
     a = tmp_path / "a.txt"
     a.write_text("a-original", encoding="utf-8")
     marker = tmp_path / "second-ran"
-    torra = make_torra(scripted(plan_reply(
-        "t", "write a then a marker",
-        [{"id": "one", "kind": "write", "run": f"printf 'torra-wrote' > {a}",
-          "touches": [str(a)]},
-         {"id": "two", "run": f"touch {marker}", "touches": [str(a)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "write a then a marker",
+                [
+                    {
+                        "id": "one",
+                        "kind": "write",
+                        "run": f"printf 'torra-wrote' > {a}",
+                        "touches": [str(a)],
+                    },
+                    {"id": "two", "run": f"touch {marker}", "touches": [str(a)]},
+                ],
+            )
+        )
+    )
     real_detect, calls = torra.conflicts.detect, []
 
     def detect_with_a_human_edit_landing_between_the_steps():
@@ -1179,16 +1499,24 @@ def test_a_conflict_after_a_step_ran_does_not_overwrite_the_edited_file(
     assert done.outcome is Outcome.BLOCKED
     assert a.read_text(encoding="utf-8") == "HUMAN EDIT"
     assert not marker.exists()
-    assert any(d["decision"] == "undo skipped" and "changed outside torra" in d["reasoning"]
-               for d in done.decisions)
+    assert any(
+        d["decision"] == "undo skipped" and "changed outside torra" in d["reasoning"]
+        for d in done.decisions
+    )
 
 
 def test_declared_undos_hold_a_dangerous_command_declared_safe_as_unsafe() -> None:
     """The collaborator on its own: a declared-safe entry that classifies
     DANGEROUS comes back unsafe, and the override is logged."""
-    spec = TaskSpec(task_id="t", request="r", steps=[],
-                    rollback=[{"run": "rm -rf /srv/api", "description": "wipe", "safe": True},
-                              {"run": "true", "description": "noop", "safe": True}])
+    spec = TaskSpec(
+        task_id="t",
+        request="r",
+        steps=[],
+        rollback=[
+            {"run": "rm -rf /srv/api", "description": "wipe", "safe": True},
+            {"run": "true", "description": "noop", "safe": True},
+        ],
+    )
     decisions = DecisionLog()
 
     held = declared_undos(spec, SafetyClassifier(), decisions)
@@ -1211,12 +1539,16 @@ def test_sweep_pushes_declared_entries_only_when_a_real_step_ran() -> None:
 
 
 def test_undos_left_by_an_earlier_halted_rollback_are_not_run_by_a_later_plan(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """Each execute attempt starts from an empty undo stack."""
     conf = tmp_path / "shared.conf"
     conf.write_text("original", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "edit conf", [{"id": "only", "run": "true", "touches": [str(conf)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply("t", "edit conf", [{"id": "only", "run": "true", "touches": [str(conf)]}])
+        )
+    )
     leaked: list[str] = []
     torra.rollback.add("left over from an earlier plan", lambda: leaked.append("ran"))
 
@@ -1228,11 +1560,11 @@ def test_undos_left_by_an_earlier_halted_rollback_are_not_run_by_a_later_plan(
     assert leaked == []
 
 
-def test_a_dry_run_executes_nothing_but_gates_everything(make_torra,
-                                                         tmp_path: Path) -> None:
+def test_a_dry_run_executes_nothing_but_gates_everything(make_torra, tmp_path: Path) -> None:
     marker = tmp_path / "nope"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}]))
+    )
 
     done = torra.execute(torra.plan(f"create {marker}"), {}, dry_run=True)
 
@@ -1248,14 +1580,20 @@ def test_a_dry_run_executes_nothing_but_gates_everything(make_torra,
 
 
 def test_an_audit_write_failure_is_logged_not_raised(
-        make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Telemetry can never break a run (invariant §2.5) -- the audit
     write is the same principle applied to the file it writes, not just
     the JSONL log."""
     marker = tmp_path / "marker"
-    spec = TaskSpec.validate({
-        "task_id": "audit-blocked", "request": f"create {marker}",
-        "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "audit-blocked",
+            "request": f"create {marker}",
+            "steps": [{"id": "touch", "run": f"touch {marker}"}],
+        },
+        source="test",
+    )
     torra = make_torra(scripted({}))
     audit_path = torra.audit_dir / "audit-blocked.audit.json"
     real_write_text = Path.write_text
@@ -1292,8 +1630,7 @@ def test_close_releases_watches_without_raising(make_torra) -> None:
 
 
 def test_a_question_is_answered_not_planned(make_torra) -> None:
-    torra = make_torra(scripted(
-        {"intent": "answer", "message": "40 GB free on /, 60% used."}))
+    torra = make_torra(scripted({"intent": "answer", "message": "40 GB free on /, 60% used."}))
     result = torra.plan("how much disk is free")
 
     assert result.outcome is Outcome.ANSWERED
@@ -1304,8 +1641,7 @@ def test_a_question_is_answered_not_planned(make_torra) -> None:
 def test_run_returns_a_non_awaiting_outcome_without_calling_approve(make_torra) -> None:
     """The convenience run() wrapper's early exit -- nothing to gate means
     nothing to approve, so `approve` must never even be called."""
-    torra = make_torra(scripted(
-        {"intent": "answer", "message": "40 GB free on /, 60% used."}))
+    torra = make_torra(scripted({"intent": "answer", "message": "40 GB free on /, 60% used."}))
     calls = []
 
     result = torra.run("how much disk is free", approve=lambda plan: calls.append(plan))
@@ -1327,7 +1663,8 @@ def test_answer_on_a_result_with_no_turn_is_a_no_op(make_torra) -> None:
 
 
 def test_a_resume_point_that_cannot_be_written_does_not_stop_the_run(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """A resume point is a nicety, not a reason to stop -- both the
     mid-run save() failure and _finish_success's own best-effort cleanup
     of the (never successfully written) resume file must be swallowed.
@@ -1335,9 +1672,14 @@ def test_a_resume_point_that_cannot_be_written_does_not_stop_the_run(
     both `ResumePoint.save()` (os.replace onto a directory) and the later
     `resume_path.unlink()` (can't unlink a directory) fail for real."""
     marker = tmp_path / "marker"
-    spec = TaskSpec.validate({
-        "task_id": "resume-blocked", "request": f"create {marker}",
-        "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "resume-blocked",
+            "request": f"create {marker}",
+            "steps": [{"id": "touch", "run": f"touch {marker}"}],
+        },
+        source="test",
+    )
     torra = make_torra(scripted({}))
     resume_dir = torra.workdir / "resume" / "resume-blocked.json"
     resume_dir.mkdir(parents=True)
@@ -1354,9 +1696,9 @@ def test_a_step_with_no_run_action_fails_instead_of_crashing(make_torra) -> None
     """`TaskSpec.to_steps()` always attaches a real closure -- this guards
     a `Step` built some other way (a `Plan` assembled by hand, as this
     test does, rather than through `_gate()`)."""
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "r", "steps": [{"id": "s1", "run": "true"}]},
-        source="test")
+    spec = TaskSpec.validate(
+        {"task_id": "t", "request": "r", "steps": [{"id": "s1", "run": "true"}]}, source="test"
+    )
     step = Step(step_id="s1", command="true", run=None)
     sp = StepPlan(step=step, verdict=Verdict("true", RiskLevel.SAFE))
     plan = Plan(spec=spec, steps=[sp])
@@ -1370,11 +1712,15 @@ def test_a_step_with_no_run_action_fails_instead_of_crashing(make_torra) -> None
 
 
 def test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """HANDOFF.md §2.62, §2.74 (GRADE_TO_A_PLAN P3.1): audit JSON, task log and resume file."""
     fake = "sk-or-v1-" + "f4k3" * 12
-    torra = make_torra(scripted(plan_reply(
-        "t", "echo then fail", [{"id": "one", "run": f"echo {fake} >&2; exit 1"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply("t", "echo then fail", [{"id": "one", "run": f"echo {fake} >&2; exit 1"}])
+        )
+    )
 
     torra.execute(torra.plan(f"check that {fake} works"), {})
 
@@ -1384,11 +1730,13 @@ def test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk(
 
 
 def test_a_model_written_id_that_holds_a_secret_names_no_file_and_reaches_no_file(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """GRADE_TO_A_PLAN P3.1: the proposal is refused, and nothing torra writes holds the key."""
     fake = "sk-or-v1-" + "f4k3" * 12
-    torra = make_torra(scripted(plan_reply(
-        f"t-{fake}", "one step", [{"id": f"s-{fake}", "run": "exit 1"}])))
+    torra = make_torra(
+        scripted(plan_reply(f"t-{fake}", "one step", [{"id": f"s-{fake}", "run": "exit 1"}]))
+    )
 
     result = torra.plan("run the step")
     if result.plan is not None:
@@ -1409,12 +1757,24 @@ class TestRemotePushEscalation:
     runner is always a fake dict-backed callable."""
 
     def test_remote_push_is_critical_even_though_its_own_text_classifies_safe(
-            self, make_torra, tmp_path: Path) -> None:
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
-                      "remote_path": "/etc/nginx/nginx.conf",
-                      "reads": [str(tmp_path / "local.conf")]}]}, source="test")
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "push",
+                        "kind": "remote_push",
+                        "run": "ignored",
+                        "remote_path": "/etc/nginx/nginx.conf",
+                        "reads": [str(tmp_path / "local.conf")],
+                    }
+                ],
+            },
+            source="test",
+        )
         torra = make_torra(scripted({}))
         torra._executor_runner = None  # unconfigured -- irrelevant to classification
 
@@ -1428,12 +1788,24 @@ class TestRemotePushEscalation:
         assert SafetyClassifier().classify(sp.step.command).level is not RiskLevel.CRITICAL
 
     def test_remote_pull_is_judged_by_the_local_file_it_writes(
-            self, make_torra, tmp_path: Path) -> None:
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
-                      "remote_path": "/etc/nginx/nginx.conf",
-                      "touches": [str(tmp_path / "local.conf")]}]}, source="test")
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "pull",
+                        "kind": "remote_pull",
+                        "run": "ignored",
+                        "remote_path": "/etc/nginx/nginx.conf",
+                        "touches": [str(tmp_path / "local.conf")],
+                    }
+                ],
+            },
+            source="test",
+        )
         torra = make_torra(scripted({}))
         torra._executor_runner = None
 
@@ -1443,20 +1815,33 @@ class TestRemotePushEscalation:
         assert not plan.steps[0].verdict.needs_confirmation
 
     def test_remote_pull_into_a_system_path_asks(self, make_torra) -> None:
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
-                      "remote_path": "/etc/nginx/nginx.conf",
-                      "touches": ["/etc/nginx/nginx.conf"]}]}, source="test")
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "pull",
+                        "kind": "remote_pull",
+                        "run": "ignored",
+                        "remote_path": "/etc/nginx/nginx.conf",
+                        "touches": ["/etc/nginx/nginx.conf"],
+                    }
+                ],
+            },
+            source="test",
+        )
         torra = make_torra(scripted({}))
         torra._executor_runner = None
 
         assert torra._gate(spec).steps[0].verdict.needs_confirmation
 
     def test_a_pull_over_an_existing_local_file_is_undone_when_a_later_step_fails(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         """GRADE_TO_A_PLAN P3.5: the file a pull overwrites is snapshotted like any `touches` path."""
         import base64
+
         local, marker = tmp_path / "app.conf", tmp_path / "pull-wrote"
         local.write_text("local original\n", encoding="utf-8")
 
@@ -1467,12 +1852,28 @@ class TestRemotePushEscalation:
                 return base64.b64encode(b"remote copy\n").decode()
             raise AssertionError(f"unexpected command: {command}")
 
-        torra = make_torra(scripted(plan_reply(
-            "t", "pull then fail",
-            [{"id": "pull", "kind": "remote_pull", "run": "ignored", "remote_path": "/srv/app.conf",
-              "touches": [str(local)]},
-             {"id": "fail", "run": f"grep -q 'remote copy' {local} && touch {marker}; exit 1"}])),
-            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "pull then fail",
+                    [
+                        {
+                            "id": "pull",
+                            "kind": "remote_pull",
+                            "run": "ignored",
+                            "remote_path": "/srv/app.conf",
+                            "touches": [str(local)],
+                        },
+                        {
+                            "id": "fail",
+                            "run": f"grep -q 'remote copy' {local} && touch {marker}; exit 1",
+                        },
+                    ],
+                )
+            ),
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner),
+        )
         torra._executor_runner = fake_runner
         planned = torra.plan("pull then fail")
 
@@ -1484,7 +1885,8 @@ class TestRemotePushEscalation:
         assert done.rollback is not None and done.rollback.ok
 
     def test_end_to_end_pull_edit_push_with_a_real_snapshot_based_undo(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         remote = {"/etc/nginx/nginx.conf": "listen 80;\n"}
         local_path = tmp_path / "nginx.conf"
 
@@ -1493,26 +1895,47 @@ class TestRemotePushEscalation:
                 return "yes" if "/etc/nginx/nginx.conf" in remote else "no"
             if command.startswith("base64 -w0"):
                 import base64 as b64
+
                 return b64.b64encode(remote["/etc/nginx/nginx.conf"].encode("utf-8")).decode()
             if "base64 -d" in command:
                 import base64
+
                 encoded = command.split("echo ", 1)[1].split(" |", 1)[0].strip("'")
                 remote["/etc/nginx/nginx.conf"] = base64.b64decode(encoded).decode("utf-8")
                 return ""
             raise AssertionError(f"unexpected command: {command}")
 
-        torra = make_torra(scripted(plan_reply(
-            "t", "edit nginx on executor",
-            [{"id": "pull", "kind": "remote_pull",
-              "run": "ignored", "remote_path": "/etc/nginx/nginx.conf",
-              "touches": [str(local_path)]},
-             {"id": "edit", "kind": "shell",
-              "run": f"echo 'listen 8080;' > {local_path}",
-              "touches": [str(local_path)]},
-             {"id": "push", "kind": "remote_push",
-              "run": "ignored", "remote_path": "/etc/nginx/nginx.conf",
-              "reads": [str(local_path)]}])),
-            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "edit nginx on executor",
+                    [
+                        {
+                            "id": "pull",
+                            "kind": "remote_pull",
+                            "run": "ignored",
+                            "remote_path": "/etc/nginx/nginx.conf",
+                            "touches": [str(local_path)],
+                        },
+                        {
+                            "id": "edit",
+                            "kind": "shell",
+                            "run": f"echo 'listen 8080;' > {local_path}",
+                            "touches": [str(local_path)],
+                        },
+                        {
+                            "id": "push",
+                            "kind": "remote_push",
+                            "run": "ignored",
+                            "remote_path": "/etc/nginx/nginx.conf",
+                            "reads": [str(local_path)],
+                        },
+                    ],
+                )
+            ),
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=fake_runner),
+        )
         torra._executor_runner = fake_runner
         planned = torra.plan("edit nginx on executor")
 
@@ -1520,37 +1943,51 @@ class TestRemotePushEscalation:
         assert push_step.verdict.level is RiskLevel.CRITICAL
         assert len(push_step.undos) == 1, "a real snapshot must be captured before execute()"
 
-        done = torra.execute(planned, {
-            sp.step.step_id: True for sp in planned.plan.steps})
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
 
         assert done.outcome is Outcome.COMPLETED
         assert remote["/etc/nginx/nginx.conf"] == "listen 8080;\n"
 
     def test_a_push_with_a_failed_snapshot_is_uncovered_and_still_needs_approval(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         def always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
             raise RuntimeError("executor unreachable")
 
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
-                      "remote_path": "/etc/nginx/nginx.conf",
-                      "reads": [str(tmp_path / "local.conf")]}]}, source="test")
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "push",
+                        "kind": "remote_push",
+                        "run": "ignored",
+                        "remote_path": "/etc/nginx/nginx.conf",
+                        "reads": [str(tmp_path / "local.conf")],
+                    }
+                ],
+            },
+            source="test",
+        )
         torra = make_torra(
             scripted({}),
-            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=always_fails))
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow", executor_runner=always_fails),
+        )
         torra._executor_runner = always_fails
 
         plan = torra._gate(spec)
 
         sp = plan.steps[0]
         assert sp.undos == [], "a failed snapshot must mean genuinely no undo"
-        assert sp.verdict.level is RiskLevel.CRITICAL, \
+        assert sp.verdict.level is RiskLevel.CRITICAL, (
             "still needs an explicit tick even with no undo coverage"
+        )
         assert plan.coverage.get("coverage_ratio", 1.0) < 1.0
 
     def test_a_failing_push_step_triggers_the_normal_rollback_sweep(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         """No new mid-run recovery path needed -- a step whose run() raises
         already sweeps every already-run step's undo in reverse, and that
         composes correctly here with zero changes."""
@@ -1560,23 +1997,40 @@ class TestRemotePushEscalation:
         def push_always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
             raise RuntimeError("connection reset")
 
-        torra = make_torra(scripted(plan_reply(
-            "t", "push a change",
-            [{"id": "edit", "kind": "shell",
-              "run": f"echo changed > {local_path}", "touches": [str(local_path)]},
-             {"id": "push", "kind": "remote_push", "run": "ignored",
-              "remote_path": "/etc/nginx/nginx.conf", "reads": [str(local_path)]}])),
-            undo=UndoGenerator(shadow_dir=tmp_path / "shadow"))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "push a change",
+                    [
+                        {
+                            "id": "edit",
+                            "kind": "shell",
+                            "run": f"echo changed > {local_path}",
+                            "touches": [str(local_path)],
+                        },
+                        {
+                            "id": "push",
+                            "kind": "remote_push",
+                            "run": "ignored",
+                            "remote_path": "/etc/nginx/nginx.conf",
+                            "reads": [str(local_path)],
+                        },
+                    ],
+                )
+            ),
+            undo=UndoGenerator(shadow_dir=tmp_path / "shadow"),
+        )
         torra._executor_runner = push_always_fails
         planned = torra.plan("push a change")
 
-        done = torra.execute(planned, {
-            sp.step.step_id: True for sp in planned.plan.steps})
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
 
         assert done.outcome is Outcome.FAILED
         assert done.rollback is not None
-        assert local_path.read_text(encoding="utf-8") == "original\n", \
+        assert local_path.read_text(encoding="utf-8") == "original\n", (
             "the local edit must have been rolled back by the normal sweep"
+        )
 
 
 def test_execute_on_a_result_with_no_plan_fails_rather_than_crashing(make_torra) -> None:
@@ -1584,8 +2038,7 @@ def test_execute_on_a_result_with_no_plan_fails_rather_than_crashing(make_torra)
     plan attached in normal use -- this is the defensive guard for a
     caller that skips straight to execute() on something else, e.g. an
     ANSWERED result."""
-    torra = make_torra(scripted(
-        {"intent": "answer", "message": "40 GB free on /, 60% used."}))
+    torra = make_torra(scripted({"intent": "answer", "message": "40 GB free on /, 60% used."}))
     answered = torra.plan("how much disk is free")
 
     done = torra.execute(answered, {})
@@ -1596,9 +2049,11 @@ def test_execute_on_a_result_with_no_plan_fails_rather_than_crashing(make_torra)
 
 def test_a_vague_request_becomes_a_question(make_torra) -> None:
     """The model asks, informed by what the clarifier found missing."""
-    torra = make_torra(scripted(
-        {"intent": "ask", "message": "Which host?",
-         "questions": ["Which host do you mean?"]}))
+    torra = make_torra(
+        scripted(
+            {"intent": "ask", "message": "Which host?", "questions": ["Which host do you mean?"]}
+        )
+    )
     result = torra.plan("tidy up the box")
 
     assert result.outcome is Outcome.NEEDS_ANSWER
@@ -1608,8 +2063,9 @@ def test_a_vague_request_becomes_a_question(make_torra) -> None:
 
 
 def test_a_refusal_is_reported(make_torra) -> None:
-    torra = make_torra(scripted(
-        {"intent": "refuse", "message": "That would destroy the boot partition."}))
+    torra = make_torra(
+        scripted({"intent": "refuse", "message": "That would destroy the boot partition."})
+    )
     assert torra.plan("wipe /boot").outcome is Outcome.REFUSED
 
 
@@ -1628,8 +2084,14 @@ def test_a_dead_backend_is_reported_with_recovery(make_torra) -> None:
 class _DeadAltBackend:
     """A ModelBackend that always fails, with backend-specific recovery advice."""
 
-    def chat(self, model: str, messages: object, json_mode: bool = False,
-              temperature: float = 0.2, on_thinking: object | None = None) -> str:
+    def chat(
+        self,
+        model: str,
+        messages: object,
+        json_mode: bool = False,
+        temperature: float = 0.2,
+        on_thinking: object | None = None,
+    ) -> str:
         raise OllamaError("openrouter is down")
 
     def recovery_options(self, current_model: str = "unknown") -> list[RecoveryOption]:
@@ -1640,7 +2102,7 @@ class _DeadAltBackend:
 
 
 def test_recovery_options_come_from_the_backend_that_actually_failed(make_torra) -> None:
-    """"Restart Ollama" is exactly the wrong advice for a failed
+    """ "Restart Ollama" is exactly the wrong advice for a failed
     openrouter/... request -- the logged recovery options must come from
     the backend that was actually attempted, not always self.ollama."""
     torra = make_torra(scripted({}), backends={"openrouter": _DeadAltBackend()})
@@ -1659,15 +2121,15 @@ def test_torra_backends_reach_the_agent(make_torra) -> None:
     assert torra.agent.backends["openrouter"] is fake
 
 
-def test_a_failed_precondition_blocks_before_anything_runs(make_torra,
-                                                           tmp_path: Path) -> None:
+def test_a_failed_precondition_blocks_before_anything_runs(make_torra, tmp_path: Path) -> None:
     marker = tmp_path / "nope"
     verifier = StateVerifier()
     verifier.add(Precondition("impossible", lambda: False, "never passes"))
 
-    torra = make_torra(scripted(plan_reply(
-        "t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])),
-        verifier=verifier)
+    torra = make_torra(
+        scripted(plan_reply("t", f"create {marker}", [{"id": "t", "run": f"touch {marker}"}])),
+        verifier=verifier,
+    )
     result = torra.plan(f"create {marker}")
 
     assert result.outcome is Outcome.BLOCKED
@@ -1684,9 +2146,15 @@ def test_run_approves_through_a_callback(make_torra, tmp_path: Path) -> None:
     """What the CLI and the TUI both use."""
     victim = tmp_path / "v.txt"
     victim.write_text("x", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"remove {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        )
+    )
 
     seen = {}
 
@@ -1703,33 +2171,47 @@ def test_run_approves_through_a_callback(make_torra, tmp_path: Path) -> None:
     assert not victim.exists()
 
 
-def test_run_refuses_when_no_approver_is_given(make_torra,
-                                               tmp_path: Path) -> None:
+def test_run_refuses_when_no_approver_is_given(make_torra, tmp_path: Path) -> None:
     """Unattended defaults to refusing, which is the safe direction."""
     victim = tmp_path / "v.txt"
     victim.write_text("x", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", f"remove {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        )
+    )
 
     assert torra.run(f"delete {victim}").outcome is Outcome.REJECTED
     assert victim.exists()
 
 
-def test_a_hand_written_file_still_works_without_a_model(make_torra,
-                                                         tmp_path: Path) -> None:
+def test_a_hand_written_file_still_works_without_a_model(make_torra, tmp_path: Path) -> None:
     """When the model is down or wrong, the gates must still be reachable."""
     marker = tmp_path / "made"
-    spec = TaskSpec.validate({
-        "task_id": "manual", "request": f"create {marker}",
-        "steps": [{"id": "t", "run": f"touch {marker}"}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "manual",
+            "request": f"create {marker}",
+            "steps": [{"id": "t", "run": f"touch {marker}"}],
+        },
+        source="test",
+    )
 
     torra = make_torra(scripted({}))
     plan = torra._gate(spec)
 
     from torra.pipeline import RunResult
-    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
-                       stages=["gate", "present"], plan=plan)
+
+    result = RunResult(
+        request=spec.request,
+        outcome=Outcome.AWAITING_APPROVAL,
+        stages=["gate", "present"],
+        plan=plan,
+    )
     done = torra.execute(result, {})
 
     assert done.outcome is Outcome.COMPLETED
@@ -1738,7 +2220,8 @@ def test_a_hand_written_file_still_works_without_a_model(make_torra,
 
 
 def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
-        make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make_torra, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Found live: the resume-file path was built straight from
     `plan.spec.task_id` with no sanitizing at all -- unlike the audit path
     built in the very same function, which already sanitized. A task_id of
@@ -1766,9 +2249,15 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
     monkeypatch.setattr(ResumePoint, "save", spy_save)
 
     evil_id = "../../evil-poc"
-    torra = make_torra(scripted(plan_reply(
-        evil_id, "do something",
-        [{"id": "ok", "run": "true"}, {"id": "bad", "run": "false"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                evil_id,
+                "do something",
+                [{"id": "ok", "run": "true"}, {"id": "bad", "run": "false"}],
+            )
+        )
+    )
 
     planned = torra.plan("do something")
     done = torra.execute(planned, {})
@@ -1778,8 +2267,9 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
     assert not escaped.exists(), "resume file escaped torra's own workdir"
     resume_dir = tmp_path / "wd" / "resume"
     assert seen_paths, "the ok step should have written a resume point before bad failed"
-    assert all(p.parent == resume_dir for p in seen_paths), \
+    assert all(p.parent == resume_dir for p in seen_paths), (
         "every resume write should target the sanitized path inside workdir/resume/"
+    )
 
 
 def test_safe_filename_leaves_no_path_separator() -> None:
@@ -1789,7 +2279,8 @@ def test_safe_filename_leaves_no_path_separator() -> None:
 
 
 def test_knowledge_dir_defaults_from_the_environment(
-        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """cli.py/tui.py construct Torra() with no knowledge_dir argument at
     all -- this is the only place that has to read TORRA_KNOWLEDGE_DIR,
     so they need no changes to pick up a configured library."""
@@ -1799,21 +2290,24 @@ def test_knowledge_dir_defaults_from_the_environment(
 
 
 def test_an_explicit_knowledge_dir_overrides_the_environment(
-        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("TORRA_KNOWLEDGE_DIR", "/from/env")
     torra = Torra(workdir=tmp_path / "wd", knowledge_dir=str(tmp_path))
     assert torra.knowledge_dir == str(tmp_path)
 
 
 def test_an_explicit_empty_knowledge_dir_disables_it_even_with_env_set(
-        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("TORRA_KNOWLEDGE_DIR", "/from/env")
     torra = Torra(workdir=tmp_path / "wd", knowledge_dir="")
     assert torra.knowledge_dir is None
 
 
 def test_knowledge_dir_is_none_by_default_with_nothing_configured(
-        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.delenv("TORRA_KNOWLEDGE_DIR", raising=False)
     torra = Torra(workdir=tmp_path / "wd")
     assert torra.knowledge_dir is None
@@ -1830,6 +2324,7 @@ def _chat_transport(plan_content: dict, summary_text: str):
     summarize call apart by `format` (json_mode) instead of call order --
     the summarize call always comes after an unknown number of repair
     rounds, so position alone cannot identify it."""
+
     def transport(path: str, payload: dict, timeout: float) -> dict:
         if path == "/api/tags":
             return {"models": [{"name": "devstral:24b"}]}
@@ -1838,6 +2333,7 @@ def _chat_transport(plan_content: dict, summary_text: str):
         if payload.get("format") == "json":
             return {"message": {"content": json.dumps(plan_content)}}
         return {"message": {"content": summary_text}}
+
     return transport
 
 
@@ -1847,11 +2343,10 @@ def test_a_completed_run_gets_a_synthesized_summary(make_torra, tmp_path: Path) 
     target = tmp_path / "data.txt"
     target.write_text("one\ntwo\nthree\n", encoding="utf-8")
     plan_content = plan_reply(
-        "read-file", f"read {target}",
-        [{"id": "read", "kind": "read", "run": f"cat {target}"}])
+        "read-file", f"read {target}", [{"id": "read", "kind": "read", "run": f"cat {target}"}]
+    )
 
-    torra = make_torra(_chat_transport(
-        plan_content, "The file has three lines: one, two, three."))
+    torra = make_torra(_chat_transport(plan_content, "The file has three lines: one, two, three."))
     planned = torra.plan(f"how many lines are in {target}")
     assert planned.outcome is Outcome.AWAITING_APPROVAL
 
@@ -1873,11 +2368,10 @@ def test_a_dry_run_never_gets_a_summary(make_torra, tmp_path: Path) -> None:
     target = tmp_path / "data.txt"
     target.write_text("one\ntwo\nthree\n", encoding="utf-8")
     plan_content = plan_reply(
-        "read-file", f"read {target}",
-        [{"id": "read", "kind": "read", "run": f"cat {target}"}])
+        "read-file", f"read {target}", [{"id": "read", "kind": "read", "run": f"cat {target}"}]
+    )
 
-    torra = make_torra(_chat_transport(
-        plan_content, "The file has three lines: one, two, three."))
+    torra = make_torra(_chat_transport(plan_content, "The file has three lines: one, two, three."))
     planned = torra.plan(f"how many lines are in {target}")
 
     done = torra.execute(planned, {}, dry_run=True)
@@ -1888,34 +2382,43 @@ def test_a_dry_run_never_gets_a_summary(make_torra, tmp_path: Path) -> None:
 
 
 def test_a_hand_written_plan_gets_no_summary_and_consults_no_model(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """The same invariant `test_a_hand_written_file_still_works_without_a_model`
     guards, checked from the summary field's own side: a plan nobody's
     model wrote must not become the trigger for the first model call."""
     marker = tmp_path / "made"
-    spec = TaskSpec.validate({
-        "task_id": "manual", "request": f"create {marker}",
-        "steps": [{"id": "t", "run": f"touch {marker}"}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "manual",
+            "request": f"create {marker}",
+            "steps": [{"id": "t", "run": f"touch {marker}"}],
+        },
+        source="test",
+    )
 
     torra = make_torra(scripted({}))
     plan = torra._gate(spec)
-    result = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
-                       stages=["gate", "present"], plan=plan)
+    result = RunResult(
+        request=spec.request,
+        outcome=Outcome.AWAITING_APPROVAL,
+        stages=["gate", "present"],
+        plan=plan,
+    )
     done = torra.execute(result, {})
 
     assert done.summary == ""
     assert torra.ollama.calls == 0
 
 
-def test_a_failed_summarize_call_does_not_break_the_run(
-        make_torra, tmp_path: Path) -> None:
+def test_a_failed_summarize_call_does_not_break_the_run(make_torra, tmp_path: Path) -> None:
     """Same rule as telemetry: a reporting step that can fail a real run
     would make torra less reliable than not reporting at all."""
     target = tmp_path / "data.txt"
     target.write_text("hello\n", encoding="utf-8")
     plan_content = plan_reply(
-        "read-file", f"read {target}",
-        [{"id": "read", "kind": "read", "run": f"cat {target}"}])
+        "read-file", f"read {target}", [{"id": "read", "kind": "read", "run": f"cat {target}"}]
+    )
 
     def transport(path: str, payload: dict, timeout: float) -> dict:
         if path == "/api/tags":
@@ -1937,8 +2440,9 @@ def test_a_failed_summarize_call_does_not_break_the_run(
     # into `result` or the audit file -- an empty summary with no recorded
     # reason why.
     assert any(d["decision"] == "summary failed" for d in done.decisions)
-    assert json.loads(Path(done.audit_path).read_text(encoding="utf-8"))["decisions"] == \
-        done.decisions
+    assert (
+        json.loads(Path(done.audit_path).read_text(encoding="utf-8"))["decisions"] == done.decisions
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1947,12 +2451,20 @@ def test_a_failed_summarize_call_does_not_break_the_run(
 
 
 def test_step_plan_has_undo_reflects_whether_any_undo_was_derived(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     marker = tmp_path / "touched"
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": f"create {marker}",
-        "steps": [{"id": "touch", "run": f"touch {marker}", "touches": [str(marker)]},
-                 {"id": "no-undo", "run": "true"}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": f"create {marker}",
+            "steps": [
+                {"id": "touch", "run": f"touch {marker}", "touches": [str(marker)]},
+                {"id": "no-undo", "run": "true"},
+            ],
+        },
+        source="test",
+    )
     torra = make_torra(scripted({}))
 
     plan = torra._gate(spec)
@@ -1964,12 +2476,18 @@ def test_step_plan_has_undo_reflects_whether_any_undo_was_derived(
 
 def test_run_result_ok_is_true_only_when_completed(make_torra, tmp_path: Path) -> None:
     marker = tmp_path / "made"
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": f"create {marker}",
-        "steps": [{"id": "touch", "run": f"touch {marker}"}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": f"create {marker}",
+            "steps": [{"id": "touch", "run": f"touch {marker}"}],
+        },
+        source="test",
+    )
     torra = make_torra(scripted({}))
-    planned = RunResult(request=spec.request, outcome=Outcome.AWAITING_APPROVAL,
-                        plan=torra._gate(spec))
+    planned = RunResult(
+        request=spec.request, outcome=Outcome.AWAITING_APPROVAL, plan=torra._gate(spec)
+    )
 
     done = torra.execute(planned, {})
 
@@ -1990,8 +2508,7 @@ def test_run_result_message_falls_back_to_the_outcome_when_nothing_else_is_set()
 # --------------------------------------------------------------------------- #
 
 
-def test_two_torras_sharing_a_workdir_do_not_collide_on_shadow_files(
-        tmp_path: Path) -> None:
+def test_two_torras_sharing_a_workdir_do_not_collide_on_shadow_files(tmp_path: Path) -> None:
     """`UndoGenerator`'s default shadow_dir is keyed only by (workdir, pid)
     -- two Torra instances sharing a workdir in one process (exactly
     what tabs are) would collide on it, and one session's cleanup() could
@@ -2003,18 +2520,32 @@ def test_two_torras_sharing_a_workdir_do_not_collide_on_shadow_files(
     session_a_file = tmp_path / "a.conf"
     session_a_file.write_text("session a content", encoding="utf-8")
     torra_a = Torra(
-        workdir=tmp_path, ollama=OllamaClient(transport=lambda p, pay, t: {}),
-        undo=UndoGenerator(shadow_dir=tmp_path / "torra-shadow-session-a"))
+        workdir=tmp_path,
+        ollama=OllamaClient(transport=lambda p, pay, t: {}),
+        undo=UndoGenerator(shadow_dir=tmp_path / "torra-shadow-session-a"),
+    )
     torra_b = Torra(
-        workdir=tmp_path, ollama=OllamaClient(transport=lambda p, pay, t: {}),
-        undo=UndoGenerator(shadow_dir=tmp_path / "torra-shadow-session-b"))
+        workdir=tmp_path,
+        ollama=OllamaClient(transport=lambda p, pay, t: {}),
+        undo=UndoGenerator(shadow_dir=tmp_path / "torra-shadow-session-b"),
+    )
 
     assert torra_a.undo.shadow_dir != torra_b.undo.shadow_dir
 
-    spec_a = TaskSpec.validate({
-        "task_id": "t", "request": f"edit {session_a_file}",
-        "steps": [{"id": "edit", "run": f"echo overwritten > {session_a_file}",
-                  "touches": [str(session_a_file)]}]}, source="test")
+    spec_a = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": f"edit {session_a_file}",
+            "steps": [
+                {
+                    "id": "edit",
+                    "run": f"echo overwritten > {session_a_file}",
+                    "touches": [str(session_a_file)],
+                }
+            ],
+        },
+        source="test",
+    )
     # _gate() snapshots at propose time -- before execute() runs, and
     # regardless of dry-run/real, matching how the real pipeline works
     # (see pipeline.py's own comment on why cleanup() only fires on a
@@ -2031,8 +2562,7 @@ def test_two_torras_sharing_a_workdir_do_not_collide_on_shadow_files(
     )
 
 
-def test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file(
-        tmp_path: Path) -> None:
+def test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file(tmp_path: Path) -> None:
     """`_finish()`'s audit filename for a non-plan turn (answer/ask/refuse)
     used to be `turn-{len(self.agent.turns)}` -- no task_id_prefix at all.
     Two tabs' first such turn both landed on "turn-1", one silently
@@ -2040,11 +2570,13 @@ def test_two_sessions_non_plan_turns_do_not_collide_on_the_same_audit_file(
     right after the multi-tab feature shipped, reproduced directly against
     two live Torra instances before this test was written."""
     torra_a = Torra(
-        workdir=tmp_path, ollama=OllamaClient(transport=scripted(
-            {"intent": "answer", "message": "reply for a"})))
+        workdir=tmp_path,
+        ollama=OllamaClient(transport=scripted({"intent": "answer", "message": "reply for a"})),
+    )
     torra_b = Torra(
-        workdir=tmp_path, ollama=OllamaClient(transport=scripted(
-            {"intent": "answer", "message": "reply for b"})))
+        workdir=tmp_path,
+        ollama=OllamaClient(transport=scripted({"intent": "answer", "message": "reply for b"})),
+    )
     torra_a.agent.task_id_prefix = "session-a-"
     torra_b.agent.task_id_prefix = "session-b-"
 
@@ -2063,45 +2595,63 @@ def test_a_new_plan_call_starts_a_fresh_decision_trail(tmp_path: Path) -> None:
     life. plan() now clears the trail as its first act; execute() of the
     *same* task must still see that task's own plan-stage decisions."""
     torra = Torra(
-        workdir=tmp_path, ollama=OllamaClient(transport=scripted(
-            {"intent": "answer", "message": "first"},
-            {"intent": "answer", "message": "second"})))
+        workdir=tmp_path,
+        ollama=OllamaClient(
+            transport=scripted(
+                {"intent": "answer", "message": "first"}, {"intent": "answer", "message": "second"}
+            )
+        ),
+    )
 
     result1 = torra.plan("first request")
     assert len(result1.decisions) == 1
 
     result2 = torra.plan("second request")
-    assert len(result2.decisions) == 1, \
-        "turn 2's decisions must not include turn 1's"
+    assert len(result2.decisions) == 1, "turn 2's decisions must not include turn 1's"
 
 
 def test_plan_then_execute_of_the_same_task_still_share_one_decision_trail(
-        make_torra, tmp_path: Path) -> None:
+    make_torra, tmp_path: Path
+) -> None:
     """plan()'s fresh-trail clear() must not also wipe out plan-stage
     decisions by the time the *same* task reaches execute() -- only a new
     plan() call is a new task boundary, not execute() continuing one."""
     marker = tmp_path / "made"
-    torra = make_torra(scripted(plan_reply(
-        "t", f"create {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    torra = make_torra(
+        scripted(plan_reply("t", f"create {marker}", [{"id": "touch", "run": f"touch {marker}"}]))
+    )
 
     planned = torra.plan(f"create {marker}")
     assert len(planned.decisions) >= 1, "plan-stage decisions must be recorded"
     plan_stage_count = len(planned.decisions)
 
     done = torra.execute(planned, {})
-    assert len(done.decisions) >= plan_stage_count, \
+    assert len(done.decisions) >= plan_stage_count, (
         "execute() must build on plan()'s trail for the same task, not replace it"
+    )
 
 
 def test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back(make_torra, tmp_path: Path) -> None:
     """KeyboardInterrupt used to escape the broad except and skip the rollback sweep."""
     target = tmp_path / "f.txt"
     target.write_text("original", encoding="utf-8")
-    torra = make_torra(scripted(plan_reply(
-        "t", "write then get interrupted",
-        [{"id": "one", "kind": "write", "run": f"printf 'changed' > {target}",
-          "touches": [str(target)]},
-         {"id": "two", "run": "true"}])))
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "write then get interrupted",
+                [
+                    {
+                        "id": "one",
+                        "kind": "write",
+                        "run": f"printf 'changed' > {target}",
+                        "touches": [str(target)],
+                    },
+                    {"id": "two", "run": "true"},
+                ],
+            )
+        )
+    )
     planned = torra.plan("write then get interrupted")
 
     def interrupted() -> str:
@@ -2133,7 +2683,8 @@ class TestTheSweepNeverOverwritesAnEditItCanSee:
     """HANDOFF.md §2.71: every way a run stops goes through one conflict check before the sweep."""
 
     def test_a_veto_between_steps_does_not_restore_over_an_edit_made_after_step_one(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         a = tmp_path / "a.txt"
         a.write_text("original", encoding="utf-8")
 
@@ -2145,10 +2696,24 @@ class TestTheSweepNeverOverwritesAnEditItCanSee:
 
         verifier = StateVerifier()
         verifier.add(Precondition("p", probe, "probe", ttl_seconds=0))
-        torra = make_torra(scripted(plan_reply(
-            "t", "two steps",
-            [{"id": "one", "kind": "write", "run": f"printf torra-wrote > {a}", "touches": [str(a)]},
-             {"id": "two", "run": "true"}])), verifier=verifier)
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "two steps",
+                    [
+                        {
+                            "id": "one",
+                            "kind": "write",
+                            "run": f"printf torra-wrote > {a}",
+                            "touches": [str(a)],
+                        },
+                        {"id": "two", "run": "true"},
+                    ],
+                )
+            ),
+            verifier=verifier,
+        )
 
         done = torra.execute(torra.plan("two steps"), {})
 
@@ -2156,15 +2721,29 @@ class TestTheSweepNeverOverwritesAnEditItCanSee:
         assert a.read_text(encoding="utf-8") == "HUMAN EDIT"
 
     def test_a_failed_step_does_not_restore_over_an_edit_made_during_it(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         a = tmp_path / "a.txt"
         a.write_text("original", encoding="utf-8")
         marker = tmp_path / "cleanup-ran"
-        torra = make_torra(scripted(plan_reply(
-            "t", "write then fail",
-            [{"id": "one", "kind": "write", "run": f"printf torra-wrote > {a}", "touches": [str(a)]},
-             {"id": "two", "run": f"printf 'HUMAN EDIT' > {a}; exit 1"}],
-            rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "write then fail",
+                    [
+                        {
+                            "id": "one",
+                            "kind": "write",
+                            "run": f"printf torra-wrote > {a}",
+                            "touches": [str(a)],
+                        },
+                        {"id": "two", "run": f"printf 'HUMAN EDIT' > {a}; exit 1"},
+                    ],
+                    rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}],
+                )
+            )
+        )
 
         done = torra.execute(torra.plan("write then fail"), {})
 
@@ -2173,13 +2752,26 @@ class TestTheSweepNeverOverwritesAnEditItCanSee:
         assert not marker.exists(), "a declared cleanup could overwrite the same edit"
 
     def test_a_failed_step_still_restores_the_file_it_declared(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         a = tmp_path / "a.txt"
         a.write_text("original", encoding="utf-8")
-        torra = make_torra(scripted(plan_reply(
-            "t", "partial write then fail",
-            [{"id": "one", "kind": "write", "run": f"printf partial > {a}; exit 1",
-              "touches": [str(a)]}])))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "partial write then fail",
+                    [
+                        {
+                            "id": "one",
+                            "kind": "write",
+                            "run": f"printf partial > {a}; exit 1",
+                            "touches": [str(a)],
+                        }
+                    ],
+                )
+            )
+        )
 
         done = torra.execute(torra.plan("partial write then fail"), {})
 
@@ -2187,16 +2779,28 @@ class TestTheSweepNeverOverwritesAnEditItCanSee:
         assert a.read_text(encoding="utf-8") == "original", "its own change is still undone"
 
     def test_an_interrupted_block_runs_no_declared_cleanup_and_keeps_the_resume_file(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         marker = tmp_path / "cleanup-ran"
-        torra = make_torra(scripted(plan_reply(
-            "t", "two steps",
-            [{"id": "first", "run": "true"}, {"id": "second", "run": "true"}],
-            rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}])))
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "two steps",
+                    [{"id": "first", "run": "true"}, {"id": "second", "run": "true"}],
+                    rollback=[{"run": f"touch {marker}", "description": "cleanup", "safe": True}],
+                )
+            )
+        )
         planned = torra.plan("two steps")
         resume_path = tmp_path / "wd" / "resume" / "t.json"
-        ResumePoint(task_id="t", completed=["first"], total=2, in_progress="second",
-                    digests={"first": command_digest("true")}).save(resume_path)
+        ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=2,
+            in_progress="second",
+            digests={"first": command_digest("true")},
+        ).save(resume_path)
 
         done = torra.execute(planned, {})
 
@@ -2205,7 +2809,8 @@ class TestTheSweepNeverOverwritesAnEditItCanSee:
         assert resume_path.exists() and ResumePoint.load(resume_path).in_progress == "second"  # type: ignore[union-attr]
 
     def test_a_dry_run_that_succeeds_leaves_a_crashed_runs_resume_file_alone(
-            self, make_torra, tmp_path: Path) -> None:
+        self, make_torra, tmp_path: Path
+    ) -> None:
         torra = make_torra(scripted(plan_reply("t", "one step", [{"id": "s", "run": "true"}])))
         planned = torra.plan("one step")
         resume_path = tmp_path / "wd" / "resume" / "t.json"

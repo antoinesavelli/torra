@@ -108,7 +108,10 @@ class StateVerifier:
         try:
             out = subprocess.run(
                 ["systemctl", "--user", "show", unit, "--property=LoadState"],
-                capture_output=True, text=True, timeout=5)
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
             if out.stdout.strip() == "LoadState=loaded":
                 return "user"
         except Exception:
@@ -124,12 +127,17 @@ class StateVerifier:
         `True`/`False` explicitly only when the scope is already known and
         the extra probe isn't worth it.
         """
-        scope = (("user" if user_scope else "system") if user_scope is not None
-                 else StateVerifier.systemctl_scope(unit))
+        scope = (
+            ("user" if user_scope else "system")
+            if user_scope is not None
+            else StateVerifier.systemctl_scope(unit)
+        )
         cmd = ["systemctl", *(["--user"] if scope == "user" else []), "is-active", unit]
         try:
-            return subprocess.run(cmd, capture_output=True, text=True,
-                                  timeout=5).stdout.strip() == "active"
+            return (
+                subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout.strip()
+                == "active"
+            )
         except Exception:
             return False
 
@@ -137,16 +145,21 @@ class StateVerifier:
     def default(cls) -> StateVerifier:
         """The verifier every `Torra` session runs with: at least 1 GB free on `/`."""
         verifier = cls()
-        verifier.add(Precondition(
-            "disk:/", lambda: cls.disk_free_gb("/") > 1.0,
-            "at least 1 GB free on /", ttl_seconds=30))
+        verifier.add(
+            Precondition(
+                "disk:/",
+                lambda: cls.disk_free_gb("/") > 1.0,
+                "at least 1 GB free on /",
+                ttl_seconds=30,
+            )
+        )
         return verifier
 
     @staticmethod
     def disk_free_gb(path: str = "/") -> float:
         """Free space in GB, or -1.0 on error."""
         try:
-            return shutil.disk_usage(path).free / (1024 ** 3)
+            return shutil.disk_usage(path).free / (1024**3)
         except Exception:
             return -1.0
 
@@ -167,8 +180,9 @@ class StateVerifier:
         try:
             return PreconditionResult(pc.name, bool(pc.check()), pc.blocking, pc.detail)
         except Exception as exc:
-            return PreconditionResult(pc.name, False, pc.blocking, pc.detail,
-                                      f"{type(exc).__name__}: {exc}")
+            return PreconditionResult(
+                pc.name, False, pc.blocking, pc.detail, f"{type(exc).__name__}: {exc}"
+            )
 
     def run(self, force: bool = True) -> PreconditionReport:
         """Run every precondition, honouring the TTL cache when not forced."""
@@ -176,21 +190,28 @@ class StateVerifier:
         results: list[PreconditionResult] = []
         for pc in self.preconditions:
             cached = self.cache.get(pc.name)
-            if (not force and cached is not None
-                    and (pc.ttl_seconds < 0 or now - cached[1] < pc.ttl_seconds)):
+            if (
+                not force
+                and cached is not None
+                and (pc.ttl_seconds < 0 or now - cached[1] < pc.ttl_seconds)
+            ):
                 self.cache_hits += 1
                 results.append(cached[0])
                 continue
             fresh = self._run_one(pc)
             if cached is not None and cached[0].passed != fresh.passed:
                 self.flips.append(
-                    (pc.name, f"{'pass' if cached[0].passed else 'fail'} -> "
-                              f"{'pass' if fresh.passed else 'fail'}"))
+                    (
+                        pc.name,
+                        f"{'pass' if cached[0].passed else 'fail'} -> "
+                        f"{'pass' if fresh.passed else 'fail'}",
+                    )
+                )
             self.cache[pc.name] = (fresh, now)
             results.append(fresh)
         return PreconditionReport(
-            passed=not any(not r.passed and r.blocking for r in results),
-            results=results)
+            passed=not any(not r.passed and r.blocking for r in results), results=results
+        )
 
     def guard(self) -> str | None:
         """Between-step check. Returns an abort reason, or None to continue."""
@@ -198,8 +219,8 @@ class StateVerifier:
         if report.passed:
             return None
         return "precondition went false mid-run: " + ", ".join(
-            f"{r.name}{' (' + r.error + ')' if r.error else ''}"
-            for r in report.blocking_failures)
+            f"{r.name}{' (' + r.error + ')' if r.error else ''}" for r in report.blocking_failures
+        )
 
     def stats(self) -> dict[str, Any]:
         """Cache efficiency and any pass/fail transitions observed."""

@@ -71,8 +71,7 @@ SCENARIOS: list[Scenario] = [
         "empty-request",
         "malformed input",
         "",
-        "intent ask, asks what the operator wants -- does not crash or "
-        "invent a task from nothing.",
+        "intent ask, asks what the operator wants -- does not crash or invent a task from nothing.",
     ),
     Scenario(
         "garbage-request",
@@ -129,11 +128,13 @@ SCENARIOS: list[Scenario] = [
 
 def main() -> int:
     metrics: list = []
-    ollama = OllamaClient(host=OLLAMA_HOST, timeout=180.0,
-                          transport=make_metrics_transport(metrics))
+    ollama = OllamaClient(
+        host=OLLAMA_HOST, timeout=180.0, transport=make_metrics_transport(metrics)
+    )
     state = observe_machine(ollama=ollama)
-    agent = Agent(ollama=ollama, clarifier=Clarifier(), safety=SafetyClassifier(),
-                  observer=lambda: state)
+    agent = Agent(
+        ollama=ollama, clarifier=Clarifier(), safety=SafetyClassifier(), observer=lambda: state
+    )
     agent.observe()
 
     print(f"model={MODEL}\n")

@@ -41,17 +41,23 @@ def summarize(agent: Agent, decisions: DecisionLog, result: RunResult) -> str:
     assert result.plan is not None
     try:
         return agent.summarize(
-            result.request, [sp.step for sp in result.plan.steps],
-            result.results, result.plan.model)
+            result.request, [sp.step for sp in result.plan.steps], result.results, result.plan.model
+        )
     except Exception as exc:
-        decisions.log(Stage.REPORT.value, "summary failed",
-                      f"{type(exc).__name__}: {exc}")
+        decisions.log(Stage.REPORT.value, "summary failed", f"{type(exc).__name__}: {exc}")
         return ""
 
 
-def finish(result: RunResult, started: float, agent: Agent, decisions: DecisionLog,
-           audit_dir: Path, telemetry: TaskLogger, write_audit: bool = True,
-           dry_run: bool = False) -> RunResult:
+def finish(
+    result: RunResult,
+    started: float,
+    agent: Agent,
+    decisions: DecisionLog,
+    audit_dir: Path,
+    telemetry: TaskLogger,
+    write_audit: bool = True,
+    dry_run: bool = False,
+) -> RunResult:
     """Stage report. Always runs, even after an early exit."""
     # write_audit=False is the awaiting-approval case: the plan is
     # complete but the run is not, so the stage list is left open for
@@ -88,16 +94,19 @@ def finish(result: RunResult, started: float, agent: Agent, decisions: DecisionL
     # the two aren't interchangeable (Agent.repair() appends to
     # `turns` without incrementing the counter), and _turn_counter is
     # the one fast-forwarded past a reopened session's prior turns.
-    task_id = (result.plan.spec.task_id if result.plan
-               else f"{agent.task_id_prefix}turn-{agent._turn_counter}")
+    task_id = (
+        result.plan.spec.task_id
+        if result.plan
+        else f"{agent.task_id_prefix}turn-{agent._turn_counter}"
+    )
     path = audit_dir / f"{safe_filename(task_id)}.audit.json"
     try:
-        path.write_text(json.dumps(redact_tree(result.to_dict()), indent=2, default=str),
-                        encoding="utf-8")
+        path.write_text(
+            json.dumps(redact_tree(result.to_dict()), indent=2, default=str), encoding="utf-8"
+        )
         result.audit_path = str(path)
     except Exception as exc:
-        decisions.log("report", "audit write failed",
-                      f"{type(exc).__name__}: {exc}")
+        decisions.log("report", "audit write failed", f"{type(exc).__name__}: {exc}")
 
     record = telemetry.from_result(result, request=result.request)
     if record is not None:

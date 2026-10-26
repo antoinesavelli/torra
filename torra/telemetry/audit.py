@@ -61,11 +61,17 @@ class DriftReport:
             f"  real occurrences checked: {self.ambiguous_occurrences} ambiguous, "
             f"{self.specific_occurrences} specific",
             f"  live false negative rate : {self.fn_rate:.0%}"
-            + (f"  (synthetic baseline {self.baseline_fn_rate:.0%})"
-               if self.baseline_fn_rate is not None else ""),
+            + (
+                f"  (synthetic baseline {self.baseline_fn_rate:.0%})"
+                if self.baseline_fn_rate is not None
+                else ""
+            ),
             f"  live false positive rate : {self.fp_rate:.0%}"
-            + (f"  (synthetic baseline {self.baseline_fp_rate:.0%})"
-               if self.baseline_fp_rate is not None else ""),
+            + (
+                f"  (synthetic baseline {self.baseline_fp_rate:.0%})"
+                if self.baseline_fp_rate is not None
+                else ""
+            ),
             f"  verdict: {self.verdict}",
         ]
         if self.false_negatives:
@@ -73,8 +79,7 @@ class DriftReport:
             lines.extend(f"    {r!r}  ({why})" for r, why in self.false_negatives)
         if self.false_positives:
             lines.append("  INTERRUPTED (specific, actually stopped and asked):")
-            lines.extend(f"    {r!r}  clarifier said: {codes}"
-                        for r, codes in self.false_positives)
+            lines.extend(f"    {r!r}  clarifier said: {codes}" for r, codes in self.false_positives)
         return "\n".join(lines)
 
 
@@ -114,8 +119,11 @@ class CorpusExporter:
     def export(self) -> tuple[list[tuple[str, str]], list[str]]:
         """Return (ambiguous, specific) sets in `clarifier_corpus` format."""
         labeled = self.labels.all()
-        ambiguous = [(text, entry.why or "labeled ambiguous")
-                     for text, entry in labeled.items() if entry.ambiguous]
+        ambiguous = [
+            (text, entry.why or "labeled ambiguous")
+            for text, entry in labeled.items()
+            if entry.ambiguous
+        ]
         specific = [text for text, entry in labeled.items() if not entry.ambiguous]
         return ambiguous, specific
 
@@ -144,43 +152,58 @@ class CorpusExporter:
         return target
 
     @staticmethod
-    def _false_negatives(records: Sequence[TaskRecord],
-                         ambiguous: dict[str, str]) -> list[tuple[str, str]]:
+    def _false_negatives(
+        records: Sequence[TaskRecord], ambiguous: dict[str, str]
+    ) -> list[tuple[str, str]]:
         """Real attempts of an ambiguous-labeled request that did NOT
         actually stop and ask -- the dangerous direction: the model
         proceeded on something a human called genuinely unclear instead of
         asking, silently guessing rather than being wrong out loud."""
-        return [(r.request, ambiguous[r.request]) for r in records
-                if r.request in ambiguous and not r.clarifier_blocked]
+        return [
+            (r.request, ambiguous[r.request])
+            for r in records
+            if r.request in ambiguous and not r.clarifier_blocked
+        ]
 
     @staticmethod
-    def _false_positives(records: Sequence[TaskRecord],
-                         specific: set[str]) -> list[tuple[str, str]]:
+    def _false_positives(
+        records: Sequence[TaskRecord], specific: set[str]
+    ) -> list[tuple[str, str]]:
         """Real attempts of a specific-labeled request that DID actually
         stop and ask -- a real interruption, not just a structural flag
         the model went on to override, which is the common case (see this
         class's own docstring)."""
-        return [(r.request, ", ".join(r.clarifier_codes) or "no codes recorded")
-                for r in records if r.request in specific and r.clarifier_blocked]
+        return [
+            (r.request, ", ".join(r.clarifier_codes) or "no codes recorded")
+            for r in records
+            if r.request in specific and r.clarifier_blocked
+        ]
 
     @staticmethod
-    def _drift_verdict(report: DriftReport, min_sample: int,
-                       baseline_fn: float | None, baseline_fp: float | None) -> str:
+    def _drift_verdict(
+        report: DriftReport, min_sample: int, baseline_fn: float | None, baseline_fp: float | None
+    ) -> str:
         """Deliberately conservative: below `min_sample` real occurrences,
         no conclusion -- gated on occurrences, not unique labeled texts,
         since occurrences are what the rates below are actually computed
         over."""
         sample = report.ambiguous_occurrences + report.specific_occurrences
         if sample < min_sample:
-            return (f"insufficient data: {sample} real occurrence(s) of "
-                    f"{min_sample} needed. No conclusion drawn.")
+            return (
+                f"insufficient data: {sample} real occurrence(s) of "
+                f"{min_sample} needed. No conclusion drawn."
+            )
         if baseline_fn is not None and report.fn_rate > baseline_fn + 0.10:
-            return (f"DRIFT: live false negatives {report.fn_rate:.0%} against a "
-                    f"synthetic baseline of {baseline_fn:.0%}. The synthetic corpus "
-                    "is measuring the wrong thing; retune against live labels.")
+            return (
+                f"DRIFT: live false negatives {report.fn_rate:.0%} against a "
+                f"synthetic baseline of {baseline_fn:.0%}. The synthetic corpus "
+                "is measuring the wrong thing; retune against live labels."
+            )
         if baseline_fp is not None and report.fp_rate > baseline_fp + 0.15:
-            return (f"DRIFT: live false positives {report.fp_rate:.0%} against "
-                    f"{baseline_fp:.0%}. The clarifier is interrupting real work.")
+            return (
+                f"DRIFT: live false positives {report.fp_rate:.0%} against "
+                f"{baseline_fp:.0%}. The clarifier is interrupting real work."
+            )
         return "live performance is consistent with the baseline"
 
     def drift(
@@ -210,10 +233,16 @@ class CorpusExporter:
         )
         report.false_negatives = self._false_negatives(ambiguous_occurrences, ambiguous_map)
         report.false_positives = self._false_positives(specific_occurrences, specific_set)
-        report.fn_rate = round(len(report.false_negatives) / len(ambiguous_occurrences), 4
-                               ) if ambiguous_occurrences else 0.0
-        report.fp_rate = round(len(report.false_positives) / len(specific_occurrences), 4
-                               ) if specific_occurrences else 0.0
+        report.fn_rate = (
+            round(len(report.false_negatives) / len(ambiguous_occurrences), 4)
+            if ambiguous_occurrences
+            else 0.0
+        )
+        report.fp_rate = (
+            round(len(report.false_positives) / len(specific_occurrences), 4)
+            if specific_occurrences
+            else 0.0
+        )
         report.verdict = self._drift_verdict(report, self.MIN_SAMPLE, baseline_fn, baseline_fp)
         return report
 
@@ -300,7 +329,8 @@ class LoopholeAudit:
             report.passed_clarifier += 1
 
             has_anchor = bool(record.clarifier_anchors) or bool(
-                getattr(self.clarifier, "anchors_in", lambda _t: [])(record.request))
+                getattr(self.clarifier, "anchors_in", lambda _t: [])(record.request)
+            )
             if not has_anchor:
                 continue
 
@@ -335,9 +365,11 @@ class LoopholeAudit:
                 "the loophole did not occur in this traffic; closing it would "
                 "cost interruptions and save nothing"
             )
-        elif (report.goalless_failure_rate is not None
-              and report.anchored_failure_rate is not None
-              and report.goalless_failure_rate > report.anchored_failure_rate + 0.15):
+        elif (
+            report.goalless_failure_rate is not None
+            and report.anchored_failure_rate is not None
+            and report.goalless_failure_rate > report.anchored_failure_rate + 0.15
+        ):
             report.verdict = (
                 f"ACT: {report.anchored_but_goalless} goalless request(s) fail at "
                 f"{report.goalless_failure_rate:.0%} against "

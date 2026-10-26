@@ -45,7 +45,8 @@ def test_a_corrupt_file_raises_rather_than_returning_garbage(tmp_path: Path) -> 
 
 
 def test_save_is_atomic_no_partial_file_left_on_a_write_failure(
-        tmp_path: Path, monkeypatch) -> None:
+    tmp_path: Path, monkeypatch
+) -> None:
     """Write to the temp file, then rename -- a crash between the two must
     never leave a torn target file, and a failure must not leave a stray
     .tmp file lying around either."""
@@ -63,8 +64,7 @@ def test_save_is_atomic_no_partial_file_left_on_a_write_failure(
     assert not target.with_suffix(".tmp").exists(), "a stray .tmp file was left behind"
 
 
-def test_save_swallows_a_cleanup_failure_after_a_write_failure(
-        tmp_path: Path, monkeypatch) -> None:
+def test_save_swallows_a_cleanup_failure_after_a_write_failure(tmp_path: Path, monkeypatch) -> None:
     """The original write failure is what must reach the caller -- a
     second failure while merely trying to clean up the stray .tmp file
     must not replace or mask it."""
@@ -92,8 +92,13 @@ def test_save_swallows_a_cleanup_failure_after_a_write_failure(
 
 def test_the_in_flight_mark_and_digests_round_trip(tmp_path: Path) -> None:
     target = tmp_path / "t.json"
-    ResumePoint(task_id="t", completed=["a"], total=2, in_progress="b",
-                digests={"a": command_digest("echo a")}).save(target)
+    ResumePoint(
+        task_id="t",
+        completed=["a"],
+        total=2,
+        in_progress="b",
+        digests={"a": command_digest("echo a")},
+    ).save(target)
 
     loaded = ResumePoint.load(target)
 
@@ -103,8 +108,10 @@ def test_the_in_flight_mark_and_digests_round_trip(tmp_path: Path) -> None:
 
 def test_a_file_in_the_older_format_still_loads_but_vouches_for_nothing(tmp_path: Path) -> None:
     target = tmp_path / "t.json"
-    target.write_text('{"task_id": "t", "completed": ["a"], "total": 1, "file_hashes": {},'
-                      ' "at": 1.0}', encoding="utf-8")
+    target.write_text(
+        '{"task_id": "t", "completed": ["a"], "total": 1, "file_hashes": {}, "at": 1.0}',
+        encoding="utf-8",
+    )
 
     resolution = resolve_resume("t", {"a": command_digest("echo a")}, 1, target, dry_run=False)
 
@@ -139,18 +146,22 @@ def test_begin_and_end_step_really_write_the_file_each_time(tmp_path: Path) -> N
     assert loaded.digests == {"a": command_digest("echo a")}
 
 
-@pytest.mark.parametrize("body", [
-    '{"task_id": "t", "completed": null, "total": 1}',
-    '{"task_id": "t", "completed": ["a"], "total": 1, "digests": [], "in_progress": ""}',
-    '{"task_id": "t", "completed": ["a"], "total": 1, "digests": null}',
-    '{"task_id": "t", "completed": [], "total": 1, "in_progress": ["x"]}',
-    '{"task_id": "t", "completed": [], "total": 1, "file_hashes": null}',
-    '{"task_id": "t", "completed": [1, 2], "total": 2}',
-    '{"task_id": "t", "completed": [], "total": "many"}',
-    '{"task_id": 7, "completed": [], "total": 1}',
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"task_id": "t", "completed": null, "total": 1}',
+        '{"task_id": "t", "completed": ["a"], "total": 1, "digests": [], "in_progress": ""}',
+        '{"task_id": "t", "completed": ["a"], "total": 1, "digests": null}',
+        '{"task_id": "t", "completed": [], "total": 1, "in_progress": ["x"]}',
+        '{"task_id": "t", "completed": [], "total": 1, "file_hashes": null}',
+        '{"task_id": "t", "completed": [1, 2], "total": 2}',
+        '{"task_id": "t", "completed": [], "total": "many"}',
+        '{"task_id": 7, "completed": [], "total": 1}',
+    ],
+)
 def test_a_resume_file_with_wrong_field_types_starts_fresh_instead_of_crashing(
-        tmp_path: Path, body: str) -> None:
+    tmp_path: Path, body: str
+) -> None:
     target = tmp_path / "t.json"
     target.write_text(body, encoding="utf-8")
 

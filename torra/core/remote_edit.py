@@ -27,8 +27,11 @@ from torra.gates import RiskLevel
 from .tasks import TaskSpecError, TorraError
 
 __all__ = [
-    "build_remote_pull_action", "build_remote_push_action",
-    "escalate_remote_push", "settle_remote_pull", "validate_remote_step_fields",
+    "build_remote_pull_action",
+    "build_remote_push_action",
+    "escalate_remote_push",
+    "settle_remote_pull",
+    "validate_remote_step_fields",
 ]
 
 
@@ -43,18 +46,20 @@ def validate_remote_step_fields(raw: dict[str, Any], where: str) -> None:
         raise TaskSpecError(f"{where}: a '{kind}' step must declare 'remote_path'")
     if kind == "remote_pull" and not raw.get("touches"):
         raise TaskSpecError(
-            f"{where}: a 'remote_pull' step must declare touches: "
-            "[<local destination path>]")
+            f"{where}: a 'remote_pull' step must declare touches: [<local destination path>]"
+        )
     if kind == "remote_push" and not raw.get("reads"):
         raise TaskSpecError(
-            f"{where}: a 'remote_push' step must declare reads: "
-            "[<local source path>]")
+            f"{where}: a 'remote_push' step must declare reads: [<local source path>]"
+        )
 
 
 def build_remote_pull_action(
-    remote_path: str, touches: list[str],
+    remote_path: str,
+    touches: list[str],
     executor_runner: Callable[[str, str | None, float | None], str] | None,
-    dry_run: bool, command: str,
+    dry_run: bool,
+    command: str,
 ) -> Callable[[], str]:
     """A `kind="remote_pull"` step's real action: fetch `remote_path`'s real
     content over `executor_runner` and write it to `touches[0]` -- the
@@ -73,12 +78,14 @@ def build_remote_pull_action(
             return f"[dry-run] {command}"
         if executor_runner is None:
             raise TorraError(
-                "remote_pull step needs an executor configured "
-                "(TORRA_EXECUTOR_HOST unset)")
+                "remote_pull step needs an executor configured (TORRA_EXECUTOR_HOST unset)"
+            )
         import base64
         import shlex
+
         content = base64.b64decode(
-            executor_runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0), validate=True)
+            executor_runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0), validate=True
+        )
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         Path(local_path).write_bytes(content)
         return f"pulled {remote_path} from executor to {local_path}"
@@ -87,9 +94,11 @@ def build_remote_pull_action(
 
 
 def build_remote_push_action(
-    remote_path: str, reads: list[str],
+    remote_path: str,
+    reads: list[str],
     executor_runner: Callable[[str, str | None, float | None], str] | None,
-    dry_run: bool, command: str,
+    dry_run: bool,
+    command: str,
 ) -> Callable[[], str]:
     """A `kind="remote_push"` step's real action: read `reads[0]` -- the
     model's own declared local source, already edited by an earlier
@@ -108,14 +117,15 @@ def build_remote_push_action(
             return f"[dry-run] {command}"
         if executor_runner is None:
             raise TorraError(
-                "remote_push step needs an executor configured "
-                "(TORRA_EXECUTOR_HOST unset)")
+                "remote_push step needs an executor configured (TORRA_EXECUTOR_HOST unset)"
+            )
         import base64
         import shlex
+
         encoded = base64.b64encode(Path(local_path).read_bytes()).decode("ascii")
         executor_runner(
-            f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}",
-            None, 30.0)
+            f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}", None, 30.0
+        )
         return f"pushed {local_path} to {remote_path} on executor"
 
     return action
@@ -137,8 +147,10 @@ def escalate_remote_push(verdict: Any, kind: str) -> None:
     if kind != "remote_push":
         return
     verdict.level = RiskLevel.CRITICAL
-    verdict.reasons[:] = ["writes to a second, less-guarded machine (executor) -- "
-                          "always confirmed regardless of content"]
+    verdict.reasons[:] = [
+        "writes to a second, less-guarded machine (executor) -- "
+        "always confirmed regardless of content"
+    ]
 
 
 def settle_remote_pull(verdict: Any, step: Any, protected: Callable[[str], bool]) -> None:
@@ -150,5 +162,7 @@ def settle_remote_pull(verdict: Any, step: Any, protected: Callable[[str], bool]
         return
     local = step.touches[0] if step.touches else ""
     real = os.path.realpath(os.path.expanduser(local)) if local else ""  # `..`, `//`, `~`, symlinks
-    verdict.level = RiskLevel.DANGEROUS if protected(real) or protected(local) else RiskLevel.CAUTION
+    verdict.level = (
+        RiskLevel.DANGEROUS if protected(real) or protected(local) else RiskLevel.CAUTION
+    )
     verdict.reasons[:] = [f"writes {local or 'a local file'} with the executor's copy"]

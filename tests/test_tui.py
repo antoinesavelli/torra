@@ -78,9 +78,11 @@ def busy_line_text(app: TorraApp, session_id: str) -> str:
 
 def build(tmp_path: Path, transport, **torra_kwargs: Any) -> TorraApp:
     """A TorraApp wired to a scripted backend."""
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=transport, probe_timeout=0.1),
-                      **torra_kwargs)
+    torra = Torra(
+        workdir=tmp_path / "wd",
+        ollama=OllamaClient(transport=transport, probe_timeout=0.1),
+        **torra_kwargs,
+    )
     torra.agent._observe = lambda: MachineState(hostname="pop-os")
     return TorraApp(torra=torra)
 
@@ -166,8 +168,7 @@ async def test_the_status_line_shows_a_live_spinner_while_busy(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_the_busy_line_above_the_prompt_shows_the_same_live_spinner(
-        tmp_path: Path) -> None:
+async def test_the_busy_line_above_the_prompt_shows_the_same_live_spinner(tmp_path: Path) -> None:
     """Found live: the only busy indicator was the shared #status line,
     docked at the very bottom of the whole screen below the sidebar --
     easy to miss from the prompt input the operator is actually looking
@@ -198,15 +199,17 @@ async def test_the_busy_line_above_the_prompt_shows_the_same_live_spinner(
 
 @pytest.mark.asyncio
 async def test_escape_stops_an_in_flight_plan_request_and_discards_its_late_result(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """The model call itself can't be killed mid-syscall (a real network
     read has no cooperative checkpoint for a non-streaming reply), so
     Escape can only abandon the request from the UI's side: free the
     prompt immediately, and make sure the result -- if the background
     thread ever does finish -- gets discarded instead of silently
     surfacing as though nothing had been stopped."""
-    app = build(tmp_path, slow_scripted(1.2, plan_reply(
-        "t", "say hi", [{"id": "greet", "run": "echo hi"}])))
+    app = build(
+        tmp_path, slow_scripted(1.2, plan_reply("t", "say hi", [{"id": "greet", "run": "echo hi"}]))
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -239,22 +242,25 @@ async def test_escape_stops_an_in_flight_plan_request_and_discards_its_late_resu
 
 
 @pytest.mark.asyncio
-async def test_escape_does_nothing_while_idle_or_while_a_run_is_executing(
-        tmp_path: Path) -> None:
+async def test_escape_does_nothing_while_idle_or_while_a_run_is_executing(tmp_path: Path) -> None:
     """Only a "thinking..." (plan_request) busy state may be interrupted.
     Stopping an approved run mid-execution could cut a real write off
     partway through -- a safety hazard, not a UI convenience -- so Escape
     must be a no-op both when nothing is happening and while steps are
     actually running."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "say hi slowly",
-        [{"id": "greet", "run": "sleep 0.6 && echo hi"}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply("t", "say hi slowly", [{"id": "greet", "run": "sleep 0.6 && echo hi"}])
+        ),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.action_stop_thinking()
         await pilot.pause()
-        assert not app.sessions[app.active_session_id].busy, \
+        assert not app.sessions[app.active_session_id].busy, (
             "Escape while idle must not do anything odd"
+        )
 
         app.query_one("#prompt", Input).value = "say hi slowly"
         await pilot.press("enter")
@@ -279,10 +285,16 @@ async def test_escape_does_nothing_while_idle_or_while_a_run_is_executing(
 @pytest.mark.asyncio
 async def test_a_plan_renders_with_verdicts_and_a_checkbox(tmp_path: Path) -> None:
     """A dangerous step must arrive with an UNTICKED box, never pre-approved."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"remove {tmp_path}/v.txt",
-        [{"id": "rm", "run": f"rm -f {tmp_path}/v.txt",
-          "touches": [f"{tmp_path}/v.txt"]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {tmp_path}/v.txt",
+                [{"id": "rm", "run": f"rm -f {tmp_path}/v.txt", "touches": [f"{tmp_path}/v.txt"]}],
+            )
+        ),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = f"delete {tmp_path}/v.txt"
@@ -304,10 +316,16 @@ async def test_a_plan_needing_approval_flags_the_busy_line(tmp_path: Path) -> No
     needs you." Must clear again once the plan is dealt with: Reject here,
     or a real Run's own busy-spinner when nothing needs approving is not
     covered by this specific plan-ready path."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"remove {tmp_path}/v.txt",
-        [{"id": "rm", "run": f"rm -f {tmp_path}/v.txt",
-          "touches": [f"{tmp_path}/v.txt"]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {tmp_path}/v.txt",
+                [{"id": "rm", "run": f"rm -f {tmp_path}/v.txt", "touches": [f"{tmp_path}/v.txt"]}],
+            )
+        ),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         session_id = app.active_session_id
@@ -331,10 +349,22 @@ async def test_a_step_id_with_a_space_does_not_crash_the_plan_pane(tmp_path: Pat
     raise BadIdentifier out of Checkbox's own constructor, crashing the
     whole plan pane before a human ever saw the approval box -- for exactly
     the highest-risk steps this checkbox exists to gate."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"remove {tmp_path}/v.txt",
-        [{"id": "delete old logs", "run": f"rm -f {tmp_path}/v.txt",
-          "touches": [f"{tmp_path}/v.txt"]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {tmp_path}/v.txt",
+                [
+                    {
+                        "id": "delete old logs",
+                        "run": f"rm -f {tmp_path}/v.txt",
+                        "touches": [f"{tmp_path}/v.txt"],
+                    }
+                ],
+            )
+        ),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = f"delete {tmp_path}/v.txt"
@@ -346,15 +376,18 @@ async def test_a_step_id_with_a_space_does_not_crash_the_plan_pane(tmp_path: Pat
         assert len(boxes) == 1, "a dangerous step needs an approve box"
 
         boxes[0].value = True
-        assert app._approvals(app.active_session_id) == {"delete old logs": True}, \
+        assert app._approvals(app.active_session_id) == {"delete old logs": True}, (
             "approvals must be keyed by the real step id, not the sanitized DOM id"
+        )
 
 
 @pytest.mark.asyncio
 async def test_a_safe_plan_gets_no_checkbox(tmp_path: Path) -> None:
     """Ticking boxes for `df -h` is how the one that matters gets ticked too."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "report disk usage on /"
@@ -367,7 +400,8 @@ async def test_a_safe_plan_gets_no_checkbox(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """Ticking one dangerous step's box while leaving a sibling it depends
     on unticked used to just silently run whatever got approved -- the
     operator only found out from the results after the fact, if at all.
@@ -378,11 +412,23 @@ async def test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs
     # "use-it" must be genuinely DANGEROUS too, or it gets no checkbox at
     # all (a safe step auto-approves regardless of what's ticked) and this
     # test would prove nothing about a *declined* sibling.
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "remove then reference it",
-        [{"id": "rm-declined", "run": f"rm -f {victim}", "touches": [str(victim)]},
-         {"id": "use-it", "run": f"rm -f {victim}.copy; echo {victim}",
-          "touches": [f"{victim}.copy"]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                "remove then reference it",
+                [
+                    {"id": "rm-declined", "run": f"rm -f {victim}", "touches": [str(victim)]},
+                    {
+                        "id": "use-it",
+                        "run": f"rm -f {victim}.copy; echo {victim}",
+                        "touches": [f"{victim}.copy"],
+                    },
+                ],
+            )
+        ),
+    )
 
     # 60 rows: each tick-needing card now carries a wrapped "on disk:" preview, which pushes the Run
     # button lower in the (scrolling) plan pane; this test is about the warning, not the layout.
@@ -396,7 +442,7 @@ async def test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs
         for card in app.query(StepCard):
             box_id = f"approve-{card.index}"
             if box_id in boxes:
-                boxes[box_id].value = (card.plan_step.step.step_id == "use-it")
+                boxes[box_id].value = card.plan_step.step.step_id == "use-it"
 
         await pilot.click("#run")
         await pilot.pause(0.4)
@@ -417,9 +463,16 @@ async def test_reject_records_the_decision(tmp_path: Path) -> None:
     produce it."""
     target = tmp_path / "v.txt"
     target.write_text("x", encoding="utf-8")
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"remove {target}",
-        [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {target}",
+                [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}],
+            )
+        ),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"delete {target}"
@@ -446,10 +499,15 @@ async def test_bracket_text_does_not_crash_the_chat_pane(tmp_path: Path) -> None
     kills the whole app. User-visible text (the typed request, the model's
     own message) must render as literal text, brackets included, not be
     interpreted as formatting."""
-    app = build(tmp_path, scripted({
-        "intent": "answer",
-        "message": "checked [/mnt/ParamoStorage], 189G used of 814G",
-    }))
+    app = build(
+        tmp_path,
+        scripted(
+            {
+                "intent": "answer",
+                "message": "checked [/mnt/ParamoStorage], 189G used of 814G",
+            }
+        ),
+    )
     async with app.run_test() as pilot:
         await pilot.pause()
         app.query_one("#prompt", Input).value = "what's the free space in [/mnt/ParamoStorage]?"
@@ -458,8 +516,9 @@ async def test_bracket_text_does_not_crash_the_chat_pane(tmp_path: Path) -> None
 
         assert app.is_running, "the app crashed on bracket-containing text"
         text = screen_text(app)
-        assert "[/mnt/ParamoStorage]" in text, \
+        assert "[/mnt/ParamoStorage]" in text, (
             "the bracketed path should render literally, not be swallowed as markup"
+        )
 
 
 @pytest.mark.asyncio
@@ -468,10 +527,22 @@ async def test_bracket_text_in_a_step_does_not_crash_the_plan_pane(tmp_path: Pat
     that comes straight from the model's proposal (command, description,
     undo description) rather than the user -- these are just as untrusted
     and just as likely to contain a `[...]` shell glob or bracketed path."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "list files in [/mnt/x]",
-        [{"id": "ls", "run": "ls [abc]*.txt",
-          "description": "list matching [abc]*.txt files"}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                "list files in [/mnt/x]",
+                [
+                    {
+                        "id": "ls",
+                        "run": "ls [abc]*.txt",
+                        "description": "list matching [abc]*.txt files",
+                    }
+                ],
+            )
+        ),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "list files in [/mnt/x]"
@@ -485,8 +556,7 @@ async def test_bracket_text_in_a_step_does_not_crash_the_plan_pane(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
-        tmp_path: Path) -> None:
+async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(tmp_path: Path) -> None:
     """Found live: unlike the Run/Dry-run buttons (disabled while busy),
     action_dry_run() (Ctrl+D) had no widget to gate it, so pressing it while
     a real run's step was still in flight dispatched a second execute_plan()
@@ -506,16 +576,32 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
     # dispatches). A poll loop below replaces the guessed pause, but it
     # still needs a step slow enough that busy's True window stays wide
     # open through whatever the runner's scheduling jitter costs it.
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"append to {marker}",
-        [{"id": "slow", "run": f"sleep 1.0 && echo x >> {marker}",
-          "touches": [str(marker)]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"append to {marker}",
+                [
+                    {
+                        "id": "slow",
+                        "run": f"sleep 1.0 && echo x >> {marker}",
+                        "touches": [str(marker)],
+                    }
+                ],
+            )
+        ),
+    )
 
     calls: list[str] = []
     orig_execute = app.torra.execute
 
-    def spy(result: RunResult, approvals: dict[str, bool] | None = None,
-            dry_run: bool = False, on_output: Any | None = None) -> RunResult:
+    def spy(
+        result: RunResult,
+        approvals: dict[str, bool] | None = None,
+        dry_run: bool = False,
+        on_output: Any | None = None,
+    ) -> RunResult:
         calls.append("enter")
         return orig_execute(result, approvals, dry_run, on_output=on_output)
 
@@ -536,24 +622,28 @@ async def test_ctrl_d_during_a_real_run_does_not_start_a_second_execution(
         app.action_dry_run()  # the race attempt: Ctrl+D while genuinely busy
         await app.workers.wait_for_complete()
 
-        assert len(calls) == 1, \
-            f"execute() should run exactly once, ran {len(calls)} times"
-        assert marker.read_text(encoding="utf-8") == "0x\n", \
-            "the step must not have run twice"
+        assert len(calls) == 1, f"execute() should run exactly once, ran {len(calls)} times"
+        assert marker.read_text(encoding="utf-8") == "0x\n", "the step must not have run twice"
 
 
 @pytest.mark.asyncio
-async def test_step_output_streams_live_and_survives_after_completion(
-        tmp_path: Path) -> None:
+async def test_step_output_streams_live_and_survives_after_completion(tmp_path: Path) -> None:
     """The TUI counterpart to test_core.py's TestShellOutputSink and
     test_pipeline.py's on_output tests -- this one drives the real worker
     thread end to end (real Torra, real shell()) and checks the actual
     widget content, not just that a callback fired. Unlike the reasoning
     line, this one must NOT be cleared once the run finishes -- StepResult's
     captured output is never shown anywhere else in the TUI."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "say hello slowly",
-        [{"id": "greet", "run": "echo first; sleep 0.6; echo second"}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                "say hello slowly",
+                [{"id": "greet", "run": "echo first; sleep 0.6; echo second"}],
+            )
+        ),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "say hello slowly"
@@ -572,8 +662,9 @@ async def test_step_output_streams_live_and_survives_after_completion(
             pytest.fail("live output never arrived while the step was still running")
 
         assert app.busy, "the second echo hasn't run yet -- this must still be mid-flight"
-        assert "second" not in tab.output_text["greet"], \
+        assert "second" not in tab.output_text["greet"], (
             "the second chunk landed too early for this to be a real liveness check"
+        )
 
         await app.workers.wait_for_complete()
 
@@ -584,13 +675,11 @@ async def test_step_output_streams_live_and_survives_after_completion(
 
 
 @pytest.mark.asyncio
-async def test_a_rerun_starts_a_fresh_output_line_not_a_continuation(
-        tmp_path: Path) -> None:
+async def test_a_rerun_starts_a_fresh_output_line_not_a_continuation(tmp_path: Path) -> None:
     """execute_plan() resets output_lines/output_text before dispatching --
     otherwise a ctrl+r re-run reusing the same step id would keep growing
     the previous run's already-finalized line."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "say hi", [{"id": "greet", "run": "echo hi"}])))
+    app = build(tmp_path, scripted(plan_reply("t", "say hi", [{"id": "greet", "run": "echo hi"}])))
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "say hi"
@@ -609,8 +698,9 @@ async def test_a_rerun_starts_a_fresh_output_line_not_a_continuation(
         await pilot.click("#run")
         await app.workers.wait_for_complete()
 
-        assert app.sessions[session_id].output_text["greet"] == "hi\n", \
+        assert app.sessions[session_id].output_text["greet"] == "hi\n", (
             "a fresh run must not concatenate onto the previous run's output"
+        )
 
 
 @pytest.mark.asyncio
@@ -623,8 +713,10 @@ async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> 
     outcome; this checks the button's own message stops lying about it
     too, and that the completed result is not discarded."""
     marker = tmp_path / "marker"
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"touch {marker}"
@@ -641,8 +733,10 @@ async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> 
         await pilot.pause(0.1)
         await app.workers.wait_for_complete()
 
-        assert marker.exists(), "a late Reject click undid nothing on disk, but must "\
+        assert marker.exists(), (
+            "a late Reject click undid nothing on disk, but must "
             "also not misreport the run in the audit trail"
+        )
         assert app.current is completed, "the completed result was discarded"
         text = screen_text(app)
         assert "already ran" in text
@@ -653,7 +747,8 @@ async def test_reject_after_a_real_run_does_not_lie_about_it(tmp_path: Path) -> 
 
 @pytest.mark.asyncio
 async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcript(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """Found live: Run stayed clickable (and green) after a real run
     completed, and clicking it again -- while never actually re-running
     anything for real, Torra.execute()'s own `_refuse_replay` guard
@@ -663,15 +758,22 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
     before dispatching anything at all, and even once confirmed it must
     not call execute() again or add more than one short line to the chat."""
     marker = tmp_path / "counter"
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"append to {marker}",
-        [{"id": "bump", "run": f"echo x >> {marker}"}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply("t", f"append to {marker}", [{"id": "bump", "run": f"echo x >> {marker}"}])
+        ),
+    )
 
     calls: list[str] = []
     orig_execute = app.torra.execute
 
-    def spy(result: RunResult, approvals: dict[str, bool] | None = None,
-            dry_run: bool = False, on_output: Any | None = None) -> RunResult:
+    def spy(
+        result: RunResult,
+        approvals: dict[str, bool] | None = None,
+        dry_run: bool = False,
+        on_output: Any | None = None,
+    ) -> RunResult:
         calls.append("enter")
         return orig_execute(result, approvals, dry_run, on_output=on_output)
 
@@ -689,12 +791,15 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
         assert len(calls) == 1
 
         run_button = app.query_one("#run", Button)
-        assert run_button.variant == "default", \
+        assert run_button.variant == "default", (
             "Run should grey out (Dry run's own look) after a real run"
-        assert str(run_button.label) == "Run (again)", \
+        )
+        assert str(run_button.label) == "Run (again)", (
             "the label itself should say what a second click means"
-        assert all(card.has_class("step-card--executed") for card in app.query(StepCard)), \
+        )
+        assert all(card.has_class("step-card--executed") for card in app.query(StepCard)), (
             "every step row should dim once the plan has actually run"
+        )
 
         lines_after_first_run = len(app.query(ChatLine))
 
@@ -702,16 +807,16 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
         # itself dispatch anything.
         await pilot.click("#run")
         await pilot.pause(0.2)
-        assert isinstance(app.screen, ConfirmDialog), \
-            "a second click should ask before acting"
+        assert isinstance(app.screen, ConfirmDialog), "a second click should ask before acting"
         assert len(calls) == 1, "opening the confirmation must not run anything"
 
         await pilot.click("#confirm-no")
         await pilot.pause(0.2)
         assert marker.read_text(encoding="utf-8") == "x\n"
         assert len(calls) == 1, "cancelling must not run anything either"
-        assert len(app.query(ChatLine)) == lines_after_first_run, \
+        assert len(app.query(ChatLine)) == lines_after_first_run, (
             "cancelling must not add any chat output"
+        )
 
         # Confirming still can't force a real replay (Torra.execute()'s
         # own guard would refuse it even if reached) -- but it must not
@@ -722,19 +827,24 @@ async def test_a_second_run_click_asks_first_and_does_not_duplicate_the_transcri
         await pilot.click("#confirm-yes")
         await app.workers.wait_for_complete()
 
-        assert marker.read_text(encoding="utf-8") == "x\n", \
+        assert marker.read_text(encoding="utf-8") == "x\n", (
             "confirming must still not re-run the real command"
+        )
         assert len(calls) == 1, "confirming must not call execute() again"
-        assert len(app.query(ChatLine)) == lines_after_first_run + 1, \
+        assert len(app.query(ChatLine)) == lines_after_first_run + 1, (
             "confirming should add exactly one line, not replay the transcript"
+        )
         assert "already ran" in screen_text(app)
 
 
 @pytest.mark.asyncio
 async def test_questions_are_shown_not_guessed(tmp_path: Path) -> None:
-    app = build(tmp_path, scripted(
-        {"intent": "ask", "message": "Which host?",
-         "questions": ["Which host do you mean?"]}))
+    app = build(
+        tmp_path,
+        scripted(
+            {"intent": "ask", "message": "Which host?", "questions": ["Which host do you mean?"]}
+        ),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "tidy up the box"
@@ -748,10 +858,12 @@ async def test_questions_are_shown_not_guessed(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_on_mount_reports_an_unreachable_backend_with_recovery_options(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """Complement to test_the_app_starts_and_reports_the_backend: when the
     daemon can't even be probed, on_mount must say so plainly and list a way
     out, not just silently show an empty model list."""
+
     def transport(path: str, payload: dict, timeout: float) -> dict:
         raise ConnectionRefusedError("nobody home")
 
@@ -761,8 +873,9 @@ async def test_on_mount_reports_an_unreachable_backend_with_recovery_options(
         text = screen_text(app)
         assert "unreachable" in text or "degraded" in text
         assert "nobody home" in text
-        assert "restart" in text.lower() and "manual" in text.lower(), \
+        assert "restart" in text.lower() and "manual" in text.lower(), (
             "recovery options must be listed when the backend is down"
+        )
 
 
 @pytest.mark.asyncio
@@ -777,15 +890,15 @@ async def test_blank_and_busy_submissions_are_ignored(tmp_path: Path) -> None:
         app.query_one("#prompt", Input).value = "   "
         await pilot.press("enter")
         await pilot.pause(0.1)
-        assert len(list(app.query("ChatLine"))) == before, \
+        assert len(list(app.query("ChatLine"))) == before, (
             "a blank prompt must not add a chat line or plan"
+        )
 
         app.busy = True
         app.query_one("#prompt", Input).value = "do something"
         await pilot.press("enter")
         await pilot.pause(0.1)
-        assert len(list(app.query("ChatLine"))) == before, \
-            "a submission while busy must be ignored"
+        assert len(list(app.query("ChatLine"))) == before, "a submission while busy must be ignored"
 
 
 @pytest.mark.asyncio
@@ -796,7 +909,8 @@ async def test_plan_request_reports_an_unexpected_exception(tmp_path: Path) -> N
     against so the worker thread doesn't just die silently."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     app.torra.plan = lambda request, model=None, on_thinking=None: (  # type: ignore[method-assign]
-        _ for _ in ()).throw(ValueError("boom"))
+        _ for _ in ()
+    ).throw(ValueError("boom"))
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "do something"
@@ -809,8 +923,7 @@ async def test_plan_request_reports_an_unexpected_exception(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_append_thinking_grows_the_thinking_tab(
-        tmp_path: Path) -> None:
+async def test_append_thinking_grows_the_thinking_tab(tmp_path: Path) -> None:
     """`_append_thinking` is `on_thinking`'s destination once it crosses
     back onto the event-loop thread via `call_from_thread` -- called
     directly here since the streaming callback itself is exercised at the
@@ -874,8 +987,7 @@ async def test_clear_thinking_resets_the_thinking_tab(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reasoning_text_survives_until_the_next_question_is_asked(
-        tmp_path: Path) -> None:
+async def test_reasoning_text_survives_until_the_next_question_is_asked(tmp_path: Path) -> None:
     """End to end through the real worker-thread path: a model that streams
     reasoning during `plan()` must leave it visible in the Thinking tab once
     the turn is done -- it's a "what did it just reason about" record, not
@@ -888,14 +1000,18 @@ async def test_reasoning_text_survives_until_the_next_question_is_asked(
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     calls = {"n": 0}
 
-    def fake_plan(request: str, model: str | None = None,
-                  on_thinking: Any | None = None) -> RunResult:
+    def fake_plan(
+        request: str, model: str | None = None, on_thinking: Any | None = None
+    ) -> RunResult:
         calls["n"] += 1
         if calls["n"] == 1 and on_thinking is not None:
             on_thinking("Let me ")
             on_thinking("check.")
-        return RunResult(request=request, outcome=Outcome.ANSWERED,
-                         turn=Turn(request=request, intent=Intent.ANSWER, message="done"))
+        return RunResult(
+            request=request,
+            outcome=Outcome.ANSWERED,
+            turn=Turn(request=request, intent=Intent.ANSWER, message="done"),
+        )
 
     app.torra.plan = fake_plan  # type: ignore[method-assign]
 
@@ -924,8 +1040,7 @@ async def test_reasoning_text_survives_until_the_next_question_is_asked(
 
 @pytest.mark.asyncio
 async def test_a_refusal_is_shown_in_the_status_line(tmp_path: Path) -> None:
-    app = build(tmp_path, scripted(
-        {"intent": "refuse", "message": "I won't do that."}))
+    app = build(tmp_path, scripted({"intent": "refuse", "message": "I won't do that."}))
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "wipe the whole disk"
@@ -941,6 +1056,7 @@ async def test_backend_down_during_planning_shows_recovery_options(tmp_path: Pat
     """The daemon answers the startup probe fine, but generation itself
     fails -- distinct from test_on_mount_reports_an_unreachable_backend,
     which fails before the app ever gets that far."""
+
     def transport(path: str, payload: dict, timeout: float) -> dict:
         if path == "/api/tags":
             return {"models": [{"name": "qwen3:32b"}]}
@@ -967,9 +1083,13 @@ async def test_a_failed_precondition_blocks_the_plan(tmp_path: Path) -> None:
     execution and say exactly what failed, in both the plan pane
     (PlanPane.show's own preconditions branch) and the outcome handler."""
     verifier = StateVerifier().add(
-        Precondition("disk space", lambda: False, detail="disk full", blocking=True))
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "clean up", [{"id": "df", "run": "df -h /"}])), verifier=verifier)
+        Precondition("disk space", lambda: False, detail="disk full", blocking=True)
+    )
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", "clean up", [{"id": "df", "run": "df -h /"}])),
+        verifier=verifier,
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "clean up"
@@ -986,6 +1106,7 @@ async def test_a_failed_precondition_blocks_the_plan(tmp_path: Path) -> None:
 async def test_an_unparseable_model_reply_fails_the_plan(tmp_path: Path) -> None:
     """No JSON object anywhere in the reply -- Agent._extract_json's own
     "returned no JSON object" AgentError, surfaced as Outcome.FAILED."""
+
     def transport(path: str, payload: dict, timeout: float) -> dict:
         if path == "/api/tags":
             return {"models": [{"name": "qwen3:32b"}]}
@@ -1024,8 +1145,10 @@ async def test_pressed_dry_button_runs_a_dry_run(tmp_path: Path) -> None:
     """Clicking Dry run (as opposed to Ctrl+D) must run every gate and
     execute nothing."""
     target = tmp_path / "v.txt"
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"touch {target}"
@@ -1045,8 +1168,10 @@ async def test_ctrl_d_runs_a_dry_run_when_idle(tmp_path: Path) -> None:
     """The keyboard shortcut takes the same path as the button when the app
     isn't busy."""
     target = tmp_path / "v.txt"
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"touch {target}"
@@ -1105,7 +1230,8 @@ async def test_execute_plan_ignores_a_second_call_while_busy(tmp_path: Path) -> 
 
 @pytest.mark.asyncio
 async def test_execute_plan_sets_busy_synchronously_before_the_worker_starts(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """Found by a full-codebase audit: `busy` used to flip to True only
     once the worker thread itself got around to it (a call_from_thread
     round trip after fetching approvals), leaving a real window where a
@@ -1114,10 +1240,13 @@ async def test_execute_plan_sets_busy_synchronously_before_the_worker_starts(
     Torra.execute(). It must now be True the instant execute_plan()
     returns, with no pilot.pause() at all -- proving there is no worker
     round trip in between."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])),
+    )
     app.torra.execute = lambda *a, **k: RunResult(  # type: ignore[method-assign]
-        request="r", outcome=Outcome.COMPLETED)
+        request="r", outcome=Outcome.COMPLETED
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "report disk usage on /"
@@ -1128,8 +1257,9 @@ async def test_execute_plan_sets_busy_synchronously_before_the_worker_starts(
 
         app.execute_plan(session_id, dry_run=True)
 
-        assert app.sessions[session_id].busy, \
+        assert app.sessions[session_id].busy, (
             "busy must flip synchronously, before the worker is even dispatched"
+        )
 
         # Let the dispatched worker actually finish before the `async with`
         # block tears the app down -- found flaky on CI (not locally):
@@ -1142,7 +1272,8 @@ async def test_execute_plan_sets_busy_synchronously_before_the_worker_starts(
 
 @pytest.mark.asyncio
 async def test_plan_request_sets_busy_synchronously_before_the_worker_starts(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
 
     async with app.run_test() as pilot:
@@ -1152,8 +1283,9 @@ async def test_plan_request_sets_busy_synchronously_before_the_worker_starts(
 
         app.plan_request(session_id, "hello")
 
-        assert app.sessions[session_id].busy, \
+        assert app.sessions[session_id].busy, (
             "busy must flip synchronously, before the worker is even dispatched"
+        )
 
         # Same fix as execute_plan's sibling test above: let the dispatched
         # worker actually finish before the `async with` block tears the
@@ -1165,10 +1297,13 @@ async def test_plan_request_sets_busy_synchronously_before_the_worker_starts(
 
 @pytest.mark.asyncio
 async def test_execute_plan_reports_an_unexpected_exception(tmp_path: Path) -> None:
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", "report disk usage on /", [{"id": "df", "run": "df -h /"}])),
+    )
     app.torra.execute = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
-        RuntimeError("disk exploded"))
+        RuntimeError("disk exploded")
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = "report disk usage on /"
@@ -1191,9 +1326,16 @@ async def test_run_without_ticking_the_box_is_rejected(tmp_path: Path) -> None:
     from clicking the Reject button."""
     target = tmp_path / "v.txt"
     target.write_text("x", encoding="utf-8")
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"remove {target}",
-        [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {target}",
+                [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}],
+            )
+        ),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"delete {target}"
@@ -1213,8 +1355,9 @@ async def test_run_without_ticking_the_box_is_rejected(tmp_path: Path) -> None:
 async def test_a_failing_step_is_reported_as_failed(tmp_path: Path) -> None:
     """A step whose command genuinely fails must land in the "else" branch
     of _executed()'s outcome reporting -- neither COMPLETED nor REJECTED."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", "do the impossible", [{"id": "bad", "run": "exit 1"}])))
+    app = build(
+        tmp_path, scripted(plan_reply("t", "do the impossible", [{"id": "bad", "run": "exit 1"}]))
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = "do the impossible"
@@ -1239,12 +1382,19 @@ async def test_a_rollback_report_is_summarised_with_every_entry(tmp_path: Path) 
     tests VerifiedRollback's own logic (already covered in test_gates.py)
     far more than anything in tui.py."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
-    report = RollbackReport(ok=False, results=[
-        RollbackResult("remove /tmp/x", "unverified", "", order=1, verified=None),
-        RollbackResult("restart ollama", "failed", "systemctl exited 1", order=2),
-    ])
-    result = RunResult(request="break things", outcome=Outcome.FAILED,
-                       abort_reason="step 2 failed", rollback=report)
+    report = RollbackReport(
+        ok=False,
+        results=[
+            RollbackResult("remove /tmp/x", "unverified", "", order=1, verified=None),
+            RollbackResult("restart ollama", "failed", "systemctl exited 1", order=2),
+        ],
+    )
+    result = RunResult(
+        request="break things",
+        outcome=Outcome.FAILED,
+        abort_reason="step 2 failed",
+        rollback=report,
+    )
 
     async with app.run_test():
         app._executed(app.active_session_id, result, dry_run=False)
@@ -1256,9 +1406,13 @@ async def test_a_rollback_report_is_summarised_with_every_entry(tmp_path: Path) 
 
 @pytest.mark.asyncio
 async def test_ctrl_r_reruns_the_last_request(tmp_path: Path) -> None:
-    app = build(tmp_path, scripted(
-        {"intent": "answer", "message": "first answer"},
-        {"intent": "answer", "message": "second answer"}))
+    app = build(
+        tmp_path,
+        scripted(
+            {"intent": "answer", "message": "first answer"},
+            {"intent": "answer", "message": "second answer"},
+        ),
+    )
 
     async with app.run_test() as pilot:
         app.query_one("#prompt", Input).value = "what's the disk usage"
@@ -1307,13 +1461,16 @@ async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
         assert second_id != first_id
         assert len(app.sessions) == 2
         assert app.sessions[first_id].torra is not app.sessions[second_id].torra
-        assert (app.sessions[first_id].torra.undo.shadow_dir
-                != app.sessions[second_id].torra.undo.shadow_dir)
+        assert (
+            app.sessions[first_id].torra.undo.shadow_dir
+            != app.sessions[second_id].torra.undo.shadow_dir
+        )
 
 
 @pytest.mark.asyncio
 async def test_click_inside_the_sidebars_plan_tab_resolves_the_right_session(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """Regression test for HANDOFF.md §2.30: _session_id_of used to stop at
     the sidebar's own inner TabPane (id="sidebar-plan") before reaching the
     outer session TabPane, silently producing session_id == "sidebar-plan"
@@ -1322,9 +1479,16 @@ async def test_click_inside_the_sidebars_plan_tab_resolves_the_right_session(
     _handle_exception (§2.29) turns the whole app exiting."""
     marker = tmp_path / "v.txt"
     marker.write_text("x", encoding="utf-8")
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"remove {marker}",
-        [{"id": "rm", "run": f"rm -f {marker}", "touches": [str(marker)]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {marker}",
+                [{"id": "rm", "run": f"rm -f {marker}", "touches": [str(marker)]}],
+            )
+        ),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"delete {marker}"
@@ -1342,8 +1506,7 @@ async def test_click_inside_the_sidebars_plan_tab_resolves_the_right_session(
 
 
 @pytest.mark.asyncio
-async def test_the_sidebar_evidence_tab_renders_real_content_on_activation(
-        tmp_path: Path) -> None:
+async def test_the_sidebar_evidence_tab_renders_real_content_on_activation(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1364,7 +1527,8 @@ async def test_the_sidebar_evidence_tab_renders_real_content_on_activation(
 
 @pytest.mark.asyncio
 async def test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1374,17 +1538,19 @@ async def test_sidebar_tabs_are_in_the_requested_order_with_actions_relabeled(
         tab_ids = [tab.id for tab in tabs]
 
         assert tab_ids == [
-            "--content-tab-sidebar-plan", "--content-tab-sidebar-thinking",
-            "--content-tab-sidebar-session", "--content-tab-sidebar-model",
-            "--content-tab-sidebar-evidence", "--content-tab-sidebar-metrics",
+            "--content-tab-sidebar-plan",
+            "--content-tab-sidebar-thinking",
+            "--content-tab-sidebar-session",
+            "--content-tab-sidebar-model",
+            "--content-tab-sidebar-evidence",
+            "--content-tab-sidebar-metrics",
         ]
         assert "Actions" in screen_text(app)
         assert "Plan" not in [tab.label_text for tab in tabs]
 
 
 @pytest.mark.asyncio
-async def test_the_sidebar_metrics_tab_shows_session_stats_and_files_read(
-        tmp_path: Path) -> None:
+async def test_the_sidebar_metrics_tab_shows_session_stats_and_files_read(tmp_path: Path) -> None:
     """The Metrics tab should surface: which model this tab actually used,
     a real (not fabricated) accelerator/`ollama ps` line, this session's
     own context/turn figures, the shared client's cumulative call/token
@@ -1393,9 +1559,16 @@ async def test_the_sidebar_metrics_tab_shows_session_stats_and_files_read(
     touching" half of the same request that asked for this tab."""
     target = tmp_path / "notes.txt"
     target.write_text("hello", encoding="utf-8")
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"read {target}",
-        [{"id": "peek", "run": f"cat {target}", "reads": [str(target)]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"read {target}",
+                [{"id": "peek", "run": f"cat {target}", "reads": [str(target)]}],
+            )
+        ),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"read {target}"
@@ -1420,8 +1593,7 @@ async def test_the_sidebar_metrics_tab_shows_session_stats_and_files_read(
 
 
 @pytest.mark.asyncio
-async def test_the_sidebar_session_tab_renders_saved_sessions_on_activation(
-        tmp_path: Path) -> None:
+async def test_the_sidebar_session_tab_renders_saved_sessions_on_activation(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1440,8 +1612,7 @@ async def test_the_sidebar_session_tab_renders_saved_sessions_on_activation(
 
 
 @pytest.mark.asyncio
-async def test_selecting_a_session_in_the_sidebar_tab_switches_to_it(
-        tmp_path: Path) -> None:
+async def test_selecting_a_session_in_the_sidebar_tab_switches_to_it(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1476,8 +1647,7 @@ async def test_selecting_a_session_in_the_sidebar_tab_switches_to_it(
 
 
 @pytest.mark.asyncio
-async def test_the_sidebar_model_tab_renders_models_on_activation(
-        tmp_path: Path) -> None:
+async def test_the_sidebar_model_tab_renders_models_on_activation(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1488,16 +1658,16 @@ async def test_the_sidebar_model_tab_renders_models_on_activation(
         await app.workers.wait_for_complete()
 
         option_list = app._model_pane(app.active_session_id).query_one(OptionList)
-        assert option_list.option_count == 8, \
-            ("automatic routing + a disabled 'local' header + 3 scripted local "
-             "models + a disabled 'remote (paid)' header + 2 verified openrouter "
-             "models")
+        assert option_list.option_count == 8, (
+            "automatic routing + a disabled 'local' header + 3 scripted local "
+            "models + a disabled 'remote (paid)' header + 2 verified openrouter "
+            "models"
+        )
         assert option_list.get_option_at_index(0).id == ""
 
 
 @pytest.mark.asyncio
-async def test_selecting_a_model_in_the_sidebar_tab_sets_the_override(
-        tmp_path: Path) -> None:
+async def test_selecting_a_model_in_the_sidebar_tab_sets_the_override(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1519,7 +1689,8 @@ async def test_selecting_a_model_in_the_sidebar_tab_sets_the_override(
 
 @pytest.mark.asyncio
 async def test_selecting_automatic_routing_in_the_sidebar_model_tab_clears_the_override(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1569,8 +1740,14 @@ async def test_ctrl_tab_with_two_open_tabs_switches_the_session_tab(tmp_path: Pa
 class _FakeBackend:
     """A minimal ModelBackend, for TUI backend-wiring tests."""
 
-    def chat(self, model: str, messages: object, json_mode: bool = False,
-              temperature: float = 0.2, on_thinking: Any | None = None) -> str:
+    def chat(
+        self,
+        model: str,
+        messages: object,
+        json_mode: bool = False,
+        temperature: float = 0.2,
+        on_thinking: Any | None = None,
+    ) -> str:
         return '{"intent": "answer", "message": "ok"}'
 
     def recovery_options(self, current_model: str = "unknown") -> list[Any]:
@@ -1586,8 +1763,9 @@ async def test_a_new_tab_inherits_the_apps_registered_backends(tmp_path: Path) -
     doesn't inherit `backends` would silently lose OpenRouter access after
     the first tab (HANDOFF.md §2.27)."""
     fake = _FakeBackend()
-    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
-               backends={"openrouter": fake})
+    app = build(
+        tmp_path, scripted({"intent": "answer", "message": "ok"}), backends={"openrouter": fake}
+    )
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("ctrl+t")
@@ -1600,8 +1778,11 @@ async def test_a_new_tab_inherits_the_apps_registered_backends(tmp_path: Path) -
 
 @pytest.mark.asyncio
 async def test_model_command_sets_the_override(tmp_path: Path) -> None:
-    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
-               backends={"openrouter": _FakeBackend()})
+    app = build(
+        tmp_path,
+        scripted({"intent": "answer", "message": "ok"}),
+        backends={"openrouter": _FakeBackend()},
+    )
     async with app.run_test() as pilot:
         session_id = app.active_session_id
         app.query_one("#prompt", Input).value = "/model openrouter/anthropic/claude-3.5-sonnet"
@@ -1614,8 +1795,11 @@ async def test_model_command_sets_the_override(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_bare_model_command_clears_the_override(tmp_path: Path) -> None:
-    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
-               backends={"openrouter": _FakeBackend()})
+    app = build(
+        tmp_path,
+        scripted({"intent": "answer", "message": "ok"}),
+        backends={"openrouter": _FakeBackend()},
+    )
     async with app.run_test() as pilot:
         session_id = app.active_session_id
         app.sessions[session_id].model_override = "openrouter/some-model"
@@ -1678,13 +1862,14 @@ async def test_auto_command_rejects_a_garbage_argument(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_auto_run_executes_a_plan_whose_every_step_is_read_only(
-        tmp_path: Path) -> None:
+async def test_auto_run_executes_a_plan_whose_every_step_is_read_only(tmp_path: Path) -> None:
     """The actual feature: a plan made entirely of read-only (SAFE) steps no
     longer waits for a manual Run click when auto-run is on. A plan that writes
     anything, even a CAUTION one, still waits (the next test)."""
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"list {tmp_path}", [{"id": "ls", "run": f"ls {tmp_path}"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", f"list {tmp_path}", [{"id": "ls", "run": f"ls {tmp_path}"}])),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.sessions[app.active_session_id].auto_run = True
@@ -1694,22 +1879,29 @@ async def test_auto_run_executes_a_plan_whose_every_step_is_read_only(
         await pilot.pause(0.5)
         await app.workers.wait_for_complete()
 
-        assert app.sessions[app.active_session_id].current.executed, \
+        assert app.sessions[app.active_session_id].current.executed, (
             "auto-run must have executed without a Run click"
+        )
         assert "auto-run: every step is read-only" in screen_text(app)
 
 
 @pytest.mark.asyncio
-async def test_auto_run_never_bypasses_confirmation_for_a_dangerous_step(
-        tmp_path: Path) -> None:
+async def test_auto_run_never_bypasses_confirmation_for_a_dangerous_step(tmp_path: Path) -> None:
     """The safety guarantee: auto-run only ever fires when needs_confirmation
     is already empty. A DANGEROUS step still always waits for an explicit
     tick and a Run click, this flag or not."""
     victim = tmp_path / "v.txt"
     victim.write_text("keep me", encoding="utf-8")
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"remove {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                f"remove {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        ),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.sessions[app.active_session_id].auto_run = True
@@ -1728,8 +1920,10 @@ async def test_auto_run_defaults_to_off(tmp_path: Path) -> None:
     """Existing behavior (wait for a manual Run click) is preserved unless
     the operator explicitly opts in with /auto on."""
     target = tmp_path / "v.txt"
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", f"touch {target}", [{"id": "touch", "run": f"touch {target}"}])),
+    )
 
     async with app.run_test(size=(120, 50)) as pilot:
         app.query_one("#prompt", Input).value = f"touch {target}"
@@ -1742,7 +1936,8 @@ async def test_auto_run_defaults_to_off(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_an_unconfigured_openrouter_override_fails_clearly_not_silently(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """Found live by manual testing: an unconfigured openrouter/... request
     used to silently fall through to a real local model with no error at
     all, if "openrouter" wasn't registered as a backend. A real
@@ -1751,8 +1946,11 @@ async def test_an_unconfigured_openrouter_override_fails_clearly_not_silently(
     surface OpenRouterClient's own clear error, not a local model's answer."""
     from torra.core import OpenRouterClient
 
-    app = build(tmp_path, scripted({"intent": "answer", "message": "should not be reached"}),
-               backends={"openrouter": OpenRouterClient(api_key="")})
+    app = build(
+        tmp_path,
+        scripted({"intent": "answer", "message": "should not be reached"}),
+        backends={"openrouter": OpenRouterClient(api_key="")},
+    )
     async with app.run_test() as pilot:
         session_id = app.active_session_id
         app.sessions[session_id].model_override = "openrouter/anthropic/claude-3.5-sonnet"
@@ -1767,13 +1965,17 @@ async def test_an_unconfigured_openrouter_override_fails_clearly_not_silently(
 
 @pytest.mark.asyncio
 async def test_model_override_reaches_the_plan_call(tmp_path: Path) -> None:
-    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}),
-               backends={"openrouter": _FakeBackend()})
+    app = build(
+        tmp_path,
+        scripted({"intent": "answer", "message": "ok"}),
+        backends={"openrouter": _FakeBackend()},
+    )
     seen: dict[str, object] = {}
     real_plan = app.torra.plan
 
-    def spy_plan(request: str, model: str | None = None,
-                on_thinking: Any | None = None) -> RunResult:
+    def spy_plan(
+        request: str, model: str | None = None, on_thinking: Any | None = None
+    ) -> RunResult:
         seen["model"] = model
         return real_plan(request, model=model, on_thinking=on_thinking)
 
@@ -1819,8 +2021,7 @@ async def test_close_tab_refuses_a_busy_tab(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_close_tab_removes_the_active_tab_and_falls_back_to_another(
-        tmp_path: Path) -> None:
+async def test_close_tab_removes_the_active_tab_and_falls_back_to_another(tmp_path: Path) -> None:
     """Driven via action_close_tab() directly, not pilot.press("ctrl+w"):
     Input's own BINDINGS also claim ctrl+w (for delete_left_word), and the
     prompt has focus once a tab's greeting finishes -- same reason the
@@ -1939,7 +2140,8 @@ async def test_clear_chat_persists_a_marker_not_a_gap(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_reopening_an_already_open_session_switches_tabs_without_duplicating(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1959,8 +2161,7 @@ async def test_reopening_an_already_open_session_switches_tabs_without_duplicati
 
 
 @pytest.mark.asyncio
-async def test_reopening_a_session_that_no_longer_exists_shows_an_error(
-        tmp_path: Path) -> None:
+async def test_reopening_a_session_that_no_longer_exists_shows_an_error(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1972,8 +2173,7 @@ async def test_reopening_a_session_that_no_longer_exists_shows_an_error(
 
 
 @pytest.mark.asyncio
-async def test_reopening_a_past_session_after_a_restart_replays_its_history(
-        tmp_path: Path) -> None:
+async def test_reopening_a_past_session_after_a_restart_replays_its_history(tmp_path: Path) -> None:
     """The point of persistence: kill the process, come back, and the
     conversation is still there -- simulated here as a second TorraApp
     sharing the first one's workdir, the same way a real restart would."""
@@ -2000,7 +2200,8 @@ async def test_reopening_a_past_session_after_a_restart_replays_its_history(
 
 @pytest.mark.asyncio
 async def test_ctrl_o_lists_saved_sessions_and_reopening_one_dismisses_the_picker(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2023,8 +2224,7 @@ async def test_ctrl_o_lists_saved_sessions_and_reopening_one_dismisses_the_picke
 
 
 @pytest.mark.asyncio
-async def test_escape_dismisses_the_picker_without_opening_anything(
-        tmp_path: Path) -> None:
+async def test_escape_dismisses_the_picker_without_opening_anything(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2041,7 +2241,8 @@ async def test_escape_dismisses_the_picker_without_opening_anything(
 
 @pytest.mark.asyncio
 async def test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2051,10 +2252,11 @@ async def test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override(
 
         assert isinstance(app.screen, ModelPicker)
         option_list = app.screen.query_one(OptionList)
-        assert option_list.option_count == 8, \
-            ("automatic routing + a disabled 'local' header + 3 scripted local "
-             "models + a disabled 'remote (paid)' header + 2 verified openrouter "
-             "models")
+        assert option_list.option_count == 8, (
+            "automatic routing + a disabled 'local' header + 3 scripted local "
+            "models + a disabled 'remote (paid)' header + 2 verified openrouter "
+            "models"
+        )
         assert option_list.get_option_at_index(0).id == ""
 
         # One "down" still lands on the first real local model -- the
@@ -2072,7 +2274,8 @@ async def test_f2_lists_chat_capable_models_and_selecting_one_sets_the_override(
 
 @pytest.mark.asyncio
 async def test_f2_lists_the_verified_openrouter_models_and_they_are_selectable(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2085,9 +2288,11 @@ async def test_f2_lists_the_verified_openrouter_models_and_they_are_selectable(
         # option_count/get_option_at_index but are transparently skipped by
         # "down" navigation, so counting keypresses against a raw index that
         # includes them would overshoot the target by one header slot.
-        enabled = [option_list.get_option_at_index(i).id
-                  for i in range(option_list.option_count)
-                  if not option_list.get_option_at_index(i).disabled]
+        enabled = [
+            option_list.get_option_at_index(i).id
+            for i in range(option_list.option_count)
+            if not option_list.get_option_at_index(i).disabled
+        ]
         assert set(VERIFIED_OPENROUTER_MODELS) <= set(enabled)
 
         target = enabled.index("openrouter/x-ai/grok-4.6")
@@ -2101,8 +2306,7 @@ async def test_f2_lists_the_verified_openrouter_models_and_they_are_selectable(
 
 
 @pytest.mark.asyncio
-async def test_choosing_automatic_routing_clears_an_existing_override(
-        tmp_path: Path) -> None:
+async def test_choosing_automatic_routing_clears_an_existing_override(tmp_path: Path) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2119,27 +2323,29 @@ async def test_choosing_automatic_routing_clears_an_existing_override(
 
 
 @pytest.mark.asyncio
-async def test_the_model_picker_groups_local_and_remote_with_a_legend(
-        tmp_path: Path) -> None:
+async def test_the_model_picker_groups_local_and_remote_with_a_legend(tmp_path: Path) -> None:
     """Local and remote (paid) models must render under their own disabled
     group header, in that order, and a model with a MODEL_DESCRIPTIONS
     entry must show its blurb in the bottom legend."""
-    app = build(tmp_path, scripted({"intent": "answer", "message": "ok"},
-                                   models=["devstral:24b", "qwen3:8b"]))
+    app = build(
+        tmp_path,
+        scripted({"intent": "answer", "message": "ok"}, models=["devstral:24b", "qwen3:8b"]),
+    )
     async with app.run_test() as pilot:
         await pilot.press("f2")
         await pilot.pause(0.2)
 
         option_list = app.screen.query_one(OptionList)
-        prompts = [str(option_list.get_option_at_index(i).prompt)
-                  for i in range(option_list.option_count)]
+        prompts = [
+            str(option_list.get_option_at_index(i).prompt) for i in range(option_list.option_count)
+        ]
         local_header = next(i for i, p in enumerate(prompts) if "local" in p.lower())
         remote_header = next(i for i, p in enumerate(prompts) if "remote" in p.lower())
         devstral_index = next(i for i, p in enumerate(prompts) if "devstral:24b" in p)
-        grok_index = next(i for i, p in enumerate(prompts)
-                          if "openrouter/x-ai/grok-4.6" in p)
-        assert local_header < devstral_index < remote_header < grok_index, \
+        grok_index = next(i for i, p in enumerate(prompts) if "openrouter/x-ai/grok-4.6" in p)
+        assert local_header < devstral_index < remote_header < grok_index, (
             "local models must sit under the local header, remote under its own"
+        )
 
         # screen_text() only sees the base screen's widgets, not a pushed
         # modal's -- the modal is its own top-of-stack Screen, not a child
@@ -2169,7 +2375,8 @@ async def test_repicking_the_current_model_is_a_no_op(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_escape_dismisses_the_model_picker_without_changing_the_override(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2202,13 +2409,13 @@ def test_no_app_binding_uses_a_key_that_is_really_a_terminal_ansi_alias() -> Non
     aliased_away = {alias for aliases in KEY_ALIASES.values() for alias in aliases}
     bound_keys = {binding.key for binding in Binding.make_bindings(TorraApp.BINDINGS)}
     collisions = bound_keys & aliased_away
-    assert not collisions, \
+    assert not collisions, (
         f"{collisions} can never reach the app as typed -- a real terminal collapses it"
+    )
 
 
 @pytest.mark.asyncio
-async def test_set_busy_false_with_a_message_updates_the_status_line(
-        tmp_path: Path) -> None:
+async def test_set_busy_false_with_a_message_updates_the_status_line(tmp_path: Path) -> None:
     """No current caller passes a non-empty message alongside busy=False,
     but the method itself must still honour it rather than silently drop
     it -- called directly since there is no real caller to drive it."""
@@ -2221,8 +2428,7 @@ async def test_set_busy_false_with_a_message_updates_the_status_line(
 
 
 @pytest.mark.asyncio
-async def test_handle_exception_records_a_crash_and_still_calls_super(
-        tmp_path: Path) -> None:
+async def test_handle_exception_records_a_crash_and_still_calls_super(tmp_path: Path) -> None:
     """The only hook Textual ever calls for an unhandled TUI exception
     (HANDOFF.md §2.29) -- must record it AND still leave the app in the
     same panicked state Textual's own default produces. run_test()'s own
@@ -2247,7 +2453,8 @@ async def test_handle_exception_records_a_crash_and_still_calls_super(
 
 @pytest.mark.asyncio
 async def test_handle_exception_still_calls_super_if_the_reporter_itself_raises(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     """A crash reporter that itself fails must never block the one hook
     responsible for the app actually exiting."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
@@ -2255,6 +2462,7 @@ async def test_handle_exception_still_calls_super_if_the_reporter_itself_raises(
 
     with pytest.raises(RuntimeError, match="simulated unhandled crash"):
         async with app.run_test():
+
             def broken_record(error: BaseException, site: str) -> bool:
                 raise OSError("the reporter itself is broken")
 
@@ -2274,9 +2482,12 @@ def test_run_tui_builds_and_runs_the_app(tmp_path: Path, monkeypatch) -> None:
     calls: list[TorraApp] = []
     monkeypatch.setattr(TorraApp, "run", lambda self: calls.append(self))
 
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=scripted(
-                          {"intent": "answer", "message": "ok"}), probe_timeout=0.1))
+    torra = Torra(
+        workdir=tmp_path / "wd",
+        ollama=OllamaClient(
+            transport=scripted({"intent": "answer", "message": "ok"}), probe_timeout=0.1
+        ),
+    )
     run_tui(torra=torra)
 
     assert len(calls) == 1
@@ -2302,8 +2513,7 @@ async def test_closing_a_tab_releases_its_file_watches(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_read_steps_output_is_written_to_the_session_transcript(
-        tmp_path: Path) -> None:
+async def test_a_read_steps_output_is_written_to_the_session_transcript(tmp_path: Path) -> None:
     """ReadMemory captured its persistence hook at construction (None), so what
     the model had read never reached the transcript and a reopened session lost it."""
     app = build(tmp_path, scripted({"intent": "answer", "message": "ok"}))
@@ -2314,8 +2524,9 @@ async def test_a_read_steps_output_is_written_to_the_session_transcript(
 
         saved = app.session_store.load_transcript(tab.session_id)
 
-        assert any('<file path="/etc/hostname"' in r.content and "pop-os" in r.content
-                   for r in saved)
+        assert any(
+            '<file path="/etc/hostname"' in r.content and "pop-os" in r.content for r in saved
+        )
 
 
 def test_the_dependency_warning_is_escaped_before_it_reaches_markup() -> None:
@@ -2335,21 +2546,23 @@ def test_every_tab_gets_the_default_disk_precondition(tmp_path: Path) -> None:
 
     from torra.tui import TorraApp
 
-    app = SimpleNamespace(ollama=OllamaClient(transport=lambda p, pay, t: {"models": []}),
-                          backends={})
+    app = SimpleNamespace(
+        ollama=OllamaClient(transport=lambda p, pay, t: {"models": []}), backends={}
+    )
     torra = TorraApp._build_session_torra(app, tmp_path, "abc123")  # type: ignore[arg-type]
 
     assert [p.name for p in torra.verifier.preconditions] == ["disk:/"]
 
 
 @pytest.mark.asyncio
-async def test_auto_run_waits_for_a_click_when_the_plan_changes_something(
-        tmp_path: Path) -> None:
+async def test_auto_run_waits_for_a_click_when_the_plan_changes_something(tmp_path: Path) -> None:
     """/auto used to run any plan with no step needing a tick, which includes
     CAUTION steps that write files; it now runs only plans that are all read-only."""
     marker = tmp_path / "written"
-    app = build(tmp_path, scripted(plan_reply(
-        "t", f"write {marker}", [{"id": "w", "run": f"touch {marker}"}])))
+    app = build(
+        tmp_path,
+        scripted(plan_reply("t", f"write {marker}", [{"id": "w", "run": f"touch {marker}"}])),
+    )
     async with app.run_test(size=(120, 50)) as pilot:
         app.sessions[app.active_session_id].auto_run = True
         app.query_one("#prompt", Input).value = f"write {marker}"

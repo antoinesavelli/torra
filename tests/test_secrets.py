@@ -32,7 +32,10 @@ SECRETS = [
     ("AKIA" + "R8" * 8, "R8" * 8),
     ("postgres://app:" + "s9" * 8 + "@db.internal:5432/app", "s9" * 8),
     ("https://user:" + "t0" * 8 + "@example.com/x", "t0" * 8),
-    ("-----BEGIN OPENSSH PRIVATE KEY-----\n" + "u1" * 30 + "\n-----END OPENSSH PRIVATE KEY-----", "u1" * 30),
+    (
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n" + "u1" * 30 + "\n-----END OPENSSH PRIVATE KEY-----",
+        "u1" * 30,
+    ),
     ("-----BEGIN RSA PRIVATE KEY-----\n" + "v2" * 30 + "\n(truncated", "v2" * 30),
 ]
 
@@ -47,24 +50,54 @@ def test_ordinary_text_is_left_alone() -> None:
     assert redact_secrets(plain) == plain
 
 
-@pytest.mark.parametrize("command", [
-    "cat .env", "cat /srv/app/.env", "grep KEY .env.local", "head -3 ~/.aws/credentials",
-    "cat ~/.ssh/id_rsa", "cat ~/.ssh/id_ed25519", "less /etc/shadow", "cat ~/.netrc",
-    "cat ~/.git-credentials", "tail ~/.gnupg/secring.gpg", "cat ~/.pgpass",
-    "cat /etc/ssh/ssh_host_ed25519_key", "wc -c ~/.ssh/id_rsa", "sort ~/.config/app/secrets.yaml",
-])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .env",
+        "cat /srv/app/.env",
+        "grep KEY .env.local",
+        "head -3 ~/.aws/credentials",
+        "cat ~/.ssh/id_rsa",
+        "cat ~/.ssh/id_ed25519",
+        "less /etc/shadow",
+        "cat ~/.netrc",
+        "cat ~/.git-credentials",
+        "tail ~/.gnupg/secring.gpg",
+        "cat ~/.pgpass",
+        "cat /etc/ssh/ssh_host_ed25519_key",
+        "wc -c ~/.ssh/id_rsa",
+        "sort ~/.config/app/secrets.yaml",
+    ],
+)
 def test_reading_a_file_that_holds_credentials_needs_a_tick(command: str) -> None:
     verdict = SafetyClassifier().classify(command)
     assert verdict.needs_confirmation, (command, verdict.level)
     assert any("credentials" in r for r in verdict.reasons)
 
 
-@pytest.mark.parametrize("command", [
-    "cat .env.example", "cat .env.sample", "cat ~/.ssh/id_rsa.pub", "cat ~/.ssh/known_hosts",
-    "cat ~/.ssh/config", "ssh-keygen -lf ~/.ssh/id_ed25519.pub", "ls ~/.ssh", "ls -la ~/.aws",
-    "cat environment.md", "grep token notes.txt", "cat /etc/passwd",
-    "ls -la ~/.ssh/", "ls ~/.aws", "ls -la /home/*/.netrc", "[ -f /srv/app/.env ]",
-    "test -e ~/.ssh/id_rsa", "stat ~/.ssh/id_rsa", "du -h ~/.aws", "find ~/.ssh -name 'id_*'",
-])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .env.example",
+        "cat .env.sample",
+        "cat ~/.ssh/id_rsa.pub",
+        "cat ~/.ssh/known_hosts",
+        "cat ~/.ssh/config",
+        "ssh-keygen -lf ~/.ssh/id_ed25519.pub",
+        "ls ~/.ssh",
+        "ls -la ~/.aws",
+        "cat environment.md",
+        "grep token notes.txt",
+        "cat /etc/passwd",
+        "ls -la ~/.ssh/",
+        "ls ~/.aws",
+        "ls -la /home/*/.netrc",
+        "[ -f /srv/app/.env ]",
+        "test -e ~/.ssh/id_rsa",
+        "stat ~/.ssh/id_rsa",
+        "du -h ~/.aws",
+        "find ~/.ssh -name 'id_*'",
+    ],
+)
 def test_neighbouring_files_that_hold_no_credentials_still_run(command: str) -> None:
     assert SafetyClassifier().classify(command).level is not RiskLevel.DANGEROUS, command

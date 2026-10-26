@@ -19,14 +19,29 @@ from typing import Any
 from .ollama import OllamaClient
 from .tasks import shell
 
-__all__ = ["Accelerator", "detect_accelerator", "MachineState", "observe_machine",
-          "build_ssh_runner", "observe_executor", "resolve_executor_config"]
+__all__ = [
+    "Accelerator",
+    "detect_accelerator",
+    "MachineState",
+    "observe_machine",
+    "build_ssh_runner",
+    "observe_executor",
+    "resolve_executor_config",
+]
 
 #: Parameter counts for models whose name does not carry one.
 KNOWN_MODEL_PARAMS_B: dict[str, float] = {
-    "devstral": 24.0, "codestral": 22.0, "mistral": 7.0, "mixtral": 47.0,
-    "llama3": 8.0, "phi3": 3.8, "gemma2": 9.0, "deepseek-coder": 6.7,
-    "devstral-small-2": 24.0, "muse-glimmer": 30.0, "gpt-oss": 20.0,
+    "devstral": 24.0,
+    "codestral": 22.0,
+    "mistral": 7.0,
+    "mixtral": 47.0,
+    "llama3": 8.0,
+    "phi3": 3.8,
+    "gemma2": 9.0,
+    "deepseek-coder": 6.7,
+    "devstral-small-2": 24.0,
+    "muse-glimmer": 30.0,
+    "gpt-oss": 20.0,
 }
 
 
@@ -41,11 +56,11 @@ class Accelerator:
     minutes to answer.
     """
 
-    kind: str = "cpu"           # cuda | rocm | cpu
+    kind: str = "cpu"  # cuda | rocm | cpu
     name: str = ""
     vram_mb: int = 0
     free_vram_mb: int = 0
-    running_on: str = ""        # what `ollama ps` reports for a loaded model
+    running_on: str = ""  # what `ollama ps` reports for a loaded model
     detail: str = ""
     #: Real parameter counts from `/api/show` (Agent.observe fills this in,
     #: keyed like `available` -- `tag:latest` normalized), consulted before
@@ -97,12 +112,17 @@ class Accelerator:
             # through onto a card with less than half the VRAM they
             # actually needed.
             match = re.search(r"(\d+(?:\.\d+)?)\s*b\b", model, re.IGNORECASE)
-            params = float(match.group(1)) if match else KNOWN_MODEL_PARAMS_B.get(
-                model.split(":")[0].lower(), 0.0)
+            params = (
+                float(match.group(1))
+                if match
+                else KNOWN_MODEL_PARAMS_B.get(model.split(":")[0].lower(), 0.0)
+            )
         if not params:
             return True
         effective_free = self.free_vram_mb
-        loaded_tag = self.loaded_model if ":" in self.loaded_model else f"{self.loaded_model}:latest"
+        loaded_tag = (
+            self.loaded_model if ":" in self.loaded_model else f"{self.loaded_model}:latest"
+        )
         candidate_tag = model if ":" in model else f"{model}:latest"
         if self.max_loaded_models == 1 and self.loaded_model and loaded_tag != candidate_tag:
             effective_free += self.loaded_model_mb
@@ -123,10 +143,11 @@ class Accelerator:
         """One line for the model's context and the status bar."""
         if not self.gpu:
             return f"accelerator: CPU only ({self.detail or 'no usable GPU'})"
-        return (f"accelerator: {self.kind} {self.name}, "
-                f"{self.free_vram_mb} MB free of {self.vram_mb} MB"
-                + (f", currently running on {self.running_on}"
-                   if self.running_on else ""))
+        return (
+            f"accelerator: {self.kind} {self.name}, "
+            f"{self.free_vram_mb} MB free of {self.vram_mb} MB"
+            + (f", currently running on {self.running_on}" if self.running_on else "")
+        )
 
 
 def _parse_size_mb(text: str) -> int:
@@ -187,8 +208,10 @@ def detect_accelerator(
                 processor = match.group(0)
                 if "CPU" in processor.upper() and "GPU" not in processor.upper():
                     return Accelerator(
-                        kind="cpu", running_on=processor,
-                        detail="ollama ps reports a loaded model on CPU")
+                        kind="cpu",
+                        running_on=processor,
+                        detail="ollama ps reports a loaded model on CPU",
+                    )
                 # Confirmed GPU (or partial CPU/GPU offload), but ollama ps
                 # carries no VRAM figures -- fall through to nvidia-smi/rocm
                 # below for those. Name/size are this line's first two
@@ -203,12 +226,20 @@ def detect_accelerator(
 
     try:
         out = execute(
-            "nvidia-smi --query-gpu=name,memory.total,memory.free "
-            "--format=csv,noheader,nounits", None, 10.0)
+            "nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits",
+            None,
+            10.0,
+        )
         name, total, free = [p.strip() for p in out.splitlines()[0].split(",")]
-        return Accelerator("cuda", name, int(float(total)), int(float(free)),
-                           loaded_model=loaded_model, loaded_model_mb=loaded_model_mb,
-                           max_loaded_models=_max_loaded_models(execute))
+        return Accelerator(
+            "cuda",
+            name,
+            int(float(total)),
+            int(float(free)),
+            loaded_model=loaded_model,
+            loaded_model_mb=loaded_model_mb,
+            max_loaded_models=_max_loaded_models(execute),
+        )
     except Exception as exc:
         nvidia_error = f"{type(exc).__name__}"
 
@@ -219,8 +250,7 @@ def detect_accelerator(
     except Exception:
         pass
 
-    return Accelerator(kind="cpu",
-                       detail=f"no nvidia-smi or rocm-smi ({nvidia_error})")
+    return Accelerator(kind="cpu", detail=f"no nvidia-smi or rocm-smi ({nvidia_error})")
 
 
 @dataclass
@@ -275,9 +305,11 @@ class MachineState:
             f"cwd: {self.cwd}",
             self.accelerator.render(),
             "",
-            "disk:", self.disk,
+            "disk:",
+            self.disk,
             "",
-            "memory:", self.memory,
+            "memory:",
+            self.memory,
         ]
         if self.ollama_models:
             lines += ["", f"local models: {', '.join(self.ollama_models)}"]
@@ -290,11 +322,15 @@ class MachineState:
             # exactly the per-machine files that prompted indexing them at
             # all (see _scan_knowledge_dir's docstring).
             dirs = {self.knowledge_library_path}
-            dirs.update(f"{self.knowledge_library_path}/{name.rsplit('/', 1)[0]}"
-                       for name in self.knowledge_library if "/" in name)
+            dirs.update(
+                f"{self.knowledge_library_path}/{name.rsplit('/', 1)[0]}"
+                for name in self.knowledge_library
+                if "/" in name
+            )
             targets = " ".join(f"{d}/*.md" for d in sorted(dirs))
             lines += [
-                "", f"site knowledge library at {self.knowledge_library_path} "
+                "",
+                f"site knowledge library at {self.knowledge_library_path} "
                 "documents this exact machine: hardware, services, storage layout, "
                 "past fixes, known quirks. The relevant fact is often buried in "
                 "one file's prose, not named in any file's own topic below -- so "
@@ -307,8 +343,7 @@ class MachineState:
                 "then read whichever file(s) that finds. Topics, for a narrower "
                 "first guess when one obviously fits:",
             ]
-            lines += [f"  {name}: {heading}"
-                     for name, heading in self.knowledge_library.items()]
+            lines += [f"  {name}: {heading}" for name, heading in self.knowledge_library.items()]
         for name, value in self.extras.items():
             lines += ["", f"{name}:", value]
         if self.executor is not None:
@@ -336,9 +371,12 @@ OBSERVE_COMMANDS: list[tuple[str, str]] = [
     # mount, but the real gap was that mount never being observed at all.
     # Filtering by fs type instead of naming paths keeps every real mount
     # (including ones added later) visible without hand-maintaining a list.
-    ("disk", "df -h -x tmpfs -x devtmpfs -x overlay -x squashfs -x proc "
-             "-x sysfs -x cgroup -x cgroup2 -x tracefs -x fuse.gvfsd-fuse "
-             "2>/dev/null"),
+    (
+        "disk",
+        "df -h -x tmpfs -x devtmpfs -x overlay -x squashfs -x proc "
+        "-x sysfs -x cgroup -x cgroup2 -x tracefs -x fuse.gvfsd-fuse "
+        "2>/dev/null",
+    ),
     ("memory", "free -h"),
 ]
 
@@ -352,10 +390,10 @@ OBSERVE_COMMANDS: list[tuple[str, str]] = [
 #: default when no such process is found or its environ isn't readable.
 OLLAMA_MODELS_DIR_PROBE = (
     "pid=$(pgrep -x ollama | head -1); "
-    "if [ -n \"$pid\" ] && [ -r \"/proc/$pid/environ\" ]; then "
+    'if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then '
     "val=$(tr '\\0' '\\n' < /proc/$pid/environ | grep '^OLLAMA_MODELS=' | cut -d= -f2-); "
     "fi; "
-    "echo \"${val:-${OLLAMA_MODELS:-$HOME/.ollama/models}}\""
+    'echo "${val:-${OLLAMA_MODELS:-$HOME/.ollama/models}}"'
 )
 
 #: Same real-daemon-environment technique as OLLAMA_MODELS_DIR_PROBE, but
@@ -366,7 +404,7 @@ OLLAMA_MODELS_DIR_PROBE = (
 #: assumed). See HANDOFF.md §2.35.
 OLLAMA_MAX_LOADED_MODELS_PROBE = (
     "pid=$(pgrep -x ollama | head -1); "
-    "if [ -n \"$pid\" ] && [ -r \"/proc/$pid/environ\" ]; then "
+    'if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then '
     "tr '\\0' '\\n' < /proc/$pid/environ | grep '^OLLAMA_MAX_LOADED_MODELS=' | cut -d= -f2-; "
     "fi"
 )
@@ -377,10 +415,16 @@ OLLAMA_MAX_LOADED_MODELS_PROBE = (
 #: from the topic index. Deliberately a small, well-known, industry-wide
 #: set rather than anything specific to one library's own naming, so this
 #: stays generalizable to any configured knowledge directory.
-KNOWLEDGE_META_FILENAMES: frozenset[str] = frozenset({
-    "claude.md", "changelog.md", "readme.md", "agents.md",
-    "license.md", "contributing.md",
-})
+KNOWLEDGE_META_FILENAMES: frozenset[str] = frozenset(
+    {
+        "claude.md",
+        "changelog.md",
+        "readme.md",
+        "agents.md",
+        "license.md",
+        "contributing.md",
+    }
+)
 
 
 def _scan_knowledge_topics(root: Path) -> dict[str, str]:
@@ -415,7 +459,8 @@ def _scan_knowledge_topics(root: Path) -> dict[str, str]:
 
 # Live wire: HANDOFF.md §5.22
 def _scan_knowledge_dir(
-        path: os.PathLike[str] | str, hostname: str = "") -> tuple[str, dict[str, str]]:
+    path: os.PathLike[str] | str, hostname: str = ""
+) -> tuple[str, dict[str, str]]:
     """Top-level `.md` topics in a configured site-knowledge directory, plus
     (when present) this machine's own subfolder: `machines/<hostname>/*.md`.
 
@@ -439,9 +484,12 @@ def _scan_knowledge_dir(
     if hostname:
         machine_dir = root / "machines" / hostname
         if machine_dir.is_dir():
-            headings.update({
-                f"machines/{hostname}/{name}": heading
-                for name, heading in _scan_knowledge_topics(machine_dir).items()})
+            headings.update(
+                {
+                    f"machines/{hostname}/{name}": heading
+                    for name, heading in _scan_knowledge_topics(machine_dir).items()
+                }
+            )
     return str(root), headings
 
 
@@ -466,8 +514,9 @@ def observe_machine(
             # lookup key, never reported to the operator as an observed
             # fact, so it doesn't need to come from the same real-command
             # path everything in `state` otherwise does.
-            state.knowledge_library_path, state.knowledge_library = \
-                _scan_knowledge_dir(knowledge_dir, hostname=socket.gethostname())
+            state.knowledge_library_path, state.knowledge_library = _scan_knowledge_dir(
+                knowledge_dir, hostname=socket.gethostname()
+            )
         except Exception as exc:
             state.errors.append(f"knowledge_library: {type(exc).__name__}: {exc}")
 
@@ -499,7 +548,9 @@ def observe_machine(
 
 
 def resolve_executor_config(
-    host: str | None = None, user: str | None = None, key_path: str | None = None,
+    host: str | None = None,
+    user: str | None = None,
+    key_path: str | None = None,
 ) -> tuple[str, str, str] | None:
     """(host, user, key_path) for an optional second, SSH-reachable machine
     ("executor") -- explicit args win, else TORRA_EXECUTOR_HOST/_USER/
@@ -514,13 +565,17 @@ def resolve_executor_config(
     if not resolved_host:
         return None
     resolved_user = user if user is not None else os.environ.get("TORRA_EXECUTOR_USER", "")
-    resolved_key = key_path if key_path is not None else os.environ.get(
-        "TORRA_EXECUTOR_SSH_KEY", "")
+    resolved_key = (
+        key_path if key_path is not None else os.environ.get("TORRA_EXECUTOR_SSH_KEY", "")
+    )
     return (resolved_host, resolved_user, resolved_key)
 
 
 def build_ssh_runner(
-    host: str, user: str = "", key_path: str = "", connect_timeout: float = 5.0,
+    host: str,
+    user: str = "",
+    key_path: str = "",
+    connect_timeout: float = 5.0,
 ) -> Callable[[str, str | None, float | None], str]:
     """A runner matching shell()'s exact contract (same signature, same
     raise-on-nonzero/return-stripped-stdout behavior), wrapping each command
@@ -535,25 +590,36 @@ def build_ssh_runner(
     (not =no) trusts a new host key on first contact but still fails on a
     *changed* key later.
     """
+
     def run(command: str, cwd: str | None, timeout: float | None) -> str:
         import shlex
         import subprocess
 
         remote_command = f"cd {shlex.quote(cwd)} && {command}" if cwd else command
-        argv = ["ssh", "-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
-               "-o", f"ConnectTimeout={int(connect_timeout)}",
-               "-o", "StrictHostKeyChecking=accept-new"]
+        argv = [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "PasswordAuthentication=no",
+            "-o",
+            f"ConnectTimeout={int(connect_timeout)}",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+        ]
         if key_path:
             argv += ["-i", os.path.expanduser(key_path)]
         argv.append(f"{user}@{host}" if user else host)
         argv.append(remote_command)
-        result = subprocess.run(argv, capture_output=True, text=True,
-                                stdin=subprocess.DEVNULL, timeout=timeout or 3600)
+        result = subprocess.run(
+            argv, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout or 3600
+        )
         if result.returncode != 0:
             raise RuntimeError(
-                f"exit {result.returncode}: "
-                f"{(result.stderr or result.stdout).strip()[:400]}")
+                f"exit {result.returncode}: {(result.stderr or result.stdout).strip()[:400]}"
+            )
         return (result.stdout or "").strip()
+
     return run
 
 

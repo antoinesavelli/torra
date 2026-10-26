@@ -34,8 +34,10 @@ def patch_ollama(monkeypatch, transport) -> None:
     the name cli.py imported, not the class itself, so other modules are
     unaffected.
     """
+
     def factory(*args, **kwargs):
         return OllamaClient(transport=transport, probe_timeout=0.1)
+
     monkeypatch.setattr(cli, "OllamaClient", factory)
 
 
@@ -43,16 +45,17 @@ def patch_observe(monkeypatch, hostname: str = "pop-os") -> None:
     """Keep Agent.observe() off the real machine -- see agent.py's default
     observer, which calls this name at call time from its own module."""
     from torra.core import MachineState
-    monkeypatch.setattr("torra.agent.observe_machine",
-                        lambda **kwargs: MachineState(hostname=hostname))
+
+    monkeypatch.setattr(
+        "torra.agent.observe_machine", lambda **kwargs: MachineState(hostname=hostname)
+    )
 
 
 def evidence_args(workdir: Path) -> argparse.Namespace:
     return argparse.Namespace(workdir=str(workdir), baseline_fn=0.0, baseline_fp=0.10)
 
 
-def write_task_file(path: Path, task_id: str, request: str,
-                    steps: list[dict], **extra) -> Path:
+def write_task_file(path: Path, task_id: str, request: str, steps: list[dict], **extra) -> Path:
     data = {"task_id": task_id, "request": request, "steps": steps, **extra}
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     return path
@@ -64,7 +67,8 @@ def write_task_file(path: Path, task_id: str, request: str,
 
 
 def test_build_torra_registers_openrouter_when_the_env_var_is_set(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     patch_ollama(monkeypatch, scripted({}))
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
 
@@ -75,7 +79,8 @@ def test_build_torra_registers_openrouter_when_the_env_var_is_set(
 
 
 def test_build_torra_registers_openrouter_even_without_the_env_var(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Found live by manual testing: registering it only when the env var
     was set meant an unconfigured `--model openrouter/...` request matched
     no prefix in Agent.backends, so it silently fell through to
@@ -94,7 +99,8 @@ def test_build_torra_registers_openrouter_even_without_the_env_var(
 
 
 def test_build_torra_registers_openrouter_even_when_offline(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """offline is for `torra run` -- a hand-written task file that never
     calls the model at all, so this is harmless either way: constructing
     OpenRouterClient makes no network call, only chat() would."""
@@ -111,7 +117,8 @@ def test_build_torra_registers_openrouter_even_when_offline(
 
 
 def test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Found by an independent audit: Ctrl+C/Ctrl+D on the approve prompt
     used to decline only the current step and keep prompting for the next
     one -- confusing for an operator who expected the keystroke to bail
@@ -120,14 +127,18 @@ def test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again(
     victim1, victim2 = tmp_path / "v1.txt", tmp_path / "v2.txt"
     victim1.write_text("keep me", encoding="utf-8")
     victim2.write_text("keep me too", encoding="utf-8")
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "delete two files",
-        "steps": [
-            {"id": "rm1", "run": f"rm -f {victim1}", "touches": [str(victim1)]},
-            {"id": "rm2", "run": f"rm -f {victim2}", "touches": [str(victim2)]},
-        ]}, source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "delete two files",
+            "steps": [
+                {"id": "rm1", "run": f"rm -f {victim1}", "touches": [str(victim1)]},
+                {"id": "rm2", "run": f"rm -f {victim2}", "touches": [str(victim2)]},
+            ],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
     assert len(plan.needs_confirmation) == 2, "both rm steps must need confirmation"
 
@@ -146,21 +157,25 @@ def test_approve_at_prompt_aborts_on_interrupt_instead_of_asking_again(
 
 
 def test_approve_at_prompt_records_a_real_yes_and_no(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The ordinary path: an operator actually typing y/n at the prompt,
     not hitting Ctrl+D. Also covers the "no automatic undo" notice for a
     dangerous step that declares no `touches`."""
     victim = tmp_path / "v.txt"
     victim.write_text("keep me", encoding="utf-8")
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "two dangerous steps",
-        "steps": [
-            {"id": "no-undo", "run": "rm -f /nonexistent-path-xyz"},
-            {"id": "has-undo", "run": f"rm -f {victim}", "touches": [str(victim)]},
-        ]}, source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "two dangerous steps",
+            "steps": [
+                {"id": "no-undo", "run": "rm -f /nonexistent-path-xyz"},
+                {"id": "has-undo", "run": f"rm -f {victim}", "touches": [str(victim)]},
+            ],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
     assert len(plan.needs_confirmation) == 2
 
@@ -174,19 +189,27 @@ def test_approve_at_prompt_records_a_real_yes_and_no(
 
 
 def test_approve_at_prompt_shows_the_steps_description(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The operator needs the *why* right where they're deciding, not just
     the raw command -- found live: neither this prompt nor print_plan ever
     printed `step.description` at all, so a model that wrote real
     reasoning into it had nowhere for that reasoning to reach the operator."""
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "delete a stale cache",
-        "steps": [{"id": "rm", "run": "rm -rf /tmp/build-cache",
-                  "description": "clears the cache confirmed stale by "
-                                 "the earlier du check"}]}, source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "delete a stale cache",
+            "steps": [
+                {
+                    "id": "rm",
+                    "run": "rm -rf /tmp/build-cache",
+                    "description": "clears the cache confirmed stale by the earlier du check",
+                }
+            ],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
 
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
@@ -196,14 +219,17 @@ def test_approve_at_prompt_shows_the_steps_description(
 
 
 def test_approve_at_prompt_does_not_print_a_description_that_only_repeats_run(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str]) -> None:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "delete a file",
-        "steps": [{"id": "rm", "run": "rm -f /tmp/x",
-                  "description": "rm -f /tmp/x"}]}, source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "delete a file",
+            "steps": [{"id": "rm", "run": "rm -f /tmp/x", "description": "rm -f /tmp/x"}],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
 
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
@@ -219,14 +245,23 @@ def test_approve_at_prompt_does_not_print_a_description_that_only_repeats_run(
 
 
 def test_print_plan_shows_a_steps_description(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "check disk usage",
-        "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage",
-                  "description": "confirms free space before the larger "
-                                 "copy in the next step"}]}, source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "check disk usage",
+            "steps": [
+                {
+                    "id": "df",
+                    "run": "df -h /mnt/ParamoStorage",
+                    "description": "confirms free space before the larger copy in the next step",
+                }
+            ],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
 
     cli.print_plan(plan)
@@ -235,13 +270,17 @@ def test_print_plan_shows_a_steps_description(
 
 
 def test_print_plan_does_not_repeat_the_command_as_a_description(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "check disk usage",
-        "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage"}]},
-        source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "check disk usage",
+            "steps": [{"id": "df", "run": "df -h /mnt/ParamoStorage"}],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
 
     cli.print_plan(plan)
@@ -256,19 +295,27 @@ def test_print_plan_does_not_repeat_the_command_as_a_description(
 
 
 def test_print_dependency_warnings_shows_a_real_hit_before_execute_would_run(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The whole point of calling this before execute(): the operator sees
     it while they can still change what they approved, not buried in the
     execution report after the commands already ran."""
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "remove then reference it",
-        "steps": [
-            {"id": "rm-declined", "run": "rm -f /tmp/scratch-dir/data.txt",
-             "touches": ["/tmp/scratch-dir/data.txt"]},
-            {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"},
-        ]}, source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "remove then reference it",
+            "steps": [
+                {
+                    "id": "rm-declined",
+                    "run": "rm -f /tmp/scratch-dir/data.txt",
+                    "touches": ["/tmp/scratch-dir/data.txt"],
+                },
+                {"id": "use-it", "run": "cat /tmp/scratch-dir/data.txt"},
+            ],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
 
     cli.print_dependency_warnings(plan, {"rm-declined": False, "use-it": True})
@@ -278,13 +325,17 @@ def test_print_dependency_warnings_shows_a_real_hit_before_execute_would_run(
 
 
 def test_print_dependency_warnings_prints_nothing_when_there_is_nothing_to_flag(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "two unrelated safe steps",
-        "steps": [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}]},
-        source="test")
-    torra = Torra(workdir=tmp_path / "wd",
-                      ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "two unrelated safe steps",
+            "steps": [{"id": "a", "run": "echo one"}, {"id": "b", "run": "echo two"}],
+        },
+        source="test",
+    )
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
     plan = torra._gate(spec)
 
     cli.print_dependency_warnings(plan, {})
@@ -298,7 +349,8 @@ def test_print_dependency_warnings_prints_nothing_when_there_is_nothing_to_flag(
 
 
 def test_evidence_intent_breakdown_does_not_silently_drop_answer_and_refuse(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Found live: the breakdown only ever counted intent == "plan"/"ask",
     so "answer" and "refuse" -- on one real machine's traffic, "answered"
     was 80% of everything recorded -- never appeared anywhere in a summary
@@ -319,7 +371,8 @@ def test_evidence_intent_breakdown_does_not_silently_drop_answer_and_refuse(
 
 
 def test_evidence_prints_the_loophole_audit_alongside_drift(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Found in a full-file audit: LoopholeAudit (torra/telemetry/audit.py)
     was fully implemented and exported but had no caller anywhere -- unlike
     its sibling CorpusExporter.drift(), which cmd_evidence already printed.
@@ -339,7 +392,8 @@ def test_evidence_prints_the_loophole_audit_alongside_drift(
 
 
 def test_evidence_health_summary_shows_every_outcome_not_just_completed(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Before this, only `status == "completed"` was ever counted anywhere
     in cmd_evidence's output -- blocked/refused/backend_down/failed tasks
     were invisible in a summary that read as a complete accounting."""
@@ -359,12 +413,24 @@ def test_evidence_health_summary_shows_every_outcome_not_just_completed(
 
 
 def test_evidence_health_summary_reports_backend_and_latency(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
-    logger.record(TaskRecord(task_id="a", request="x", at=1.0,
-                             status="completed", model="devstral:24b", seconds=4.0))
-    logger.record(TaskRecord(task_id="b", request="x", at=1.0, status="completed",
-                             model="openrouter/anthropic/claude-3.5-sonnet", seconds=2.0))
+    logger.record(
+        TaskRecord(
+            task_id="a", request="x", at=1.0, status="completed", model="devstral:24b", seconds=4.0
+        )
+    )
+    logger.record(
+        TaskRecord(
+            task_id="b",
+            request="x",
+            at=1.0,
+            status="completed",
+            model="openrouter/anthropic/claude-3.5-sonnet",
+            seconds=2.0,
+        )
+    )
     LabelStore(tmp_path / "telemetry" / "labels.jsonl")
 
     exit_code = cli.cmd_evidence(evidence_args(tmp_path))
@@ -376,15 +442,15 @@ def test_evidence_health_summary_reports_backend_and_latency(
 
 
 def test_evidence_with_no_tasks_says_so_instead_of_an_empty_section(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     exit_code = cli.cmd_evidence(evidence_args(tmp_path))
     out = capsys.readouterr().out
     assert exit_code == 0
     assert "no tasks recorded yet" in out
 
 
-def test_evidence_reports_crash_history(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_evidence_reports_crash_history(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     reporter = CrashReporter(tmp_path / "telemetry" / "crashes.jsonl")
     try:
         raise ValueError("simulated crash")
@@ -401,7 +467,8 @@ def test_evidence_reports_crash_history(
 
 
 def test_evidence_with_no_crashes_says_so(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     exit_code = cli.cmd_evidence(evidence_args(tmp_path))
     out = capsys.readouterr().out
     assert exit_code == 0
@@ -409,7 +476,8 @@ def test_evidence_with_no_crashes_says_so(
 
 
 def test_evidence_prints_loophole_examples_when_present(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`loophole.examples` -- untested before this despite the loophole
     count itself being covered above: a request that clears the clarifier
     (it has a path anchor) but is goalless (vague verb, no stated outcome)."""
@@ -429,24 +497,42 @@ def test_evidence_prints_loophole_examples_when_present(
 # --------------------------------------------------------------------------- #
 
 
-def ask_args(workdir: Path, request: str, *, model=None, dry_run=False,
-             non_interactive=False, plan_only=False, verify=None,
-             max_iterations=3, yes=False) -> argparse.Namespace:
-    return argparse.Namespace(workdir=str(workdir), request=request, model=model,
-                              dry_run=dry_run, non_interactive=non_interactive,
-                              plan_only=plan_only, verify=verify,
-                              max_iterations=max_iterations, yes=yes)
+def ask_args(
+    workdir: Path,
+    request: str,
+    *,
+    model=None,
+    dry_run=False,
+    non_interactive=False,
+    plan_only=False,
+    verify=None,
+    max_iterations=3,
+    yes=False,
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        workdir=str(workdir),
+        request=request,
+        model=model,
+        dry_run=dry_run,
+        non_interactive=non_interactive,
+        plan_only=plan_only,
+        verify=verify,
+        max_iterations=max_iterations,
+        yes=yes,
+    )
 
 
-def test_ask_runs_a_safe_plan_end_to_end(tmp_path, monkeypatch,
-                                         capsys: pytest.CaptureFixture[str]) -> None:
+def test_ask_runs_a_safe_plan_end_to_end(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_observe(monkeypatch)
     marker = tmp_path / "marker"
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    patch_ollama(
+        monkeypatch,
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+    )
 
-    exit_code = cli.cmd_ask(ask_args(
-        tmp_path, f"touch {marker}", non_interactive=True, yes=True))
+    exit_code = cli.cmd_ask(ask_args(tmp_path, f"touch {marker}", non_interactive=True, yes=True))
 
     out = capsys.readouterr().out
     assert exit_code == cli.EXIT_OK
@@ -455,25 +541,35 @@ def test_ask_runs_a_safe_plan_end_to_end(tmp_path, monkeypatch,
 
 
 def test_ask_verify_fixes_a_failing_check_and_reports_success(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_observe(monkeypatch)
     # The placeholder request text below reads as underspecified to
     # Clarifier.detect(), which would otherwise spend a scripted reply on
     # a repair round -- see test_iterate.py's _no_repairs for why.
     monkeypatch.setattr("torra.agent.Agent.MAX_REPAIRS", 0)
     marker = tmp_path / "fixed"
-    patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
-        plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
-        plan_reply("verify1", "run the tests",
-                  [{"id": "verify", "run": f"test -f {marker}"}]),
-        plan_reply("fix", "fix it", [{"id": "fix", "run": f"touch {marker}"}]),
-        plan_reply("verify2", "run the tests",
-                  [{"id": "verify", "run": f"test -f {marker}"}]),
-    )))
+    patch_ollama(
+        monkeypatch,
+        scripted(
+            *plan_replies_with_summaries(
+                plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
+                plan_reply(
+                    "verify1", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]
+                ),
+                plan_reply("fix", "fix it", [{"id": "fix", "run": f"touch {marker}"}]),
+                plan_reply(
+                    "verify2", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]
+                ),
+            )
+        ),
+    )
 
-    exit_code = cli.cmd_ask(ask_args(
-        tmp_path, "add the feature", non_interactive=True, yes=True,
-        verify="run the tests"))
+    exit_code = cli.cmd_ask(
+        ask_args(
+            tmp_path, "add the feature", non_interactive=True, yes=True, verify="run the tests"
+        )
+    )
 
     out = capsys.readouterr().out
     assert exit_code == cli.EXIT_OK
@@ -483,19 +579,27 @@ def test_ask_verify_fixes_a_failing_check_and_reports_success(
 
 
 def test_ask_verify_reports_failure_once_iterations_are_exhausted(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_observe(monkeypatch)
     monkeypatch.setattr("torra.agent.Agent.MAX_REPAIRS", 0)
-    patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
-        plan_reply("edit", "add x", [{"id": "edit", "run": "true"}]),
-        plan_reply("verify1", "check", [{"id": "verify", "run": "false"}]),
-        plan_reply("fix", "fix", [{"id": "fix", "run": "true"}]),
-        plan_reply("verify2", "check", [{"id": "verify", "run": "false"}]),
-    )))
+    patch_ollama(
+        monkeypatch,
+        scripted(
+            *plan_replies_with_summaries(
+                plan_reply("edit", "add x", [{"id": "edit", "run": "true"}]),
+                plan_reply("verify1", "check", [{"id": "verify", "run": "false"}]),
+                plan_reply("fix", "fix", [{"id": "fix", "run": "true"}]),
+                plan_reply("verify2", "check", [{"id": "verify", "run": "false"}]),
+            )
+        ),
+    )
 
-    exit_code = cli.cmd_ask(ask_args(
-        tmp_path, "add x", non_interactive=True, yes=True, verify="check",
-        max_iterations=1))
+    exit_code = cli.cmd_ask(
+        ask_args(
+            tmp_path, "add x", non_interactive=True, yes=True, verify="check", max_iterations=1
+        )
+    )
 
     out = capsys.readouterr().out
     assert exit_code == cli.EXIT_FAILED
@@ -504,14 +608,18 @@ def test_ask_verify_reports_failure_once_iterations_are_exhausted(
 
 
 def test_ask_plan_only_prints_the_plan_and_runs_nothing(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_observe(monkeypatch)
     marker = tmp_path / "marker"
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    patch_ollama(
+        monkeypatch,
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+    )
 
-    exit_code = cli.cmd_ask(ask_args(tmp_path, f"touch {marker}",
-                                     non_interactive=True, plan_only=True))
+    exit_code = cli.cmd_ask(
+        ask_args(tmp_path, f"touch {marker}", non_interactive=True, plan_only=True)
+    )
 
     out = capsys.readouterr().out
     assert exit_code == cli.EXIT_BLOCKED
@@ -520,11 +628,13 @@ def test_ask_plan_only_prints_the_plan_and_runs_nothing(
 
 
 def test_ask_non_interactive_blocks_on_the_first_question(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_observe(monkeypatch)
-    patch_ollama(monkeypatch, scripted(
-        {"intent": "ask", "message": "need more info",
-         "questions": ["Which host?"]}))
+    patch_ollama(
+        monkeypatch,
+        scripted({"intent": "ask", "message": "need more info", "questions": ["Which host?"]}),
+    )
 
     exit_code = cli.cmd_ask(ask_args(tmp_path, "tidy up the box", non_interactive=True))
 
@@ -534,20 +644,24 @@ def test_ask_non_interactive_blocks_on_the_first_question(
 
 
 def test_ask_loops_across_multiple_rounds_of_questions(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Regression for the bug found in a full-file audit: a second
     NEEDS_ANSWER round used to fall through to a bare "outcome:
     needs_answer" with the new questions never printed at all."""
     patch_observe(monkeypatch)
     marker = tmp_path / "marker"
-    patch_ollama(monkeypatch, scripted(
-        {"intent": "ask", "message": "which host?", "questions": ["Which host?"]},
-        {"intent": "ask", "message": "which path?", "questions": ["Which path?"]},
-        plan_reply("t", f"touch {marker}",
-                  [{"id": "touch", "run": f"touch {marker}"}]),
-    ))
-    monkeypatch.setattr("builtins.input",
-                        lambda prompt="": "y" if "run this plan" in prompt else "popos-01")
+    patch_ollama(
+        monkeypatch,
+        scripted(
+            {"intent": "ask", "message": "which host?", "questions": ["Which host?"]},
+            {"intent": "ask", "message": "which path?", "questions": ["Which path?"]},
+            plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]),
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input", lambda prompt="": "y" if "run this plan" in prompt else "popos-01"
+    )
 
     exit_code = cli.cmd_ask(ask_args(tmp_path, "tidy up the box"))
 
@@ -559,13 +673,15 @@ def test_ask_loops_across_multiple_rounds_of_questions(
 
 
 def test_plan_command_is_always_plan_only_and_noninteractive(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_observe(monkeypatch)
     marker = tmp_path / "marker"
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
-    args = argparse.Namespace(workdir=str(tmp_path), request=f"touch {marker}",
-                              model=None)
+    patch_ollama(
+        monkeypatch,
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+    )
+    args = argparse.Namespace(workdir=str(tmp_path), request=f"touch {marker}", model=None)
 
     exit_code = cli.cmd_plan(args)
 
@@ -576,7 +692,8 @@ def test_plan_command_is_always_plan_only_and_noninteractive(
 
 
 def test_ask_answer_intent_prints_the_bare_outcome_and_exits_ok(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """No plan at all -- intent 'answer' -- must not reach print_plan()
     or the approval prompt, just report the outcome and stop."""
     patch_observe(monkeypatch)
@@ -590,7 +707,8 @@ def test_ask_answer_intent_prints_the_bare_outcome_and_exits_ok(
 
 
 def test_ask_reports_the_abort_reason_alongside_the_outcome(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The early-outcome branch's `reason :` line -- an unparseable model
     reply is the simplest way to reach a non-AWAITING_APPROVAL outcome
     that also carries a non-empty abort_reason."""
@@ -612,13 +730,16 @@ def test_ask_reports_the_abort_reason_alongside_the_outcome(
 
 
 def test_ask_interactive_gives_up_on_eof_while_answering_a_question(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Interactive mode (not non_interactive) hitting Ctrl+D mid-question
     must bail out the same way non_interactive's early-exit does, rather
     than crash or hang."""
     patch_observe(monkeypatch)
-    patch_ollama(monkeypatch, scripted(
-        {"intent": "ask", "message": "which host?", "questions": ["Which host?"]}))
+    patch_ollama(
+        monkeypatch,
+        scripted({"intent": "ask", "message": "which host?", "questions": ["Which host?"]}),
+    )
     monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(EOFError))
 
     exit_code = cli.cmd_ask(ask_args(tmp_path, "tidy up the box"))
@@ -628,18 +749,25 @@ def test_ask_interactive_gives_up_on_eof_while_answering_a_question(
 
 
 def test_ask_reports_a_dangerous_step_awaiting_approval_when_declined(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Non-interactive mode with an unapproved dangerous step must refuse,
     not silently run it -- the CLI's own version of invariant 2.3."""
     patch_observe(monkeypatch)
     victim = tmp_path / "victim.txt"
     victim.write_text("keep me", encoding="utf-8")
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"delete {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    patch_ollama(
+        monkeypatch,
+        scripted(
+            plan_reply(
+                "t",
+                f"delete {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        ),
+    )
 
-    exit_code = cli.cmd_ask(ask_args(
-        tmp_path, f"delete {victim}", non_interactive=True, yes=True))
+    exit_code = cli.cmd_ask(ask_args(tmp_path, f"delete {victim}", non_interactive=True, yes=True))
 
     assert exit_code == cli.EXIT_BLOCKED
     assert victim.exists()
@@ -647,6 +775,7 @@ def test_ask_reports_a_dangerous_step_awaiting_approval_when_declined(
 
 # D4 (GRADE_TO_A_PLAN P3.4): interactive `ask` shows the plan and asks once before anything runs;
 # `--yes` skips that question but never ticks a step, and a `--verify` fix round always asks.
+
 
 def _answer(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
     """Answer stdin prompts in order and record each one; EOF once the replies run out."""
@@ -665,12 +794,15 @@ def _answer(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
 
 def _touch_plan(monkeypatch: pytest.MonkeyPatch, marker: Path) -> None:
     patch_observe(monkeypatch)
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    patch_ollama(
+        monkeypatch,
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+    )
 
 
 def test_ask_interactive_asks_once_and_a_no_rejects_the_plan(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     marker = tmp_path / "marker"
     _touch_plan(monkeypatch, marker)
     asked = _answer(monkeypatch, "n")
@@ -711,13 +843,21 @@ def test_ask_interactive_dry_run_asks_no_plan_question(tmp_path, monkeypatch) ->
 
 
 def test_ask_yes_skips_the_plan_question_but_never_ticks_a_dangerous_step(
-        tmp_path, monkeypatch) -> None:
+    tmp_path, monkeypatch
+) -> None:
     patch_observe(monkeypatch)
     victim = tmp_path / "victim.txt"
     victim.write_text("keep me", encoding="utf-8")
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"delete {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])))
+    patch_ollama(
+        monkeypatch,
+        scripted(
+            plan_reply(
+                "t",
+                f"delete {victim}",
+                [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+            )
+        ),
+    )
     asked = _answer(monkeypatch, "n")
 
     exit_code = cli.cmd_ask(ask_args(tmp_path, f"delete {victim}", yes=True))
@@ -729,16 +869,26 @@ def test_ask_yes_skips_the_plan_question_but_never_ticks_a_dangerous_step(
 def _verify_rounds(monkeypatch: pytest.MonkeyPatch, marker: Path) -> None:
     patch_observe(monkeypatch)
     monkeypatch.setattr("torra.agent.Agent.MAX_REPAIRS", 0)
-    patch_ollama(monkeypatch, scripted(*plan_replies_with_summaries(
-        plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
-        plan_reply("verify1", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]),
-        plan_reply("fix", "fix it", [{"id": "fix", "run": f"touch {marker}"}]),
-        plan_reply("verify2", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]),
-    )))
+    patch_ollama(
+        monkeypatch,
+        scripted(
+            *plan_replies_with_summaries(
+                plan_reply("edit", "add the feature", [{"id": "edit", "run": "true"}]),
+                plan_reply(
+                    "verify1", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]
+                ),
+                plan_reply("fix", "fix it", [{"id": "fix", "run": f"touch {marker}"}]),
+                plan_reply(
+                    "verify2", "run the tests", [{"id": "verify", "run": f"test -f {marker}"}]
+                ),
+            )
+        ),
+    )
 
 
 def test_ask_verify_shows_every_round_and_a_fix_round_asks_even_with_yes(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     marker = tmp_path / "fixed"
     _verify_rounds(monkeypatch, marker)
     asked = _answer(monkeypatch, "y")
@@ -760,7 +910,8 @@ def test_ask_verify_without_yes_asks_before_every_round(tmp_path, monkeypatch) -
 
 
 def test_ask_verify_declining_a_fix_round_rejects_it_and_stops(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     marker = tmp_path / "fixed"
     _verify_rounds(monkeypatch, marker)
     _answer(monkeypatch, "n")
@@ -776,19 +927,25 @@ def test_ask_verify_declining_a_fix_round_rejects_it_and_stops(
 # --------------------------------------------------------------------------- #
 
 
-def run_args(workdir: Path, task_file: Path, *, dry_run=False,
-             non_interactive=True) -> argparse.Namespace:
-    return argparse.Namespace(workdir=str(workdir), task_file=str(task_file),
-                              dry_run=dry_run, non_interactive=non_interactive)
+def run_args(
+    workdir: Path, task_file: Path, *, dry_run=False, non_interactive=True
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        workdir=str(workdir),
+        task_file=str(task_file),
+        dry_run=dry_run,
+        non_interactive=non_interactive,
+    )
 
 
 def test_run_executes_a_hand_written_task_file_with_no_model(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The whole point of `run`: it must work with Ollama untouched."""
     marker = tmp_path / "marker"
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])
+        tmp_path / "task.yaml", "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]
+    )
 
     exit_code = cli.cmd_run(run_args(tmp_path, task_file))
 
@@ -798,7 +955,8 @@ def test_run_executes_a_hand_written_task_file_with_no_model(
 
 
 def test_run_reports_per_step_results_and_the_audit_path(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`cmd_run` used to hand-roll its own post-execution print instead of
     reusing `_print_execution_report` -- it showed only the bare outcome,
     with no per-step ok/FAIL breakdown and no audit path, unlike `torra
@@ -806,8 +964,8 @@ def test_run_reports_per_step_results_and_the_audit_path(
     step failed without opening the audit JSON by hand."""
     marker = tmp_path / "marker"
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])
+        tmp_path / "task.yaml", "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]
+    )
 
     exit_code = cli.cmd_run(run_args(tmp_path, task_file))
 
@@ -819,17 +977,27 @@ def test_run_reports_per_step_results_and_the_audit_path(
 
 
 def test_run_prints_the_rollback_summary_line_after_a_failure(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`_print_execution_report`'s rollback line -- untested before this,
     despite failure/rollback itself being covered at the pipeline level
     (test_pipeline.py::test_a_failed_step_reverts_a_file_nobody_registered)."""
     conf = tmp_path / "app.conf"
     conf.write_text("ORIGINAL\n", encoding="utf-8")
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", f"rewrite {conf} then fail",
-        [{"id": "write", "kind": "write", "run": f"printf 'NEW\\n' > {conf}",
-          "touches": [str(conf)]},
-         {"id": "boom", "run": "exit 7"}])
+        tmp_path / "task.yaml",
+        "t",
+        f"rewrite {conf} then fail",
+        [
+            {
+                "id": "write",
+                "kind": "write",
+                "run": f"printf 'NEW\\n' > {conf}",
+                "touches": [str(conf)],
+            },
+            {"id": "boom", "run": "exit 7"},
+        ],
+    )
 
     exit_code = cli.cmd_run(run_args(tmp_path, task_file))
 
@@ -841,8 +1009,8 @@ def test_run_prints_the_rollback_summary_line_after_a_failure(
 
 
 def test_run_still_writes_an_audit_record_when_preconditions_fail(
-        tmp_path, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`cmd_run` used to print "preconditions failed: ..." and return
     directly, never calling `_finish()` -- the same choke point
     `Torra.plan()` uses for the identical case. The full decision trail
@@ -854,8 +1022,8 @@ def test_run_still_writes_an_audit_record_when_preconditions_fail(
     monkeypatch.setattr(StateVerifier, "disk_free_gb", staticmethod(lambda path="/": 0.0))
     marker = tmp_path / "marker"
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])
+        tmp_path / "task.yaml", "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]
+    )
 
     exit_code = cli.cmd_run(run_args(tmp_path, task_file))
 
@@ -869,8 +1037,7 @@ def test_run_still_writes_an_audit_record_when_preconditions_fail(
     assert not marker.exists()
 
 
-def test_run_rejects_a_malformed_task_file(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_rejects_a_malformed_task_file(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text(yaml.safe_dump({"task_id": "t"}), encoding="utf-8")
 
@@ -882,12 +1049,16 @@ def test_run_rejects_a_malformed_task_file(
 
 
 def test_run_refuses_an_unapproved_dangerous_step(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
     victim = tmp_path / "victim.txt"
     victim.write_text("keep me", encoding="utf-8")
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", f"delete {victim}",
-        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}])
+        tmp_path / "task.yaml",
+        "t",
+        f"delete {victim}",
+        [{"id": "rm", "run": f"rm -f {victim}", "touches": [str(victim)]}],
+    )
 
     exit_code = cli.cmd_run(run_args(tmp_path, task_file))
 
@@ -898,8 +1069,8 @@ def test_run_refuses_an_unapproved_dangerous_step(
 def test_run_dry_run_does_not_touch_the_filesystem(tmp_path) -> None:
     marker = tmp_path / "marker"
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])
+        tmp_path / "task.yaml", "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]
+    )
 
     exit_code = cli.cmd_run(run_args(tmp_path, task_file, dry_run=True))
 
@@ -916,8 +1087,7 @@ def check_args(task_file: Path, *, verbose=False) -> argparse.Namespace:
     return argparse.Namespace(task_file=str(task_file), verbose=verbose)
 
 
-def test_check_rejects_a_malformed_task_file(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_check_rejects_a_malformed_task_file(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text(yaml.safe_dump({"task_id": "t"}), encoding="utf-8")
 
@@ -928,12 +1098,11 @@ def test_check_rejects_a_malformed_task_file(
     assert "missing required key" in err
 
 
-def test_check_passes_a_clean_specific_task(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_check_passes_a_clean_specific_task(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     marker = tmp_path / "marker"
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", f"touch {marker}",
-        [{"id": "touch", "run": f"touch {marker}"}])
+        tmp_path / "task.yaml", "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}]
+    )
 
     exit_code = cli.cmd_check(check_args(task_file))
 
@@ -944,10 +1113,14 @@ def test_check_passes_a_clean_specific_task(
 
 
 def test_check_flags_a_dangerous_command_and_a_vague_request(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", "clean up the old stuff",
-        [{"id": "rm", "run": "rm -rf /var/lib/something"}])
+        tmp_path / "task.yaml",
+        "t",
+        "clean up the old stuff",
+        [{"id": "rm", "run": "rm -rf /var/lib/something"}],
+    )
 
     exit_code = cli.cmd_check(check_args(task_file))
 
@@ -958,10 +1131,11 @@ def test_check_flags_a_dangerous_command_and_a_vague_request(
 
 
 def test_check_verbose_prints_the_classifier_reasons(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
     task_file = write_task_file(
-        tmp_path / "task.yaml", "t", "delete the log",
-        [{"id": "rm", "run": "rm -rf /var/log/app"}])
+        tmp_path / "task.yaml", "t", "delete the log", [{"id": "rm", "run": "rm -rf /var/log/app"}]
+    )
 
     cli.cmd_check(check_args(task_file, verbose=True))
 
@@ -975,7 +1149,8 @@ def test_check_verbose_prints_the_classifier_reasons(
 
 
 def test_doctor_reports_python_and_ollama_status(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_ollama(monkeypatch, scripted(models=["qwen3:32b"]))
     args = argparse.Namespace(workdir=str(tmp_path / "wd"))
 
@@ -988,7 +1163,8 @@ def test_doctor_reports_python_and_ollama_status(
 
 
 def test_doctor_reports_a_missing_optional_module(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`inotify_simple` genuinely is installed in this venv, so its
     ImportError branch never fires without simulating the absence."""
     import builtins
@@ -1012,7 +1188,8 @@ def test_doctor_reports_a_missing_optional_module(
 
 
 def test_doctor_reports_a_failing_reflink_probe(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_ollama(monkeypatch, scripted(models=["qwen3:32b"]))
 
     def broken_run(*args, **kwargs):
@@ -1030,7 +1207,8 @@ def test_doctor_reports_a_failing_reflink_probe(
 
 
 def test_doctor_prints_the_fallback_note_when_a_check_fails(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     def broken_transport(path, payload, timeout):
         raise ConnectionRefusedError("connection refused")
 
@@ -1045,7 +1223,8 @@ def test_doctor_prints_the_fallback_note_when_a_check_fails(
 
 
 def test_doctor_workdir_check_walks_up_to_an_existing_ancestor(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Found in a full-file audit: a missing workdir.parent used to report
     "ok" unconditionally, without checking whether the nearest real
     ancestor could actually have it created inside it."""
@@ -1070,8 +1249,7 @@ def label_args(workdir: Path, *, limit=25) -> argparse.Namespace:
     return argparse.Namespace(workdir=str(workdir), limit=limit)
 
 
-def test_label_with_nothing_pending_says_so(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_label_with_nothing_pending_says_so(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = cli.cmd_label(label_args(tmp_path))
 
     out = capsys.readouterr().out
@@ -1080,7 +1258,8 @@ def test_label_with_nothing_pending_says_so(
 
 
 def test_label_records_ambiguous_and_specific_answers(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
     logger.record(TaskRecord(task_id="t1", request="clean up the box", at=1.0))
     logger.record(TaskRecord(task_id="t2", request=f"touch {tmp_path}/x", at=1.0))
@@ -1096,8 +1275,7 @@ def test_label_records_ambiguous_and_specific_answers(
     assert len(labels) == 2
 
 
-def test_label_quit_stops_early_without_losing_prior_labels(
-        tmp_path, monkeypatch) -> None:
+def test_label_quit_stops_early_without_losing_prior_labels(tmp_path, monkeypatch) -> None:
     logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
     logger.record(TaskRecord(task_id="t1", request="clean up the box", at=1.0))
     logger.record(TaskRecord(task_id="t2", request="tidy the thing", at=1.0))
@@ -1111,7 +1289,8 @@ def test_label_quit_stops_early_without_losing_prior_labels(
 
 
 def test_label_eof_on_the_verdict_prompt_stops_without_losing_prior_labels(
-        tmp_path, monkeypatch) -> None:
+    tmp_path, monkeypatch
+) -> None:
     logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
     logger.record(TaskRecord(task_id="t1", request="clean up the box", at=1.0))
     logger.record(TaskRecord(task_id="t2", request="tidy the thing", at=1.0))
@@ -1132,7 +1311,8 @@ def test_label_eof_on_the_verdict_prompt_stops_without_losing_prior_labels(
 
 
 def test_label_eof_on_the_why_prompt_stops_without_losing_prior_labels(
-        tmp_path, monkeypatch) -> None:
+    tmp_path, monkeypatch
+) -> None:
     logger = TaskLogger(tmp_path / "telemetry" / "tasks.jsonl")
     logger.record(TaskRecord(task_id="t1", request="clean up the box", at=1.0))
     logger.record(TaskRecord(task_id="t2", request="tidy the thing", at=1.0))
@@ -1159,8 +1339,9 @@ def test_label_eof_on_the_why_prompt_stops_without_losing_prior_labels(
 
 def test_tui_launches_when_textual_is_importable(tmp_path, monkeypatch) -> None:
     called: dict[str, object] = {}
-    monkeypatch.setattr("torra.tui.run_tui", lambda workdir=None, torra=None:
-                        called.setdefault("workdir", workdir))
+    monkeypatch.setattr(
+        "torra.tui.run_tui", lambda workdir=None, torra=None: called.setdefault("workdir", workdir)
+    )
 
     exit_code = cli.cmd_tui(argparse.Namespace(workdir=str(tmp_path)))
 
@@ -1176,8 +1357,9 @@ def test_cmd_tui_builds_the_torra_through_build_torra(tmp_path, monkeypatch) -> 
     build_torra() attaches, not by re-asserting build_torra()'s own
     internals."""
     captured: dict[str, object] = {}
-    monkeypatch.setattr("torra.tui.run_tui", lambda workdir=None, torra=None:
-                        captured.setdefault("torra", torra))
+    monkeypatch.setattr(
+        "torra.tui.run_tui", lambda workdir=None, torra=None: captured.setdefault("torra", torra)
+    )
 
     cli.cmd_tui(argparse.Namespace(workdir=str(tmp_path)))
 
@@ -1186,8 +1368,7 @@ def test_cmd_tui_builds_the_torra_through_build_torra(tmp_path, monkeypatch) -> 
     assert any(p.name == "disk:/" for p in torra.verifier.preconditions)
 
 
-def test_tui_reports_usage_error_when_textual_is_missing(tmp_path, monkeypatch,
-                                                          capsys) -> None:
+def test_tui_reports_usage_error_when_textual_is_missing(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.setitem(__import__("sys").modules, "torra.tui", None)
 
     exit_code = cli.cmd_tui(argparse.Namespace(workdir=str(tmp_path)))
@@ -1202,16 +1383,19 @@ def test_tui_reports_usage_error_when_textual_is_missing(tmp_path, monkeypatch,
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("argv,expected_func", [
-    (["ask", "do a thing"], cli.cmd_ask),
-    (["plan", "do a thing"], cli.cmd_plan),
-    (["run", "task.yaml"], cli.cmd_run),
-    (["check", "task.yaml"], cli.cmd_check),
-    (["doctor"], cli.cmd_doctor),
-    (["evidence"], cli.cmd_evidence),
-    (["label"], cli.cmd_label),
-    (["tui"], cli.cmd_tui),
-])
+@pytest.mark.parametrize(
+    "argv,expected_func",
+    [
+        (["ask", "do a thing"], cli.cmd_ask),
+        (["plan", "do a thing"], cli.cmd_plan),
+        (["run", "task.yaml"], cli.cmd_run),
+        (["check", "task.yaml"], cli.cmd_check),
+        (["doctor"], cli.cmd_doctor),
+        (["evidence"], cli.cmd_evidence),
+        (["label"], cli.cmd_label),
+        (["tui"], cli.cmd_tui),
+    ],
+)
 def test_build_parser_dispatches_every_subcommand(argv, expected_func) -> None:
     args = cli.build_parser().parse_args(argv)
     assert args.func is expected_func
@@ -1233,7 +1417,8 @@ def test_main_with_no_subcommand_defaults_to_tui(monkeypatch) -> None:
 
 
 def test_main_converts_a_task_spec_error_to_usage_exit(
-        tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text(yaml.safe_dump({"task_id": "t"}), encoding="utf-8")
 
@@ -1243,7 +1428,8 @@ def test_main_converts_a_task_spec_error_to_usage_exit(
 
 
 def test_main_catches_a_task_spec_error_that_escapes_a_command(
-        monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`main()`'s own TaskSpecError handler is a second, outer safety net --
     every current command that can raise one (`run`, `check`) already
     catches it internally and never lets it reach here. Monkeypatches a
@@ -1264,11 +1450,13 @@ def test_main_catches_a_task_spec_error_that_escapes_a_command(
 
 
 def test_main_converts_an_unhandled_exception_to_a_failed_exit(
-        monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Explicit --workdir, not the bare ["doctor"] this test used to pass --
     once main()'s except block unconditionally constructs a CrashReporter
     against args.workdir, omitting it here would write a real file under
     this machine's actual ~/.torra/telemetry/crashes.jsonl on every run."""
+
     def boom(args):
         raise RuntimeError("something broke")
 
@@ -1279,13 +1467,15 @@ def test_main_converts_an_unhandled_exception_to_a_failed_exit(
     err = capsys.readouterr().err
     assert exit_code == cli.EXIT_FAILED
     assert "RuntimeError" in err
-    assert (tmp_path / "telemetry" / "crashes.jsonl").exists(), \
+    assert (tmp_path / "telemetry" / "crashes.jsonl").exists(), (
         "the crash should have been logged under the given workdir"
+    )
     assert f"logged to {tmp_path / 'telemetry' / 'crashes.jsonl'}" in err
 
 
 def test_main_logs_the_full_crash_record_with_site_and_traceback(
-        monkeypatch, tmp_path: Path) -> None:
+    monkeypatch, tmp_path: Path
+) -> None:
     def boom(args):
         raise RuntimeError("something broke")
 
@@ -1300,8 +1490,7 @@ def test_main_logs_the_full_crash_record_with_site_and_traceback(
     assert "Traceback" in record.traceback
 
 
-def test_main_with_no_subcommand_that_crashes_logs_site_tui(
-        monkeypatch, tmp_path: Path) -> None:
+def test_main_with_no_subcommand_that_crashes_logs_site_tui(monkeypatch, tmp_path: Path) -> None:
     def boom(args):
         raise RuntimeError("tui blew up")
 
@@ -1313,8 +1502,9 @@ def test_main_with_no_subcommand_that_crashes_logs_site_tui(
     assert record.site == "cli:tui"
 
 
-def test_main_reports_interrupted_on_ctrl_c(monkeypatch,
-                                            capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_reports_interrupted_on_ctrl_c(
+    monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     def interrupt(args):
         raise KeyboardInterrupt
 
@@ -1333,7 +1523,8 @@ class TestLoadEnvFile:
     variable already set in the real environment."""
 
     def test_a_variable_not_already_set_gets_loaded(
-            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         (tmp_path / ".env").write_text("OPENROUTER_API_KEY=from-dotenv\n")
 
@@ -1342,7 +1533,8 @@ class TestLoadEnvFile:
         assert os.environ["OPENROUTER_API_KEY"] == "from-dotenv"
 
     def test_an_explicit_export_is_never_overridden(
-            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENROUTER_API_KEY", "from-the-real-shell")
         (tmp_path / ".env").write_text("OPENROUTER_API_KEY=from-dotenv\n")
 
@@ -1351,7 +1543,8 @@ class TestLoadEnvFile:
         assert os.environ["OPENROUTER_API_KEY"] == "from-the-real-shell"
 
     def test_names_loaded_from_the_file_are_withheld_from_steps_but_exports_are_not(
-            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(cli, "WITHHELD_ENV", set())
         monkeypatch.delenv("TORRA_ONLY_IN_FILE", raising=False)
         monkeypatch.setenv("TORRA_EXPORTED", "from-the-shell")
@@ -1366,7 +1559,8 @@ class TestLoadEnvFile:
         cli._load_env_file(tmp_path / "does-not-exist.env")  # must not raise
 
     def test_main_loads_it_before_doing_anything_else(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         calls: list[bool] = []
         monkeypatch.setattr(cli, "_load_env_file", lambda *a, **k: calls.append(True))
         monkeypatch.setattr(cli, "cmd_doctor", lambda args: 0)
@@ -1401,12 +1595,15 @@ def test_doctor_env_check_passes_a_private_or_absent_env_file(tmp_path) -> None:
 
 
 def test_ask_non_interactive_without_yes_shows_the_plan_and_runs_nothing(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A model-written plan must not run with nobody watching unless asked to."""
     patch_observe(monkeypatch)
     marker = tmp_path / "marker"
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    patch_ollama(
+        monkeypatch,
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+    )
 
     exit_code = cli.cmd_ask(ask_args(tmp_path, f"touch {marker}", non_interactive=True))
 
@@ -1417,29 +1614,36 @@ def test_ask_non_interactive_without_yes_shows_the_plan_and_runs_nothing(
 
 
 def test_ask_non_interactive_dry_run_needs_no_yes(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     patch_observe(monkeypatch)
     marker = tmp_path / "marker"
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])))
+    patch_ollama(
+        monkeypatch,
+        scripted(plan_reply("t", f"touch {marker}", [{"id": "touch", "run": f"touch {marker}"}])),
+    )
 
-    exit_code = cli.cmd_ask(ask_args(
-        tmp_path, f"touch {marker}", non_interactive=True, dry_run=True))
+    exit_code = cli.cmd_ask(
+        ask_args(tmp_path, f"touch {marker}", non_interactive=True, dry_run=True)
+    )
 
     assert exit_code == cli.EXIT_OK
     assert not marker.exists()
 
 
 def test_ask_verify_non_interactive_without_yes_runs_nothing(
-        tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """--verify loops model-written fixes, so it needs the explicit --yes too."""
     patch_observe(monkeypatch)
     marker = tmp_path / "marker"
-    patch_ollama(monkeypatch, scripted(plan_reply(
-        "t", "x", [{"id": "touch", "run": f"touch {marker}"}])))
+    patch_ollama(
+        monkeypatch, scripted(plan_reply("t", "x", [{"id": "touch", "run": f"touch {marker}"}]))
+    )
 
-    exit_code = cli.cmd_ask(ask_args(
-        tmp_path, "add the feature", non_interactive=True, verify="run the tests"))
+    exit_code = cli.cmd_ask(
+        ask_args(tmp_path, "add the feature", non_interactive=True, verify="run the tests")
+    )
 
     assert exit_code == cli.EXIT_BLOCKED
     assert "--yes" in capsys.readouterr().out

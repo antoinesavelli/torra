@@ -12,8 +12,13 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["CRITICAL_REPAIR", "MISSING_PATH_REPAIR", "PLAN_SCHEMA", "SYSTEM_PROMPT",
-           "untrusted_block"]
+__all__ = [
+    "CRITICAL_REPAIR",
+    "MISSING_PATH_REPAIR",
+    "PLAN_SCHEMA",
+    "SYSTEM_PROMPT",
+    "untrusted_block",
+]
 
 
 _ANGLES = str.maketrans({"＜": "<", "﹤": "<", "＞": ">", "﹥": ">"})
@@ -23,7 +28,9 @@ _OUR_TAGS = re.compile(r"(?i)<(?=\s*/?\s*(?:file|command-output|machine-state)\b
 def _attribute(value: str) -> str:
     """An attribute value that cannot end its own tag or carry a line break."""
     flat = "".join(" " if c in "\r\n\t\x00" else c for c in value)
-    return flat.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    return (
+        flat.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    )
 
 
 def untrusted_block(tag: str, text: str, **attrs: str) -> str:
@@ -33,6 +40,7 @@ def untrusted_block(tag: str, text: str, **attrs: str) -> str:
     shown = _OUR_TAGS.sub("&lt;", text.translate(_ANGLES))
     attributes = "".join(f' {k}="{_attribute(v)}"' for k, v in attrs.items())
     return f"<{tag}{attributes}>\n{shown}\n</{tag}>"
+
 
 #: The contract the model must satisfy. Kept in one place and injected into the
 #: prompt verbatim, so the schema the model is told about and the schema
@@ -67,7 +75,8 @@ PLAN_SCHEMA = """{
   }
 }"""
 
-SYSTEM_PROMPT = """You are the planning half of a Pop-OS automation agent named torra.
+SYSTEM_PROMPT = (
+    """You are the planning half of a Pop-OS automation agent named torra.
 
 You do NOT execute anything. You write a plan. A separate safety layer resolves
 every command you propose down to argv, classifies it, snapshots the files it
@@ -154,7 +163,9 @@ Rules that matter:
     explicit tick from the operator, regardless of what it looks like.
 
 Output schema:
-""" + PLAN_SCHEMA
+"""
+    + PLAN_SCHEMA
+)
 
 
 #: Sent back with a CRITICAL step. The round stays, but live (2026-10-12) "find a narrower command or
@@ -163,7 +174,8 @@ Output schema:
 CRITICAL_REPAIR = (
     "Use a narrower command if one still does everything the request asks (`rm -r` without `-f`, "
     "say). Do not change what the request asks for to avoid this rating: if the request needs this "
-    "step, keep it, and the operator ticks it.")
+    "step, keep it, and the operator ticks it."
+)
 
 #: Sent back with a step that names a missing path (`path_warnings`). Live (2026-10-12), "use a
 #: command that finds it" produced find-then-act with a literal `<found-path>`: steps cannot pass
@@ -172,4 +184,5 @@ MISSING_PATH_REPAIR = (
     "Do not guess a path. If the request names it, copy it exactly, in single quotes; otherwise use "
     "one you were shown in the machine state, or ask the operator with intent 'ask'. Steps cannot "
     "pass output to each other: a lookup and the action on its result belong in one command "
-    "(`find ... -exec ... {} +`).")
+    "(`find ... -exec ... {} +`)."
+)

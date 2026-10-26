@@ -69,8 +69,7 @@ class SessionRecord:
 
     def to_context_step(self) -> ContextStep:
         """The `ContextStep` this record was persisted from."""
-        return ContextStep(self.entry_id, self.role, self.content,
-                           self.tokens, self.compressed)
+        return ContextStep(self.entry_id, self.role, self.content, self.tokens, self.compressed)
 
 
 class SessionStore:
@@ -120,8 +119,7 @@ class SessionStore:
     def create(self, name: str = "") -> SessionMeta:
         """Start a new, empty session."""
         now = time.time()
-        meta = SessionMeta(session_id=uuid.uuid4().hex, name=name,
-                           created_at=now, updated_at=now)
+        meta = SessionMeta(session_id=uuid.uuid4().hex, name=name, created_at=now, updated_at=now)
         self._save_meta(meta)
         self._transcript_path(meta.session_id).touch()
         return meta
@@ -136,8 +134,14 @@ class SessionStore:
         failure, since the entry is safely on disk either way.
         """
         try:
-            record = SessionRecord(step.entry_id, step.role, redact_secrets(step.content),
-                                   step.tokens, step.compressed, at=time.time())
+            record = SessionRecord(
+                step.entry_id,
+                step.role,
+                redact_secrets(step.content),
+                step.tokens,
+                step.compressed,
+                at=time.time(),
+            )
             line = json.dumps(record.to_dict(), sort_keys=True) + "\n"
             path = self._transcript_path(session_id)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,8 +223,7 @@ class SessionStore:
             return []
         records: list[SessionRecord] = []
         try:
-            for number, raw in enumerate(
-                    path.read_text(encoding="utf-8").splitlines(), start=1):
+            for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 if not raw.strip():
                     continue
                 try:
@@ -274,8 +277,12 @@ def _trusted_view(step: ContextStep) -> ContextStep:
     from torra.prompts import untrusted_block
 
     tokens = step.tokens if isinstance(step.tokens, int) else max(1, len(str(step.content)) // 4)
-    if step.entry_id.startswith("read:") and step.role == "system" and not step.content.startswith("<file"):
-        path = step.entry_id[len("read:"):]
+    if (
+        step.entry_id.startswith("read:")
+        and step.role == "system"
+        and not step.content.startswith("<file")
+    ):
+        path = step.entry_id[len("read:") :]
         body = step.content.split("\n", 1)[1] if step.content.startswith("[read ") else step.content
         content = untrusted_block("file", body, path=path, untrusted="true")
         return ContextStep(step.entry_id, "user", content, tokens, step.compressed)

@@ -47,6 +47,7 @@ class ShadowStore:
     def _shadow_owner(entry: Path) -> int | None:
         """The pid that owns a shadow directory: its owner file, else a pid in its name."""
         import re
+
         try:
             return int(ShadowStore._owner_file(entry).read_text(encoding="utf-8").strip())
         except (OSError, ValueError):
@@ -122,4 +123,3 @@ class ShadowStore:
         except OSError:
             return None
         return h.hexdigest()
-

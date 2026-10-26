@@ -45,43 +45,72 @@ class Probe:
 
 
 PROBES: list[Probe] = [
-    Probe("package-manager", "generic",
-         "What command-line package manager does Pop!_OS use to install packages?",
-         ("apt",)),
-    Probe("init-system", "generic",
-         "What init system does Pop!_OS use?",
-         ("systemd",)),
-    Probe("developer", "generic",
-         "What company develops Pop!_OS?",
-         ("system76",)),
-    Probe("tiling-feature", "pop-specific",
-         "What is Pop!_OS's built-in tiling window management feature called?",
-         ("pop shell", "pop-shell", "popshell")),
-    Probe("upgrade-tool", "pop-specific",
-         "What is the Pop!_OS-specific command-line tool for checking and applying "
-         "OS upgrades and release upgrades (not just `apt`)?",
-         ("pop-upgrade",)),
-    Probe("graphics-switching", "pop-specific",
-         "On System76/Pop!_OS hardware with hybrid NVIDIA graphics, what tool or "
-         "command manages switching between integrated, NVIDIA, and hybrid graphics modes?",
-         ("system76-power", "graphics mode", "switcheroo")),
-    Probe("graphics-switching-scope", "pop-specific",
-         "Does `system76-power graphics <mode>` work on every System76/Pop!_OS "
-         "machine, or does it require specific hardware? What would running "
-         "`system76-power graphics integrated` actually do on a desktop tower with "
-         "a single discrete GPU bound to the nvidia driver and no driver bound to "
-         "any integrated GPU?",
-         ("requires", "hybrid", "laptop", "no effect", "no integrated", "won't",
-          "wouldn't", "nothing to switch", "error", "fail", "not apply", "n/a",
-          "no-op", "no op")),
-    Probe("recovery-partition", "pop-specific",
-         "How does a user access the Pop!_OS recovery partition to refresh or "
-         "reinstall the OS from the boot menu?",
-         ("recovery", "esc", "boot menu", "systemd-boot", "space")),
-    Probe("cosmic-desktop", "pop-specific",
-         "What is COSMIC in the context of Pop!_OS, and is it Rust or another "
-         "language?",
-         ("rust", "desktop environment", "system76")),
+    Probe(
+        "package-manager",
+        "generic",
+        "What command-line package manager does Pop!_OS use to install packages?",
+        ("apt",),
+    ),
+    Probe("init-system", "generic", "What init system does Pop!_OS use?", ("systemd",)),
+    Probe("developer", "generic", "What company develops Pop!_OS?", ("system76",)),
+    Probe(
+        "tiling-feature",
+        "pop-specific",
+        "What is Pop!_OS's built-in tiling window management feature called?",
+        ("pop shell", "pop-shell", "popshell"),
+    ),
+    Probe(
+        "upgrade-tool",
+        "pop-specific",
+        "What is the Pop!_OS-specific command-line tool for checking and applying "
+        "OS upgrades and release upgrades (not just `apt`)?",
+        ("pop-upgrade",),
+    ),
+    Probe(
+        "graphics-switching",
+        "pop-specific",
+        "On System76/Pop!_OS hardware with hybrid NVIDIA graphics, what tool or "
+        "command manages switching between integrated, NVIDIA, and hybrid graphics modes?",
+        ("system76-power", "graphics mode", "switcheroo"),
+    ),
+    Probe(
+        "graphics-switching-scope",
+        "pop-specific",
+        "Does `system76-power graphics <mode>` work on every System76/Pop!_OS "
+        "machine, or does it require specific hardware? What would running "
+        "`system76-power graphics integrated` actually do on a desktop tower with "
+        "a single discrete GPU bound to the nvidia driver and no driver bound to "
+        "any integrated GPU?",
+        (
+            "requires",
+            "hybrid",
+            "laptop",
+            "no effect",
+            "no integrated",
+            "won't",
+            "wouldn't",
+            "nothing to switch",
+            "error",
+            "fail",
+            "not apply",
+            "n/a",
+            "no-op",
+            "no op",
+        ),
+    ),
+    Probe(
+        "recovery-partition",
+        "pop-specific",
+        "How does a user access the Pop!_OS recovery partition to refresh or "
+        "reinstall the OS from the boot menu?",
+        ("recovery", "esc", "boot menu", "systemd-boot", "space"),
+    ),
+    Probe(
+        "cosmic-desktop",
+        "pop-specific",
+        "What is COSMIC in the context of Pop!_OS, and is it Rust or another language?",
+        ("rust", "desktop environment", "system76"),
+    ),
 ]
 
 
@@ -89,8 +118,9 @@ def main() -> int:
     metrics: list = []
     for model in MODELS:
         print(f"\n{'=' * 70}\n{model}\n{'=' * 70}")
-        client = OllamaClient(host=OLLAMA_HOST, timeout=240.0,
-                              transport=make_metrics_transport(metrics))
+        client = OllamaClient(
+            host=OLLAMA_HOST, timeout=240.0, transport=make_metrics_transport(metrics)
+        )
         for probe in PROBES:
             started = time.perf_counter()
             try:

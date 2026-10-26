@@ -16,7 +16,9 @@ _REQUIRED = ("id", "question", "expected", "must_contain", "sources")
 
 
 def _questions() -> list[dict[str, Any]]:
-    data = yaml.safe_load((ROOT / "docs" / "agents" / "knowledge_questions.yaml").read_text("utf-8"))
+    data = yaml.safe_load(
+        (ROOT / "docs" / "agents" / "knowledge_questions.yaml").read_text("utf-8")
+    )
     assert isinstance(data, list), "knowledge_questions.yaml must be a YAML list"
     return data
 

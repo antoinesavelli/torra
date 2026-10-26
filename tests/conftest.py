@@ -1,4 +1,5 @@
 """Shared fixtures. Every test drives the real objects with a fake backend."""
+
 from __future__ import annotations
 
 import json
@@ -15,16 +16,16 @@ from torra.core import MachineState, OllamaClient
 from torra.pipeline import Torra
 
 
-def scripted(*replies: dict[str, Any], models: list[str] | None = None
-             ) -> Callable[[str, dict[str, Any], float], dict[str, Any]]:
+def scripted(
+    *replies: dict[str, Any], models: list[str] | None = None
+) -> Callable[[str, dict[str, Any], float], dict[str, Any]]:
     """A transport that returns each reply in turn, then repeats the last.
 
     Lets a test drive a multi-turn conversation, including the repair loop,
     without a daemon and without mocking the client itself.
     """
     queue = list(replies)
-    tags = {"models": [{"name": m} for m in (models or ["qwen3:32b", "devstral",
-                                                        "qwen3:8b"])]}
+    tags = {"models": [{"name": m} for m in (models or ["qwen3:32b", "devstral", "qwen3:8b"])]}
 
     def transport(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         if path == "/api/tags":
@@ -40,8 +41,13 @@ def scripted(*replies: dict[str, Any], models: list[str] | None = None
     return transport
 
 
-def plan_reply(task_id: str, request: str, steps: list[dict[str, Any]],
-               message: str = "here is the plan", **extra) -> dict[str, Any]:
+def plan_reply(
+    task_id: str,
+    request: str,
+    steps: list[dict[str, Any]],
+    message: str = "here is the plan",
+    **extra,
+) -> dict[str, Any]:
     """A well formed plan reply."""
     task: dict[str, Any] = {"task_id": task_id, "request": request, "steps": steps}
     task.update(extra)
@@ -68,17 +74,25 @@ def plan_replies_with_summaries(*plan_replies: dict[str, Any]) -> list[dict[str,
 
 @pytest.fixture()
 def fake_state() -> MachineState:
-    return MachineState(hostname="pop-os", os_release="Pop!_OS 22.04",
-                        kernel="6.9.3", disk="/dev/nvme0n1 100G 40G 60G 40% /")
+    return MachineState(
+        hostname="pop-os",
+        os_release="Pop!_OS 22.04",
+        kernel="6.9.3",
+        disk="/dev/nvme0n1 100G 40G 60G 40% /",
+    )
 
 
 @pytest.fixture()
 def make_torra(tmp_path: Path, fake_state: MachineState):
     """Build a Torra wired to a scripted backend."""
+
     def build(transport, **kwargs) -> Torra:
-        h = Torra(workdir=tmp_path / "wd",
-                    ollama=OllamaClient(transport=transport, probe_timeout=0.1),
-                    **kwargs)
+        h = Torra(
+            workdir=tmp_path / "wd",
+            ollama=OllamaClient(transport=transport, probe_timeout=0.1),
+            **kwargs,
+        )
         h.agent._observe = lambda: fake_state
         return h
+
     return build

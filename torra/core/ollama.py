@@ -63,7 +63,9 @@ class OllamaClient:
         fallback_model: str = "gpt-oss:20b",
         transport: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
         stream_transport: Callable[
-            [str, dict[str, Any], float, Callable[[str], None]], dict[str, Any]] | None = None,
+            [str, dict[str, Any], float, Callable[[str], None]], dict[str, Any]
+        ]
+        | None = None,
     ) -> None:
         """Configure the host, timeouts, fallback model, and an injectable transport.
 
@@ -91,8 +93,11 @@ class OllamaClient:
         specific failure qwen3.5:latest was found to have on "quick"-style
         requests (see `ROUTING_RULES`' own comment in `torra/gates/router.py`).
         """
-        resolved = host if host is not None else (
-            os.environ.get("TORRA_OLLAMA_HOST", "").strip() or self.DEFAULT_HOST)
+        resolved = (
+            host
+            if host is not None
+            else (os.environ.get("TORRA_OLLAMA_HOST", "").strip() or self.DEFAULT_HOST)
+        )
         if not resolved.startswith(("http://", "https://")):
             raise ValueError(f"Ollama host must start with http:// or https://: {resolved!r}")
         self.host = resolved.rstrip("/")
@@ -124,8 +129,8 @@ class OllamaClient:
         if payload:
             data = json.dumps(payload).encode("utf-8")
             request = urllib.request.Request(
-                url, data=data, method="POST",
-                headers={"Content-Type": "application/json"})
+                url, data=data, method="POST", headers={"Content-Type": "application/json"}
+            )
         else:
             request = urllib.request.Request(url, method="GET")
         try:
@@ -140,7 +145,10 @@ class OllamaClient:
             raise OllamaError(f"HTTP {exc.code}: {self._http_error_detail(exc)}") from exc
 
     def _http_stream(
-        self, path: str, payload: dict[str, Any], timeout: float,
+        self,
+        path: str,
+        payload: dict[str, Any],
+        timeout: float,
         on_thinking: Callable[[str], None],
     ) -> dict[str, Any]:
         """POST with `stream: true` and call `on_thinking` per reasoning
@@ -155,8 +163,8 @@ class OllamaClient:
         url = f"{self.host}{path}"
         data = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
-            url, data=data, method="POST",
-            headers={"Content-Type": "application/json"})
+            url, data=data, method="POST", headers={"Content-Type": "application/json"}
+        )
         content_parts: list[str] = []
         final: dict[str, Any] = {}
         try:
@@ -202,9 +210,11 @@ class OllamaClient:
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             self.consecutive_failures += 1
-            self.last_status = (OllamaStatus.DEGRADED
-                                if self.consecutive_failures == 1
-                                else OllamaStatus.UNREACHABLE)
+            self.last_status = (
+                OllamaStatus.DEGRADED
+                if self.consecutive_failures == 1
+                else OllamaStatus.UNREACHABLE
+            )
         return self.last_status
 
     def models(self) -> list[str]:
@@ -263,14 +273,16 @@ class OllamaClient:
                         break
             return {
                 "params_b": params_b,
-                "chat_capable": ("completion" in capabilities
-                                 if capabilities is not None else True),
+                "chat_capable": (
+                    "completion" in capabilities if capabilities is not None else True
+                ),
                 # Unlike chat_capable, this defaults to False when
                 # capabilities is unknown -- a model that might not expose
                 # reasoning tokens should silently not be asked to stream
                 # them, not be assumed to.
-                "thinking_capable": ("thinking" in capabilities
-                                     if capabilities is not None else False),
+                "thinking_capable": (
+                    "thinking" in capabilities if capabilities is not None else False
+                ),
                 "context_length": context_length,
             }
         except Exception as exc:
@@ -281,25 +293,30 @@ class OllamaClient:
         """The three paths out of an outage. Never touches the network."""
         return [
             RecoveryOption(
-                "restart", "Restart Ollama and retry",
+                "restart",
+                "Restart Ollama and retry",
                 "Bounces the systemd unit and waits for the health probe. "
                 "The conversation and any resume point are kept. Whether "
                 "Ollama runs as a user or system unit depends on how it "
                 "was installed here -- found live: assuming --user gave "
                 "advice that silently did nothing on a machine where "
                 "Ollama is a system service.",
-                "systemctl --user restart ollama "
-                "|| sudo systemctl restart ollama"),
+                "systemctl --user restart ollama || sudo systemctl restart ollama",
+            ),
             RecoveryOption(
-                "fallback", f"Fall back to {self.fallback_model}",
+                "fallback",
+                f"Fall back to {self.fallback_model}",
                 f"{current_model} may not fit in available VRAM. The smaller "
                 "model keeps the session moving with less reasoning depth.",
-                f"use model {self.fallback_model}"),
+                f"use model {self.fallback_model}",
+            ),
             RecoveryOption(
-                "manual", "Drop to manual mode",
+                "manual",
+                "Drop to manual mode",
                 "Stops asking the model for plans. You write the task file "
                 "yourself and every gate still applies.",
-                "torra run <task.yaml>"),
+                "torra run <task.yaml>",
+            ),
         ]
 
     # -- generation -------------------------------------------------------- #
@@ -339,9 +356,11 @@ class OllamaClient:
 
         started = time.perf_counter()
         try:
-            data = (self._stream_transport("/api/chat", payload, self.timeout, on_thinking)
-                   if on_thinking is not None
-                   else self._transport("/api/chat", payload, self.timeout))
+            data = (
+                self._stream_transport("/api/chat", payload, self.timeout, on_thinking)
+                if on_thinking is not None
+                else self._transport("/api/chat", payload, self.timeout)
+            )
             # Shape validation lives inside this try too, not after it: a
             # daemon returning valid JSON in an unexpected shape (a list,
             # or "message" as something with no .get) used to raise an
@@ -356,8 +375,7 @@ class OllamaClient:
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             self.last_status = OllamaStatus.UNREACHABLE
-            raise OllamaError(
-                f"generation failed against {self.host}: {self.last_error}") from exc
+            raise OllamaError(f"generation failed against {self.host}: {self.last_error}") from exc
         finally:
             self.total_seconds += time.perf_counter() - started
             self.calls += 1

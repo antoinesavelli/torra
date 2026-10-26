@@ -26,12 +26,35 @@ from .gates.safety import ResolvedCommand
 __all__ = ["missing_path_warnings", "named_paths", "placeholder_tokens"]
 
 #: Programs whose arguments are text, patterns, code or paths on another machine.
-_NOT_LOCAL = frozenset({
-    "echo", "printf", "grep", "egrep", "fgrep", "rg", "sed", "awk", "gawk", "expr", "test", "[",
-    "[[", "ssh", "scp", "sftp", "python", "python3", "perl", "ruby", "node"})
+_NOT_LOCAL = frozenset(
+    {
+        "echo",
+        "printf",
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "sed",
+        "awk",
+        "gawk",
+        "expr",
+        "test",
+        "[",
+        "[[",
+        "ssh",
+        "scp",
+        "sftp",
+        "python",
+        "python3",
+        "perl",
+        "ruby",
+        "node",
+    }
+)
 #: Every path argument is something the program makes (or fetches into).
-_CREATES_ALL = frozenset({"mkdir", "touch", "tee", "truncate", "mkfifo", "mktemp", "wget",
-                          "curl", "tar", "unzip", "dd"})
+_CREATES_ALL = frozenset(
+    {"mkdir", "touch", "tee", "truncate", "mkfifo", "mktemp", "wget", "curl", "tar", "unzip", "dd"}
+)
 #: Sources are read, the last argument is made.
 _CREATES_LAST = frozenset({"cp", "mv", "ln", "install", "rsync"})
 _REDIRECT = re.compile(r"(?<![<&\d])>{1,2}\s*([^\s;|&<>()]+)")
@@ -49,7 +72,8 @@ def _expand_known(value: str) -> str:
     """`$HOME`, `${HOME}`, `$USER`, `${USER}` from this process's environment; left alone (and so
     unknowable) when unset."""
     return _KNOWN_VARIABLE.sub(
-        lambda m: os.environ.get(m.group(1) or m.group(2), m.group(0)), value)
+        lambda m: os.environ.get(m.group(1) or m.group(2), m.group(0)), value
+    )
 
 
 def _local_path(token: str) -> str | None:
@@ -57,16 +81,18 @@ def _local_path(token: str) -> str | None:
     run time (a variable other than HOME or USER, a glob or brace expansion)."""
     value = token.split("=", 1)[1] if token.startswith("-") and "=" in token else token
     value = _expand_known(value)
-    if value.startswith("-") or not (value.startswith("/") or value == "~"
-                                     or value.startswith("~/")) or _UNKNOWABLE.search(value):
+    if (
+        value.startswith("-")
+        or not (value.startswith("/") or value == "~" or value.startswith("~/"))
+        or _UNKNOWABLE.search(value)
+    ):
         return None
     return os.path.normpath(os.path.expanduser(value))
 
 
 def _explained(path: str, created: set[str]) -> bool:
     """A path is explained by a creation at it, above it, or below it."""
-    return any(path == c or path.startswith(c + "/") or c.startswith(path + "/")
-               for c in created)
+    return any(path == c or path.startswith(c + "/") or c.startswith(path + "/") for c in created)
 
 
 def _split(rc: ResolvedCommand) -> tuple[list[str], list[str]]:
@@ -82,11 +108,13 @@ def _split(rc: ResolvedCommand) -> tuple[list[str], list[str]]:
     return [p for p in paths if p != last], [last]
 
 
-def _step_warnings(step: Step, resolver: SafetyClassifier, exists: Callable[[str], bool],
-                   created: set[str]) -> list[str]:
+def _step_warnings(
+    step: Step, resolver: SafetyClassifier, exists: Callable[[str], bool], created: set[str]
+) -> list[str]:
     """Warnings for one step; adds what the step makes to `created` for the steps after it."""
-    created.update(p for target in _REDIRECT.findall(step.command)
-                   if (p := _local_path(target)) is not None)
+    created.update(
+        p for target in _REDIRECT.findall(step.command) if (p := _local_path(target)) is not None
+    )
     named: set[str] = set()
     out: list[str] = []
     for rc in resolver.resolve(step.command):
@@ -96,13 +124,18 @@ def _step_warnings(step: Step, resolver: SafetyClassifier, exists: Callable[[str
             if path in named or exists(path) or _explained(path, created):
                 continue
             named.add(path)
-            out.append(f"step '{step.step_id}' names {path}, which does not exist and "
-                       "no earlier step creates")
+            out.append(
+                f"step '{step.step_id}' names {path}, which does not exist and "
+                "no earlier step creates"
+            )
     return out
 
 
-def missing_path_warnings(spec: TaskSpec, exists: Callable[[str], bool] = os.path.exists,
-                          only: Callable[[Step], bool] | None = None) -> list[str]:
+def missing_path_warnings(
+    spec: TaskSpec,
+    exists: Callable[[str], bool] = os.path.exists,
+    only: Callable[[Step], bool] | None = None,
+) -> list[str]:
     """One line per (step, path) where a step names an absolute local path that does not exist
     and no earlier step, or earlier part of the same step, creates.
 

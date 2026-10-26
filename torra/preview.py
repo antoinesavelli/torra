@@ -21,8 +21,12 @@ from .path_warnings import named_paths
 __all__ = ["describe_path", "preview_targets"]
 
 _UNITS = ("B", "KiB", "MiB", "GiB", "TiB")
-_SPECIAL = ((stat.S_ISBLK, "block device"), (stat.S_ISCHR, "character device"),
-            (stat.S_ISFIFO, "named pipe"), (stat.S_ISSOCK, "socket"))
+_SPECIAL = (
+    (stat.S_ISBLK, "block device"),
+    (stat.S_ISCHR, "character device"),
+    (stat.S_ISFIFO, "named pipe"),
+    (stat.S_ISSOCK, "socket"),
+)
 
 
 def _size(count: float) -> str:
@@ -41,8 +45,9 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-def _walk(root: str, limit: int, seconds: float, clock: Callable[[], float]
-          ) -> tuple[int, int, int, float, bool, bool]:
+def _walk(
+    root: str, limit: int, seconds: float, clock: Callable[[], float]
+) -> tuple[int, int, int, float, bool, bool]:
     """(files, folders, bytes, newest file mtime, stopped early, some folder unreadable) under
     `root`. Symlinks count as entries and are never entered."""
     files = folders = size = 0
@@ -70,8 +75,9 @@ def _walk(root: str, limit: int, seconds: float, clock: Callable[[], float]
     return files, folders, size, newest, stopped, unreadable
 
 
-def describe_path(path: str, limit: int = 5000, seconds: float = 1.0,
-                  clock: Callable[[], float] = time.monotonic) -> str:
+def describe_path(
+    path: str, limit: int = 5000, seconds: float = 1.0, clock: Callable[[], float] = time.monotonic
+) -> str:
     """One line on what is at `path`, without following a symlink."""
     try:
         info = os.lstat(path)
@@ -96,12 +102,16 @@ def _describe_dir(path: str, limit: int, seconds: float, clock: Callable[[], flo
     text = f"directory, {more}{_plural(files, 'file')}"
     text += f" in {_plural(folders, 'folder')}" if folders else ""
     text += f", {more}{_size(size)}" + (f", newest change {_day(newest)}" if newest else "")
-    return text + (", stopped counting" if stopped else "") + (
-        ", some folders unreadable" if unreadable else "")
+    return (
+        text
+        + (", stopped counting" if stopped else "")
+        + (", some folders unreadable" if unreadable else "")
+    )
 
 
-def preview_targets(step: Step, describe: Callable[[str], str] = describe_path,
-                    limit: int = 8) -> list[str]:
+def preview_targets(
+    step: Step, describe: Callable[[str], str] = describe_path, limit: int = 8
+) -> list[str]:
     """`path: what is there` for every local path the step names or declares, cut at `limit`."""
     if step.kind in ("remote_pull", "remote_push"):
         return []

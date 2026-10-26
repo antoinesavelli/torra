@@ -55,6 +55,7 @@ from torra.core.tasks import (
 def hang_guard(seconds: float = 3.0):
     """Fail fast with TimeoutError instead of hanging the whole suite if a
     regression on a FIFO/blocking-file-type fix reintroduces a real hang."""
+
     def handler(signum, frame):
         raise TimeoutError(f"blocked for over {seconds}s -- a real hang, not a slow op")
 
@@ -69,14 +70,16 @@ def hang_guard(seconds: float = 3.0):
 
 def fake_ollama(models: list[str]) -> OllamaClient:
     """An OllamaClient whose .models() returns a fixed list, no network."""
-    return OllamaClient(transport=lambda path, payload, timeout:
-                        {"models": [{"name": m} for m in models]})
+    return OllamaClient(
+        transport=lambda path, payload, timeout: {"models": [{"name": m} for m in models]}
+    )
 
 
 def test_ollama_models_dir_is_observed() -> None:
     """The running daemon's actual OLLAMA_MODELS, not a guess -- see
     scripts/dev/model_bench/REPORT.md's disk-cleanup scenario, where the
     model hallucinated a plausible-but-wrong path with no grounding."""
+
     def runner(command: str, cwd: str | None, timeout: float | None) -> str:
         if command == OLLAMA_MODELS_DIR_PROBE:
             return "/mnt/ParamoStorage/ollama-models\n"
@@ -91,6 +94,7 @@ def test_a_failed_probe_does_not_abort_observation() -> None:
     """Matches every other probe in observe_machine: a failure here is
     recorded, not raised -- an observation step that can abort a task would
     make the agent less reliable than no observation at all."""
+
     def runner(command: str, cwd: str | None, timeout: float | None) -> str:
         if command == OLLAMA_MODELS_DIR_PROBE:
             raise RuntimeError("probe failed")
@@ -105,6 +109,7 @@ def test_a_failed_probe_does_not_abort_observation() -> None:
 def test_a_failed_core_probe_is_recorded_and_the_rest_still_run() -> None:
     """Same guarantee as the ollama_models_dir case, for the main
     OBSERVE_COMMANDS loop itself -- not previously exercised."""
+
     def runner(command: str, cwd: str | None, timeout: float | None) -> str:
         if command == "hostname":
             raise RuntimeError("probe failed")
@@ -116,8 +121,7 @@ def test_a_failed_core_probe_is_recorded_and_the_rest_still_run() -> None:
     assert state.kernel == "ok"  # other probes still ran
 
 
-def test_an_extra_probe_populates_extras_and_a_failure_does_not_abort_the_rest(
-        ) -> None:
+def test_an_extra_probe_populates_extras_and_a_failure_does_not_abort_the_rest() -> None:
     def runner(command: str, cwd: str | None, timeout: float | None) -> str:
         if command == "custom-probe":
             return "custom output"
@@ -125,8 +129,9 @@ def test_an_extra_probe_populates_extras_and_a_failure_does_not_abort_the_rest(
             raise RuntimeError("boom")
         return "ok"
 
-    state = observe_machine(runner=runner, extra={
-        "custom": "custom-probe", "broken": "broken-probe"})
+    state = observe_machine(
+        runner=runner, extra={"custom": "custom-probe", "broken": "broken-probe"}
+    )
 
     assert state.extras == {"custom": "custom output"}
     assert any("broken" in e for e in state.errors)
@@ -152,7 +157,8 @@ def test_an_accelerator_detection_failure_is_recorded_not_raised() -> None:
 
 
 def test_observe_machine_records_a_genuine_accelerator_bug_not_raises(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """detect_accelerator() guards every branch it controls, so the outer
     try/except in observe_machine can only fire for a bug in
     detect_accelerator itself, not a misbehaving runner -- forced here by
@@ -177,8 +183,7 @@ def test_machine_state_to_dict_round_trips_the_basics() -> None:
     assert data["os_release"] == "Pop!_OS 24.04"
 
 
-def test_scan_knowledge_dir_skips_an_unreadable_file_not_the_whole_scan(
-        tmp_path) -> None:
+def test_scan_knowledge_dir_skips_an_unreadable_file_not_the_whole_scan(tmp_path) -> None:
     locked = tmp_path / "locked.md"
     locked.write_text("# Locked\n", encoding="utf-8")
     locked.chmod(0o000)
@@ -236,28 +241,35 @@ class TestExecutorObservation:
     """
 
     def test_resolve_executor_config_returns_none_when_host_unset(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("TORRA_EXECUTOR_HOST", raising=False)
         assert resolve_executor_config() is None
 
     def test_resolve_executor_config_reads_from_environment(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("TORRA_EXECUTOR_HOST", "192.0.2.10")
         monkeypatch.setenv("TORRA_EXECUTOR_USER", "user")
         monkeypatch.setenv("TORRA_EXECUTOR_SSH_KEY", "/some/key")
         assert resolve_executor_config() == ("192.0.2.10", "user", "/some/key")
 
     def test_resolve_executor_config_explicit_args_override_environment(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("TORRA_EXECUTOR_HOST", "env-host")
         assert resolve_executor_config(host="explicit-host", user="u", key_path="k") == (
-            "explicit-host", "u", "k")
+            "explicit-host",
+            "u",
+            "k",
+        )
 
     def test_observe_executor_reuses_observe_machine_unchanged(self) -> None:
         """Same fake-runner shape as a local observe_machine() call --
         proves executor observation is not a parallel, divergent
         implementation, just observe_machine() pointed at a different
         runner."""
+
         def runner(command: str, cwd: str | None, timeout: float | None) -> str:
             if command == "hostname":
                 return "executor-box"
@@ -287,7 +299,8 @@ class TestExecutorObservation:
         assert state.errors
 
     def test_build_ssh_runner_wraps_the_command_and_matches_shells_contract(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         captured: dict[str, Any] = {}
 
         def fake_run(argv: list[str], **kwargs: Any) -> Any:
@@ -307,7 +320,8 @@ class TestExecutorObservation:
         assert argv[-1] == "hostname"
 
     def test_build_ssh_runner_raises_like_shell_on_a_nonzero_exit(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         def fake_run(argv: list[str], **kwargs: Any) -> Any:
             return subprocess.CompletedProcess(argv, 255, stdout="", stderr="Connection refused")
 
@@ -316,11 +330,11 @@ class TestExecutorObservation:
         with pytest.raises(RuntimeError, match="exit 255.*Connection refused"):
             runner("hostname", None, 10.0)
 
-    def test_machine_state_render_includes_a_clearly_labeled_executor_block(
-            self) -> None:
+    def test_machine_state_render_includes_a_clearly_labeled_executor_block(self) -> None:
         state = MachineState(
             hostname="workstation",
-            executor=MachineState(hostname="executor-box", kernel="6.9.0-executor"))
+            executor=MachineState(hostname="executor-box", kernel="6.9.0-executor"),
+        )
         text = state.render()
         assert "executor" in text
         assert "read-only" in text
@@ -333,8 +347,7 @@ class TestExecutorObservation:
         assert "executor" not in text
 
     def test_machine_state_to_dict_round_trips_a_nested_executor(self) -> None:
-        state = MachineState(hostname="workstation",
-                             executor=MachineState(hostname="executor-box"))
+        state = MachineState(hostname="workstation", executor=MachineState(hostname="executor-box"))
         data = state.to_dict()
         assert data["executor"]["hostname"] == "executor-box"
 
@@ -346,19 +359,31 @@ class TestRemoteEditSteps:
     always a fake dict-backed callable."""
 
     def test_to_steps_builds_a_remote_pull_step_that_writes_the_local_destination(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         local_dest = tmp_path / "pulled-nginx.conf"
 
         def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
             import base64
+
             assert "nginx.conf" in command and command.startswith("base64 -w0")
             return base64.b64encode(b"server { listen 80; }\n").decode()
 
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
-                      "remote_path": "/etc/nginx/nginx.conf",
-                      "touches": [str(local_dest)]}]})
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "pull",
+                        "kind": "remote_pull",
+                        "run": "ignored",
+                        "remote_path": "/etc/nginx/nginx.conf",
+                        "touches": [str(local_dest)],
+                    }
+                ],
+            }
+        )
         steps = spec.to_steps(executor_runner=fake_runner)
         step = steps[0]
 
@@ -371,7 +396,8 @@ class TestRemoteEditSteps:
         assert local_dest.read_text(encoding="utf-8") == "server { listen 80; }\n"
 
     def test_to_steps_builds_a_remote_push_step_that_uploads_the_local_source(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         local_src = tmp_path / "edited-nginx.conf"
         local_src.write_text("server { listen 8080; }\n", encoding="utf-8")
         pushed: dict[str, str] = {}
@@ -381,11 +407,21 @@ class TestRemoteEditSteps:
                 pushed["command"] = command
             return ""
 
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
-                      "remote_path": "/etc/nginx/nginx.conf",
-                      "reads": [str(local_src)]}]})
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "push",
+                        "kind": "remote_push",
+                        "run": "ignored",
+                        "remote_path": "/etc/nginx/nginx.conf",
+                        "reads": [str(local_src)],
+                    }
+                ],
+            }
+        )
         steps = spec.to_steps(executor_runner=fake_runner)
         step = steps[0]
 
@@ -395,21 +431,45 @@ class TestRemoteEditSteps:
         # Base64-encoded in transit -- the real content must not appear
         # literally in the command string, but it must decode back to it.
         import base64
+
         assert "listen 8080" not in pushed["command"]
         encoded = pushed["command"].split("echo ", 1)[1].split(" |", 1)[0].strip("'")
         assert base64.b64decode(encoded).decode("utf-8") == "server { listen 8080; }\n"
 
     def test_remote_pull_and_push_fail_cleanly_with_no_executor_configured(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         local_path = tmp_path / "somefile"
-        pull_spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "pull", "kind": "remote_pull", "run": "ignored",
-                      "remote_path": "/etc/hosts", "touches": [str(local_path)]}]})
-        push_spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "push", "kind": "remote_push", "run": "ignored",
-                      "remote_path": "/etc/hosts", "reads": [str(local_path)]}]})
+        pull_spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "pull",
+                        "kind": "remote_pull",
+                        "run": "ignored",
+                        "remote_path": "/etc/hosts",
+                        "touches": [str(local_path)],
+                    }
+                ],
+            }
+        )
+        push_spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [
+                    {
+                        "id": "push",
+                        "kind": "remote_push",
+                        "run": "ignored",
+                        "remote_path": "/etc/hosts",
+                        "reads": [str(local_path)],
+                    }
+                ],
+            }
+        )
 
         for spec in (pull_spec, push_spec):
             step = spec.to_steps(executor_runner=None)[0]
@@ -420,22 +480,47 @@ class TestRemoteEditSteps:
     def test_validate_requires_remote_path_for_remote_pull_and_push(self) -> None:
         for kind in ("remote_pull", "remote_push"):
             with pytest.raises(TaskSpecError, match="remote_path"):
-                TaskSpec.validate({"task_id": "t", "request": "r",
-                                   "steps": [{"id": "s", "kind": kind, "run": "ignored"}]})
+                TaskSpec.validate(
+                    {
+                        "task_id": "t",
+                        "request": "r",
+                        "steps": [{"id": "s", "kind": kind, "run": "ignored"}],
+                    }
+                )
 
     def test_validate_requires_touches_for_remote_pull(self) -> None:
         with pytest.raises(TaskSpecError, match="touches"):
-            TaskSpec.validate({
-                "task_id": "t", "request": "r",
-                "steps": [{"id": "s", "kind": "remote_pull", "run": "ignored",
-                          "remote_path": "/etc/hosts"}]})
+            TaskSpec.validate(
+                {
+                    "task_id": "t",
+                    "request": "r",
+                    "steps": [
+                        {
+                            "id": "s",
+                            "kind": "remote_pull",
+                            "run": "ignored",
+                            "remote_path": "/etc/hosts",
+                        }
+                    ],
+                }
+            )
 
     def test_validate_requires_reads_for_remote_push(self) -> None:
         with pytest.raises(TaskSpecError, match="reads"):
-            TaskSpec.validate({
-                "task_id": "t", "request": "r",
-                "steps": [{"id": "s", "kind": "remote_push", "run": "ignored",
-                          "remote_path": "/etc/hosts"}]})
+            TaskSpec.validate(
+                {
+                    "task_id": "t",
+                    "request": "r",
+                    "steps": [
+                        {
+                            "id": "s",
+                            "kind": "remote_push",
+                            "run": "ignored",
+                            "remote_path": "/etc/hosts",
+                        }
+                    ],
+                }
+            )
 
 
 class TestKnowledgeLibrary:
@@ -448,9 +533,11 @@ class TestKnowledgeLibrary:
 
     def test_top_level_md_files_are_indexed_by_first_heading(self, tmp_path) -> None:
         (tmp_path / "services.md").write_text(
-            "# Services and processes\n\nbody text\n", encoding="utf-8")
+            "# Services and processes\n\nbody text\n", encoding="utf-8"
+        )
         (tmp_path / "quirks.md").write_text(
-            "\n\n# Known quirks and gotchas\nbody\n", encoding="utf-8")
+            "\n\n# Known quirks and gotchas\nbody\n", encoding="utf-8"
+        )
 
         path, headings = _scan_knowledge_dir(tmp_path)
         assert path == str(tmp_path)
@@ -471,24 +558,20 @@ class TestKnowledgeLibrary:
         _path, headings = _scan_knowledge_dir(tmp_path)
         assert headings == {"hardware.md": "Hardware"}
 
-    def test_a_machines_hostname_subfolder_is_indexed_alongside_the_root(
-            self, tmp_path) -> None:
+    def test_a_machines_hostname_subfolder_is_indexed_alongside_the_root(self, tmp_path) -> None:
         """Found live against the real system-library: its own README says
         "Each machine gets a folder" -- machines/<hostname>/quirks.md is
         the library's actual primary content, one level below where the
         scan used to stop, so a real machine's most relevant file (its own
         known-quirks doc) was invisible to the model. Only the matching
         hostname's folder is indexed, not a sibling machine's."""
-        (tmp_path / "LESSONS.md").write_text(
-            "# Lessons, cross-machine\n", encoding="utf-8")
+        (tmp_path / "LESSONS.md").write_text("# Lessons, cross-machine\n", encoding="utf-8")
         workstation = tmp_path / "machines" / "workstation"
         workstation.mkdir(parents=True)
-        (workstation / "quirks.md").write_text(
-            "# Known quirks and gotchas\n", encoding="utf-8")
+        (workstation / "quirks.md").write_text("# Known quirks and gotchas\n", encoding="utf-8")
         executor = tmp_path / "machines" / "executor"
         executor.mkdir(parents=True)
-        (executor / "quirks.md").write_text(
-            "# A different machine's quirks\n", encoding="utf-8")
+        (executor / "quirks.md").write_text("# A different machine's quirks\n", encoding="utf-8")
 
         path, headings = _scan_knowledge_dir(tmp_path, hostname="workstation")
 
@@ -499,13 +582,12 @@ class TestKnowledgeLibrary:
         }
 
     def test_a_same_named_file_at_root_and_in_the_machine_folder_does_not_collide(
-            self, tmp_path) -> None:
-        (tmp_path / "network.md").write_text(
-            "# Cross-machine network\n", encoding="utf-8")
+        self, tmp_path
+    ) -> None:
+        (tmp_path / "network.md").write_text("# Cross-machine network\n", encoding="utf-8")
         workstation = tmp_path / "machines" / "workstation"
         workstation.mkdir(parents=True)
-        (workstation / "network.md").write_text(
-            "# Network, this machine only\n", encoding="utf-8")
+        (workstation / "network.md").write_text("# Network, this machine only\n", encoding="utf-8")
 
         _path, headings = _scan_knowledge_dir(tmp_path, hostname="workstation")
 
@@ -516,7 +598,8 @@ class TestKnowledgeLibrary:
         (tmp_path / "LESSONS.md").write_text("# Lessons\n", encoding="utf-8")
         (tmp_path / "machines" / "workstation").mkdir(parents=True)
         (tmp_path / "machines" / "workstation" / "quirks.md").write_text(
-            "# Quirks\n", encoding="utf-8")
+            "# Quirks\n", encoding="utf-8"
+        )
 
         _path, no_hostname = _scan_knowledge_dir(tmp_path)
         _path, wrong_hostname = _scan_knowledge_dir(tmp_path, hostname="some-other-box")
@@ -567,7 +650,8 @@ class TestKnowledgeLibrary:
         assert "storage.md" not in without_library.render()
 
     def test_observe_machine_uses_the_real_hostname_to_find_its_machine_folder(
-            self, tmp_path, monkeypatch) -> None:
+        self, tmp_path, monkeypatch
+    ) -> None:
         """The end-to-end wiring test: observe_machine doesn't know its own
         hostname yet at this point in the function (the `hostname`
         OBSERVE_COMMANDS probe hasn't run), so it must ask socket directly
@@ -586,17 +670,19 @@ class TestKnowledgeLibrary:
 
         assert state.knowledge_library["machines/workstation/quirks.md"] == "Known quirks"
 
-    def test_render_greps_the_machine_subfolder_too_not_just_the_root(
-            self, tmp_path) -> None:
+    def test_render_greps_the_machine_subfolder_too_not_just_the_root(self, tmp_path) -> None:
         (tmp_path / "LESSONS.md").write_text("# Lessons\n", encoding="utf-8")
         machine_dir = tmp_path / "machines" / "workstation"
         machine_dir.mkdir(parents=True)
         (machine_dir / "quirks.md").write_text("# Known quirks\n", encoding="utf-8")
 
-        state = MachineState(knowledge_library_path=str(tmp_path), knowledge_library={
-            "LESSONS.md": "Lessons",
-            "machines/workstation/quirks.md": "Known quirks",
-        })
+        state = MachineState(
+            knowledge_library_path=str(tmp_path),
+            knowledge_library={
+                "LESSONS.md": "Lessons",
+                "machines/workstation/quirks.md": "Known quirks",
+            },
+        )
         rendered = state.render()
 
         assert f"{tmp_path}/*.md" in rendered
@@ -637,18 +723,24 @@ class TestModelInfo:
         return OllamaClient(transport=lambda path, payload, timeout: show_response)
 
     def test_billions_are_parsed(self) -> None:
-        info = self._client({"details": {"parameter_size": "14.8B"},
-                             "capabilities": ["completion"]}).model_info("x")
-        assert info == {"params_b": 14.8, "chat_capable": True, "thinking_capable": False,
-                        "context_length": 0}
+        info = self._client(
+            {"details": {"parameter_size": "14.8B"}, "capabilities": ["completion"]}
+        ).model_info("x")
+        assert info == {
+            "params_b": 14.8,
+            "chat_capable": True,
+            "thinking_capable": False,
+            "context_length": 0,
+        }
 
     def test_context_length_is_read_from_the_family_prefixed_key(self) -> None:
         """The real key is family-prefixed ("qwen35.context_length",
         "llama.context_length", ...) and the family varies per model --
         confirmed live against a real daemon (qwen3.5 reported
         "qwen35.context_length": 262144)."""
-        info = self._client({"details": {"parameter_size": "8.0B"},
-                             "model_info": {"qwen35.context_length": 262144}}).model_info("x")
+        info = self._client(
+            {"details": {"parameter_size": "8.0B"}, "model_info": {"qwen35.context_length": 262144}}
+        ).model_info("x")
         assert info["context_length"] == 262144
 
     def test_missing_model_info_key_reports_zero_context_length(self) -> None:
@@ -656,8 +748,9 @@ class TestModelInfo:
         assert info["context_length"] == 0
 
     def test_thinking_capability_is_read_from_capabilities(self) -> None:
-        info = self._client({"details": {"parameter_size": "8.0B"},
-                             "capabilities": ["completion", "thinking"]}).model_info("x")
+        info = self._client(
+            {"details": {"parameter_size": "8.0B"}, "capabilities": ["completion", "thinking"]}
+        ).model_info("x")
         assert info["thinking_capable"] is True
 
     def test_missing_capabilities_key_defaults_to_not_thinking_capable(self) -> None:
@@ -668,18 +761,21 @@ class TestModelInfo:
         assert info["thinking_capable"] is False
 
     def test_millions_are_converted_to_billions(self) -> None:
-        info = self._client({"details": {"parameter_size": "137M"},
-                             "capabilities": ["embedding"]}).model_info("x")
+        info = self._client(
+            {"details": {"parameter_size": "137M"}, "capabilities": ["embedding"]}
+        ).model_info("x")
         assert info["params_b"] == pytest.approx(0.137)
 
     def test_embedding_only_is_not_chat_capable(self) -> None:
-        info = self._client({"details": {"parameter_size": "137M"},
-                             "capabilities": ["embedding"]}).model_info("x")
+        info = self._client(
+            {"details": {"parameter_size": "137M"}, "capabilities": ["embedding"]}
+        ).model_info("x")
         assert info["chat_capable"] is False
 
     def test_completion_capability_is_chat_capable(self) -> None:
-        info = self._client({"details": {"parameter_size": "8.0B"},
-                             "capabilities": ["completion", "tools"]}).model_info("x")
+        info = self._client(
+            {"details": {"parameter_size": "8.0B"}, "capabilities": ["completion", "tools"]}
+        ).model_info("x")
         assert info["chat_capable"] is True
 
     def test_missing_capabilities_key_defaults_to_chat_capable(self) -> None:
@@ -698,8 +794,7 @@ class TestModelInfo:
 
         assert OllamaClient(transport=transport).model_info("x") == {}
 
-    def test_a_response_of_the_wrong_shape_returns_an_empty_dict_not_a_crash(
-            self) -> None:
+    def test_a_response_of_the_wrong_shape_returns_an_empty_dict_not_a_crash(self) -> None:
         """Found by an independent audit: valid JSON in an unexpected shape
         (a list instead of a mapping, or "capabilities" as something
         non-iterable) used to raise an uncaught TypeError/AttributeError
@@ -707,8 +802,10 @@ class TestModelInfo:
         and past Torra.plan()'s narrow except clause -- the operator got
         a raw traceback instead of the intended backend-down handling."""
         assert self._client(["not", "a", "mapping"]).model_info("x") == {}
-        assert self._client({"details": {"parameter_size": "8B"},
-                             "capabilities": 42}).model_info("x") == {}
+        assert (
+            self._client({"details": {"parameter_size": "8B"}, "capabilities": 42}).model_info("x")
+            == {}
+        )
         assert self._client({"details": "not a mapping either"}).model_info("x") == {}
 
 
@@ -720,8 +817,7 @@ class TestChatResponseShape:
     def test_a_list_response_raises_ollama_error_not_a_crash(self) -> None:
         # Deliberately the wrong shape (list, not dict) -- exercising the
         # defensive path, not a real transport contract violation.
-        client = OllamaClient(
-            transport=lambda path, payload, timeout: ["not", "a", "mapping"])  # type: ignore[arg-type,return-value]
+        client = OllamaClient(transport=lambda path, payload, timeout: ["not", "a", "mapping"])  # type: ignore[arg-type,return-value]
         with pytest.raises(OllamaError, match="generation failed"):
             client.chat("model", [{"role": "user", "content": "hi"}])
 
@@ -732,12 +828,14 @@ class TestChatResponseShape:
 
     def test_a_well_formed_response_still_works(self) -> None:
         client = OllamaClient(
-            transport=lambda path, payload, timeout: {"message": {"content": "hi there"}})
+            transport=lambda path, payload, timeout: {"message": {"content": "hi there"}}
+        )
         assert client.chat("model", [{"role": "user", "content": "hi"}]) == "hi there"
 
     def test_a_blank_content_raises_ollama_error(self) -> None:
         client = OllamaClient(
-            transport=lambda path, payload, timeout: {"message": {"content": "   "}})
+            transport=lambda path, payload, timeout: {"message": {"content": "   "}}
+        )
         with pytest.raises(OllamaError, match="empty response"):
             client.chat("model", [{"role": "user", "content": "hi"}])
 
@@ -749,9 +847,13 @@ class TestChatTokenCounts:
     own token counting is."""
 
     def test_token_counts_accumulate_across_calls(self) -> None:
-        client = OllamaClient(transport=lambda path, payload, timeout: {
-            "message": {"content": "hi there"},
-            "prompt_eval_count": 12, "eval_count": 5})
+        client = OllamaClient(
+            transport=lambda path, payload, timeout: {
+                "message": {"content": "hi there"},
+                "prompt_eval_count": 12,
+                "eval_count": 5,
+            }
+        )
 
         client.chat("model", [{"role": "user", "content": "hi"}])
         client.chat("model", [{"role": "user", "content": "hi again"}])
@@ -766,7 +868,8 @@ class TestChatTokenCounts:
         these fields entirely, must not raise -- same defensive posture
         the rest of chat()'s shape handling already has."""
         client = OllamaClient(
-            transport=lambda path, payload, timeout: {"message": {"content": "hi there"}})
+            transport=lambda path, payload, timeout: {"message": {"content": "hi there"}}
+        )
 
         client.chat("model", [{"role": "user", "content": "hi"}])
 
@@ -777,14 +880,21 @@ class TestChatTokenCounts:
         """_http_stream folds the last NDJSON line (the one carrying
         done: true and the real counts) into what chat() reads from --
         on_thinking's path must see the same counts a plain call would."""
+
         def stream_transport(path, payload, timeout, on_thinking):
-            return {"message": {"content": "hi there"},
-                   "prompt_eval_count": 7, "eval_count": 3, "done": True}
+            return {
+                "message": {"content": "hi there"},
+                "prompt_eval_count": 7,
+                "eval_count": 3,
+                "done": True,
+            }
 
         client = OllamaClient(
             transport=lambda p, pay, t: (_ for _ in ()).throw(
-                AssertionError("plain transport must not be used with on_thinking")),
-            stream_transport=stream_transport)
+                AssertionError("plain transport must not be used with on_thinking")
+            ),
+            stream_transport=stream_transport,
+        )
 
         client.chat("model", [{"role": "user", "content": "hi"}], on_thinking=lambda c: None)
 
@@ -826,8 +936,9 @@ class TestChatThinking:
             return {"message": {"content": "the plan"}}
 
         client = OllamaClient(transport=transport, stream_transport=stream_transport)
-        result = client.chat("model", [{"role": "user", "content": "hi"}],
-                             on_thinking=lambda chunk: None)
+        result = client.chat(
+            "model", [{"role": "user", "content": "hi"}], on_thinking=lambda chunk: None
+        )
         assert result == "the plan"
         assert seen["payload"]["stream"] is True
         assert seen["payload"]["think"] is True
@@ -840,8 +951,9 @@ class TestChatThinking:
 
         received: list[str] = []
         client = OllamaClient(stream_transport=stream_transport)
-        result = client.chat("model", [{"role": "user", "content": "hi"}],
-                             on_thinking=received.append)
+        result = client.chat(
+            "model", [{"role": "user", "content": "hi"}], on_thinking=received.append
+        )
         assert received == ["Let me ", "think about ", "this."]
         assert result == "final answer"
 
@@ -853,9 +965,10 @@ class TestChatThinking:
         lines = [
             json.dumps({"message": {"content": "", "thinking": "step one. "}, "done": False}),
             json.dumps({"message": {"content": "", "thinking": "step two."}, "done": False}),
-            json.dumps({"message": {"content": "{\"a\": 1}", "thinking": ""}, "done": False}),
-            json.dumps({"message": {"content": "", "thinking": ""}, "done": True,
-                       "total_duration": 123}),
+            json.dumps({"message": {"content": '{"a": 1}', "thinking": ""}, "done": False}),
+            json.dumps(
+                {"message": {"content": "", "thinking": ""}, "done": True, "total_duration": 123}
+            ),
         ]
 
         class FakeResponse:
@@ -872,8 +985,9 @@ class TestChatThinking:
         client = OllamaClient()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr("urllib.request.urlopen", lambda request, timeout: FakeResponse())
-            result = client.chat("model", [{"role": "user", "content": "hi"}],
-                                 on_thinking=received.append)
+            result = client.chat(
+                "model", [{"role": "user", "content": "hi"}], on_thinking=received.append
+            )
         assert received == ["step one. ", "step two."]
         assert result == '{"a": 1}'
 
@@ -895,11 +1009,13 @@ class TestHttpErrorDetail:
         from torra.core.tasks import OllamaError
 
         error = urllib.error.HTTPError(
-            "http://localhost:11434/api/chat", 404, "Not Found",
-            email.message.Message(), None)
-        monkeypatch.setattr(error, "read",
-                            lambda: json_module.dumps(
-                                {"error": "model 'ghost:latest' not found"}).encode())
+            "http://localhost:11434/api/chat", 404, "Not Found", email.message.Message(), None
+        )
+        monkeypatch.setattr(
+            error,
+            "read",
+            lambda: json_module.dumps({"error": "model 'ghost:latest' not found"}).encode(),
+        )
 
         def fake_urlopen(request: object, timeout: float) -> object:
             raise error
@@ -911,7 +1027,8 @@ class TestHttpErrorDetail:
             client.chat("ghost:latest", [{"role": "user", "content": "hi"}])
 
     def test_a_non_json_error_body_falls_back_to_the_http_reason(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import email.message
         import urllib.error
         import urllib.request
@@ -919,8 +1036,8 @@ class TestHttpErrorDetail:
         from torra.core.tasks import OllamaError
 
         error = urllib.error.HTTPError(
-            "http://localhost:11434/api/chat", 502, "Bad Gateway",
-            email.message.Message(), None)
+            "http://localhost:11434/api/chat", 502, "Bad Gateway", email.message.Message(), None
+        )
         monkeypatch.setattr(error, "read", lambda: b"<html>not json</html>")
 
         def fake_urlopen(request: object, timeout: float) -> object:
@@ -933,7 +1050,8 @@ class TestHttpErrorDetail:
             client.chat("x", [{"role": "user", "content": "hi"}])
 
     def test_an_empty_payload_request_uses_get_not_post(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """`_http`'s GET branch (empty payload, as health()/models() send) --
         every other test here either injects a fake `transport` (bypassing
         `_http` entirely) or already goes through the POST branch. This
@@ -980,9 +1098,13 @@ class TestOpenRouterClient:
         client = OpenRouterClient(
             api_key="k",
             transport=lambda path, payload, timeout: {
-                "choices": [{"message": {"content": "hi there"}}]})
-        assert client.chat("anthropic/claude-3.5-sonnet",
-                           [{"role": "user", "content": "hi"}]) == "hi there"
+                "choices": [{"message": {"content": "hi there"}}]
+            },
+        )
+        assert (
+            client.chat("anthropic/claude-3.5-sonnet", [{"role": "user", "content": "hi"}])
+            == "hi there"
+        )
 
     def test_secrets_are_scrubbed_from_what_leaves_the_machine(self) -> None:
         """HANDOFF.md §2.68: the full message list goes to a third party, so a key a command
@@ -994,9 +1116,13 @@ class TestOpenRouterClient:
             return {"choices": [{"message": {"content": "ok"}}]}
 
         client = OpenRouterClient(api_key="k", transport=transport)
-        client.chat("x", [{"role": "system", "content": "state"},
-                          {"role": "user", "content": "found password=hunter2xyz and sk-"
-                           + "b" * 30}])
+        client.chat(
+            "x",
+            [
+                {"role": "system", "content": "state"},
+                {"role": "user", "content": "found password=hunter2xyz and sk-" + "b" * 30},
+            ],
+        )
 
         content = sent[0]["messages"][1]["content"]
         assert "hunter2xyz" not in content and "b" * 30 not in content
@@ -1010,7 +1136,9 @@ class TestOpenRouterClient:
             api_key="k",
             transport=lambda path, payload, timeout: {
                 "choices": [{"message": {"content": "hi there"}}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 4, "cost": 0.0012}})
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4, "cost": 0.0012},
+            },
+        )
 
         client.chat("x", [{"role": "user", "content": "hi"}])
         client.chat("x", [{"role": "user", "content": "hi again"}])
@@ -1027,7 +1155,9 @@ class TestOpenRouterClient:
         client = OpenRouterClient(
             api_key="k",
             transport=lambda path, payload, timeout: {
-                "choices": [{"message": {"content": "hi there"}}]})
+                "choices": [{"message": {"content": "hi there"}}]
+            },
+        )
 
         client.chat("x", [{"role": "user", "content": "hi"}])
 
@@ -1061,36 +1191,37 @@ class TestOpenRouterClient:
             client.chat("x", [{"role": "user", "content": "hi"}])
         assert not called, "no request should be sent with an empty key"
 
-    def test_api_key_defaults_from_the_environment(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_api_key_defaults_from_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
         client = OpenRouterClient()
         assert client.api_key == "env-key"
 
     def test_explicit_api_key_overrides_the_environment(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
         client = OpenRouterClient(api_key="explicit-key")
         assert client.api_key == "explicit-key"
 
     def test_no_choices_in_response_raises_ollama_error_not_a_crash(self) -> None:
         client = OpenRouterClient(
-            api_key="k", transport=lambda path, payload, timeout: {"choices": []})
+            api_key="k", transport=lambda path, payload, timeout: {"choices": []}
+        )
         with pytest.raises(OllamaError, match="generation failed"):
             client.chat("x", [{"role": "user", "content": "hi"}])
 
     def test_a_list_response_raises_ollama_error_not_a_crash(self) -> None:
         client = OpenRouterClient(
-            api_key="k",
-            transport=lambda path, payload, timeout: ["not", "a", "mapping"])  # type: ignore[arg-type,return-value]
+            api_key="k", transport=lambda path, payload, timeout: ["not", "a", "mapping"]
+        )  # type: ignore[arg-type,return-value]
         with pytest.raises(OllamaError, match="generation failed"):
             client.chat("x", [{"role": "user", "content": "hi"}])
 
     def test_a_blank_content_raises_ollama_error(self) -> None:
         client = OpenRouterClient(
             api_key="k",
-            transport=lambda path, payload, timeout: {
-                "choices": [{"message": {"content": "   "}}]})
+            transport=lambda path, payload, timeout: {"choices": [{"message": {"content": "   "}}]},
+        )
         with pytest.raises(OllamaError, match="empty response"):
             client.chat("x", [{"role": "user", "content": "hi"}])
 
@@ -1116,8 +1247,12 @@ class TestOpenRouterClient:
         cmd = ["sh", "-c", self._check_key_action()]
 
         present = subprocess.run(
-            cmd, env={**env, "OPENROUTER_API_KEY": secret},
-            capture_output=True, text=True, check=True)
+            cmd,
+            env={**env, "OPENROUTER_API_KEY": secret},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         assert secret not in present.stdout + present.stderr
         assert f"is set ({len(secret)} chars)" in present.stdout
 
@@ -1127,15 +1262,16 @@ class TestOpenRouterClient:
     def test_stats_reports_calls_and_host(self) -> None:
         client = OpenRouterClient(
             api_key="k",
-            transport=lambda path, payload, timeout: {
-                "choices": [{"message": {"content": "ok"}}]})
+            transport=lambda path, payload, timeout: {"choices": [{"message": {"content": "ok"}}]},
+        )
         client.chat("x", [{"role": "user", "content": "hi"}])
         stats = client.stats()
         assert stats["calls"] == 1
         assert stats["host"] == OpenRouterClient.DEFAULT_HOST
 
     def test_openrouters_nested_error_message_surfaces(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """OpenRouter nests error detail under {"error": {"message": ...}},
         not Ollama's flat {"error": "..."} -- a different shape, same lesson
         as TestHttpErrorDetail: the generic HTTP reason isn't the detail an
@@ -1146,11 +1282,19 @@ class TestOpenRouterClient:
         import urllib.request
 
         error = urllib.error.HTTPError(
-            "https://openrouter.ai/api/v1/chat/completions", 401, "Unauthorized",
-            email.message.Message(), None)
-        monkeypatch.setattr(error, "read",
-                            lambda: json_module.dumps(
-                                {"error": {"code": 401, "message": "invalid API key"}}).encode())
+            "https://openrouter.ai/api/v1/chat/completions",
+            401,
+            "Unauthorized",
+            email.message.Message(),
+            None,
+        )
+        monkeypatch.setattr(
+            error,
+            "read",
+            lambda: json_module.dumps(
+                {"error": {"code": 401, "message": "invalid API key"}}
+            ).encode(),
+        )
 
         def fake_urlopen(request: object, timeout: float) -> object:
             raise error
@@ -1162,14 +1306,19 @@ class TestOpenRouterClient:
             client.chat("x", [{"role": "user", "content": "hi"}])
 
     def test_a_non_json_error_body_falls_back_to_the_http_reason(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import email.message
         import urllib.error
         import urllib.request
 
         error = urllib.error.HTTPError(
-            "https://openrouter.ai/api/v1/chat/completions", 502, "Bad Gateway",
-            email.message.Message(), None)
+            "https://openrouter.ai/api/v1/chat/completions",
+            502,
+            "Bad Gateway",
+            email.message.Message(),
+            None,
+        )
         monkeypatch.setattr(error, "read", lambda: b"<html>not json</html>")
 
         def fake_urlopen(request: object, timeout: float) -> object:
@@ -1194,11 +1343,14 @@ class TestTaskSpecRollbackValidation:
     already got."""
 
     def _base(self, rollback: list[dict]) -> dict:
-        return {"task_id": "t", "request": "r",
-               "steps": [{"id": "s1", "run": "true"}], "rollback": rollback}
+        return {
+            "task_id": "t",
+            "request": "r",
+            "steps": [{"id": "s1", "run": "true"}],
+            "rollback": rollback,
+        }
 
-    def test_a_missing_run_is_rejected_at_validate_time_not_silently_dropped(
-            self) -> None:
+    def test_a_missing_run_is_rejected_at_validate_time_not_silently_dropped(self) -> None:
         with pytest.raises(TaskSpecError, match="no 'run' command"):
             TaskSpec.validate(self._base([{"description": "typo, no run key"}]))
 
@@ -1208,13 +1360,11 @@ class TestTaskSpecRollbackValidation:
         message is honest about the same underlying defect, but this is
         the literal case that used to validate cleanly and silently drop."""
         with pytest.raises(TaskSpecError, match="unknown field"):
-            TaskSpec.validate(self._base(
-                [{"cmd": "rm -rf /tmp/x", "description": "typo"}]))
+            TaskSpec.validate(self._base([{"cmd": "rm -rf /tmp/x", "description": "typo"}]))
 
     def test_an_unknown_rollback_field_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="unknown field"):
-            TaskSpec.validate(self._base(
-                [{"run": "true", "retries": 3}]))
+            TaskSpec.validate(self._base([{"run": "true", "retries": 3}]))
 
     def test_a_non_mapping_rollback_entry_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="must be a mapping"):
@@ -1223,13 +1373,15 @@ class TestTaskSpecRollbackValidation:
             TaskSpec.validate(self._base(["just a string"]))  # type: ignore[list-item]
 
     def test_a_well_formed_rollback_entry_still_validates_cleanly(self) -> None:
-        spec = TaskSpec.validate(self._base(
-            [{"run": "rm -f /tmp/x", "description": "cleanup", "safe": True}]))
+        spec = TaskSpec.validate(
+            self._base([{"run": "rm -f /tmp/x", "description": "cleanup", "safe": True}])
+        )
         assert len(spec.rollback_actions()) == 1
 
     def test_an_absent_rollback_list_is_fine(self) -> None:
-        spec = TaskSpec.validate({"task_id": "t", "request": "r",
-                                  "steps": [{"id": "s1", "run": "true"}]})
+        spec = TaskSpec.validate(
+            {"task_id": "t", "request": "r", "steps": [{"id": "s1", "run": "true"}]}
+        )
         assert spec.rollback_actions() == []
 
     def test_a_quoted_string_safe_value_is_rejected(self) -> None:
@@ -1254,8 +1406,11 @@ class TestTaskSpecStepValidation:
     """
 
     def _base(self, **step_extra) -> dict:
-        return {"task_id": "t", "request": "r",
-               "steps": [{"id": "s1", "run": "true", **step_extra}]}
+        return {
+            "task_id": "t",
+            "request": "r",
+            "steps": [{"id": "s1", "run": "true", **step_extra}],
+        }
 
     def test_a_bare_string_touches_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="'touches' must be a list"):
@@ -1341,27 +1496,48 @@ class TestTaskSpecBasicValidation:
 
     def test_a_step_with_no_run_command_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="no 'run' command"):
-            TaskSpec.validate({"task_id": "t", "request": "r",
-                              "steps": [{"id": "s", "description": "typo, no run"}]})
+            TaskSpec.validate(
+                {
+                    "task_id": "t",
+                    "request": "r",
+                    "steps": [{"id": "s", "description": "typo, no run"}],
+                }
+            )
 
     def test_a_duplicate_step_id_is_rejected(self) -> None:
         with pytest.raises(TaskSpecError, match="duplicate step id"):
-            TaskSpec.validate({"task_id": "t", "request": "r", "steps": [
-                {"id": "s", "run": "true"}, {"id": "s", "run": "false"}]})
+            TaskSpec.validate(
+                {
+                    "task_id": "t",
+                    "request": "r",
+                    "steps": [{"id": "s", "run": "true"}, {"id": "s", "run": "false"}],
+                }
+            )
 
     @pytest.mark.parametrize("where", ["task_id", "step id"])
     def test_an_id_that_holds_a_secret_is_refused_without_repeating_it(self, where: str) -> None:
         """GRADE_TO_A_PLAN P3.1: an id names the resume and audit files, so it must hold no key."""
         key = "sk-or-v1-" + "z7x6c5v4" * 6
-        data = {"task_id": f"t-{key}" if where == "task_id" else "t", "request": "r",
-                "steps": [{"id": f"s-{key}" if where == "step id" else "s", "run": "true"}]}
+        data = {
+            "task_id": f"t-{key}" if where == "task_id" else "t",
+            "request": "r",
+            "steps": [{"id": f"s-{key}" if where == "step id" else "s", "run": "true"}],
+        }
         with pytest.raises(TaskSpecError, match="looks like a secret") as caught:
             TaskSpec.validate(data)
         assert "z7x6c5v4" not in str(caught.value)
 
     def test_an_id_that_only_names_a_secret_still_validates(self) -> None:
-        spec = TaskSpec.validate({"task_id": "rotate-api-key", "request": "r", "steps": [
-            {"id": "check-password-policy", "run": "true"}, {"id": "refresh-token", "run": "true"}]})
+        spec = TaskSpec.validate(
+            {
+                "task_id": "rotate-api-key",
+                "request": "r",
+                "steps": [
+                    {"id": "check-password-policy", "run": "true"},
+                    {"id": "refresh-token", "run": "true"},
+                ],
+            }
+        )
         assert spec.task_id == "rotate-api-key"
 
     def test_load_of_a_missing_file_is_rejected(self, tmp_path) -> None:
@@ -1375,10 +1551,15 @@ class TestTaskSpecBasicValidation:
             TaskSpec.load(bad)
 
     def test_to_yaml_round_trips_through_load(self, tmp_path) -> None:
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r", "watch_roots": ["/etc"],
-            "steps": [{"id": "s", "run": "true"}],
-            "rollback": [{"run": "echo undo"}]})
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "watch_roots": ["/etc"],
+                "steps": [{"id": "s", "run": "true"}],
+                "rollback": [{"run": "echo undo"}],
+            }
+        )
         out = tmp_path / "roundtrip.yaml"
         out.write_text(spec.to_yaml(), encoding="utf-8")
 
@@ -1390,8 +1571,9 @@ class TestTaskSpecBasicValidation:
         assert reloaded.rollback == spec.rollback
 
     def test_to_yaml_omits_empty_watch_roots_and_rollback(self) -> None:
-        spec = TaskSpec.validate({"task_id": "t", "request": "r",
-                                  "steps": [{"id": "s", "run": "true"}]})
+        spec = TaskSpec.validate(
+            {"task_id": "t", "request": "r", "steps": [{"id": "s", "run": "true"}]}
+        )
         rendered = spec.to_yaml()
         assert "watch_roots" not in rendered
         assert "rollback" not in rendered
@@ -1399,12 +1581,17 @@ class TestTaskSpecBasicValidation:
     def test_rollback_actions_defensively_skips_an_invalid_entry(self) -> None:
         """validate() already rejects this at construction time -- this
         guards a TaskSpec built directly, bypassing validate()."""
-        spec = TaskSpec(task_id="t", request="r",
-                        steps=[{"id": "s", "run": "true"}],
-                        # Deliberately the wrong shape in the first entry --
-                        # exercising the defensive skip, not a real caller.
-                        rollback=["not a mapping",  # type: ignore[list-item]
-                                 {"description": "no run key"}])
+        spec = TaskSpec(
+            task_id="t",
+            request="r",
+            steps=[{"id": "s", "run": "true"}],
+            # Deliberately the wrong shape in the first entry --
+            # exercising the defensive skip, not a real caller.
+            rollback=[
+                "not a mapping",  # type: ignore[list-item]
+                {"description": "no run key"},
+            ],
+        )
         assert spec.rollback_actions() == []
 
 
@@ -1433,24 +1620,27 @@ class TestDetectAccelerator:
                     raise RuntimeError("not available")
                 return max_loaded
             raise RuntimeError("not available")
+
         return runner
 
-    def test_a_cpu_loaded_model_is_reported_as_cpu_even_with_a_real_gpu_present(
-            self) -> None:
-        ps = ("NAME              ID              SIZE      PROCESSOR    "
-             "CONTEXT    UNTIL              \n"
-             "somemodel:latest  abc123def456    5.0 GB    100% CPU     "
-             "4096       5 minutes from now    \n")
+    def test_a_cpu_loaded_model_is_reported_as_cpu_even_with_a_real_gpu_present(self) -> None:
+        ps = (
+            "NAME              ID              SIZE      PROCESSOR    "
+            "CONTEXT    UNTIL              \n"
+            "somemodel:latest  abc123def456    5.0 GB    100% CPU     "
+            "4096       5 minutes from now    \n"
+        )
         acc = detect_accelerator(self._runner(ps))
         assert acc.kind == "cpu"
         assert "CPU" in acc.running_on
 
-    def test_a_gpu_loaded_model_falls_through_to_nvidia_smi_for_vram_figures(
-            self) -> None:
-        ps = ("NAME              ID              SIZE      PROCESSOR    "
-             "CONTEXT    UNTIL              \n"
-             "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
-             "32768      3 minutes from now    \n")
+    def test_a_gpu_loaded_model_falls_through_to_nvidia_smi_for_vram_figures(self) -> None:
+        ps = (
+            "NAME              ID              SIZE      PROCESSOR    "
+            "CONTEXT    UNTIL              \n"
+            "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
+            "32768      3 minutes from now    \n"
+        )
         acc = detect_accelerator(self._runner(ps))
         assert acc.kind == "cuda"
         assert acc.free_vram_mb == 23800
@@ -1459,33 +1649,38 @@ class TestDetectAccelerator:
         """Name and size come off the same ollama ps line already parsed
         for the CPU/GPU split -- fits() (HANDOFF.md §2.35) needs both to
         credit VRAM a confirmed single-model daemon would free up."""
-        ps = ("NAME              ID              SIZE      PROCESSOR    "
-             "CONTEXT    UNTIL              \n"
-             "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
-             "32768      3 minutes from now    \n")
+        ps = (
+            "NAME              ID              SIZE      PROCESSOR    "
+            "CONTEXT    UNTIL              \n"
+            "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
+            "32768      3 minutes from now    \n"
+        )
         acc = detect_accelerator(self._runner(ps, max_loaded="1"))
         assert acc.loaded_model == "qwen3.5:latest"
         assert acc.loaded_model_mb == int(9.5 * 1024)
         assert acc.max_loaded_models == 1
 
-    def test_max_loaded_models_defaults_to_0_when_the_probe_is_unavailable(
-            self) -> None:
+    def test_max_loaded_models_defaults_to_0_when_the_probe_is_unavailable(self) -> None:
         """0 means unknown, not a guessed default -- Ollama's own
         unset-OLLAMA_MAX_LOADED_MODELS behavior is a dynamic, undocumented
         computation this project has no live daemon to verify a guess
         against (HANDOFF.md §2.35)."""
-        ps = ("NAME              ID              SIZE      PROCESSOR    "
-             "CONTEXT    UNTIL              \n"
-             "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
-             "32768      3 minutes from now    \n")
+        ps = (
+            "NAME              ID              SIZE      PROCESSOR    "
+            "CONTEXT    UNTIL              \n"
+            "qwen3.5:latest    6488c96fa5fa    9.5 GB    100% GPU     "
+            "32768      3 minutes from now    \n"
+        )
         acc = detect_accelerator(self._runner(ps))  # max_loaded=None -> probe unavailable
         assert acc.max_loaded_models == 0
 
     def test_partial_cpu_gpu_offload_is_not_misread_as_pure_cpu(self) -> None:
-        ps = ("NAME              ID              SIZE      PROCESSOR      "
-             "CONTEXT    UNTIL              \n"
-             "qwen3-coder:30b   06c1097efce0    18 GB     43%/57% CPU/GPU  "
-             "8192       10 minutes from now    \n")
+        ps = (
+            "NAME              ID              SIZE      PROCESSOR      "
+            "CONTEXT    UNTIL              \n"
+            "qwen3-coder:30b   06c1097efce0    18 GB     43%/57% CPU/GPU  "
+            "8192       10 minutes from now    \n"
+        )
         acc = detect_accelerator(self._runner(ps))
         assert acc.kind == "cuda"
 
@@ -1498,6 +1693,7 @@ class TestDetectAccelerator:
     def test_nothing_available_degrades_to_cpu_with_a_reason(self) -> None:
         def runner(cmd: str, cwd: str | None, timeout: float | None) -> str:
             raise RuntimeError("not available")
+
         acc = detect_accelerator(runner)
         assert acc.kind == "cpu"
         assert "nvidia-smi" in acc.detail
@@ -1516,40 +1712,51 @@ class TestDetectAccelerator:
         roomy = Accelerator(kind="cuda", free_vram_mb=100_000)
         assert roomy.fits("qwen3:8b") is True
 
-    def test_fits_credits_the_resident_models_vram_when_single_model_confirmed(
-            self) -> None:
+    def test_fits_credits_the_resident_models_vram_when_single_model_confirmed(self) -> None:
         """HANDOFF.md §2.35: a confirmed-single-model daemon evicts
         whatever's loaded to make room for a different one, so that VRAM
         counts toward a candidate model even though nvidia-smi's raw free
         figure doesn't include it yet."""
-        acc = Accelerator(kind="cuda", free_vram_mb=14_393,
-                          model_params_b={"devstral:24b": 23.6},
-                          loaded_model="qwen3.5:latest", loaded_model_mb=9_508,
-                          max_loaded_models=1)
-        assert acc.fits("devstral:24b") is True, \
+        acc = Accelerator(
+            kind="cuda",
+            free_vram_mb=14_393,
+            model_params_b={"devstral:24b": 23.6},
+            loaded_model="qwen3.5:latest",
+            loaded_model_mb=9_508,
+            max_loaded_models=1,
+        )
+        assert acc.fits("devstral:24b") is True, (
             "14393 + 9508 credited MB should cover devstral's ~16916 MB need"
+        )
 
-    def test_fits_gives_no_credit_without_a_confirmed_single_model_daemon(
-            self) -> None:
+    def test_fits_gives_no_credit_without_a_confirmed_single_model_daemon(self) -> None:
         """The same scenario as above, but max_loaded_models is 0
         (unknown) -- never assume an eviction that wasn't verified live."""
-        acc = Accelerator(kind="cuda", free_vram_mb=14_393,
-                          model_params_b={"devstral:24b": 23.6},
-                          loaded_model="qwen3.5:latest", loaded_model_mb=9_508,
-                          max_loaded_models=0)
+        acc = Accelerator(
+            kind="cuda",
+            free_vram_mb=14_393,
+            model_params_b={"devstral:24b": 23.6},
+            loaded_model="qwen3.5:latest",
+            loaded_model_mb=9_508,
+            max_loaded_models=0,
+        )
         assert acc.fits("devstral:24b") is False
 
-    def test_fits_gives_no_double_credit_when_the_loaded_model_is_the_candidate(
-            self) -> None:
+    def test_fits_gives_no_double_credit_when_the_loaded_model_is_the_candidate(self) -> None:
         """The resident model IS the one being checked -- nothing to
         evict, free_vram_mb is already accurate as reported."""
-        acc = Accelerator(kind="cuda", free_vram_mb=5_000,
-                          model_params_b={"qwen3.5:latest": 9.7},
-                          loaded_model="qwen3.5:latest", loaded_model_mb=9_508,
-                          max_loaded_models=1)
-        assert acc.fits("qwen3.5:latest") is False, \
-            "5000 MB free alone is not enough for a 9.7B model; crediting " \
+        acc = Accelerator(
+            kind="cuda",
+            free_vram_mb=5_000,
+            model_params_b={"qwen3.5:latest": 9.7},
+            loaded_model="qwen3.5:latest",
+            loaded_model_mb=9_508,
+            max_loaded_models=1,
+        )
+        assert acc.fits("qwen3.5:latest") is False, (
+            "5000 MB free alone is not enough for a 9.7B model; crediting "
             "its own already-counted footprint back would be double-counting"
+        )
 
     def test_parse_size_mb_converts_gb_and_mb(self) -> None:
         assert _parse_size_mb("qwen3.5:latest  abc  9.5 GB  100% GPU") == int(9.5 * 1024)
@@ -1557,8 +1764,13 @@ class TestDetectAccelerator:
         assert _parse_size_mb("no size here at all") == 0
 
     def test_to_dict_excludes_model_params_b_but_includes_gpu(self) -> None:
-        acc = Accelerator(kind="cuda", name="RTX 4090", vram_mb=24564, free_vram_mb=23800,
-                          model_params_b={"qwen3:8b": 8.0})
+        acc = Accelerator(
+            kind="cuda",
+            name="RTX 4090",
+            vram_mb=24564,
+            free_vram_mb=23800,
+            model_params_b={"qwen3:8b": 8.0},
+        )
         d = acc.to_dict()
         assert "model_params_b" not in d
         assert d["gpu"] is True
@@ -1584,8 +1796,7 @@ class TestHashFileSkipsNonRegularFiles:
         with hang_guard():
             assert ConflictDetector().hash_file(fifo) is None
 
-    def test_a_symlink_to_a_fifo_also_returns_none_instead_of_hanging(
-            self, tmp_path) -> None:
+    def test_a_symlink_to_a_fifo_also_returns_none_instead_of_hanging(self, tmp_path) -> None:
         fifo = tmp_path / "pipe"
         os.mkfifo(fifo)
         link = tmp_path / "link_to_pipe"
@@ -1757,7 +1968,8 @@ class TestConflictDetection:
         assert detector._classify(str(target)) is None
 
     def test_classify_returns_none_when_fingerprint_changed_but_hash_did_not(
-            self, tmp_path) -> None:
+        self, tmp_path
+    ) -> None:
         """A same-content rewrite (an editor's atomic-save round-trip
         landing on identical bytes) changes mtime but not content -- the
         hash layer exists precisely so this doesn't report as a conflict."""
@@ -1786,8 +1998,7 @@ class TestConflictDetection:
 
     # -- detect(): declared + tree layers merged ------------------------- #
 
-    def test_detect_dedups_a_path_flagged_by_both_declared_and_tree_layers(
-            self, tmp_path) -> None:
+    def test_detect_dedups_a_path_flagged_by_both_declared_and_tree_layers(self, tmp_path) -> None:
         target = tmp_path / "app.conf"
         target.write_text("original", encoding="utf-8")
         detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
@@ -1831,8 +2042,7 @@ class TestConflictDetection:
         assert detector._walk(tmp_path / "does-not-exist") == {}
         assert detector.errors == []
 
-    def test_refresh_re_baselines_so_the_torras_own_write_is_not_a_conflict(
-            self, tmp_path) -> None:
+    def test_refresh_re_baselines_so_the_torras_own_write_is_not_a_conflict(self, tmp_path) -> None:
         target = tmp_path / "app.conf"
         target.write_text("v1", encoding="utf-8")
         detector = ConflictDetector(roots=[tmp_path], use_inotify=False)
@@ -1843,8 +2053,7 @@ class TestConflictDetection:
 
         assert detector._detect_declared() == []
 
-    def test_refresh_does_not_erase_a_conflict_on_an_unrelated_path(
-            self, tmp_path) -> None:
+    def test_refresh_does_not_erase_a_conflict_on_an_unrelated_path(self, tmp_path) -> None:
         """A step's own refresh(touches=[...]) must only re-baseline what it
         declares -- an external edit to a DIFFERENT watched file, detected
         before this call, has to still be there after it. Found live: refresh
@@ -1888,7 +2097,8 @@ class TestConflictDetection:
         assert conflict.to_dict()["kind"] == "modified"
 
     def test_walk_records_an_error_on_a_scandir_failure_and_keeps_going(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         locked = tmp_path / "locked-dir"
         locked.mkdir()
         (locked / "inside.txt").write_text("x", encoding="utf-8")
@@ -1904,7 +2114,8 @@ class TestConflictDetection:
         assert any(str(locked) in e for e in detector.errors)
 
     def test_classify_records_a_conflict_when_stat_fails_after_a_known_path_exists(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         target = tmp_path / "locked.txt"
         target.write_text("x", encoding="utf-8")
         detector = ConflictDetector()
@@ -1950,7 +2161,8 @@ class TestConflictDetection:
         assert not any("fifo" in p for p in fingerprints)
 
     def test_walk_records_no_error_when_a_single_entry_stat_fails(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         (tmp_path / "real.txt").write_text("x", encoding="utf-8")
 
         class BrokenEntry:
@@ -1982,8 +2194,7 @@ class TestConflictDetection:
         assert "broken.txt" not in str(fingerprints)
         assert not detector.errors  # a per-entry OSError is swallowed, not recorded
 
-    def test_start_inotify_degrades_when_add_watch_fails(
-            self, tmp_path: Path, monkeypatch) -> None:
+    def test_start_inotify_degrades_when_add_watch_fails(self, tmp_path: Path, monkeypatch) -> None:
         from inotify_simple import INotify
 
         def broken_add_watch(self, path, mask):
@@ -1999,8 +2210,7 @@ class TestConflictDetection:
         finally:
             detector.close()
 
-    def test_events_records_an_error_and_returns_none_when_read_fails(
-            self, tmp_path: Path) -> None:
+    def test_events_records_an_error_and_returns_none_when_read_fails(self, tmp_path: Path) -> None:
         detector = ConflictDetector(roots=[tmp_path], use_inotify=True)
         try:
             detector._start_inotify()
@@ -2052,6 +2262,7 @@ class TestConflictDetectorRealInotify:
             # only reliable way to observe it without mocking the library
             # this test exists specifically to exercise.
             import time as time_module
+
             deadline = time_module.time() + 2.0
             touched: set[str] = set()
             while time_module.time() < deadline and not touched:
@@ -2065,7 +2276,8 @@ class TestConflictDetectorRealInotify:
         assert detector._events() is None
 
     def test_start_inotify_degrades_when_the_library_is_unavailable(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         import builtins
 
         real_import = builtins.__import__
@@ -2133,8 +2345,7 @@ class TestConflictDetectorFastPath:
         other = tmp_path / "other.txt"
         other.write_text("original other", encoding="utf-8")
         detector.hashes[str(other)] = detector.hash_file(other)
-        detector.fingerprints[str(other)] = (
-            other.stat().st_size, other.stat().st_mtime_ns)
+        detector.fingerprints[str(other)] = (other.stat().st_size, other.stat().st_mtime_ns)
 
         target.write_text("MODIFIED", encoding="utf-8")
         other.write_text("ALSO MODIFIED", encoding="utf-8")
@@ -2144,8 +2355,9 @@ class TestConflictDetectorFastPath:
         target.write_text("original content", encoding="utf-8")
         detector._events = lambda: {str(target)}
         found = detector._detect_tree()
-        assert [c.path for c in found] == [str(other)], \
+        assert [c.path for c in found] == [str(other)], (
             "target reverted and must be gone; other's real conflict must remain"
+        )
 
 
 class TestShellPipefail:
@@ -2192,7 +2404,8 @@ class TestShellSigpipeForgiveness:
         assert shell("yes x | head -3") == "x\nx\nx"
 
     def test_the_real_world_shape_that_motivated_this_no_longer_raises(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         # A directory this test fully owns, not the real /home -- found
         # live in CI: /home on a GitHub-hosted runner has a permission-
         # restricted path under it, so `du` itself returns a real exit 1
@@ -2204,16 +2417,14 @@ class TestShellSigpipeForgiveness:
         result = shell(f"du -ah {tmp_path} | sort -rh | head -5")
         assert result, "some real output, no exception raised"
 
-    def test_a_genuine_upstream_failure_through_sort_and_head_still_raises(
-            self) -> None:
+    def test_a_genuine_upstream_failure_through_sort_and_head_still_raises(self) -> None:
         # The exact scenario pipefail exists for in the first place (a
         # stand-in for an auth failure): an early failure must not be
         # forgiven just because sort | head happens to follow it.
         with pytest.raises(RuntimeError, match="exit 1"):
             shell("false | sort | head -5")
 
-    def test_a_nonexistent_command_through_sort_and_head_still_raises(
-            self) -> None:
+    def test_a_nonexistent_command_through_sort_and_head_still_raises(self) -> None:
         with pytest.raises(RuntimeError):
             shell("definitely-not-a-real-command-xyz | sort | head -n 5")
 
@@ -2317,8 +2528,9 @@ class TestShellOutputSink:
         with shell_output_sink(lambda chunk: arrivals.append(time.monotonic() - start)):
             shell("echo first; sleep 0.5; echo second")
         assert len(arrivals) == 2
-        assert arrivals[0] < 0.25, \
+        assert arrivals[0] < 0.25, (
             f"first chunk arrived at {arrivals[0]:.2f}s, not live if that's near the 0.5s total"
+        )
         assert arrivals[1] >= 0.4
 
     def test_nested_calls_restore_the_previous_sink(self) -> None:
@@ -2362,8 +2574,12 @@ class TestContextCompressor:
         c = ContextCompressor(max_tokens=1000)
         step = c.add("u1", "user", "hello")
         assert step.to_dict() == {
-            "entry_id": "u1", "role": "user", "content": "hello",
-            "tokens": step.tokens, "compressed": False}
+            "entry_id": "u1",
+            "role": "user",
+            "content": "hello",
+            "tokens": step.tokens,
+            "compressed": False,
+        }
 
         result = c.compress(force=True)
         assert result.to_dict()["triggered"] is False
@@ -2394,11 +2610,13 @@ class TestContextCompressor:
         detail for no benefit -- the search must stop at the smallest
         `cut` that already gets under target, not walk all the way to
         `compressible` every time."""
-        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.5, target_ratio=0.5,
-                              keep_recent=0)
+        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.5, target_ratio=0.5, keep_recent=0)
         for i in range(6):
-            c.add(f"e{i}", "user",
-                 f"entry number {i} has a decent amount of real content padding it out")
+            c.add(
+                f"e{i}",
+                "user",
+                f"entry number {i} has a decent amount of real content padding it out",
+            )
 
         result = c.compress(force=True)
 
@@ -2427,8 +2645,7 @@ class TestContextCompressor:
         assert len(c.entries) == 1
 
     def test_keep_recent_entries_are_never_folded_into_the_summary(self) -> None:
-        c = ContextCompressor(max_tokens=40, trigger_ratio=0.5, target_ratio=0.1,
-                              keep_recent=2)
+        c = ContextCompressor(max_tokens=40, trigger_ratio=0.5, target_ratio=0.1, keep_recent=2)
         for i in range(10):
             c.add(f"e{i}", "user", f"entry number {i} has some real content in it")
         result = c.compress(force=True)
@@ -2454,8 +2671,7 @@ class TestContextCompressor:
     def test_a_net_loss_summary_is_skipped_not_applied(self) -> None:
         """Many entries too tiny for even the terser fallback to beat --
         compression must decline rather than make the window bigger."""
-        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.01, target_ratio=0.01,
-                              keep_recent=0)
+        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.01, target_ratio=0.01, keep_recent=0)
         c.add("u1", "user", "a")
         before_entries = list(c.entries)
 
@@ -2467,8 +2683,7 @@ class TestContextCompressor:
         assert c.compressions == 0
 
     def test_force_compresses_even_under_the_trigger_ratio(self) -> None:
-        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.99, target_ratio=0.02,
-                              keep_recent=0)
+        c = ContextCompressor(max_tokens=1000, trigger_ratio=0.99, target_ratio=0.02, keep_recent=0)
         for i in range(20):
             c.add(f"e{i}", "user", f"entry {i} with a bit of real content in it")
 
@@ -2528,14 +2743,29 @@ class TestBaselineIsPerPlan:
 class TestShellStopsAtTheFirstRealError:
     """HANDOFF.md §2.61: the wrapper's error trap makes a step fail where bash would carry on."""
 
-    @pytest.mark.parametrize("command", ["false; true", "false\ntrue", "true && false; true",
-                                         "f() { false; echo after; }; f; echo end", "(false; true)"])
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "false; true",
+            "false\ntrue",
+            "true && false; true",
+            "f() { false; echo after; }; f; echo end",
+            "(false; true)",
+        ],
+    )
     def test_a_masked_failure_fails_the_step(self, command: str) -> None:
         with pytest.raises(RuntimeError, match="exit 1"):
             shell(command)
 
-    @pytest.mark.parametrize("command", ["grep -q zz /etc/hostname || true", "if false; then :; fi",
-                                         "yes | head -1; true", "echo a; echo b"])
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep -q zz /etc/hostname || true",
+            "if false; then :; fi",
+            "yes | head -1; true",
+            "echo a; echo b",
+        ],
+    )
     def test_ordinary_conditions_and_truncated_pipes_still_succeed(self, command: str) -> None:
         shell(command)
 
@@ -2547,6 +2777,7 @@ class TestShellStopsAtTheFirstRealError:
 class TestShellRunsInItsOwnGroup:
     def _gone(self, pid: int) -> bool:
         import time
+
         for _ in range(40):
             try:
                 os.kill(pid, 0)
@@ -2606,12 +2837,15 @@ class TestShellSurvivesBinaryOutput:
         with pytest.raises(RuntimeError, match="exit 3"):
             shell("printf '\\xff' >&2; exit 3", timeout=5)
 
+
 class TestStepsDoNotInheritSecretsFromTheEnvFile:
     """HANDOFF.md §2.68: names loaded from the `.env` are withheld from a step's environment."""
 
     def test_a_withheld_name_is_not_visible_to_a_step_but_an_ordinary_one_is(
-            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from torra.core import process
+
         monkeypatch.setenv("TORRA_TEST_SECRET", "s3cret")
         monkeypatch.setenv("TORRA_TEST_PLAIN", "visible")
         monkeypatch.setattr(process, "WITHHELD_ENV", {"TORRA_TEST_SECRET"})

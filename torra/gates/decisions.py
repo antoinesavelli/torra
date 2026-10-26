@@ -31,20 +31,25 @@ class Decision:
 class DecisionLog:
     """Every branch torra took, with why. Reasoning is not optional."""
 
-    def __init__(self, clock: Callable[[], float] = time.time,
-                 sink: Callable[[Decision], None] | None = None) -> None:
+    def __init__(
+        self, clock: Callable[[], float] = time.time, sink: Callable[[Decision], None] | None = None
+    ) -> None:
         """Store an injectable clock and an optional live sink for the TUI."""
         self.records: list[Decision] = []
         self._clock = clock
         self._sink = sink
 
-    def log(self, stage: str, decision: str, reasoning: str,
-            evidence: dict[str, Any] | None = None) -> Decision:
+    def log(
+        self, stage: str, decision: str, reasoning: str, evidence: dict[str, Any] | None = None
+    ) -> Decision:
         """Record one decision."""
         record = Decision(
-            stage, decision,
+            stage,
+            decision,
             reasoning.strip() or "NO REASONING SUPPLIED (transparency violation)",
-            dict(evidence or {}), self._clock())
+            dict(evidence or {}),
+            self._clock(),
+        )
         self.records.append(record)
         if self._sink:
             try:

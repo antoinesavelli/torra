@@ -24,9 +24,15 @@ from torra.telemetry.records import redact_secrets
 from .process import run_in_group
 
 __all__ = [
-    "TorraError", "OllamaError", "ContextBudgetError",
-    "Step", "StepResult", "TaskSpec", "TaskSpecError",
-    "shell", "shell_output_sink",
+    "TorraError",
+    "OllamaError",
+    "ContextBudgetError",
+    "Step",
+    "StepResult",
+    "TaskSpec",
+    "TaskSpecError",
+    "shell",
+    "shell_output_sink",
 ]
 
 
@@ -107,8 +113,16 @@ class StepResult:
 #: Fields a step may declare. Anything else is a typo, and typos in a document
 #: that drives root shell commands are errors rather than shrugs.
 STEP_FIELDS: set[str] = {
-    "id", "kind", "run", "description", "estimated_seconds", "touches", "reads",
-    "cwd", "timeout", "remote_path",
+    "id",
+    "kind",
+    "run",
+    "description",
+    "estimated_seconds",
+    "touches",
+    "reads",
+    "cwd",
+    "timeout",
+    "remote_path",
 }
 
 #: Fields a rollback entry may declare. Same discipline as STEP_FIELDS --
@@ -159,8 +173,8 @@ class TaskSpec:
         """
         if value is not None and not isinstance(value, list):
             raise TaskSpecError(
-                f"{where}: '{field_name}' must be a list of paths, not "
-                f"{type(value).__name__}")
+                f"{where}: '{field_name}' must be a list of paths, not {type(value).__name__}"
+            )
         for item in value or []:
             if not isinstance(item, str) or "\x00" in item or len(item) > 4096:
                 raise TaskSpecError(f"{where}: '{field_name}' holds something that is not a path")
@@ -189,7 +203,8 @@ class TaskSpec:
         if unknown:
             raise TaskSpecError(
                 f"{source or 'task'}: step {index} has unknown field(s) "
-                f"{sorted(unknown)}; known fields are {sorted(STEP_FIELDS)}")
+                f"{sorted(unknown)}; known fields are {sorted(STEP_FIELDS)}"
+            )
         if not raw.get("run"):
             raise TaskSpecError(f"{source or 'task'}: step {index} has no 'run' command")
         where = f"{source or 'task'}: step {index}"
@@ -206,6 +221,7 @@ class TaskSpec:
         # load time would cycle -- deferred until _validate_step actually
         # runs, well after both modules have finished loading (§2.53).
         from .remote_edit import validate_remote_step_fields
+
         validate_remote_step_fields(raw, where)
 
     @staticmethod
@@ -214,22 +230,23 @@ class TaskSpec:
 
         The message never repeats the id: it travels on into abort reasons and the console."""
         if redact_secrets(value) != value:
-            raise TaskSpecError(f"{what} looks like a secret; ids end up in file names, choose another")
+            raise TaskSpecError(
+                f"{what} looks like a secret; ids end up in file names, choose another"
+            )
 
     @staticmethod
     def _validate_rollback_entry(raw: Any, index: int, source: str) -> None:
         """Validate one rollback mapping, raising on any defect."""
         if not isinstance(raw, dict):
-            raise TaskSpecError(
-                f"{source or 'task'}: rollback entry {index} must be a mapping")
+            raise TaskSpecError(f"{source or 'task'}: rollback entry {index} must be a mapping")
         unknown = set(raw) - ROLLBACK_FIELDS
         if unknown:
             raise TaskSpecError(
                 f"{source or 'task'}: rollback entry {index} has unknown field(s) "
-                f"{sorted(unknown)}; known fields are {sorted(ROLLBACK_FIELDS)}")
+                f"{sorted(unknown)}; known fields are {sorted(ROLLBACK_FIELDS)}"
+            )
         if not raw.get("run"):
-            raise TaskSpecError(
-                f"{source or 'task'}: rollback entry {index} has no 'run' command")
+            raise TaskSpecError(f"{source or 'task'}: rollback entry {index} has no 'run' command")
         safe = raw.get("safe", True)
         if not isinstance(safe, bool):
             # bool("false") is True in Python -- a quoted "false" (an easy
@@ -239,7 +256,8 @@ class TaskSpec:
             # the classifier alone here."
             raise TaskSpecError(
                 f"{source or 'task'}: rollback entry {index}'s 'safe' must be "
-                f"true or false, not {safe!r}")
+                f"true or false, not {safe!r}"
+            )
 
     @classmethod
     def _validate_rollback(cls, data: dict[str, Any], source: str) -> None:
@@ -357,14 +375,19 @@ class TaskSpec:
                 # would cycle -- deferred until build() actually runs,
                 # well after both modules have finished loading (§2.53).
                 from .remote_edit import build_remote_pull_action, build_remote_push_action
+
                 if kind == "remote_pull":
                     command = f"pull {remote_path} from executor"
                     action: Callable[[], Any] = build_remote_pull_action(
-                        str(remote_path), touches, executor_runner, dry_run, command)
+                        str(remote_path), touches, executor_runner, dry_run, command
+                    )
                 else:
-                    command = f"push {reads[0] if reads else 'a local file'} to {remote_path} on executor"
+                    command = (
+                        f"push {reads[0] if reads else 'a local file'} to {remote_path} on executor"
+                    )
                     action = build_remote_push_action(
-                        str(remote_path), reads, executor_runner, dry_run, command)
+                        str(remote_path), reads, executor_runner, dry_run, command
+                    )
             else:
                 command = str(raw["run"])
 
@@ -379,8 +402,11 @@ class TaskSpec:
                 command=command,
                 kind=kind,
                 description=str(raw.get("description") or command),
-                estimated_seconds=(float(raw["estimated_seconds"])
-                                   if raw.get("estimated_seconds") is not None else None),
+                estimated_seconds=(
+                    float(raw["estimated_seconds"])
+                    if raw.get("estimated_seconds") is not None
+                    else None
+                ),
                 touches=touches,
                 reads=reads,
                 remote_path=str(remote_path) if remote_path is not None else None,
@@ -415,12 +441,14 @@ class TaskSpec:
             if not isinstance(raw, dict) or not raw.get("run"):
                 continue
             command = str(raw["run"])
-            out.append((
-                str(raw.get("description") or f"undo: {command}"),
-                command,
-                functools.partial(execute, command, raw.get("cwd"), raw.get("timeout")),
-                bool(raw.get("safe", True)),
-            ))
+            out.append(
+                (
+                    str(raw.get("description") or f"undo: {command}"),
+                    command,
+                    functools.partial(execute, command, raw.get("cwd"), raw.get("timeout")),
+                    bool(raw.get("safe", True)),
+                )
+            )
         return out
 
 
@@ -464,8 +492,7 @@ def shell_output_sink(on_output: Callable[[str], None] | None) -> Iterator[None]
         _execution_context.on_output = previous
 
 
-def shell(command: str, cwd: str | None = None,
-          timeout: float | None = None) -> str:
+def shell(command: str, cwd: str | None = None, timeout: float | None = None) -> str:
     """Run one shell command, raising on a non-zero exit.
 
     Raising is deliberate. The executor treats a raising step as failed, which

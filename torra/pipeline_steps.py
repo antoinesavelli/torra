@@ -41,8 +41,9 @@ class StepRunner:
     undo: UndoGenerator
     verifier: StateVerifier
 
-    def _arm_step(self, sp: StepPlan, dry_run: bool, resume: ResumePoint,
-                  resume_path: Path) -> None:
+    def _arm_step(
+        self, sp: StepPlan, dry_run: bool, resume: ResumePoint, resume_path: Path
+    ) -> None:
         """Right before a step runs: its derived undos go on the stack and the resume file
         records it as in flight."""
         if not dry_run:
@@ -51,21 +52,29 @@ class StepRunner:
             self.rollback.push_many(sp.undos)
             begin_step(resume, resume_path, sp.step.step_id)
 
-    def _block_on_conflict(self, found: Sequence[Conflict], sp: StepPlan,
-                           result: RunResult) -> None:
+    def _block_on_conflict(
+        self, found: Sequence[Conflict], sp: StepPlan, result: RunResult
+    ) -> None:
         """Mark the run BLOCKED and keep the sweep off the files that changed."""
         result.outcome = Outcome.BLOCKED
         result.abort_reason = (
             f"{len(found)} external file change(s) before {sp.step.step_id}: "
-            + ", ".join(f"{c.path}={c.kind.value}" for c in found[:4]))
+            + ", ".join(f"{c.path}={c.kind.value}" for c in found[:4])
+        )
         self.decisions.log(Stage.EXECUTE.value, "external conflict", result.abort_reason)
         drop_edited_undos(self.rollback, self.decisions, found)
 
-    def _run_steps(self, plan: Plan, result: RunResult, dry_run: bool,
-                    resume: ResumePoint, resume_path: Path,
-                    on_output: Callable[[str, str], None] | None = None,
-                    resumed_steps: AbstractSet[str] = frozenset(),
-                    interrupted: str = "") -> bool:
+    def _run_steps(
+        self,
+        plan: Plan,
+        result: RunResult,
+        dry_run: bool,
+        resume: ResumePoint,
+        resume_path: Path,
+        on_output: Callable[[str, str], None] | None = None,
+        resumed_steps: AbstractSet[str] = frozenset(),
+        interrupted: str = "",
+    ) -> bool:
         """Run each step in order, True if it failed/blocked. Guards run
         inside this loop, not once before it: state can change mid-run."""
         for sp in plan.steps:
@@ -76,8 +85,9 @@ class StepRunner:
                 # recheck/conflict guards below exist to catch state
                 # changing since a step was *about to* run, which doesn't
                 # apply to a step that isn't going to run at all this time.
-                sp.result = StepResult(sp.step.step_id, True,
-                                       f"[resumed] {sp.step.command}", seconds=0.0)
+                sp.result = StepResult(
+                    sp.step.step_id, True, f"[resumed] {sp.step.command}", seconds=0.0
+                )
                 result.results.append(sp.result)
                 result.executed = True
                 continue
@@ -88,9 +98,9 @@ class StepRunner:
                 # set `result.executed`. Not `result.executed = True` here
                 # deliberately: this step genuinely never ran, unlike the
                 # resumed case above (which vouches for a real prior run).
-                sp.result = StepResult(sp.step.step_id, True,
-                                       f"[skipped] not approved: {sp.step.command}",
-                                       seconds=0.0)
+                sp.result = StepResult(
+                    sp.step.step_id, True, f"[skipped] not approved: {sp.step.command}", seconds=0.0
+                )
                 result.results.append(sp.result)
                 continue
 
@@ -107,8 +117,9 @@ class StepRunner:
                     self.decisions.log(Stage.EXECUTE.value, "stopped mid-run", veto)
                     return True
 
-            found = self.conflicts.detect() if (
-                self.conflicts.hashes or self.conflicts.roots) else []
+            found = (
+                self.conflicts.detect() if (self.conflicts.hashes or self.conflicts.roots) else []
+            )
             if found:
                 self._block_on_conflict(found, sp, result)
                 return True
@@ -121,14 +132,17 @@ class StepRunner:
             if not sp.result.ok:
                 result.outcome = Outcome.FAILED
                 result.abort_reason = f"{sp.step.step_id} failed: {sp.result.error}"
-                self.decisions.log(Stage.EXECUTE.value, "step failed",
-                                   result.abort_reason)
+                self.decisions.log(Stage.EXECUTE.value, "step failed", result.abort_reason)
                 return True
         return False
 
     @staticmethod
-    def _run_one_step(sp: StepPlan, result: RunResult, dry_run: bool,
-                      on_output: Callable[[str, str], None] | None = None) -> StepResult:
+    def _run_one_step(
+        sp: StepPlan,
+        result: RunResult,
+        dry_run: bool,
+        on_output: Callable[[str, str], None] | None = None,
+    ) -> StepResult:
         """Run one step, converting any raise into a failed StepResult.
         Returns rather than assigns `sp.result` (mypy can't narrow a
         mutated attribute to non-None across a call boundary)."""
@@ -147,28 +161,32 @@ class StepRunner:
                 # audit, not live.
                 result.executed = True
                 if sp.step.run is None:
-                    raise TorraError(
-                        f"step {sp.step.step_id!r} has no run action attached")
+                    raise TorraError(f"step {sp.step.step_id!r} has no run action attached")
                 step_id = sp.step.step_id
-                sink = ((lambda chunk: on_output(step_id, chunk))
-                       if on_output is not None else None)
+                sink = (lambda chunk: on_output(step_id, chunk)) if on_output is not None else None
                 with shell_output_sink(sink):
                     output = sp.step.run()
-            step_result = StepResult(sp.step.step_id, True, str(output or ""),
-                                     seconds=time.perf_counter() - step_started)
+            step_result = StepResult(
+                sp.step.step_id, True, str(output or ""), seconds=time.perf_counter() - step_started
+            )
         except (Exception, KeyboardInterrupt) as exc:
             # Broad on purpose: whatever a step's `run` raises, Ctrl-C included,
             # becomes a failed StepResult instead of propagating out of
             # execute(), so the caller still reaches the rollback sweep. An
             # uncaught exception here would skip rollback entirely.
-            step_result = StepResult(sp.step.step_id, False, "",
-                                     f"{type(exc).__name__}: {exc}",
-                                     time.perf_counter() - step_started)
+            step_result = StepResult(
+                sp.step.step_id,
+                False,
+                "",
+                f"{type(exc).__name__}: {exc}",
+                time.perf_counter() - step_started,
+            )
         result.results.append(step_result)
         return step_result
 
-    def _sweep_rollback(self, result: RunResult, resume_path: Path,
-                        held: Sequence[UndoAction]) -> None:
+    def _sweep_rollback(
+        self, result: RunResult, resume_path: Path, held: Sequence[UndoAction]
+    ) -> None:
         """Undo everything pushed so far, if there's anything to undo.
 
         Drops the resume file only when a rollback was attempted (complete or not): that
@@ -197,5 +215,4 @@ class StepRunner:
                 resume_path.unlink(missing_ok=True)
             except OSError:
                 pass
-        self.decisions.log(Stage.EXECUTE.value, "completed",
-                           f"{len(result.results)} step(s) ran")
+        self.decisions.log(Stage.EXECUTE.value, "completed", f"{len(result.results)} step(s) ran")

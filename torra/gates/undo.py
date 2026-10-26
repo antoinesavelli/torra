@@ -40,8 +40,7 @@ __all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
 #: dnf/pacman too, for classification -- that's a different, legitimate
 #: concern from "can this generator actually invert it," which is the
 #: only thing this pattern controls.
-PACKAGE_PATTERN = re.compile(
-    r"\b(?:apt|apt-get)\s+(install|remove|purge)\s+(.+)", re.IGNORECASE)
+PACKAGE_PATTERN = re.compile(r"\b(?:apt|apt-get)\s+(install|remove|purge)\s+(.+)", re.IGNORECASE)
 MKDIR_PATTERN = re.compile(r"\bmkdir\b(?:\s+-\w+)*\s+([^\s;|&]+)")
 
 
@@ -82,15 +81,19 @@ class UndoGenerator(RemoteCapture):
         fabricated undo (`HANDOFF.md` §2.53)."""
         import tempfile
 
-        self.shadow_dir = Path(shadow_dir) if shadow_dir else Path(
-            tempfile.mkdtemp(prefix=f"torra-shadow-{os.getpid()}-"))
+        self.shadow_dir = (
+            Path(shadow_dir)
+            if shadow_dir
+            else Path(tempfile.mkdtemp(prefix=f"torra-shadow-{os.getpid()}-"))
+        )
         self.shadow_dir.mkdir(parents=True, exist_ok=True)
         self._scope_probe = scope_probe or self._systemctl_scope
         self._service_probe = service_probe or self._systemctl_state
         self._enabled_probe = enabled_probe or self._systemctl_enabled
         self._package_probe = package_probe or self._dpkg_set
-        self.max_shadow_bytes = (self.MAX_SHADOW_BYTES if max_shadow_bytes is None
-                                 else int(max_shadow_bytes))
+        self.max_shadow_bytes = (
+            self.MAX_SHADOW_BYTES if max_shadow_bytes is None else int(max_shadow_bytes)
+        )
         self.prefer_reflink = bool(prefer_reflink)
         self._executor_runner = executor_runner
         self.reflink_supported: bool | None = None
@@ -118,8 +121,12 @@ class UndoGenerator(RemoteCapture):
     def _dpkg_set() -> set[str]:
         """Installed package set, or empty on error."""
         try:
-            out = subprocess.run(["dpkg-query", "-f", "${Package}\n", "-W"],
-                                 capture_output=True, text=True, timeout=20)
+            out = subprocess.run(
+                ["dpkg-query", "-f", "${Package}\n", "-W"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
             return {line.strip() for line in out.stdout.splitlines() if line.strip()}
         except Exception:
             return set()
@@ -136,8 +143,12 @@ class UndoGenerator(RemoteCapture):
         probe, clone = self.shadow_dir / ".rl", self.shadow_dir / ".rl-clone"
         try:
             probe.write_bytes(b"probe")
-            result = subprocess.run(["cp", "--reflink=always", str(probe), str(clone)],
-                                    capture_output=True, text=True, timeout=10)
+            result = subprocess.run(
+                ["cp", "--reflink=always", str(probe), str(clone)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             self.reflink_supported = result.returncode == 0
         except Exception:
             self.reflink_supported = False
@@ -154,9 +165,11 @@ class UndoGenerator(RemoteCapture):
         if self._probe_reflink():
             try:
                 result = subprocess.run(
-                    ["cp", "--reflink=always", "--preserve=all",
-                     str(source), str(destination)],
-                    capture_output=True, text=True, timeout=60)
+                    ["cp", "--reflink=always", "--preserve=all", str(source), str(destination)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
                 if result.returncode == 0:
                     self.reflink_copies += 1
                     return "reflink"
@@ -168,14 +181,12 @@ class UndoGenerator(RemoteCapture):
 
     # -- capture ----------------------------------------------------------- #
 
-    def capture_file(self, path: os.PathLike[str] | str,
-                     step_id: str = "") -> UndoAction | None:
+    def capture_file(self, path: os.PathLike[str] | str, step_id: str = "") -> UndoAction | None:
         """Snapshot one file and build its restore action."""
         target = Path(path)
 
         if not target.exists():
-            snap = Snapshot(SnapshotKind.FILE_ABSENT, str(target),
-                            "did not exist before the step")
+            snap = Snapshot(SnapshotKind.FILE_ABSENT, str(target), "did not exist before the step")
             self.snapshots.append(snap)
 
             def undo_absent() -> None:
@@ -183,9 +194,15 @@ class UndoGenerator(RemoteCapture):
                 if target.exists():
                     target.unlink()
 
-            return UndoAction(f"delete {target} (it did not exist before)",
-                              undo_absent, True, lambda: not target.exists(),
-                              True, snap, step_id)
+            return UndoAction(
+                f"delete {target} (it did not exist before)",
+                undo_absent,
+                True,
+                lambda: not target.exists(),
+                True,
+                snap,
+                step_id,
+            )
 
         try:
             stat = target.stat()
@@ -196,7 +213,8 @@ class UndoGenerator(RemoteCapture):
         if size > self.max_shadow_bytes:
             self.skipped.append(
                 f"{target} is {size} bytes, over max_shadow_bytes="
-                f"{self.max_shadow_bytes}; no undo generated, declare one manually")
+                f"{self.max_shadow_bytes}; no undo generated, declare one manually"
+            )
             return None
 
         self._counter += 1
@@ -208,8 +226,14 @@ class UndoGenerator(RemoteCapture):
             return None
 
         dig = self.digest(target)
-        snap = Snapshot(SnapshotKind.FILE_CONTENT, str(target),
-                        f"{size} bytes via {how}", str(shadow), dig, mode=mode)
+        snap = Snapshot(
+            SnapshotKind.FILE_CONTENT,
+            str(target),
+            f"{size} bytes via {how}",
+            str(shadow),
+            dig,
+            mode=mode,
+        )
         self.snapshots.append(snap)
 
         def undo_restore() -> None:
@@ -218,16 +242,24 @@ class UndoGenerator(RemoteCapture):
             shutil.copy2(shadow, target)
             os.chmod(target, mode & 0o7777)
 
-        return UndoAction(f"restore {target} from snapshot ({how})", undo_restore,
-                          True, lambda: self.digest(target) == dig, True, snap, step_id)
+        return UndoAction(
+            f"restore {target} from snapshot ({how})",
+            undo_restore,
+            True,
+            lambda: self.digest(target) == dig,
+            True,
+            snap,
+            step_id,
+        )
 
     def capture_service(self, unit: str, step_id: str = "") -> UndoAction:
         """Snapshot a unit's state and build its restore action."""
         before = self._service_probe(unit)
         enabled_before = self._enabled_probe(unit)
         scope = self._scope_probe(unit)
-        snap = Snapshot(SnapshotKind.SERVICE_STATE, unit, f"was {before}, {enabled_before}",
-                        payload=before)
+        snap = Snapshot(
+            SnapshotKind.SERVICE_STATE, unit, f"was {before}, {enabled_before}", payload=before
+        )
         self.snapshots.append(snap)
 
         def undo_service() -> None:
@@ -238,33 +270,56 @@ class UndoGenerator(RemoteCapture):
             # restore nothing.
             base = ["systemctl", *(["--user"] if scope == "user" else [])]
             for verb in restore_verbs(self._enabled_probe(unit), before, enabled_before):
-                subprocess.run([*base, verb, unit], capture_output=True, text=True,
-                               timeout=30, check=False)
+                subprocess.run(
+                    [*base, verb, unit], capture_output=True, text=True, timeout=30, check=False
+                )
 
         return UndoAction(
-            f"restore {unit} to {before}, {enabled_before}", undo_service, True,
-            lambda: ("unknown" not in (before, enabled_before)  # never read: nothing to verify
-                     and self._service_probe(unit) == before
-                     and self._enabled_probe(unit) == enabled_before),
-            True, snap, step_id)
+            f"restore {unit} to {before}, {enabled_before}",
+            undo_service,
+            True,
+            lambda: (
+                "unknown" not in (before, enabled_before)  # never read: nothing to verify
+                and self._service_probe(unit) == before
+                and self._enabled_probe(unit) == enabled_before
+            ),
+            True,
+            snap,
+            step_id,
+        )
 
     def capture_packages(self, requested: str, step_id: str = "") -> UndoAction:
         """Snapshot the package set. Marked unsafe: removals cascade."""
         before = self._package_probe()
-        snap = Snapshot(SnapshotKind.PACKAGE_SET, requested,
-                        f"{len(before)} packages installed before", payload=sorted(before))
+        snap = Snapshot(
+            SnapshotKind.PACKAGE_SET,
+            requested,
+            f"{len(before)} packages installed before",
+            payload=sorted(before),
+        )
         self.snapshots.append(snap)
 
         def undo_packages() -> None:
             """Remove exactly the packages that appeared since the snapshot."""
             added = sorted(self._package_probe() - before)
             if added:
-                subprocess.run(["apt-get", "remove", "--yes", *added],
-                               capture_output=True, text=True, timeout=300, check=False)
+                subprocess.run(
+                    ["apt-get", "remove", "--yes", *added],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    check=False,
+                )
 
-        return UndoAction(f"remove packages added by '{requested}'", undo_packages,
-                          False, lambda: self._package_probe() <= before,
-                          True, snap, step_id)
+        return UndoAction(
+            f"remove packages added by '{requested}'",
+            undo_packages,
+            False,
+            lambda: self._package_probe() <= before,
+            True,
+            snap,
+            step_id,
+        )
 
     def capture_mkdir(self, path: str, step_id: str = "") -> UndoAction | None:
         """Build an undo that removes a directory the step will create."""
@@ -287,9 +342,15 @@ class UndoGenerator(RemoteCapture):
         # a directory -- with whatever got written into it -- that was
         # never actually removed. The prior state was "did not exist";
         # only "does not exist now" honestly confirms that.
-        return UndoAction(f"remove {target} if still empty", undo_mkdir, True,
-                          lambda: not target.exists(),
-                          True, snap, step_id)
+        return UndoAction(
+            f"remove {target} if still empty",
+            undo_mkdir,
+            True,
+            lambda: not target.exists(),
+            True,
+            snap,
+            step_id,
+        )
 
     def for_step(self, step: Any) -> list[UndoAction]:
         """Every undo derivable from one step, in push order."""
@@ -320,7 +381,8 @@ class UndoGenerator(RemoteCapture):
             else:
                 self.skipped.append(
                     f"'{verb} {packages.strip()}' removes packages and cannot be "
-                    "auto-inverted; declare a rollback entry")
+                    "auto-inverted; declare a rollback entry"
+                )
         for path in MKDIR_PATTERN.findall(command):
             action = self.capture_mkdir(path, step_id)
             if action:
@@ -337,10 +399,13 @@ class UndoGenerator(RemoteCapture):
         for step in steps:
             command = getattr(step, "command", "") or ""
             touches = getattr(step, "touches", None) or []
-            derivable = (bool(touches) and all(str(Path(t)) in snapped for t in touches)
-                         or service_units(command)
-                         or PACKAGE_PATTERN.search(command)
-                         or MKDIR_PATTERN.search(command))
+            derivable = (
+                bool(touches)
+                and all(str(Path(t)) in snapped for t in touches)
+                or service_units(command)
+                or PACKAGE_PATTERN.search(command)
+                or MKDIR_PATTERN.search(command)
+            )
             (covered if derivable else uncovered).append(getattr(step, "step_id", "?"))
         return {
             "covered": covered,

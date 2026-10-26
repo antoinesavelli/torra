@@ -11,8 +11,7 @@ from __future__ import annotations
 import re
 import subprocess
 
-SERVICE_PATTERN = re.compile(
-    r"\bsystemctl\b([^;&|\n]*)", re.IGNORECASE)
+SERVICE_PATTERN = re.compile(r"\bsystemctl\b([^;&|\n]*)", re.IGNORECASE)
 SERVICE_VERBS = frozenset({"start", "stop", "restart", "enable", "disable", "mask", "unmask"})
 
 
@@ -44,7 +43,10 @@ def systemctl_scope(unit: str) -> str:
     try:
         out = subprocess.run(
             ["systemctl", "--user", "show", unit, "--property=LoadState"],
-            capture_output=True, text=True, timeout=5)
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
         if out.stdout.strip() == "LoadState=loaded":
             return "user"
     except Exception:

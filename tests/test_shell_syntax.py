@@ -23,26 +23,32 @@ from torra.core.process import shell_syntax_error
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("command", [
-    "ls -l /srv/api",
-    "ls -l '/home/antoine/Downloads/Telegram (2)'",
-    "du -ah /home/$USER | sort -rh | head -n 20",
-    "find /srv -type d -name '*Telegram (2)*'",
-    "if [ -d /srv ]; then echo yes; fi",
-    "cat <<EOF\nhello (2)\nEOF",
-    "echo a\necho b",
-])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ls -l /srv/api",
+        "ls -l '/home/antoine/Downloads/Telegram (2)'",
+        "du -ah /home/$USER | sort -rh | head -n 20",
+        "find /srv -type d -name '*Telegram (2)*'",
+        "if [ -d /srv ]; then echo yes; fi",
+        "cat <<EOF\nhello (2)\nEOF",
+        "echo a\necho b",
+    ],
+)
 def test_valid_bash_has_no_syntax_error(command: str) -> None:
     assert shell_syntax_error(command) is None
 
 
-@pytest.mark.parametrize("command, fragment", [
-    ("ls -l /home/user/Downloads/Telegram (2)", "("),
-    ("rm -r /home/user/Downloads/Telegram (2)", "("),
-    ("echo 'unterminated", "unexpected EOF"),
-    ("if true; then echo x", "unexpected end of file"),
-    ("echo a\nls (2)", "line 2"),
-])
+@pytest.mark.parametrize(
+    "command, fragment",
+    [
+        ("ls -l /home/user/Downloads/Telegram (2)", "("),
+        ("rm -r /home/user/Downloads/Telegram (2)", "("),
+        ("echo 'unterminated", "unexpected EOF"),
+        ("if true; then echo x", "unexpected end of file"),
+        ("echo a\nls (2)", "line 2"),
+    ],
+)
 def test_invalid_bash_is_reported_in_bashs_own_words(command: str, fragment: str) -> None:
     message = shell_syntax_error(command)
     assert message is not None
@@ -56,8 +62,9 @@ def test_checking_a_command_never_runs_it(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
-def test_checking_a_command_does_not_source_bash_env(tmp_path: Path,
-                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+def test_checking_a_command_does_not_source_bash_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`bash -c` reads $BASH_ENV; a checker that inherited one would run that file."""
     marker = tmp_path / "sourced"
     startup = tmp_path / "startup.sh"
@@ -102,8 +109,8 @@ def _recording(*replies: dict[str, Any]):
 
 def test_a_step_bash_cannot_parse_gets_a_repair_round() -> None:
     transport, chats = _recording(
-        plan_reply("t", "list /srv/api", [_UNQUOTED]),
-        plan_reply("t", "list /srv/api", [_QUOTED]))
+        plan_reply("t", "list /srv/api", [_UNQUOTED]), plan_reply("t", "list /srv/api", [_QUOTED])
+    )
 
     turn = build_agent(transport).converse("list /srv/api")
 
@@ -111,8 +118,11 @@ def test_a_step_bash_cannot_parse_gets_a_repair_round() -> None:
     assert turn.repairs == 1
     assert turn.spec is not None
     assert turn.spec.commands() == ["ls -l '/srv/api/Telegram (2)'"]
-    complaint = next(m["content"] for m in chats[1]["messages"]
-                     if m["role"] == "user" and "not valid bash" in m["content"])
+    complaint = next(
+        m["content"]
+        for m in chats[1]["messages"]
+        if m["role"] == "user" and "not valid bash" in m["content"]
+    )
     assert "step 'ls'" in complaint
     assert "syntax error" in complaint
     assert "quote" in complaint.lower(), "the complaint should say what usually fixes it"
@@ -121,12 +131,16 @@ def test_a_step_bash_cannot_parse_gets_a_repair_round() -> None:
 def test_only_the_steps_that_do_not_parse_are_named() -> None:
     transport, chats = _recording(
         plan_reply("t", "list /srv/api", [{"id": "fine", "run": "ls /srv/api"}, _UNQUOTED]),
-        plan_reply("t", "list /srv/api", [{"id": "fine", "run": "ls /srv/api"}, _QUOTED]))
+        plan_reply("t", "list /srv/api", [{"id": "fine", "run": "ls /srv/api"}, _QUOTED]),
+    )
 
     build_agent(transport).converse("list /srv/api")
 
-    complaint = next(m["content"] for m in chats[1]["messages"]
-                     if m["role"] == "user" and "not valid bash" in m["content"])
+    complaint = next(
+        m["content"]
+        for m in chats[1]["messages"]
+        if m["role"] == "user" and "not valid bash" in m["content"]
+    )
     assert "step 'ls'" in complaint
     assert "step 'fine'" not in complaint
 

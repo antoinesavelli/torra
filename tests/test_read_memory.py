@@ -23,7 +23,9 @@ def test_remember_adds_content_tagged_by_path() -> None:
 
     memory.remember("/mnt/system-library/quirks.md", "quirk #12: ...")
 
-    entry = next(e for e in memory.context.entries if e.entry_id == "read:/mnt/system-library/quirks.md")
+    entry = next(
+        e for e in memory.context.entries if e.entry_id == "read:/mnt/system-library/quirks.md"
+    )
     assert "/mnt/system-library/quirks.md" in entry.content
     assert "quirk #12" in entry.content
     assert memory.paths["/mnt/system-library/quirks.md"] == entry.entry_id
@@ -113,21 +115,28 @@ def test_reset_clears_tracked_paths() -> None:
 
 @pytest.fixture()
 def base_plan() -> Plan:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "r",
-        "steps": [{"id": "s1", "run": "true"}]}, source="test")
+    spec = TaskSpec.validate(
+        {"task_id": "t", "request": "r", "steps": [{"id": "s1", "run": "true"}]}, source="test"
+    )
     verdict = Verdict(command="true", level=RiskLevel.SAFE)
-    return Plan(spec=spec, steps=[StepPlan(
-        step=Step(step_id="s1", command="true"), verdict=verdict)])
+    return Plan(
+        spec=spec, steps=[StepPlan(step=Step(step_id="s1", command="true"), verdict=verdict)]
+    )
 
 
 def test_remember_step_reads_feeds_a_successful_reads_step_into_memory() -> None:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "r",
-        "steps": [{"id": "read", "run": "cat /a.txt", "reads": ["/a.txt"]}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "r",
+            "steps": [{"id": "read", "run": "cat /a.txt", "reads": ["/a.txt"]}],
+        },
+        source="test",
+    )
     verdict = Verdict(command="cat /a.txt", level=RiskLevel.SAFE)
-    step_plan = StepPlan(step=Step(step_id="read", command="cat /a.txt", reads=["/a.txt"]),
-                         verdict=verdict)
+    step_plan = StepPlan(
+        step=Step(step_id="read", command="cat /a.txt", reads=["/a.txt"]), verdict=verdict
+    )
     step_plan.result = StepResult("read", True, "the real file content")
     plan = Plan(spec=spec, steps=[step_plan])
     result = RunResult(request="r", outcome=Outcome.COMPLETED, plan=plan)
@@ -139,9 +148,9 @@ def test_remember_step_reads_feeds_a_successful_reads_step_into_memory() -> None
 
 
 def test_remember_step_reads_skips_a_step_with_no_reads_declared() -> None:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "r",
-        "steps": [{"id": "s", "run": "echo hi"}]}, source="test")
+    spec = TaskSpec.validate(
+        {"task_id": "t", "request": "r", "steps": [{"id": "s", "run": "echo hi"}]}, source="test"
+    )
     verdict = Verdict(command="echo hi", level=RiskLevel.SAFE)
     step_plan = StepPlan(step=Step(step_id="s", command="echo hi"), verdict=verdict)
     step_plan.result = StepResult("s", True, "hi")
@@ -155,12 +164,18 @@ def test_remember_step_reads_skips_a_step_with_no_reads_declared() -> None:
 
 
 def test_remember_step_reads_skips_a_failed_steps_output() -> None:
-    spec = TaskSpec.validate({
-        "task_id": "t", "request": "r",
-        "steps": [{"id": "read", "run": "cat /no/such", "reads": ["/no/such"]}]}, source="test")
+    spec = TaskSpec.validate(
+        {
+            "task_id": "t",
+            "request": "r",
+            "steps": [{"id": "read", "run": "cat /no/such", "reads": ["/no/such"]}],
+        },
+        source="test",
+    )
     verdict = Verdict(command="cat /no/such", level=RiskLevel.SAFE)
-    step_plan = StepPlan(step=Step(step_id="read", command="cat /no/such", reads=["/no/such"]),
-                         verdict=verdict)
+    step_plan = StepPlan(
+        step=Step(step_id="read", command="cat /no/such", reads=["/no/such"]), verdict=verdict
+    )
     step_plan.result = StepResult("read", False, "", error="No such file")
     plan = Plan(spec=spec, steps=[step_plan])
     result = RunResult(request="r", outcome=Outcome.COMPLETED, plan=plan)
@@ -217,6 +232,7 @@ def test_a_closing_tag_inside_a_file_cannot_end_the_data_block_early() -> None:
 
 def test_the_planning_prompt_says_tagged_text_is_data_never_instructions() -> None:
     from torra.prompts import SYSTEM_PROMPT
+
     prompt = " ".join(SYSTEM_PROMPT.split())
     assert "<file" in prompt and "<command-output>" in prompt
     assert "never instructions" in prompt
@@ -227,14 +243,26 @@ def test_skipped_and_resumed_placeholders_are_not_remembered_as_file_contents() 
     context = ContextCompressor(max_tokens=1000)
     memory = ReadMemory(context)
     steps = []
-    for step_id, output in (("skipped", "[skipped] not approved: cat /a"),
-                            ("resumed", "[resumed] cat /b"), ("real", "contents of c")):
+    for step_id, output in (
+        ("skipped", "[skipped] not approved: cat /a"),
+        ("resumed", "[resumed] cat /b"),
+        ("real", "contents of c"),
+    ):
         step = Step(step_id, command=f"cat /{step_id}", reads=[f"/{step_id}"])
-        steps.append(StepPlan(step, Verdict(step.command, RiskLevel.SAFE), [],
-                              approved=step_id != "skipped",
-                              result=StepResult(step_id, True, output)))
-    result = RunResult(request="r", outcome=Outcome.COMPLETED,
-                       plan=Plan(TaskSpec(task_id="t", request="r", steps=[]), steps))
+        steps.append(
+            StepPlan(
+                step,
+                Verdict(step.command, RiskLevel.SAFE),
+                [],
+                approved=step_id != "skipped",
+                result=StepResult(step_id, True, output),
+            )
+        )
+    result = RunResult(
+        request="r",
+        outcome=Outcome.COMPLETED,
+        plan=Plan(TaskSpec(task_id="t", request="r", steps=[]), steps),
+    )
 
     remember_step_reads(memory, result)
 

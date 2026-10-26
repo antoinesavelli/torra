@@ -130,47 +130,86 @@ class ModelChoice:
 #: JSON-planning battery, not this specific "summarize everything"
 #: phrasing.
 ROUTING_RULES: list[tuple[str, str, str, str]] = [
-    ("debug", r"\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)"
-              r"|root\s*cause|failing|broken|bug)\b",
-     "gpt-oss:20b", "debugging needs the deepest reasoning budget available "
-                   "locally (replaces qwen3:32b, then muse-glimmer:30b; "
-                   "measured best intent accuracy and speed of 4 models "
-                   "tested 2026-08-28, see this file's own comment above)"),
-    ("deploy", r"\b(deploy|release|ship|rollout|provision|terraform|ansible|"
-               r"systemd\s+unit)\b",
-     "devstral:24b", "deployment work needs strong tool and file editing behaviour"),
-    ("code", r"\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|"
-             r"migrate\s+code)\b",
-     "devstral-small-2:24b", "65.8% SWE-bench Verified (Mistral AI, Apache 2.0); "
-                            "replaces qwen3-coder:30b, 2026-08-28 Qwen-removal "
-                            "swap -- still not benchmarked against this torra"),
-    ("plan", r"\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b",
-     "gpt-oss:20b", "planning benefits from long context reasoning "
-                   "(replaces qwen3:32b, then muse-glimmer:30b; measured "
-                   "best intent accuracy and speed 2026-08-28)"),
-    ("analyze", r"\b(analy[sz]e|summar[iy]|review|audit|explain)\b",
-     "gpt-oss:20b", "analysis is reasoning bound, not tool bound "
-                   "(replaces qwen3:32b, then muse-glimmer:30b; measured "
-                   "best intent accuracy and speed 2026-08-28)"),
+    (
+        "debug",
+        r"\b(debug|traceback|stack\s*trace|crash|crashing|why\s+(is|does|did)"
+        r"|root\s*cause|failing|broken|bug)\b",
+        "gpt-oss:20b",
+        "debugging needs the deepest reasoning budget available "
+        "locally (replaces qwen3:32b, then muse-glimmer:30b; "
+        "measured best intent accuracy and speed of 4 models "
+        "tested 2026-08-28, see this file's own comment above)",
+    ),
+    (
+        "deploy",
+        r"\b(deploy|release|ship|rollout|provision|terraform|ansible|"
+        r"systemd\s+unit)\b",
+        "devstral:24b",
+        "deployment work needs strong tool and file editing behaviour",
+    ),
+    (
+        "code",
+        r"\b(refactor|implement|write\s+(a\s+)?(script|function|class)|patch|"
+        r"migrate\s+code)\b",
+        "devstral-small-2:24b",
+        "65.8% SWE-bench Verified (Mistral AI, Apache 2.0); "
+        "replaces qwen3-coder:30b, 2026-08-28 Qwen-removal "
+        "swap -- still not benchmarked against this torra",
+    ),
+    (
+        "plan",
+        r"\b(plan|architect|design|strategy|trade[- ]?off|evaluate\s+options)\b",
+        "gpt-oss:20b",
+        "planning benefits from long context reasoning "
+        "(replaces qwen3:32b, then muse-glimmer:30b; measured "
+        "best intent accuracy and speed 2026-08-28)",
+    ),
+    (
+        "analyze",
+        r"\b(analy[sz]e|summar[iy]|review|audit|explain)\b",
+        "gpt-oss:20b",
+        "analysis is reasoning bound, not tool bound "
+        "(replaces qwen3:32b, then muse-glimmer:30b; measured "
+        "best intent accuracy and speed 2026-08-28)",
+    ),
     # Live wire: HANDOFF.md §5.18
-    ("quick", r"\b(list|show|print|cat|what\s+is|check|status)\b",
-     "devstral:24b", "measured live 2026-08-17: qwen3.5 gave a content-free "
-                     "non-answer on 1 of 5 real disk/status checks, devstral "
-                     "answered all correctly at comparable speed"),
+    (
+        "quick",
+        r"\b(list|show|print|cat|what\s+is|check|status)\b",
+        "devstral:24b",
+        "measured live 2026-08-17: qwen3.5 gave a content-free "
+        "non-answer on 1 of 5 real disk/status checks, devstral "
+        "answered all correctly at comparable speed",
+    ),
 ]
 
 #: Parameter counts for models whose name does not carry one. Without this,
 #: `devstral` parses as 0b and looks like it fits anywhere, which is how a 24b
 #: model gets routed onto a 4 GB card.
 KNOWN_PARAMS_B: dict[str, float] = {
-    "devstral": 24.0, "codestral": 22.0, "mistral": 7.0, "mixtral": 47.0,
-    "llama3": 8.0, "llama3.1": 8.0, "phi3": 3.8, "gemma2": 9.0,
-    "deepseek-coder": 6.7, "starcoder2": 7.0, "granite-code": 8.0,
-    "devstral-small-2": 24.0, "muse-glimmer": 30.0, "gpt-oss": 20.0,
+    "devstral": 24.0,
+    "codestral": 22.0,
+    "mistral": 7.0,
+    "mixtral": 47.0,
+    "llama3": 8.0,
+    "llama3.1": 8.0,
+    "phi3": 3.8,
+    "gemma2": 9.0,
+    "deepseek-coder": 6.7,
+    "starcoder2": 7.0,
+    "granite-code": 8.0,
+    "devstral-small-2": 24.0,
+    "muse-glimmer": 30.0,
+    "gpt-oss": 20.0,
 }
 
 RULE_WEIGHTS: dict[str, float] = {
-    "debug": 3.0, "plan": 2.0, "analyze": 1.8, "deploy": 1.5, "code": 1.5, "quick": 0.5,
+    "debug": 3.0,
+    "plan": 2.0,
+    "analyze": 1.8,
+    "deploy": 1.5,
+    "code": 1.5,
+    "quick": 0.5,
 }
 
 
@@ -348,9 +387,10 @@ class ModelRouter:
         Found live in a real audit log (disk-usage-analysis), not a test.
         """
         candidates = sorted(
-            (m for m in (self.available or set())
-             if self.runnable(m) and self._chat_capable(m)),
-            key=self._params_b, reverse=True)
+            (m for m in (self.available or set()) if self.runnable(m) and self._chat_capable(m)),
+            key=self._params_b,
+            reverse=True,
+        )
         if candidates:
             return candidates[0]
         if self.available:
@@ -402,8 +442,7 @@ class ModelRouter:
                     first_at = match.start()
                 terms.append(match.group(0))
             if terms:
-                raw.append((name, model, self.weights.get(name, 1.0) * len(terms),
-                            terms, first_at))
+                raw.append((name, model, self.weights.get(name, 1.0) * len(terms), terms, first_at))
         if not raw:
             return []
         # `lead` is the earliest match position across every rule that hit at
@@ -411,8 +450,10 @@ class ModelRouter:
         # which is what makes "the deploy is broken" score debug over deploy
         # even though both match -- debug's term starts earlier in the text.
         lead = min(row[4] for row in raw)
-        scored = [(n, m, round(s * (self.LEAD_MULTIPLIER if at == lead else 1.0), 4), t)
-                  for n, m, s, t, at in raw]
+        scored = [
+            (n, m, round(s * (self.LEAD_MULTIPLIER if at == lead else 1.0), 4), t)
+            for n, m, s, t, at in raw
+        ]
         # Tie-break on the rule's configured weight, not match count or name,
         # so two rules landing on the same final score still resolve the same
         # way `select()`'s confidence calculation expects.
@@ -450,33 +491,44 @@ class ModelRouter:
                     qwen32b_note = note
                     model, note = self._downgrade(self.default_model, "default")
                     note = qwen32b_note + (
-                        f", then {self.default_model}{note}" if note
-                        else f", {self.default_model} fits")
-                reason = ("no routing rule matched and the request is ambiguous, "
-                          "routing to the model measured better at asking "
-                          f"instead of assuming{note}")
+                        f", then {self.default_model}{note}"
+                        if note
+                        else f", {self.default_model} fits"
+                    )
+                reason = (
+                    "no routing rule matched and the request is ambiguous, "
+                    "routing to the model measured better at asking "
+                    f"instead of assuming{note}"
+                )
             else:
                 model, note = self._downgrade(self.default_model, "default")
-                reason = ("no routing rule matched, using the measured-"
-                          f"reliable default{note}")
+                reason = f"no routing rule matched, using the measured-reliable default{note}"
             return ModelChoice(model, "default", reason, 0.3)
         name, model, score, terms = scored[0]
         runner_up = scored[1][2] if len(scored) > 1 else 0.0
         margin = (score - runner_up) / score if score else 0.0
-        contest = (" over " + ", ".join(f"{n}({s:g})" for n, _m, s, _t in scored[1:3])
-                   if len(scored) > 1 else "")
+        contest = (
+            " over " + ", ".join(f"{n}({s:g})" for n, _m, s, _t in scored[1:3])
+            if len(scored) > 1
+            else ""
+        )
         model, note = self._downgrade(model, name)
         return ModelChoice(
-            model, name,
-            f"rule '{name}' scored {score:g} on "
-            f"{sorted({t for t in terms if t})}{contest}{note}",
-            round(0.6 + 0.4 * margin, 4))
+            model,
+            name,
+            f"rule '{name}' scored {score:g} on {sorted({t for t in terms if t})}{contest}{note}",
+            round(0.6 + 0.4 * margin, 4),
+        )
 
     def explain(self, request: str) -> str:
         """Human readable score table."""
         rows = self.score(request)
         if not rows:
             return f"{request!r}: no rule matched, default {self.default_model}"
-        return "\n".join([f"{request!r}:"] + [
-            f"  {s:6.2f}  {n:<9} -> {m:<11} {sorted({t for t in te if t})}"
-            for n, m, s, te in rows])
+        return "\n".join(
+            [f"{request!r}:"]
+            + [
+                f"  {s:6.2f}  {n:<9} -> {m:<11} {sorted({t for t in te if t})}"
+                for n, m, s, te in rows
+            ]
+        )

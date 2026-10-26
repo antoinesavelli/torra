@@ -52,7 +52,8 @@ def test_append_writes_a_line_and_touches_updated_at(tmp_path: Path) -> None:
 
 
 def test_append_failure_is_recorded_not_raised(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store = SessionStore(tmp_path)
     meta = store.create()
     transcript_path = tmp_path / "sessions" / meta.session_id / "transcript.jsonl"
@@ -72,7 +73,8 @@ def test_append_failure_is_recorded_not_raised(
 
 
 def test_append_still_reports_success_when_only_the_meta_touch_fails(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The transcript write is the critical section -- a failure refreshing
     meta.json's updated_at afterward must not turn an already-durable
     transcript append into a reported failure."""
@@ -97,7 +99,8 @@ def test_append_still_reports_success_when_only_the_meta_touch_fails(
 
 
 def test_save_meta_swallows_a_cleanup_failure_after_a_write_failure(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The original write failure is what must reach the caller -- a
     second failure while merely trying to clean up the stray .tmp file
     must not replace or mask it, matching ResumePoint.save's identical
@@ -156,7 +159,8 @@ def test_list_sessions_skips_a_corrupt_meta_without_hiding_the_rest(tmp_path: Pa
     good = store.create(name="good")
     bad = store.create(name="bad")
     (tmp_path / "sessions" / bad.session_id / "meta.json").write_text(
-        "not valid json", encoding="utf-8")
+        "not valid json", encoding="utf-8"
+    )
 
     sessions = store.list_sessions()
 
@@ -169,11 +173,13 @@ def test_load_meta_returns_none_for_an_absent_session(tmp_path: Path) -> None:
 
 
 def test_load_meta_raises_loudly_on_a_specifically_requested_corrupt_session(
-        tmp_path: Path) -> None:
+    tmp_path: Path,
+) -> None:
     store = SessionStore(tmp_path)
     meta = store.create()
     (tmp_path / "sessions" / meta.session_id / "meta.json").write_text(
-        "{not json", encoding="utf-8")
+        "{not json", encoding="utf-8"
+    )
 
     with pytest.raises(TorraError, match="corrupt session meta"):
         store.load_meta(meta.session_id)
@@ -189,7 +195,8 @@ def test_load_transcript_skips_a_torn_line_and_keeps_reading(tmp_path: Path) -> 
     compressor = ContextCompressor()
     store.append(meta.session_id, compressor.add("u1", "user", "first"))
     with (tmp_path / "sessions" / meta.session_id / "transcript.jsonl").open(
-            "a", encoding="utf-8") as fh:
+        "a", encoding="utf-8"
+    ) as fh:
         fh.write("not valid json at all\n")
     store.append(meta.session_id, compressor.add("u2", "user", "second"))
 
@@ -205,7 +212,8 @@ def test_load_transcript_skips_blank_lines_silently(tmp_path: Path) -> None:
     compressor = ContextCompressor()
     store.append(meta.session_id, compressor.add("u1", "user", "first"))
     with (tmp_path / "sessions" / meta.session_id / "transcript.jsonl").open(
-            "a", encoding="utf-8") as fh:
+        "a", encoding="utf-8"
+    ) as fh:
         fh.write("\n\n")
     store.append(meta.session_id, compressor.add("u2", "user", "second"))
 
@@ -216,7 +224,8 @@ def test_load_transcript_skips_blank_lines_silently(tmp_path: Path) -> None:
 
 
 def test_load_transcript_records_a_read_failure_instead_of_raising(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store = SessionStore(tmp_path)
     meta = store.create()
     compressor = ContextCompressor()
@@ -247,8 +256,10 @@ def test_rehydrate_compressor_round_trips_entries_in_order(tmp_path: Path) -> No
     restored = ContextCompressor()
     store.rehydrate_compressor(meta.session_id, restored)
 
-    assert [(e.entry_id, e.role, e.content) for e in restored.entries] == \
-        [("u1", "user", "hello"), ("a1", "assistant", "hi there")]
+    assert [(e.entry_id, e.role, e.content) for e in restored.entries] == [
+        ("u1", "user", "hello"),
+        ("a1", "assistant", "hi there"),
+    ]
 
 
 def test_rehydrate_compressor_preserves_compressed_and_token_fields(tmp_path: Path) -> None:
@@ -256,8 +267,7 @@ def test_rehydrate_compressor_preserves_compressed_and_token_fields(tmp_path: Pa
     recompute tokens or silently drop the compressed flag on a summary entry."""
     store = SessionStore(tmp_path)
     meta = store.create()
-    original = ContextCompressor(max_tokens=40, trigger_ratio=0.5, target_ratio=0.1,
-                                 keep_recent=0)
+    original = ContextCompressor(max_tokens=40, trigger_ratio=0.5, target_ratio=0.1, keep_recent=0)
     for i in range(6):
         step = original.add(f"e{i}", "user", f"entry number {i} with real content in it")
         store.append(meta.session_id, step)
@@ -277,8 +287,7 @@ def test_rehydrate_compressor_preserves_compressed_and_token_fields(tmp_path: Pa
         assert restored_entry.compressed == original_entry.compressed
 
 
-def test_rehydrate_compressor_brings_a_long_history_back_within_budget(
-        tmp_path: Path) -> None:
+def test_rehydrate_compressor_brings_a_long_history_back_within_budget(tmp_path: Path) -> None:
     """The persisted transcript is deliberately the full, pre-compression
     history (on_context_change persists every entry as it's added, before
     a live session's own periodic compression ever folds it). A long
@@ -299,8 +308,9 @@ def test_rehydrate_compressor_brings_a_long_history_back_within_budget(
     raw_count = store.rehydrate_compressor(meta.session_id, restored)
 
     assert raw_count == 20, "the raw record count must reflect what was on disk"
-    assert restored.total_tokens <= 50, \
+    assert restored.total_tokens <= 50, (
         "a rehydrated compressor must not start out over its own budget"
+    )
 
 
 def test_rename_updates_the_name_and_persists_it(tmp_path: Path) -> None:
@@ -338,24 +348,45 @@ def test_rename_never_raises_on_a_write_failure(tmp_path: Path, monkeypatch) -> 
 
 
 def test_session_meta_from_dict_ignores_unknown_fields() -> None:
-    meta = SessionMeta.from_dict({
-        "session_id": "abc", "name": "n", "created_at": 1.0, "updated_at": 2.0,
-        "schema_version": 1, "some_future_field": "ignored"})
+    meta = SessionMeta.from_dict(
+        {
+            "session_id": "abc",
+            "name": "n",
+            "created_at": 1.0,
+            "updated_at": 2.0,
+            "schema_version": 1,
+            "some_future_field": "ignored",
+        }
+    )
     assert meta.session_id == "abc"
 
 
 def test_session_record_from_dict_ignores_unknown_fields() -> None:
-    record = SessionRecord.from_dict({
-        "entry_id": "u1", "role": "user", "content": "hi", "tokens": 1,
-        "compressed": False, "at": 1.0, "schema_version": 1, "some_future_field": "ignored"})
+    record = SessionRecord.from_dict(
+        {
+            "entry_id": "u1",
+            "role": "user",
+            "content": "hi",
+            "tokens": 1,
+            "compressed": False,
+            "at": 1.0,
+            "schema_version": 1,
+            "some_future_field": "ignored",
+        }
+    )
     assert record.entry_id == "u1"
 
 
 def test_session_record_to_context_step_round_trips_the_shared_fields() -> None:
     record = SessionRecord("u1", "user", "hello", tokens=3, compressed=True, at=123.0)
     step = record.to_context_step()
-    assert (step.entry_id, step.role, step.content, step.tokens, step.compressed) == \
-        ("u1", "user", "hello", 3, True)
+    assert (step.entry_id, step.role, step.content, step.tokens, step.compressed) == (
+        "u1",
+        "user",
+        "hello",
+        3,
+        True,
+    )
 
 
 def test_a_secret_in_a_transcript_entry_is_redacted_on_disk(tmp_path: Path) -> None:
@@ -366,7 +397,10 @@ def test_a_secret_in_a_transcript_entry_is_redacted_on_disk(tmp_path: Path) -> N
     store = SessionStore(tmp_path)
     meta = store.create()
     key = "sk-or-v1-" + "k3y" * 12
-    store.append(meta.session_id, ContextStep("read:.env", "system", f"[read .env]\nOPENROUTER_API_KEY={key}"))
+    store.append(
+        meta.session_id,
+        ContextStep("read:.env", "system", f"[read .env]\nOPENROUTER_API_KEY={key}"),
+    )
 
     on_disk = (tmp_path / "sessions" / meta.session_id / "transcript.jsonl").read_text()
     assert key[:12] not in on_disk

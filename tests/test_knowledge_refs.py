@@ -69,7 +69,11 @@ def _cited_tests(text: str) -> Iterator[tuple[str, str, str, int]]:
 
 
 def test_every_cited_guard_test_exists() -> None:
-    docs = [ROOT / "HANDOFF.md", ROOT / "AGENTS.md", *sorted((ROOT / "docs" / "agents").glob("*.md"))]
+    docs = [
+        ROOT / "HANDOFF.md",
+        ROOT / "AGENTS.md",
+        *sorted((ROOT / "docs" / "agents").glob("*.md")),
+    ]
     defined: dict[str, set[str] | None] = {}
     stale, cited = [], 0
     for doc in docs:

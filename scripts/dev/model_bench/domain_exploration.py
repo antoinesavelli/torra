@@ -36,44 +36,70 @@ class Scenario:
 
 
 SCENARIOS: list[Scenario] = [
-    Scenario("user-mgmt", "user/permission management",
-             "Add a new user 'developer' with sudo access and set up SSH key "
-             "authentication for them."),
-    Scenario("network-diag", "network diagnostics",
-             "This machine can't reach the internet. Figure out why."),
-    Scenario("backup-cron", "backup scheduling",
-             "Set up a nightly backup of /srv/api to /mnt/backups, keeping 14 "
-             "days of history."),
-    Scenario("log-rotation", "log rotation",
-             "Configure log rotation for /var/log/myapp.log: rotate weekly, "
-             "keep 4 weeks."),
-    Scenario("security-updates", "package security updates",
-             "Check for and apply security updates only, not a full system upgrade."),
-    Scenario("firewall", "firewall/security hardening",
-             "Open port 8080 for the new service, but make sure everything "
-             "else stays closed."),
-    Scenario("container-cpu", "container troubleshooting",
-             "A docker container called 'worker' is pegging the CPU at 100%. "
-             "Investigate and fix it."),
-    Scenario("git-history", "version control",
-             "Squash the last 5 commits on the current branch into one, with "
-             "a clean commit message."),
-    Scenario("xlsx-edit", "office document editing",
-             "Add a 'Total' row at the bottom of the 'Marketing' column in "
-             "/home/user/Documents/budget.xlsx and save it."),
-    Scenario("odt-edit", "office document editing",
-             "Replace every occurrence of 'Acme Corp' with 'Globex Inc' in "
-             "/home/user/Documents/contract.odt."),
+    Scenario(
+        "user-mgmt",
+        "user/permission management",
+        "Add a new user 'developer' with sudo access and set up SSH key authentication for them.",
+    ),
+    Scenario(
+        "network-diag",
+        "network diagnostics",
+        "This machine can't reach the internet. Figure out why.",
+    ),
+    Scenario(
+        "backup-cron",
+        "backup scheduling",
+        "Set up a nightly backup of /srv/api to /mnt/backups, keeping 14 days of history.",
+    ),
+    Scenario(
+        "log-rotation",
+        "log rotation",
+        "Configure log rotation for /var/log/myapp.log: rotate weekly, keep 4 weeks.",
+    ),
+    Scenario(
+        "security-updates",
+        "package security updates",
+        "Check for and apply security updates only, not a full system upgrade.",
+    ),
+    Scenario(
+        "firewall",
+        "firewall/security hardening",
+        "Open port 8080 for the new service, but make sure everything else stays closed.",
+    ),
+    Scenario(
+        "container-cpu",
+        "container troubleshooting",
+        "A docker container called 'worker' is pegging the CPU at 100%. Investigate and fix it.",
+    ),
+    Scenario(
+        "git-history",
+        "version control",
+        "Squash the last 5 commits on the current branch into one, with a clean commit message.",
+    ),
+    Scenario(
+        "xlsx-edit",
+        "office document editing",
+        "Add a 'Total' row at the bottom of the 'Marketing' column in "
+        "/home/user/Documents/budget.xlsx and save it.",
+    ),
+    Scenario(
+        "odt-edit",
+        "office document editing",
+        "Replace every occurrence of 'Acme Corp' with 'Globex Inc' in "
+        "/home/user/Documents/contract.odt.",
+    ),
 ]
 
 
 def main() -> int:
     metrics: list = []
-    ollama = OllamaClient(host=OLLAMA_HOST, timeout=180.0,
-                          transport=make_metrics_transport(metrics))
+    ollama = OllamaClient(
+        host=OLLAMA_HOST, timeout=180.0, transport=make_metrics_transport(metrics)
+    )
     state = observe_machine(ollama=ollama)
-    agent = Agent(ollama=ollama, clarifier=Clarifier(), safety=SafetyClassifier(),
-                  observer=lambda: state)
+    agent = Agent(
+        ollama=ollama, clarifier=Clarifier(), safety=SafetyClassifier(), observer=lambda: state
+    )
     agent.observe()
 
     print(f"model={MODEL}\n")

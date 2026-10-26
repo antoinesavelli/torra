@@ -41,12 +41,12 @@ class Stage(StrEnum):
 class Outcome(StrEnum):
     """Terminal state of one request."""
 
-    ANSWERED = "answered"                # a question, nothing to run
-    NEEDS_ANSWER = "needs_answer"        # the model asked something
-    REFUSED = "refused"                  # the model declined
+    ANSWERED = "answered"  # a question, nothing to run
+    NEEDS_ANSWER = "needs_answer"  # the model asked something
+    REFUSED = "refused"  # the model declined
     AWAITING_APPROVAL = "awaiting_approval"  # a plan is ready, nobody approved
-    REJECTED = "rejected"                # the operator declined the plan
-    BLOCKED = "blocked"                  # a gate stopped it
+    REJECTED = "rejected"  # the operator declined the plan
+    BLOCKED = "blocked"  # a gate stopped it
     COMPLETED = "completed"
     FAILED = "failed"
     BACKEND_DOWN = "backend_down"
@@ -109,8 +109,7 @@ class Plan:
     @property
     def worst_level(self) -> RiskLevel:
         """The highest risk level anywhere in the plan."""
-        order = [RiskLevel.SAFE, RiskLevel.CAUTION, RiskLevel.DANGEROUS,
-                 RiskLevel.CRITICAL]
+        order = [RiskLevel.SAFE, RiskLevel.CAUTION, RiskLevel.DANGEROUS, RiskLevel.CRITICAL]
         levels = [sp.verdict.level for sp in self.steps] or [RiskLevel.SAFE]
         return max(levels, key=order.index)
 

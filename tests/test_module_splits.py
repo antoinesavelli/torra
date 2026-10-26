@@ -30,7 +30,9 @@ def test_safety_keeps_its_public_names_and_composes_its_two_halves() -> None:
     assert safety.ResolvedCommand is safety_types.ResolvedCommand
     assert safety.Verdict is safety_types.Verdict
     assert safety.SafetyClassifier.__mro__[1:3] == (
-        safety_resolve.CommandResolver, safety_judge.CommandJudge)
+        safety_resolve.CommandResolver,
+        safety_judge.CommandJudge,
+    )
     assert safety.SafetyClassifier._protected is safety_judge.CommandJudge._protected
 
 
@@ -46,7 +48,6 @@ def test_known_programs_keeps_its_public_names() -> None:
     assert known_programs.reads_credentials is program_basics.reads_credentials
     assert known_programs.PREDICATES is program_tables.PREDICATES
     assert known_programs.SUBCOMMANDS is program_tables.SUBCOMMANDS
-
 
 
 def test_undo_keeps_its_public_names_and_composes_its_two_halves() -> None:

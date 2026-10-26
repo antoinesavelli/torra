@@ -53,8 +53,9 @@ class ReadMemory:
     #: a note, not silently.
     CAP: int = 8000
 
-    def __init__(self, context: ContextCompressor,
-                on_change: Callable[[ContextStep], None] | None = None) -> None:
+    def __init__(
+        self, context: ContextCompressor, on_change: Callable[[ContextStep], None] | None = None
+    ) -> None:
         self.context = context
         self._on_change = on_change
         self.paths: dict[str, str] = {}
@@ -69,11 +70,15 @@ class ReadMemory:
             existing = self.paths.get(path)
             if existing:
                 self.context.remove(existing)
-            shown = content if len(content) <= self.CAP else (
-                content[:self.CAP] + f"\n[truncated, {len(content) - self.CAP} more bytes]")
+            shown = (
+                content
+                if len(content) <= self.CAP
+                else (content[: self.CAP] + f"\n[truncated, {len(content) - self.CAP} more bytes]")
+            )
             entry_id = f"read:{path}"
-            step = self.context.add(entry_id, "user",
-                                    untrusted_block("file", shown, path=path, untrusted="true"))
+            step = self.context.add(
+                entry_id, "user", untrusted_block("file", shown, path=path, untrusted="true")
+            )
             if self._on_change:
                 self._on_change(step)
             self.paths[path] = entry_id

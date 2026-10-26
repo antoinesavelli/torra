@@ -29,8 +29,9 @@ def _su(argv: Sequence[str]) -> str | None:
 
 def _rsync_checked(argv: Sequence[str]) -> str | None:
     """`_rsync` plus the options it must not trust: deletion (also abbreviated) and `-e`/`--rsh`."""
-    risky = (any(_hits(f, ("--delete", "--remove-source-files", "--rsh")) for f in _long(argv))
-             or "e" in _short(argv))
+    risky = any(
+        _hits(f, ("--delete", "--remove-source-files", "--rsh")) for f in _long(argv)
+    ) or "e" in _short(argv)
     return None if risky else _rsync(argv)
 
 
@@ -40,51 +41,88 @@ def _crontab(argv: Sequence[str]) -> str | None:
 
 
 def _dpkg(argv: Sequence[str]) -> str | None:
-    reads = {"-l", "-L", "-s", "-S", "-p", "-C", "-V", "-w", "--list", "--listfiles", "--status",
-             "--search", "--print-avail", "--get-selections", "--print-architecture", "--version",
-             "--audit"}
+    reads = {
+        "-l",
+        "-L",
+        "-s",
+        "-S",
+        "-p",
+        "-C",
+        "-V",
+        "-w",
+        "--list",
+        "--listfiles",
+        "--status",
+        "--search",
+        "--print-avail",
+        "--get-selections",
+        "--print-architecture",
+        "--version",
+        "--audit",
+    }
     return READ_ONLY if argv[1:2] and argv[1] in reads else None
 
 
 def _iptables(argv: Sequence[str]) -> str | None:
     short, long = _short(argv), _long(argv)
     writes = short & set("ADIRFZNXPE") or long & {
-        "--append", "--delete", "--insert", "--replace", "--flush", "--zero", "--new-chain",
-        "--delete-chain", "--policy", "--rename-chain"}
+        "--append",
+        "--delete",
+        "--insert",
+        "--replace",
+        "--flush",
+        "--zero",
+        "--new-chain",
+        "--delete-chain",
+        "--policy",
+        "--rename-chain",
+    }
     reads = short & set("LS") or long & {"--list", "--list-rules"}
     return READ_ONLY if reads and not writes else None
 
 
 def _sysctl(argv: Sequence[str]) -> str | None:
-    writing = (_short(argv) & set("wp") or _long(argv) & {"--write", "--load", "--system"}
-               or any("=" in a for a in argv[1:]))
+    writing = (
+        _short(argv) & set("wp")
+        or _long(argv) & {"--write", "--load", "--system"}
+        or any("=" in a for a in argv[1:])
+    )
     return None if writing else READ_ONLY
 
 
-def _positive(allowed_short: str = "", allowed_long: frozenset[str] = frozenset(),
-              needs: str = "") -> Callable[[Sequence[str]], str | None]:
+def _positive(
+    allowed_short: str = "", allowed_long: frozenset[str] = frozenset(), needs: str = ""
+) -> Callable[[Sequence[str]], str | None]:
     """Read-only only when every flag is on the allowed list (and one named flag is present)."""
+
     def judge(argv: Sequence[str]) -> str | None:
         short, long = _short(argv), _long(argv)
         if short - set(allowed_short) or long - allowed_long:
             return None
         return READ_ONLY if not needs or needs in short or needs in long else None
+
     return judge
 
 
-_NMCLI_WRITES = frozenset("up down add modify delete edit clone import reload connect disconnect "
-                          "set on off hotspot".split())
+_NMCLI_WRITES = frozenset(
+    "up down add modify delete edit clone import reload connect disconnect "
+    "set on off hotspot".split()
+)
 
 #: Flags that only choose what `ruff` looks at or how it prints. Anything else (`--fix`, `--watch`,
 #: `--add-noqa`, `--output-file`, `--cache-dir`, `--config`, `--extension`) is not on the list.
-_RUFF_CHECK_FLAGS = frozenset("""
+_RUFF_CHECK_FLAGS = frozenset(
+    """
 --no-fix --statistics --exit-zero --no-cache --quiet --verbose --silent --isolated --preview --output-format
 --select --ignore --extend-select --target-version
-""".split())
-_RUFF_FORMAT_FLAGS = frozenset("""
+""".split()
+)
+_RUFF_FORMAT_FLAGS = frozenset(
+    """
 --check --diff --no-cache --quiet --verbose --silent --isolated --preview --exit-non-zero-on-format
 --line-length --target-version
-""".split())
+""".split()
+)
 
 
 def _ruff(argv: Sequence[str]) -> str | None:
@@ -104,7 +142,9 @@ def _torra(argv: Sequence[str]) -> str | None:
     rest = argv[2:]
     if argv[1:2] != ["check"] or len(_operands(["torra", *rest])) != 1:
         return None
-    return READ_ONLY if set(rest) - set(_operands(["torra", *rest])) <= {"-v", "--verbose"} else None
+    return (
+        READ_ONLY if set(rest) - set(_operands(["torra", *rest])) <= {"-v", "--verbose"} else None
+    )
 
 
 def _nmcli(argv: Sequence[str]) -> str | None:
@@ -116,11 +156,17 @@ def _listing_only(
     allowed_short: str, allowed_long: frozenset[str]
 ) -> Callable[[Sequence[str]], str | None]:
     """Read-only when it has no operands, at least one flag, and only the listed flags."""
+
     def judge(argv: Sequence[str]) -> str | None:
         flags = [a for a in argv[1:] if a.startswith("-")]
-        ok = (flags and not _operands(argv) and not _short(argv) - set(allowed_short)
-              and not _long(argv) - allowed_long)
+        ok = (
+            flags
+            and not _operands(argv)
+            and not _short(argv) - set(allowed_short)
+            and not _long(argv) - allowed_long
+        )
         return READ_ONLY if ok else None
+
     return judge
 
 

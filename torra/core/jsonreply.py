@@ -68,7 +68,7 @@ def _find_object(text: str) -> dict[str, Any] | None:
         end = _matching_brace(text, start)
         if end is not None:
             try:
-                data = _loads(text[start:end + 1])
+                data = _loads(text[start : end + 1])
             except json.JSONDecodeError:
                 data = None
             if isinstance(data, dict):
@@ -79,8 +79,9 @@ def _find_object(text: str) -> dict[str, Any] | None:
 
 def extract_object(text: str) -> dict[str, Any]:
     """The JSON object in a model reply, or `ReplyError`."""
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip()[:MAX_SCAN],
-                     flags=re.MULTILINE).strip()
+    cleaned = re.sub(
+        r"^```(?:json)?\s*|\s*```$", "", text.strip()[:MAX_SCAN], flags=re.MULTILINE
+    ).strip()
     try:
         data = _loads(cleaned)
         if isinstance(data, dict):

@@ -54,7 +54,9 @@ def _declared(argv: Sequence[str]) -> list[str | None]:
         # A bare literal declares without assigning; a built word may expand to `NAME=value`.
         found.append(name if eq or name == UNSEEN else None)
         if nameref:
-            found.append(_named(value) if value else UNSEEN)  # no target yet: the next assignment picks it
+            found.append(
+                _named(value) if value else UNSEEN
+            )  # no target yet: the next assignment picks it
     return found
 
 
@@ -72,7 +74,7 @@ def _read(argv: Sequence[str]) -> list[str | None]:
     found: list[str | None] = []
     words, i = list(argv[1:]), 0
     while i < len(words):
-        word, following = words[i], (words[i + 1:i + 2] or [""])[0]
+        word, following = words[i], (words[i + 1 : i + 2] or [""])[0]
         if word.startswith("-") and word != "-":
             name, took_next = _read_flag(word, following)
             found.append(name)
@@ -100,7 +102,11 @@ def _for(argv: Sequence[str]) -> list[str | None]:
 
 
 PARSERS: dict[str, Callable[[Sequence[str]], list[str | None]]] = {
-    "read": _read, "printf": _printf, "for": _for, **dict.fromkeys(DECLARING, _declared)}
+    "read": _read,
+    "printf": _printf,
+    "for": _for,
+    **dict.fromkeys(DECLARING, _declared),
+}
 
 
 def assigned_names(argv: Sequence[str]) -> list[str]:

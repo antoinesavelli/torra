@@ -100,16 +100,16 @@ VERIFIED_OPENROUTER_MODELS: list[str] = [
 #: source-of-truth entries for the same reasoning applied to READMEs).
 MODEL_DESCRIPTIONS: dict[str, str] = {
     "gpt-oss:20b": "debugging, planning, analysis -- deepest local reasoning "
-                  "budget, measured best intent accuracy 2026-08-28",
+    "budget, measured best intent accuracy 2026-08-28",
     "devstral:24b": "deployment, quick status checks -- the measured-reliable "
-                    "default; strong tool and file-editing behaviour",
+    "default; strong tool and file-editing behaviour",
     "devstral-small-2:24b": "code -- refactors, scripts, patches "
-                            "(65.8% SWE-bench Verified, not yet run through "
-                            "torra's own battery)",
+    "(65.8% SWE-bench Verified, not yet run through "
+    "torra's own battery)",
     "openrouter/x-ai/grok-4.6": "remote frontier model -- paid per call, "
-                                "manual /model override only, not auto-routed",
+    "manual /model override only, not auto-routed",
     "openrouter/openai/gpt-5.6-sol": "remote frontier model -- paid per call, "
-                                     "manual /model override only, not auto-routed",
+    "manual /model override only, not auto-routed",
 }
 
 
@@ -144,8 +144,12 @@ class ChatLine(Static):
     sidebar tab, `ThinkingPane` -- see `TorraApp._append_thinking`.)
     """
 
-    _PREFIXES = {"you": "[bold cyan]you[/]", "agent": "[bold green]agent[/]",
-                "torra": "[bold blue]torra[/]", "error": "[bold red]error[/]"}
+    _PREFIXES = {
+        "you": "[bold cyan]you[/]",
+        "agent": "[bold green]agent[/]",
+        "torra": "[bold blue]torra[/]",
+        "error": "[bold red]error[/]",
+    }
 
     def __init__(self, who: str, text: str, style: str = "") -> None:
         """Render one speaker-prefixed, optionally styled line."""
@@ -183,9 +187,10 @@ class StepCard(Vertical):
 
         yield Static(
             f"[dim]{self.index}.[/] [bold]{escape(sp.step.step_id)}[/]  "
-            f"[{style}]{level.upper()}[/]", markup=True)
-        yield Static(f"  [white]{escape(sp.step.command)}[/]", markup=True,
-                     classes="step-command")
+            f"[{style}]{level.upper()}[/]",
+            markup=True,
+        )
+        yield Static(f"  [white]{escape(sp.step.command)}[/]", markup=True, classes="step-command")
         if sp.step.description and sp.step.description != sp.step.command:
             yield Static(f"  [dim]{escape(sp.step.description)}[/]", markup=True)
 
@@ -198,7 +203,8 @@ class StepCard(Vertical):
             yield Static(
                 f"  [green]undo:[/] {escape(sp.undos[0].description[:80])}"
                 + (f" [dim](+{len(sp.undos) - 1} more)[/]" if len(sp.undos) > 1 else ""),
-                markup=True)
+                markup=True,
+            )
         else:
             yield Static("  [yellow]no automatic undo for this step[/]", markup=True)
 
@@ -213,8 +219,9 @@ class StepCard(Vertical):
             # for exactly the highest-risk steps this checkbox exists for.
             # _approvals() below reads the real step_id back off
             # `plan_step`, never off this id string.
-            yield Checkbox(f"approve {escape(sp.step.step_id)}", value=False,
-                           id=f"approve-{self.index}")
+            yield Checkbox(
+                f"approve {escape(sp.step.step_id)}", value=False, id=f"approve-{self.index}"
+            )
 
 
 class PlanPane(VerticalScroll):
@@ -222,8 +229,9 @@ class PlanPane(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         """Start empty."""
-        yield Static("[dim]No plan yet. Ask for something on the left.[/]",
-                     markup=True, id="plan-empty")
+        yield Static(
+            "[dim]No plan yet. Ask for something on the left.[/]", markup=True, id="plan-empty"
+        )
 
     async def show(self, plan: Plan) -> None:
         """Replace the pane contents with a new plan."""
@@ -231,39 +239,57 @@ class PlanPane(VerticalScroll):
         worst = plan.worst_level.value
         style = LEVEL_STYLE.get(worst, "")
 
-        await self.mount(Static(
-            f"[bold]{escape(plan.spec.task_id)}[/]\n"
-            f"[dim]{escape(plan.spec.request)}[/]\n"
-            f"model [bold]{escape(plan.model)}[/]  worst [{style}]{worst.upper()}[/]  "
-            f"undo coverage {plan.coverage.get('coverage_ratio', 0):.0%}"
-            + (f"  [dim]({plan.repairs} repair(s))[/]" if plan.repairs else ""),
-            markup=True, classes="plan-header"))
+        await self.mount(
+            Static(
+                f"[bold]{escape(plan.spec.task_id)}[/]\n"
+                f"[dim]{escape(plan.spec.request)}[/]\n"
+                f"model [bold]{escape(plan.model)}[/]  worst [{style}]{worst.upper()}[/]  "
+                f"undo coverage {plan.coverage.get('coverage_ratio', 0):.0%}"
+                + (f"  [dim]({plan.repairs} repair(s))[/]" if plan.repairs else ""),
+                markup=True,
+                classes="plan-header",
+            )
+        )
 
         for warning in plan.warnings:
             await self.mount(Static(f"[yellow]warning: {escape(warning)}[/]", markup=True))
         if plan.uncovered:
-            await self.mount(Static(
-                f"[yellow]no automatic undo for: {escape(', '.join(plan.uncovered))}[/]",
-                markup=True))
+            await self.mount(
+                Static(
+                    f"[yellow]no automatic undo for: {escape(', '.join(plan.uncovered))}[/]",
+                    markup=True,
+                )
+            )
         if plan.preconditions and not plan.preconditions.passed:
-            await self.mount(Static(
-                "[bold red]preconditions failed: "
-                + escape(", ".join(r.name for r in plan.preconditions.blocking_failures))
-                + "[/]", markup=True))
+            await self.mount(
+                Static(
+                    "[bold red]preconditions failed: "
+                    + escape(", ".join(r.name for r in plan.preconditions.blocking_failures))
+                    + "[/]",
+                    markup=True,
+                )
+            )
 
         for index, sp in enumerate(plan.steps, start=1):
             await self.mount(StepCard(index, sp))
 
         pending = len(plan.needs_confirmation)
-        await self.mount(Horizontal(
-            Button("Run", variant="success", id="run"),
-            Button("Reject", variant="error", id="reject"),
-            Button("Dry run", id="dryrun"),
-            classes="plan-actions"))
-        await self.mount(Static(
-            f"[dim]{pending} step(s) need an explicit tick before Run does "
-            "anything.[/]" if pending else
-            "[dim]Nothing in this plan needs confirmation.[/]", markup=True))
+        await self.mount(
+            Horizontal(
+                Button("Run", variant="success", id="run"),
+                Button("Reject", variant="error", id="reject"),
+                Button("Dry run", id="dryrun"),
+                classes="plan-actions",
+            )
+        )
+        await self.mount(
+            Static(
+                f"[dim]{pending} step(s) need an explicit tick before Run does anything.[/]"
+                if pending
+                else "[dim]Nothing in this plan needs confirmation.[/]",
+                markup=True,
+            )
+        )
 
     async def clear(self, message: str = "No plan.") -> None:
         """Empty the pane with a message."""
@@ -278,8 +304,11 @@ class EvidencePane(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         """Start empty -- filled in on first activation, not at mount time."""
-        yield Static("[dim]Switch to this tab to see the current summary.[/]",
-                     markup=True, id="evidence-empty")
+        yield Static(
+            "[dim]Switch to this tab to see the current summary.[/]",
+            markup=True,
+            id="evidence-empty",
+        )
 
     async def refresh_summary(self, torra: Torra, crash_reporter: CrashReporter) -> None:
         """Replace the pane contents with a fresh summary.
@@ -290,16 +319,23 @@ class EvidencePane(VerticalScroll):
         §2.25's MarkupError lesson applies here too).
         """
         await self.remove_children()
-        await self.mount(Static(escape(health_summary(torra.telemetry.read())),
-                                markup=True, classes="evidence-block"))
-        await self.mount(Static(escape(crash_summary(crash_reporter)),
-                                markup=True, classes="evidence-block"))
+        await self.mount(
+            Static(
+                escape(health_summary(torra.telemetry.read())),
+                markup=True,
+                classes="evidence-block",
+            )
+        )
+        await self.mount(
+            Static(escape(crash_summary(crash_reporter)), markup=True, classes="evidence-block")
+        )
 
 
 #: Shown in the Thinking tab whenever no stream is live -- the pane's own
 #: starting content and what `reset()` restores it to.
-THINKING_PLACEHOLDER = ("[dim]No reasoning stream yet -- appears here while "
-                        "a thinking-capable model plans.[/]")
+THINKING_PLACEHOLDER = (
+    "[dim]No reasoning stream yet -- appears here while a thinking-capable model plans.[/]"
+)
 
 
 class ThinkingPane(VerticalScroll):
@@ -350,8 +386,9 @@ class SessionPane(VerticalScroll):
         """Start empty -- filled in on first activation, not at mount
         time, same as EvidencePane (the list can change between visits;
         no point building it before the operator ever looks)."""
-        yield Static("[dim]Switch to this tab to see saved sessions.[/]",
-                     markup=True, id="session-empty")
+        yield Static(
+            "[dim]Switch to this tab to see saved sessions.[/]", markup=True, id="session-empty"
+        )
 
     async def refresh_sessions(self, metas: list[SessionMeta]) -> None:
         """Replace the pane with one option per session, newest first --
@@ -360,15 +397,23 @@ class SessionPane(VerticalScroll):
         if not metas:
             await self.mount(Static("[dim]No saved sessions yet.[/]", markup=True))
             return
-        await self.mount(OptionList(*[
-            Option(f"{escape(meta.name) or '(unnamed)'}  "
-                  f"[dim]{time.strftime('%Y-%m-%d %H:%M', time.localtime(meta.updated_at))}[/]",
-                  id=meta.session_id)
-            for meta in metas], id="session-options"))
+        await self.mount(
+            OptionList(
+                *[
+                    Option(
+                        f"{escape(meta.name) or '(unnamed)'}  "
+                        f"[dim]{time.strftime('%Y-%m-%d %H:%M', time.localtime(meta.updated_at))}[/]",
+                        id=meta.session_id,
+                    )
+                    for meta in metas
+                ],
+                id="session-options",
+            )
+        )
 
 
 def _model_options(models: list[str], current_override: str | None) -> list[Option]:
-    """"(automatic routing)" first, then a disabled group header and the
+    """ "(automatic routing)" first, then a disabled group header and the
     local models, then another header and the remote/paid ones -- `models`
     already arrives local-then-remote (`local + VERIFIED_OPENROUTER_MODELS`,
     see the two call sites), so this only needs to find the split, not sort
@@ -403,8 +448,11 @@ def _model_legend(models: list[str]) -> str:
     an unreadable block the eye can't segment back into "one per model" --
     bolding the name and blank-lining between entries is what actually
     lets it be scanned rather than read start to end."""
-    lines = [f"[bold]{escape(model)}[/]\n[dim]{MODEL_DESCRIPTIONS[model]}[/]"
-             for model in models if model in MODEL_DESCRIPTIONS]
+    lines = [
+        f"[bold]{escape(model)}[/]\n[dim]{MODEL_DESCRIPTIONS[model]}[/]"
+        for model in models
+        if model in MODEL_DESCRIPTIONS
+    ]
     return "[bold]best-case uses[/]\n\n" + "\n\n".join(lines) if lines else ""
 
 
@@ -417,8 +465,7 @@ class ModelPane(VerticalScroll):
         """Start empty -- filled in on first activation; the local model
         list can change between visits (`ollama pull`/`rm` since the tab
         was last shown)."""
-        yield Static("[dim]Switch to this tab to choose a model.[/]",
-                     markup=True, id="model-empty")
+        yield Static("[dim]Switch to this tab to choose a model.[/]", markup=True, id="model-empty")
 
     async def refresh_models(self, models: list[str], current_override: str | None) -> None:
         """Replace the pane with "(automatic routing)" plus each model,
@@ -426,14 +473,18 @@ class ModelPane(VerticalScroll):
         trigger a paid call, and a best-case-uses legend at the bottom.
         Same content `ModelPicker` shows."""
         await self.remove_children()
-        await self.mount(OptionList(*_model_options(models, current_override),
-                                    id="model-options"))
+        await self.mount(OptionList(*_model_options(models, current_override), id="model-options"))
         legend = _model_legend(models)
         if legend:
             await self.mount(Static(legend, markup=True))
-        await self.mount(Static("[dim]Only hand-verified openrouter/... models are "
-                               "listed -- use /model <name> for any other remote "
-                               "model.[/]", markup=True))
+        await self.mount(
+            Static(
+                "[dim]Only hand-verified openrouter/... models are "
+                "listed -- use /model <name> for any other remote "
+                "model.[/]",
+                markup=True,
+            )
+        )
 
 
 class MetricsPane(VerticalScroll):
@@ -458,11 +509,11 @@ class MetricsPane(VerticalScroll):
         """Start empty -- filled in on first activation, same as Evidence/
         Session/Model (all four read live state that can move between
         visits)."""
-        yield Static("[dim]Switch to this tab to see the current stats.[/]",
-                     markup=True, id="metrics-empty")
+        yield Static(
+            "[dim]Switch to this tab to see the current stats.[/]", markup=True, id="metrics-empty"
+        )
 
-    async def refresh_metrics(self, torra: Torra, model: str,
-                              read_paths: list[str]) -> None:
+    async def refresh_metrics(self, torra: Torra, model: str, read_paths: list[str]) -> None:
         """Replace the pane with a fresh snapshot.
 
         `model` is this tab's best guess at "the model in use" -- the
@@ -487,8 +538,11 @@ class MetricsPane(VerticalScroll):
             if info:
                 lines.append(f"  {info.get('params_b', 0):.1f}B params")
                 lines.append(f"  context ceiling {info.get('context_length', 0):,} tokens")
-                lines.append("  thinking-capable" if info.get("thinking_capable")
-                             else "  not thinking-capable")
+                lines.append(
+                    "  thinking-capable"
+                    if info.get("thinking_capable")
+                    else "  not thinking-capable"
+                )
             else:
                 lines.append("  [dim]model info unavailable -- is Ollama reachable?[/]")
         elif model:
@@ -509,7 +563,9 @@ class MetricsPane(VerticalScroll):
         lines.append("[bold]this session[/]")
         lines.append(f"  {stats['turns']} turn(s)")
         lines.append(f"  {stats['repairs']} repair(s)")
-        lines.append(f"  context {stats['context_tokens']:,} tokens ({stats['context_usage']:.0%} full)")
+        lines.append(
+            f"  context {stats['context_tokens']:,} tokens ({stats['context_usage']:.0%} full)"
+        )
         lines.append(f"  {stats['compressions']} compression(s)")
 
         ollama_stats = stats["ollama"]
@@ -533,14 +589,22 @@ class MetricsPane(VerticalScroll):
         await self.mount(Static("\n".join(lines), markup=True, classes="metrics-block"))
 
         if read_paths:
-            await self.mount(Static(
-                "[bold]files read this session[/]\n"
-                + "\n".join(f"  {escape(path)}" for path in read_paths),
-                markup=True, classes="metrics-block"))
+            await self.mount(
+                Static(
+                    "[bold]files read this session[/]\n"
+                    + "\n".join(f"  {escape(path)}" for path in read_paths),
+                    markup=True,
+                    classes="metrics-block",
+                )
+            )
         else:
-            await self.mount(Static(
-                "[dim]No read-only step's output has entered the model's "
-                "context yet this session.[/]", markup=True))
+            await self.mount(
+                Static(
+                    "[dim]No read-only step's output has entered the model's "
+                    "context yet this session.[/]",
+                    markup=True,
+                )
+            )
 
 
 @dataclass
@@ -625,11 +689,16 @@ class SessionPicker(ModalScreen[str | None]):
             if not self._metas:
                 yield Static("[dim]No saved sessions yet.[/]", markup=True)
                 return
-            yield OptionList(*[
-                Option(f"{escape(meta.name) or '(unnamed)'}  "
-                      f"[dim]{time.strftime('%Y-%m-%d %H:%M', time.localtime(meta.updated_at))}[/]",
-                      id=meta.session_id)
-                for meta in self._metas])
+            yield OptionList(
+                *[
+                    Option(
+                        f"{escape(meta.name) or '(unnamed)'}  "
+                        f"[dim]{time.strftime('%Y-%m-%d %H:%M', time.localtime(meta.updated_at))}[/]",
+                        id=meta.session_id,
+                    )
+                    for meta in self._metas
+                ]
+            )
 
     @on(OptionList.OptionSelected)
     def _chosen(self, event: OptionList.OptionSelected) -> None:
@@ -676,9 +745,11 @@ class ModelPicker(ModalScreen[str | None]):
             legend = _model_legend(self._models)
             if legend:
                 yield Static(legend, markup=True)
-            yield Static("[dim]Only hand-verified openrouter/... models are listed "
-                         "-- use /model <name> for any other remote model.[/]",
-                         markup=True)
+            yield Static(
+                "[dim]Only hand-verified openrouter/... models are listed "
+                "-- use /model <name> for any other remote model.[/]",
+                markup=True,
+            )
 
     @on(OptionList.OptionSelected)
     def _chosen(self, event: OptionList.OptionSelected) -> None:
@@ -806,16 +877,14 @@ class TorraApp(App[None]):
         ("escape", "stop_thinking", "Stop"),
     ]
 
-    def __init__(self, torra: Torra | None = None,
-                 workdir: Path | None = None) -> None:
+    def __init__(self, torra: Torra | None = None, workdir: Path | None = None) -> None:
         """Use the injected torra for tests (as the first tab), or build a default one."""
         super().__init__()
         initial_torra = torra or Torra(workdir=workdir or DEFAULT_WORKDIR)
         self.ollama = initial_torra.ollama
         self.backends = initial_torra.agent.backends
         self.session_store = SessionStore(initial_torra.workdir)
-        self._crash_reporter = CrashReporter(
-            initial_torra.workdir / "telemetry" / "crashes.jsonl")
+        self._crash_reporter = CrashReporter(initial_torra.workdir / "telemetry" / "crashes.jsonl")
         self.sessions: dict[str, SessionTab] = {}
         self.active_session_id = ""
         self._register_session(initial_torra, self.session_store.create())
@@ -839,6 +908,7 @@ class TorraApp(App[None]):
         Does not mount any widget -- `compose()` handles the very first
         session, `action_new_tab()` mounts every one after that.
         """
+
         def _persist(step: ContextStep, session_id: str = meta.session_id) -> None:
             self.session_store.append(session_id, step)
 
@@ -846,7 +916,8 @@ class TorraApp(App[None]):
         torra.agent.read_memory._on_change = _persist
         torra.agent.task_id_prefix = f"{meta.session_id[:8]}-"
         raw_record_count = self.session_store.rehydrate_compressor(
-            meta.session_id, torra.agent.context)
+            meta.session_id, torra.agent.context
+        )
         # A reopened session's Agent starts at turn 0 -- without this, its
         # first few turns would reuse task_id/audit-filename values its
         # earlier life already used, silently overwriting those audit
@@ -856,7 +927,8 @@ class TorraApp(App[None]):
         # under-count and reopen the exact collision this closes.
         torra.agent.fast_forward_turn_counter(raw_record_count)
         self.sessions[meta.session_id] = SessionTab(
-            session_id=meta.session_id, meta=meta, torra=torra)
+            session_id=meta.session_id, meta=meta, torra=torra
+        )
         self.active_session_id = meta.session_id
         return meta.session_id
 
@@ -875,7 +947,8 @@ class TorraApp(App[None]):
         _handle_exception (§2.29) turns into the whole app exiting."""
         node = widget
         while node is not None and not (
-                isinstance(node, TabPane) and (node.id or "").startswith("tab-")):
+            isinstance(node, TabPane) and (node.id or "").startswith("tab-")
+        ):
             node = getattr(node, "parent", None)
         if node is None or not node.id:
             return self.active_session_id
@@ -904,15 +977,18 @@ class TorraApp(App[None]):
         sidebar = TabbedContent(id="sidebar")
         sidebar.compose_add_child(TabPane("Actions", PlanPane(id="plan"), id="sidebar-plan"))
         sidebar.compose_add_child(
-            TabPane("Thinking", ThinkingPane(id="thinking"), id="sidebar-thinking"))
+            TabPane("Thinking", ThinkingPane(id="thinking"), id="sidebar-thinking")
+        )
         sidebar.compose_add_child(
-            TabPane("Session", SessionPane(id="session"), id="sidebar-session"))
+            TabPane("Session", SessionPane(id="session"), id="sidebar-session")
+        )
+        sidebar.compose_add_child(TabPane("Model", ModelPane(id="model"), id="sidebar-model"))
         sidebar.compose_add_child(
-            TabPane("Model", ModelPane(id="model"), id="sidebar-model"))
+            TabPane("Evidence", EvidencePane(id="evidence"), id="sidebar-evidence")
+        )
         sidebar.compose_add_child(
-            TabPane("Evidence", EvidencePane(id="evidence"), id="sidebar-evidence"))
-        sidebar.compose_add_child(
-            TabPane("Metrics", MetricsPane(id="metrics"), id="sidebar-metrics"))
+            TabPane("Metrics", MetricsPane(id="metrics"), id="sidebar-metrics")
+        )
         return sidebar
 
     def _build_tab_pane(self, session_id: str, title: str) -> TabPane:
@@ -929,9 +1005,12 @@ class TorraApp(App[None]):
                     VerticalScroll(id="chat"),
                     Static("", id="busy-line"),
                     Input(placeholder="what do you want done?", id="prompt"),
-                    id="left"),
-                Vertical(self._build_sidebar(), id="right")),
-            id=f"tab-{session_id}")
+                    id="left",
+                ),
+                Vertical(self._build_sidebar(), id="right"),
+            ),
+            id=f"tab-{session_id}",
+        )
 
     # -- layout ------------------------------------------------------------ #
 
@@ -959,17 +1038,28 @@ class TorraApp(App[None]):
 
     def _greet(self, session_id: str, status: OllamaStatus) -> None:
         """Print the standard opening lines into one session's chat pane."""
-        self._say(session_id, "torra", "Describe what you want done. I plan it, every gate "
-                             "checks it, you approve it, then it runs.")
+        self._say(
+            session_id,
+            "torra",
+            "Describe what you want done. I plan it, every gate "
+            "checks it, you approve it, then it runs.",
+        )
         if status is OllamaStatus.HEALTHY:
             self._say(session_id, "torra", "f2 to choose a model", "dim")
         else:
-            self._say(session_id, "error",
-                      f"Ollama is {status.value} at {escape(self.ollama.host)}. "
-                      f"{escape(self.ollama.last_error)}")
+            self._say(
+                session_id,
+                "error",
+                f"Ollama is {status.value} at {escape(self.ollama.host)}. "
+                f"{escape(self.ollama.last_error)}",
+            )
             for option in self.ollama.recovery_options():
-                self._say(session_id, "torra",
-                          f"{escape(option.title)}  ->  {escape(option.action)}", "dim")
+                self._say(
+                    session_id,
+                    "torra",
+                    f"{escape(option.title)}  ->  {escape(option.action)}",
+                    "dim",
+                )
 
     # -- backward-compat: single-session attribute access ------------------- #
 
@@ -1152,8 +1242,7 @@ class TorraApp(App[None]):
             return
         tab.model_override = override or None
         if not override:
-            self._say(session_id, "torra",
-                      "model override cleared -- routing decides again", "dim")
+            self._say(session_id, "torra", "model override cleared -- routing decides again", "dim")
             return
         self._say(session_id, "torra", f"model override set to {escape(override)}", "dim")
 
@@ -1172,15 +1261,18 @@ class TorraApp(App[None]):
             self._say(session_id, "torra", "usage: /auto on | /auto off", "dim")
             return
         if arg == "":
-            self._say(session_id, "torra",
-                      f"auto-run is {'on' if tab.auto_run else 'off'}", "dim")
+            self._say(session_id, "torra", f"auto-run is {'on' if tab.auto_run else 'off'}", "dim")
             return
         tab.auto_run = arg == "on"
-        self._say(session_id, "torra",
-                  f"auto-run {'on' if tab.auto_run else 'off'} -- "
-                  "a plan whose every step is read-only will run immediately"
-                  if tab.auto_run else
-                  "auto-run off -- every plan waits for Run", "dim")
+        self._say(
+            session_id,
+            "torra",
+            f"auto-run {'on' if tab.auto_run else 'off'} -- "
+            "a plan whose every step is read-only will run immediately"
+            if tab.auto_run
+            else "auto-run off -- every plan waits for Run",
+            "dim",
+        )
 
     def _name_session(self, session_id: str, request: str) -> None:
         """Give an unnamed session a name from its first real request."""
@@ -1220,8 +1312,12 @@ class TorraApp(App[None]):
         self._clear_thinking(session_id)
         my_generation = self.sessions[session_id].generation
         self._set_busy(session_id, True, "thinking...")
-        self.run_worker(partial(self._plan_request_body, session_id, request, my_generation),
-                        thread=True, exclusive=True, group=f"session-{session_id}")
+        self.run_worker(
+            partial(self._plan_request_body, session_id, request, my_generation),
+            thread=True,
+            exclusive=True,
+            group=f"session-{session_id}",
+        )
 
     def _plan_request_body(self, session_id: str, request: str, my_generation: int) -> None:
         tab = self.sessions[session_id]
@@ -1233,11 +1329,9 @@ class TorraApp(App[None]):
             self.call_from_thread(self._append_thinking, session_id, chunk)
 
         try:
-            result = tab.torra.plan(request, model=tab.model_override,
-                                      on_thinking=on_thinking)
+            result = tab.torra.plan(request, model=tab.model_override, on_thinking=on_thinking)
         except Exception as exc:
-            self.call_from_thread(
-                self._report_plan_error, session_id, exc, my_generation)
+            self.call_from_thread(self._report_plan_error, session_id, exc, my_generation)
             return
         self.call_from_thread(self._planned, session_id, result, my_generation)
 
@@ -1255,11 +1349,13 @@ class TorraApp(App[None]):
 
     def _outcome_answered(self, session_id: str, result: RunResult) -> None:
         self._status(session_id, "[cyan]answered, nothing to run[/]")
-        self.run_worker(self._plan_pane(session_id).clear(
-            "That was a question. Nothing to run."), exclusive=False)
+        self.run_worker(
+            self._plan_pane(session_id).clear("That was a question. Nothing to run."),
+            exclusive=False,
+        )
 
     def _outcome_needs_answer(self, session_id: str, result: RunResult) -> None:
-        for question in (result.turn.questions if result.turn else []):
+        for question in result.turn.questions if result.turn else []:
             self._say(session_id, "agent", f"? {escape(question)}", "yellow")
         self._say(session_id, "torra", "Answer in the box and I will re-plan.", "dim")
         self._status(session_id, "[yellow]waiting for your answer[/]")
@@ -1276,8 +1372,9 @@ class TorraApp(App[None]):
         tab = self.sessions[session_id]
         backend, _ = tab.torra.agent.resolve_backend(tab.model_override or "")
         for option in backend.recovery_options(tab.model_override or "unknown"):
-            self._say(session_id, "torra",
-                      f"{escape(option.title)}  ->  {escape(option.action)}", "dim")
+            self._say(
+                session_id, "torra", f"{escape(option.title)}  ->  {escape(option.action)}", "dim"
+            )
         self._status(session_id, "[bold red]backend unreachable[/]")
 
     def _outcome_blocked(self, session_id: str, result: RunResult) -> None:
@@ -1296,22 +1393,29 @@ class TorraApp(App[None]):
             return
         self.run_worker(self._plan_pane(session_id).show(result.plan), exclusive=False)
         pending = len(result.plan.needs_confirmation)
-        self._status(session_id,
-            f"[bold yellow]plan ready: {len(result.plan.steps)} step(s), "
-            f"{pending} need a tick[/]" if pending else
-            f"[green]plan ready: {len(result.plan.steps)} step(s), "
-            "nothing needs confirmation[/]")
+        self._status(
+            session_id,
+            f"[bold yellow]plan ready: {len(result.plan.steps)} step(s), {pending} need a tick[/]"
+            if pending
+            else f"[green]plan ready: {len(result.plan.steps)} step(s), "
+            "nothing needs confirmation[/]",
+        )
         # auto-run only ever fires when *nothing* needed a tick in the
         # first place -- a DANGEROUS/CRITICAL step still always waits for
         # Run, this flag or not (see SessionTab.auto_run's own docstring).
         if not pending and self.sessions[session_id].auto_run:
             if result.plan.worst_level is RiskLevel.SAFE:
-                self._say(session_id, "torra",
-                          "auto-run: every step is read-only, running now", "dim")
+                self._say(
+                    session_id, "torra", "auto-run: every step is read-only, running now", "dim"
+                )
                 self.execute_plan(session_id)
             else:
-                self._say(session_id, "torra",
-                          "auto-run skipped: this plan changes something, press Run", "dim")
+                self._say(
+                    session_id,
+                    "torra",
+                    "auto-run skipped: this plan changes something, press Run",
+                    "dim",
+                )
         elif pending:
             self._flag_needs_approval(session_id, pending)
 
@@ -1328,7 +1432,8 @@ class TorraApp(App[None]):
         was about is gone, or a real Run's own busy-spinner overwrites it
         because the plan no longer needs approving."""
         self._busy_line(session_id).update(
-            f"[bold yellow]⚠ {pending} step(s) need approval -- see Actions[/]")
+            f"[bold yellow]⚠ {pending} step(s) need approval -- see Actions[/]"
+        )
 
     def _planned(self, session_id: str, result: RunResult, my_generation: int) -> None:
         """Render whatever the model decided, dispatched by outcome.
@@ -1372,14 +1477,19 @@ class TorraApp(App[None]):
         session_id = self._session_id_of(event.button)
         tab = self.sessions[session_id]
         if tab.current is not None and tab.current.executed:
+
             def _handle(confirmed: bool | None) -> None:
                 if confirmed:
                     self.execute_plan(session_id, dry_run=False)
 
             self.push_screen(
-                ConfirmDialog("This plan's commands already ran once and Run will not "
-                              "repeat them. Press Ctrl+R to plan it again.", "OK"),
-                _handle)
+                ConfirmDialog(
+                    "This plan's commands already ran once and Run will not "
+                    "repeat them. Press Ctrl+R to plan it again.",
+                    "OK",
+                ),
+                _handle,
+            )
             return
         self.execute_plan(session_id, dry_run=False)
 
@@ -1409,8 +1519,7 @@ class TorraApp(App[None]):
                 # outright lie about a real, possibly destructive run.
                 # Leave tab.current and the plan pane alone -- they still
                 # reflect what actually happened.
-                self._say(session_id, "torra",
-                          "Nothing to reject -- this plan already ran.", "dim")
+                self._say(session_id, "torra", "Nothing to reject -- this plan already ran.", "dim")
                 return
         self._say(session_id, "torra", "Plan rejected. Nothing ran.", "dim")
         self._status(session_id, "[dim]rejected[/]")
@@ -1457,9 +1566,13 @@ class TorraApp(App[None]):
             return
         tab.generation += 1
         self._set_busy(session_id, False, "")
-        self._say(session_id, "torra",
-                  "stopped -- if the model was still generating, its answer "
-                  "will be discarded when it finishes.", "dim")
+        self._say(
+            session_id,
+            "torra",
+            "stopped -- if the model was still generating, its answer "
+            "will be discarded when it finishes.",
+            "dim",
+        )
 
     def action_clear_chat(self) -> None:
         """Clear the active tab's conversation and the model's context.
@@ -1472,8 +1585,9 @@ class TorraApp(App[None]):
         session_id = self.active_session_id
         tab = self.sessions[session_id]
         tab.torra.agent.reset()
-        self.session_store.append(session_id, ContextStep(
-            f"clear-{time.time()}", "system", "[cleared by operator]"))
+        self.session_store.append(
+            session_id, ContextStep(f"clear-{time.time()}", "system", "[cleared by operator]")
+        )
         chat = self._chat(session_id)
         self.run_worker(chat.remove_children(), exclusive=False)  # type: ignore[arg-type]  # textual stub is stricter than the accepted runtime API
         self._say(session_id, "torra", "Conversation cleared.", "dim")
@@ -1482,8 +1596,9 @@ class TorraApp(App[None]):
         """Open a new, independent, empty session as a new tab."""
         base_workdir = self.sessions[self.active_session_id].torra.workdir
         meta = self.session_store.create()
-        self._mount_session_tab(self._build_session_torra(base_workdir, meta.session_id),
-                                meta, greet=True)
+        self._mount_session_tab(
+            self._build_session_torra(base_workdir, meta.session_id), meta, greet=True
+        )
 
     def _build_session_torra(self, base_workdir: Path, session_id: str) -> Torra:
         """A Torra for one tab -- session-scoped `undo=` so its shadow dir
@@ -1492,9 +1607,13 @@ class TorraApp(App[None]):
         after the first would silently lose access to any alt backend
         (e.g. OpenRouter) the app was started with (HANDOFF.md §2.27)."""
         return Torra(
-            workdir=base_workdir, ollama=self.ollama, backends=self.backends,
-            verifier=StateVerifier.default(), path_exists=os.path.exists,
-            undo=UndoGenerator(shadow_dir=base_workdir / f"torra-shadow-{session_id}"))
+            workdir=base_workdir,
+            ollama=self.ollama,
+            backends=self.backends,
+            verifier=StateVerifier.default(),
+            path_exists=os.path.exists,
+            undo=UndoGenerator(shadow_dir=base_workdir / f"torra-shadow-{session_id}"),
+        )
 
     def _mount_session_tab(self, torra: Torra, meta: SessionMeta, *, greet: bool) -> None:
         """Register, mount, and activate a tab -- greeted if new, replayed if reopened."""
@@ -1549,12 +1668,12 @@ class TorraApp(App[None]):
             return
         meta = self.session_store.load_meta(session_id)
         if meta is None:
-            self._status(self.active_session_id,
-                        "[bold red]that session no longer exists[/]")
+            self._status(self.active_session_id, "[bold red]that session no longer exists[/]")
             return
         base_workdir = self.sessions[self.active_session_id].torra.workdir
-        self._mount_session_tab(self._build_session_torra(base_workdir, session_id),
-                                meta, greet=False)
+        self._mount_session_tab(
+            self._build_session_torra(base_workdir, session_id), meta, greet=False
+        )
 
     def _replay_transcript(self, session_id: str) -> None:
         """Show a reopened session's saved history in its chat pane.
@@ -1567,8 +1686,9 @@ class TorraApp(App[None]):
         tab = self.sessions[session_id]
         for record in self.session_store.load_transcript(session_id):
             who = speaker.get(record.role, "torra")
-            self._say(session_id, who, escape(record.content),
-                      "" if record.role in speaker else "dim")
+            self._say(
+                session_id, who, escape(record.content), "" if record.role in speaker else "dim"
+            )
             if record.role == "user":
                 tab.last_request = record.content
 
@@ -1639,7 +1759,8 @@ class TorraApp(App[None]):
             return  # the tab was closed while this was in flight
         self.run_worker(
             self._evidence_pane(session_id).refresh_summary(tab.torra, self._crash_reporter),
-            exclusive=False)
+            exclusive=False,
+        )
 
     @on(TabbedContent.TabActivated, "#sidebar", pane="#sidebar-session")
     def _sidebar_session_activated(self, event: TabbedContent.TabActivated) -> None:
@@ -1650,7 +1771,8 @@ class TorraApp(App[None]):
             return
         self.run_worker(
             self._session_pane(session_id).refresh_sessions(self.session_store.list_sessions()),
-            exclusive=False)
+            exclusive=False,
+        )
 
     @on(TabbedContent.TabActivated, "#sidebar", pane="#sidebar-model")
     def _sidebar_model_activated(self, event: TabbedContent.TabActivated) -> None:
@@ -1667,8 +1789,8 @@ class TorraApp(App[None]):
         local = sorted(m for m in self.ollama.models() if router._chat_capable(m))
         models = local + VERIFIED_OPENROUTER_MODELS
         self.run_worker(
-            self._model_pane(session_id).refresh_models(models, tab.model_override),
-            exclusive=False)
+            self._model_pane(session_id).refresh_models(models, tab.model_override), exclusive=False
+        )
 
     @on(TabbedContent.TabActivated, "#sidebar", pane="#sidebar-metrics")
     def _sidebar_metrics_activated(self, event: TabbedContent.TabActivated) -> None:
@@ -1683,12 +1805,16 @@ class TorraApp(App[None]):
         tab = self.sessions.get(session_id)
         if tab is None:
             return
-        model = ((tab.current.plan.model if tab.current and tab.current.plan else "")
-                 or tab.model_override or "")
+        model = (
+            (tab.current.plan.model if tab.current and tab.current.plan else "")
+            or tab.model_override
+            or ""
+        )
         read_paths = sorted(tab.torra.agent.read_memory.paths.keys())
         self.run_worker(
             self._metrics_pane(session_id).refresh_metrics(tab.torra, model, read_paths),
-            exclusive=False)
+            exclusive=False,
+        )
 
     @on(OptionList.OptionSelected, "#session-options")
     def _session_option_chosen(self, event: OptionList.OptionSelected) -> None:
@@ -1736,8 +1862,12 @@ class TorraApp(App[None]):
             return
         self._reset_step_output(session_id)
         self._set_busy(session_id, True, "dry run..." if dry_run else "running...")
-        self.run_worker(partial(self._execute_plan_body, session_id, dry_run),
-                        thread=True, exclusive=True, group=f"session-{session_id}")
+        self.run_worker(
+            partial(self._execute_plan_body, session_id, dry_run),
+            thread=True,
+            exclusive=True,
+            group=f"session-{session_id}",
+        )
 
     def _execute_plan_body(self, session_id: str, dry_run: bool) -> None:
         tab = self.sessions[session_id]
@@ -1758,25 +1888,29 @@ class TorraApp(App[None]):
             # confirmed through pressed_run's dialog -- this is not a new
             # way to skip that confirmation.)
             self.call_from_thread(
-                self._say, session_id, "torra",
-                "Nothing to run -- this plan's commands already ran. "
-                "Ctrl+R plans it again.", "dim")
+                self._say,
+                session_id,
+                "torra",
+                "Nothing to run -- this plan's commands already ran. Ctrl+R plans it again.",
+                "dim",
+            )
             self.call_from_thread(self._set_busy, session_id, False, "")
             return
         approvals = self.call_from_thread(self._approvals, session_id)
         for warning in Torra.dependency_warnings(result.plan, approvals):
-            self.call_from_thread(self._say, session_id, "torra",
-                                  f"warning: {escape(warning)}", "yellow")
+            self.call_from_thread(
+                self._say, session_id, "torra", f"warning: {escape(warning)}", "yellow"
+            )
 
         def on_output(step_id: str, chunk: str) -> None:
             self.call_from_thread(self._append_step_output, session_id, step_id, chunk)
 
         try:
-            done = tab.torra.execute(result, approvals, dry_run=dry_run,
-                                       on_output=on_output)
+            done = tab.torra.execute(result, approvals, dry_run=dry_run, on_output=on_output)
         except Exception as exc:
-            self.call_from_thread(self._say, session_id, "error",
-                                  f"{type(exc).__name__}: {escape(str(exc))}")
+            self.call_from_thread(
+                self._say, session_id, "error", f"{type(exc).__name__}: {escape(str(exc))}"
+            )
             self.call_from_thread(self._set_busy, session_id, False, "")
             return
         self.call_from_thread(self._executed, session_id, done, dry_run)
@@ -1801,11 +1935,13 @@ class TorraApp(App[None]):
 
         for step_result in result.results:
             mark = "[green]ok[/]" if step_result.ok else "[bold red]fail[/]"
-            self._say(session_id, "torra",
-                      f"{prefix}{mark} {escape(step_result.step_id)} "
-                      f"[dim]{step_result.seconds:.2f}s[/]"
-                      + (f"\n     {escape(step_result.error)}"
-                         if step_result.error else ""))
+            self._say(
+                session_id,
+                "torra",
+                f"{prefix}{mark} {escape(step_result.step_id)} "
+                f"[dim]{step_result.seconds:.2f}s[/]"
+                + (f"\n     {escape(step_result.error)}" if step_result.error else ""),
+            )
 
         if result.outcome is Outcome.COMPLETED:
             self._say(session_id, "torra", f"{prefix}completed.", "bold green")
@@ -1826,15 +1962,19 @@ class TorraApp(App[None]):
             # clean "0 undone, 0 unverified, 0 failed" for a run where a
             # declared rollback action never ran at all. Same fix as cli.py's
             # _print_execution_report.
-            self._say(session_id, "torra",
-                      f"rollback: {len(report.undone)} undone, "
-                      f"{len(report.unverified)} unverified, "
-                      f"{len(report.cancelled)} declined, "
-                      f"{len(report.failed)} failed",
-                      "green" if report.ok else "bold red")
+            self._say(
+                session_id,
+                "torra",
+                f"rollback: {len(report.undone)} undone, "
+                f"{len(report.unverified)} unverified, "
+                f"{len(report.cancelled)} declined, "
+                f"{len(report.failed)} failed",
+                "green" if report.ok else "bold red",
+            )
             for entry in report.unverified + report.cancelled + report.failed:
-                self._say(session_id, "error",
-                          f"  {escape(entry.description)}: {escape(entry.error)}")
+                self._say(
+                    session_id, "error", f"  {escape(entry.description)}: {escape(entry.error)}"
+                )
 
         if result.audit_path:
             self._say(session_id, "torra", f"audit: {escape(str(result.audit_path))}", "dim")
@@ -1929,7 +2069,6 @@ class TorraApp(App[None]):
         self._busy_line(session_id).update(text)
 
 
-def run_tui(workdir: Path | None = None,
-            torra: Torra | None = None) -> None:
+def run_tui(workdir: Path | None = None, torra: Torra | None = None) -> None:
     """Launch the interface."""
     TorraApp(torra=torra, workdir=workdir).run()

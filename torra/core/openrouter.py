@@ -53,8 +53,7 @@ class OpenRouterClient:
         `Torra._resolve_knowledge_dir`: `None` reads `OPENROUTER_API_KEY`
         from the environment, an explicit value (including `""`) wins.
         """
-        self.api_key = api_key if api_key is not None else os.environ.get(
-            "OPENROUTER_API_KEY", "")
+        self.api_key = api_key if api_key is not None else os.environ.get("OPENROUTER_API_KEY", "")
         self.host = host.rstrip("/")
         self.timeout = float(timeout)
         self._transport = transport or self._http
@@ -80,9 +79,11 @@ class OpenRouterClient:
         url = f"{self.host}{path}"
         data = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
-            url, data=data, method="POST",
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {self.api_key}"})
+            url,
+            data=data,
+            method="POST",
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"},
+        )
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 reply: dict[str, Any] = json.loads(response.read().decode("utf-8") or "{}")
@@ -137,7 +138,8 @@ class OpenRouterClient:
         """
         if not self.api_key:
             raise OllamaError(
-                "OPENROUTER_API_KEY is not set -- no key configured for openrouter/* models")
+                "OPENROUTER_API_KEY is not set -- no key configured for openrouter/* models"
+            )
 
         payload: dict[str, Any] = {
             "model": model,
@@ -162,8 +164,7 @@ class OpenRouterClient:
             self.cost_usd += float(usage.get("cost") or 0.0)
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
-            raise OllamaError(
-                f"generation failed against {self.host}: {self.last_error}") from exc
+            raise OllamaError(f"generation failed against {self.host}: {self.last_error}") from exc
         finally:
             self.total_seconds += time.perf_counter() - started
             self.calls += 1
@@ -180,21 +181,27 @@ class OpenRouterClient:
             # `echo $OPENROUTER_API_KEY` put the full secret into terminal
             # scrollback and any transcript downstream of it.
             RecoveryOption(
-                "check-key", "Check OPENROUTER_API_KEY",
+                "check-key",
+                "Check OPENROUTER_API_KEY",
                 "Every openrouter/* request needs a valid key in the environment. Torra may also "
                 "load it from its own .env, which this shell check cannot see.",
                 'test -n "$OPENROUTER_API_KEY" && echo "OPENROUTER_API_KEY is set '
-                '(${#OPENROUTER_API_KEY} chars)" || echo "OPENROUTER_API_KEY is MISSING"'),
+                '(${#OPENROUTER_API_KEY} chars)" || echo "OPENROUTER_API_KEY is MISSING"',
+            ),
             RecoveryOption(
-                "check-status", "Check OpenRouter's own status/credits",
+                "check-status",
+                "Check OpenRouter's own status/credits",
                 f"{current_model} may be rate-limited, out of credits, or the "
                 "provider behind it may be down.",
-                "open https://openrouter.ai/activity"),
+                "open https://openrouter.ai/activity",
+            ),
             RecoveryOption(
-                "fallback-local", "Drop the /model override",
+                "fallback-local",
+                "Drop the /model override",
                 "Clears the operator's explicit model choice and lets routing "
                 "pick a local model again.",
-                "/model"),
+                "/model",
+            ),
         ]
 
     def stats(self) -> dict[str, Any]:

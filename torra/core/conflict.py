@@ -66,9 +66,21 @@ class ConflictDetector:
     # thousands of "external changes" and blocks a trivially safe read-only
     # step that never had anything to do with them.
     DEFAULT_IGNORES: tuple[str, ...] = (
-        ".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache",
-        ".pytest_cache", ".tox", "target", "dist", "build", ".cache",
-        "proc", "sys", "dev",
+        ".git",
+        "__pycache__",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".tox",
+        "target",
+        "dist",
+        "build",
+        ".cache",
+        "proc",
+        "sys",
+        "dev",
     )
 
     def __init__(
@@ -82,8 +94,7 @@ class ConflictDetector:
         """Configure watched roots, ignored directory names, and the walk/event policy."""
         self.roots: list[Path] = [Path(r) for r in (roots or [])]
         self._default_roots: list[Path] = list(self.roots)
-        self.ignores: set[str] = set(ignores if ignores is not None
-                                     else self.DEFAULT_IGNORES)
+        self.ignores: set[str] = set(ignores if ignores is not None else self.DEFAULT_IGNORES)
         self.max_files = int(max_files)
         self.reconcile_every = max(1, int(reconcile_every))
         self.use_inotify = bool(use_inotify)
@@ -181,8 +192,9 @@ class ConflictDetector:
                             continue
                         count += 1
                         if count > self.max_files:
-                            note = (f"{root} exceeds max_files={self.max_files}; "
-                                    "coverage is incomplete")
+                            note = (
+                                f"{root} exceeds max_files={self.max_files}; coverage is incomplete"
+                            )
                             self.errors.append(note)
                             return out
                         try:
@@ -206,8 +218,14 @@ class ConflictDetector:
             return
         try:
             self._inotify = INotify()
-            mask = (flags.MODIFY | flags.CREATE | flags.DELETE
-                    | flags.MOVED_FROM | flags.MOVED_TO | flags.ATTRIB)
+            mask = (
+                flags.MODIFY
+                | flags.CREATE
+                | flags.DELETE
+                | flags.MOVED_FROM
+                | flags.MOVED_TO
+                | flags.ATTRIB
+            )
             for root in self.roots:
                 for dirpath, dirnames, _ in os.walk(root):
                     dirnames[:] = [d for d in dirnames if d not in self.ignores]
@@ -257,24 +275,33 @@ class ConflictDetector:
             exists = p.exists()
             after = self.hash_file(path) if exists else None
             if before is None and after is not None:
-                out.append(Conflict(path, ConflictKind.CREATED, None, after,
-                                    "did not exist at baseline"))
+                out.append(
+                    Conflict(path, ConflictKind.CREATED, None, after, "did not exist at baseline")
+                )
             elif before is not None and not exists:
-                out.append(Conflict(path, ConflictKind.DELETED, before, None,
-                                    "removed since baseline"))
+                out.append(
+                    Conflict(path, ConflictKind.DELETED, before, None, "removed since baseline")
+                )
             elif before is not None and after is None and exists:
-                out.append(Conflict(path, ConflictKind.UNREADABLE, before, None,
-                                    "exists but could not be hashed"))
+                out.append(
+                    Conflict(
+                        path,
+                        ConflictKind.UNREADABLE,
+                        before,
+                        None,
+                        "exists but could not be hashed",
+                    )
+                )
             elif before != after:
-                out.append(Conflict(path, ConflictKind.MODIFIED, before, after,
-                                    "content hash changed"))
+                out.append(
+                    Conflict(path, ConflictKind.MODIFIED, before, after, "content hash changed")
+                )
         return out
 
     def _detect_tree(self) -> list[Conflict]:
         """Event fast path, with a full walk on schedule."""
         # Live wire: HANDOFF.md §5.3
-        if not self.use_inotify or not self._inotify \
-                or self._since_walk >= self.reconcile_every:
+        if not self.use_inotify or not self._inotify or self._since_walk >= self.reconcile_every:
             return self._reconcile()
 
         touched = self._events() or set()
@@ -306,11 +333,21 @@ class ConflictDetector:
         known = path in self.fingerprints
         exists = target.exists()
         if not known and exists:
-            return Conflict(path, ConflictKind.CREATED, None, self.hash_file(path),
-                            "inotify reported a new file")
+            return Conflict(
+                path,
+                ConflictKind.CREATED,
+                None,
+                self.hash_file(path),
+                "inotify reported a new file",
+            )
         if known and not exists:
-            return Conflict(path, ConflictKind.DELETED, self.hashes.get(path), None,
-                            "inotify reported a deletion")
+            return Conflict(
+                path,
+                ConflictKind.DELETED,
+                self.hashes.get(path),
+                None,
+                "inotify reported a deletion",
+            )
         if not known:
             return None
         try:
@@ -323,8 +360,9 @@ class ConflictDetector:
         after = self.hash_file(path)
         if before == after:
             return None
-        return Conflict(path, ConflictKind.MODIFIED, before, after,
-                        "event plus hash confirm the change")
+        return Conflict(
+            path, ConflictKind.MODIFIED, before, after, "event plus hash confirm the change"
+        )
 
     def _reconcile(self) -> list[Conflict]:
         """Full walk. The source of truth the event path is checked against."""
@@ -336,20 +374,32 @@ class ConflictDetector:
             current.update(self._walk(root))
 
         for path in current.keys() - self.fingerprints.keys():
-            conflicts.append(Conflict(path, ConflictKind.CREATED, None,
-                                      self.hash_file(path), "appeared in the tree"))
+            conflicts.append(
+                Conflict(
+                    path, ConflictKind.CREATED, None, self.hash_file(path), "appeared in the tree"
+                )
+            )
         for path in self.fingerprints.keys() - current.keys():
-            conflicts.append(Conflict(path, ConflictKind.DELETED,
-                                      self.hashes.get(path), None,
-                                      "removed from the tree"))
+            conflicts.append(
+                Conflict(
+                    path, ConflictKind.DELETED, self.hashes.get(path), None, "removed from the tree"
+                )
+            )
         for path in self.fingerprints.keys() & current.keys():
             if self.fingerprints[path] == current[path]:
                 continue
             before = self.hashes.get(path, "<not hashed at baseline>")
             after = self.hash_file(path)
             if before != after:
-                conflicts.append(Conflict(path, ConflictKind.MODIFIED, before, after,
-                                          "size or mtime moved and the hash confirms"))
+                conflicts.append(
+                    Conflict(
+                        path,
+                        ConflictKind.MODIFIED,
+                        before,
+                        after,
+                        "size or mtime moved and the hash confirms",
+                    )
+                )
         self._known = {c.path: c for c in conflicts}
         return conflicts
 

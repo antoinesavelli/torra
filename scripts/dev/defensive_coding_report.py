@@ -37,8 +37,12 @@ TESTS_ROOT = REPO_ROOT / "tests"
 #: own §1.1 says not to fragment just to lower a number, so the floor
 #: stays B rather than being pushed to A by fixing those too.
 ENFORCE_FLOORS: dict[str, str] = {
-    "Complexity": "A", "Documentation": "A", "Typing": "A",
-    "Testing": "A", "Modularity": "B", "Lint": "A",
+    "Complexity": "A",
+    "Documentation": "A",
+    "Typing": "A",
+    "Testing": "A",
+    "Modularity": "B",
+    "Lint": "A",
 }
 MIN_GPA = 3.80
 
@@ -61,8 +65,7 @@ def tier_of(path: Path) -> str:
 
 def source_files() -> list[Path]:
     """Every torra/*.py file, caches excluded."""
-    return sorted(p for p in TORRA_ROOT.rglob("*.py")
-                  if "__pycache__" not in p.parts)
+    return sorted(p for p in TORRA_ROOT.rglob("*.py") if "__pycache__" not in p.parts)
 
 
 def functional_loc(path: Path) -> int:
@@ -85,8 +88,7 @@ class DimensionResult:
     offenders: list[str]
 
 
-def band(value: float, thresholds: tuple[float, float, float, float],
-         lower_is_better: bool) -> str:
+def band(value: float, thresholds: tuple[float, float, float, float], lower_is_better: bool) -> str:
     """A/B/C/D/F from a value against four ascending thresholds."""
     a, b, c, d = thresholds
     if lower_is_better:
@@ -119,7 +121,10 @@ def radon_complexity(files: list[Path]) -> dict[str, list[dict]]:
     """Per-function cyclomatic complexity, keyed by file path, via `radon cc -j`."""
     proc = subprocess.run(
         [sys.executable, "-m", "radon", "cc", "-j", *[str(f) for f in files]],
-        capture_output=True, text=True, cwd=REPO_ROOT)
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
     if proc.returncode != 0:
         raise RuntimeError(f"radon cc failed: {proc.stderr}")
     return json.loads(proc.stdout)
@@ -163,9 +168,12 @@ def grade_complexity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
             if block["complexity"] >= 15:
                 over += 1
                 offenders.append(
-                    (block["complexity"],
-                     f"{Path(filepath).relative_to(REPO_ROOT)}:{block['lineno']} "
-                     f"{block['name']} (CCN {block['complexity']})"))
+                    (
+                        block["complexity"],
+                        f"{Path(filepath).relative_to(REPO_ROOT)}:{block['lineno']} "
+                        f"{block['name']} (CCN {block['complexity']})",
+                    )
+                )
     pct = (over / total * 100) if total else 0.0
     grade = band(pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
     offenders.sort(reverse=True)
@@ -179,8 +187,7 @@ def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
     if not decision_files:
         return DimensionResult("Modularity", "A", "no decision-path files", [])
 
-    oversized = [(functional_loc(f), f) for f in decision_files
-                 if functional_loc(f) > 500]
+    oversized = [(functional_loc(f), f) for f in decision_files if functional_loc(f) > 500]
     size_pct = len(oversized) / len(decision_files) * 100
     size_grade = band(size_pct, (2.0, 5.0, 10.0, 18.0), lower_is_better=True)
 
@@ -196,15 +203,19 @@ def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
             if block["complexity"] >= 10 and depth >= 3:
                 tangled.append(
                     f"{Path(filepath).relative_to(REPO_ROOT)}:{block['lineno']} "
-                    f"{block['name']} (CCN {block['complexity']}, depth {depth})")
+                    f"{block['name']} (CCN {block['complexity']}, depth {depth})"
+                )
     tangled_pct = (len(tangled) / total_fns * 100) if total_fns else 0.0
     tangled_grade = band(tangled_pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
 
     grade = min(size_grade, tangled_grade, key=lambda g: GRADE_GPA[g])
-    headline = (f"{len(tangled)} fn(s) nested >= depth 3 & CCN >= 10, "
-                f"{len(oversized)} decision-path file(s) > 500 LOC")
-    offenders = [f"{loc} LOC: {f.relative_to(REPO_ROOT)}"
-                 for loc, f in sorted(oversized, reverse=True)] + tangled
+    headline = (
+        f"{len(tangled)} fn(s) nested >= depth 3 & CCN >= 10, "
+        f"{len(oversized)} decision-path file(s) > 500 LOC"
+    )
+    offenders = [
+        f"{loc} LOC: {f.relative_to(REPO_ROOT)}" for loc, f in sorted(oversized, reverse=True)
+    ] + tangled
     return DimensionResult("Modularity", grade, headline, offenders)
 
 
@@ -232,9 +243,11 @@ def grade_documentation(files: list[Path], tiers: dict[Path, str]) -> DimensionR
     covered = len(decision_files) - len(missing)
     pct = covered / len(decision_files) * 100
     grade = band(pct, (90.0, 75.0, 55.0, 35.0), lower_is_better=False)
-    headline = (f"{covered}/{len(decision_files)} carry 'Depends on:' "
-                f"({pct:.0f}%), {has_docstring}/{len(decision_files)} have a "
-                "module docstring")
+    headline = (
+        f"{covered}/{len(decision_files)} carry 'Depends on:' "
+        f"({pct:.0f}%), {has_docstring}/{len(decision_files)} have a "
+        "module docstring"
+    )
     return DimensionResult("Documentation", grade, headline, missing)
 
 
@@ -260,17 +273,22 @@ def grade_typing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
             if node.returns is not None:
                 returns_typed += 1
             else:
-                offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} "
-                                 f"{node.name} missing return annotation")
-            args = [a for a in node.args.args + node.args.kwonlyargs
-                    if a.arg not in ("self", "cls")]
+                offenders.append(
+                    f"{path.relative_to(REPO_ROOT)}:{node.lineno} "
+                    f"{node.name} missing return annotation"
+                )
+            args = [
+                a for a in node.args.args + node.args.kwonlyargs if a.arg not in ("self", "cls")
+            ]
             for arg in args:
                 params_total += 1
                 if arg.annotation is not None:
                     params_typed += 1
                 else:
-                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} "
-                                     f"{node.name}({arg.arg}) missing type hint")
+                    offenders.append(
+                        f"{path.relative_to(REPO_ROOT)}:{node.lineno} "
+                        f"{node.name}({arg.arg}) missing type hint"
+                    )
 
     return_pct = (returns_typed / returns_total * 100) if returns_total else 100.0
     param_pct = (params_typed / params_total * 100) if params_total else 100.0
@@ -315,12 +333,13 @@ def reexported_names(path: Path) -> set[str]:
         return set()
     package = module_name_of(init)
     tree = ast.parse(init.read_text(encoding="utf-8"), filename=str(init))
-    return {f"{package}.{alias.asname or alias.name}"
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom)
-            and ((node.level == 1 and node.module == path.stem)
-                 or node.module == module_name_of(path))
-            for alias in node.names}
+    return {
+        f"{package}.{alias.asname or alias.name}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and ((node.level == 1 and node.module == path.stem) or node.module == module_name_of(path))
+        for alias in node.names
+    }
 
 
 def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
@@ -353,15 +372,20 @@ def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
 def grade_lint(files: list[Path]) -> DimensionResult:
     """Raw ruff issue count across all graded files (standards §1.6)."""
     proc = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "--output-format=json",
-         *[str(f) for f in files]],
-        capture_output=True, text=True, cwd=REPO_ROOT)
+        [sys.executable, "-m", "ruff", "check", "--output-format=json", *[str(f) for f in files]],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
     if proc.returncode not in (0, 1):
         raise RuntimeError(f"ruff check failed ({proc.returncode}): {proc.stderr.strip()}")
     issues = json.loads(proc.stdout or "[]")
     grade = band(len(issues), (0, 5, 20, 50), lower_is_better=True)
-    offenders = [f"{Path(i['filename']).relative_to(REPO_ROOT)}:{i['location']['row']} "
-                f"{i['code']} {i['message']}" for i in issues]
+    offenders = [
+        f"{Path(i['filename']).relative_to(REPO_ROOT)}:{i['location']['row']} "
+        f"{i['code']} {i['message']}"
+        for i in issues
+    ]
     return DimensionResult("Lint", grade, f"{len(issues)} ruff issue(s)", offenders)
 
 
@@ -378,8 +402,9 @@ def grade_lint(files: list[Path]) -> DimensionResult:
 MAX_OFFENDERS_SHOWN = 10
 
 
-def render(results: list[DimensionResult], overall_gpa: float,
-           overall_grade: str, verbose: bool) -> str:
+def render(
+    results: list[DimensionResult], overall_gpa: float, overall_grade: str, verbose: bool
+) -> str:
     """The scorecard table, plus offenders when verbose."""
     lines = ["=" * 68, "DEFENSIVE CODING SCORECARD".center(68), "=" * 68]
     for r in results:
@@ -391,8 +416,9 @@ def render(results: list[DimensionResult], overall_gpa: float,
             if hidden > 0:
                 lines.append(f"      ... (+{hidden} more)")
     lines.append("-" * 68)
-    lines.append(f"  {'OVERALL':<14} [{overall_grade}]  GPA {overall_gpa:.2f} "
-                 "(decision-path weighted)")
+    lines.append(
+        f"  {'OVERALL':<14} [{overall_grade}]  GPA {overall_gpa:.2f} (decision-path weighted)"
+    )
     lines.append("=" * 68)
     return "\n".join(lines)
 
@@ -408,14 +434,19 @@ def gpa_to_grade(gpa: float) -> str:
 def main() -> int:
     """Compute the scorecard, print it, and enforce floors if asked."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--area", default="torra",
-                        help="Subpackage to grade, relative to the repo root "
-                             "(default: torra, the whole package)")
-    parser.add_argument("--enforce", action="store_true",
-                        help="Exit non-zero if any dimension or the overall "
-                             "GPA drops below its recorded floor")
-    parser.add_argument("--verbose", action="store_true",
-                        help="List the worst offenders per dimension")
+    parser.add_argument(
+        "--area",
+        default="torra",
+        help="Subpackage to grade, relative to the repo root (default: torra, the whole package)",
+    )
+    parser.add_argument(
+        "--enforce",
+        action="store_true",
+        help="Exit non-zero if any dimension or the overall GPA drops below its recorded floor",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="List the worst offenders per dimension"
+    )
     args = parser.parse_args()
 
     area_root = (REPO_ROOT / args.area).resolve()
@@ -441,9 +472,11 @@ def main() -> int:
     if not args.enforce:
         return 0
 
-    failures = [f"{r.name}: {r.grade} below floor {ENFORCE_FLOORS[r.name]}"
-                for r in results
-                if GRADE_GPA[r.grade] < GRADE_GPA[ENFORCE_FLOORS[r.name]]]
+    failures = [
+        f"{r.name}: {r.grade} below floor {ENFORCE_FLOORS[r.name]}"
+        for r in results
+        if GRADE_GPA[r.grade] < GRADE_GPA[ENFORCE_FLOORS[r.name]]
+    ]
     if overall_gpa < MIN_GPA:
         failures.append(f"overall GPA {overall_gpa:.2f} below floor {MIN_GPA:.2f}")
     if failures:

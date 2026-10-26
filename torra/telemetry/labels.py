@@ -42,8 +42,9 @@ class LabelStore:
     phrasing, not the run.
     """
 
-    def __init__(self, path: os.PathLike[str] | str,
-                 clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self, path: os.PathLike[str] | str, clock: Callable[[], float] = time.time
+    ) -> None:
         """Configure the JSONL path and injectable clock."""
         self.path = Path(path)
         self._clock = clock
@@ -53,8 +54,7 @@ class LabelStore:
         except OSError as exc:
             self.errors.append(f"label directory unusable: {exc!r}")
 
-    def label(self, request: str, ambiguous: bool, why: str = "",
-              labeler: str = "") -> Label:
+    def label(self, request: str, ambiguous: bool, why: str = "", labeler: str = "") -> Label:
         """Record one verdict. A later label for the same text supersedes it."""
         # `why` is a human's free-text rationale for the verdict -- just as
         # capable of quoting a secret as the request it's commenting on
@@ -62,9 +62,13 @@ class LabelStore:
         # but unlike `request` (scrubbed by TaskLogger before it ever
         # reaches here) nothing redacted it. Same patterns, not a second
         # copy of them.
-        entry = Label(request=request, ambiguous=bool(ambiguous),
-                      why=redact_secrets(why), labeled_at=self._clock(),
-                      labeler=labeler)
+        entry = Label(
+            request=request,
+            ambiguous=bool(ambiguous),
+            why=redact_secrets(why),
+            labeled_at=self._clock(),
+            labeler=labeler,
+        )
         try:
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(entry.to_dict(), sort_keys=True) + "\n")

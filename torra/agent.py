@@ -52,7 +52,8 @@ __all__ = ["Intent", "Turn", "Agent", "AgentError", "PLAN_SCHEMA", "SYSTEM_PROMP
 
 
 def _observe_with_executor(
-    ollama: OllamaClient, knowledge_dir: str | None,
+    ollama: OllamaClient,
+    knowledge_dir: str | None,
     executor_config: tuple[str, str, str] | None,
 ) -> MachineState:
     """Today's observe_machine() call, plus the optional executor
@@ -105,7 +106,8 @@ class Agent(PlanChecks):
         self.context = compressor or ContextCompressor(max_tokens=24_000)
         self._executor_config = resolve_executor_config()
         self._observe = observer or (
-            lambda: _observe_with_executor(ollama, knowledge_dir, self._executor_config))
+            lambda: _observe_with_executor(ollama, knowledge_dir, self._executor_config)
+        )
         self.max_repairs = self.MAX_REPAIRS if max_repairs is None else int(max_repairs)
         self.system_prompt = system_prompt
         self._on_context_change = on_context_change
@@ -190,27 +192,39 @@ class Agent(PlanChecks):
 
     # -- prompting --------------------------------------------------------- #
 
-    def _messages(self, request: str, gaps: Sequence[str],
-                  extra: Sequence[dict[str, str]] = ()) -> list[dict[str, str]]:
+    def _messages(
+        self, request: str, gaps: Sequence[str], extra: Sequence[dict[str, str]] = ()
+    ) -> list[dict[str, str]]:
         """Assemble the full message list for one generation."""
         state = self.observe()
         preamble = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "system", "content": "Current machine state:\n"
-             + untrusted_block("machine-state", state.render())},
+            {
+                "role": "system",
+                "content": "Current machine state:\n"
+                + untrusted_block("machine-state", state.render()),
+            },
         ]
         if gaps:
-            preamble.append({
-                "role": "system",
-                "content": (
-                    "A structural check of the operator's request found these "
-                    "gaps. If any of them genuinely blocks you, use intent "
-                    "\"ask\". If you can proceed anyway, say why in `message`:\n"
-                    + "\n".join(f"- {g}" for g in gaps)),
-            })
-        return preamble + self.context.as_messages() + list(extra) + [
-            {"role": "user", "content": request},
-        ]
+            preamble.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "A structural check of the operator's request found these "
+                        "gaps. If any of them genuinely blocks you, use intent "
+                        '"ask". If you can proceed anyway, say why in `message`:\n'
+                        + "\n".join(f"- {g}" for g in gaps)
+                    ),
+                }
+            )
+        return (
+            preamble
+            + self.context.as_messages()
+            + list(extra)
+            + [
+                {"role": "user", "content": request},
+            ]
+        )
 
     # -- generation -------------------------------------------------------- #
 
@@ -219,9 +233,11 @@ class Agent(PlanChecks):
         pick used to reintroduce §2.9's embedding-only-model failure."""
         capable = [m for m in available if self.router._chat_capable(m)]
         candidates = capable or available
-        return (self.ollama.fallback_model
-                if model_available(self.ollama.fallback_model, candidates)
-                else candidates[0])
+        return (
+            self.ollama.fallback_model
+            if model_available(self.ollama.fallback_model, candidates)
+            else candidates[0]
+        )
 
     def _route(self, request: str, model: str | None, ambiguous: bool) -> tuple[str, str, bool]:
         """(model, routing reason, whether it names an alternate backend) for one turn."""
@@ -239,8 +255,12 @@ class Agent(PlanChecks):
                 chosen = self._degraded_fallback(available)
         return chosen, choice.reason, is_alt_backend
 
-    def converse(self, request: str, model: str | None = None,
-                on_thinking: Callable[[str], None] | None = None) -> Turn:
+    def converse(
+        self,
+        request: str,
+        model: str | None = None,
+        on_thinking: Callable[[str], None] | None = None,
+    ) -> Turn:
         """Take one operator message and decide what to do with it.
 
         `on_thinking`, when given, is only ever handed down to `backend.chat`
@@ -262,16 +282,23 @@ class Agent(PlanChecks):
 
         chosen, reason, is_alt_backend = self._route(request, model, bool(gaps))
         backend, real_model = self.resolve_backend(chosen)
-        stream_cb = (on_thinking if on_thinking is not None
-                    and not is_alt_backend and self.router._thinking_capable(real_model)
-                    else None)
-        raw = backend.chat(real_model, self._messages(request, gaps), json_mode=True,
-                           on_thinking=stream_cb)
+        stream_cb = (
+            on_thinking
+            if on_thinking is not None
+            and not is_alt_backend
+            and self.router._thinking_capable(real_model)
+            else None
+        )
+        raw = backend.chat(
+            real_model, self._messages(request, gaps), json_mode=True, on_thinking=stream_cb
+        )
+
         def attempt(reply: str) -> tuple[Turn | None, str, MalformedTaskError | None]:
             """Parse one reply: the turn (None if the task failed validation) and what to fix."""
             try:
-                parsed = self._parse(request, reply, chosen, reason, gaps, anchors,
-                                     bool(self.state))
+                parsed = self._parse(
+                    request, reply, chosen, reason, gaps, anchors, bool(self.state)
+                )
             except MalformedTaskError as exc:
                 return None, f"- {exc}", exc
             return parsed, self._repair_complaint(parsed), None
@@ -283,13 +310,22 @@ class Agent(PlanChecks):
             repairs += 1
             raw = backend.chat(
                 real_model,
-                self._messages(request, gaps, extra=[
-                    {"role": "assistant", "content": raw},
-                    {"role": "user", "content":
-                     "That response needs a revision before reaching the operator:\n"
-                     + complaint + "\nRevise it. Same JSON schema."},
-                ]),
-                json_mode=True, on_thinking=stream_cb)
+                self._messages(
+                    request,
+                    gaps,
+                    extra=[
+                        {"role": "assistant", "content": raw},
+                        {
+                            "role": "user",
+                            "content": "That response needs a revision before reaching the operator:\n"
+                            + complaint
+                            + "\nRevise it. Same JSON schema.",
+                        },
+                    ],
+                ),
+                json_mode=True,
+                on_thinking=stream_cb,
+            )
             turn, complaint, malformed = attempt(raw)
             if turn is not None:
                 turn.repairs = repairs
@@ -307,8 +343,16 @@ class Agent(PlanChecks):
         turn.seconds = time.perf_counter() - started
         return self._record(turn)
 
-    def _parse(self, request: str, raw: str, model: str, routing_reason: str,
-               gaps: Sequence[str], anchors: Sequence[str], observed: bool) -> Turn:
+    def _parse(
+        self,
+        request: str,
+        raw: str,
+        model: str,
+        routing_reason: str,
+        gaps: Sequence[str],
+        anchors: Sequence[str],
+        observed: bool,
+    ) -> Turn:
         """Turn a raw model reply into a Turn, validating any proposed task."""
         data = self._extract_json(raw)
         intent_text = str(data.get("intent") or "plan").lower()
@@ -318,13 +362,18 @@ class Agent(PlanChecks):
             intent = Intent.PLAN if data.get("task") else Intent.ANSWER
 
         turn = Turn(
-            request=request, intent=intent,
+            request=request,
+            intent=intent,
             message=str(data.get("message") or ""),
             questions=as_strings(data.get("questions")),
-            model=model, routing_reason=routing_reason,
-            clarifier_gaps=list(gaps), anchors=list(anchors),
-            machine_observed=observed, raw=raw,
-            forget=as_strings(data.get("forget")))
+            model=model,
+            routing_reason=routing_reason,
+            clarifier_gaps=list(gaps),
+            anchors=list(anchors),
+            machine_observed=observed,
+            raw=raw,
+            forget=as_strings(data.get("forget")),
+        )
 
         if intent is Intent.PLAN:
             task = data.get("task")
@@ -338,37 +387,51 @@ class Agent(PlanChecks):
                 raise MalformedTaskError(f"proposed task is malformed: {exc}") from exc
         return turn
 
-    def repair(self, turn: Turn, complaint: str,
-               model: str | None = None) -> Turn:
+    def repair(self, turn: Turn, complaint: str, model: str | None = None) -> Turn:
         """Hand a gate rejection back to the model and return a revised Turn."""
         backend, real_model = self.resolve_backend(model or turn.model)
         raw = backend.chat(
             real_model,
-            self._messages(turn.request, turn.clarifier_gaps, extra=[
-                {"role": "assistant", "content": turn.raw},
-                {"role": "user", "content":
-                 f"Torra rejected that plan:\n{complaint}\n"
-                 "Revise it. Same JSON schema."},
-            ]),
-            json_mode=True)
-        revised = self._parse(turn.request, raw, model or turn.model,
-                              turn.routing_reason, turn.clarifier_gaps,
-                              turn.anchors, turn.machine_observed)
+            self._messages(
+                turn.request,
+                turn.clarifier_gaps,
+                extra=[
+                    {"role": "assistant", "content": turn.raw},
+                    {
+                        "role": "user",
+                        "content": f"Torra rejected that plan:\n{complaint}\n"
+                        "Revise it. Same JSON schema.",
+                    },
+                ],
+            ),
+            json_mode=True,
+        )
+        revised = self._parse(
+            turn.request,
+            raw,
+            model or turn.model,
+            turn.routing_reason,
+            turn.clarifier_gaps,
+            turn.anchors,
+            turn.machine_observed,
+        )
         revised.repairs = turn.repairs + 1
         return self._record(revised)
 
-    def answer_questions(self, turn: Turn, answers: Sequence[str],
-                         model: str | None = None) -> Turn:
+    def answer_questions(
+        self, turn: Turn, answers: Sequence[str], model: str | None = None
+    ) -> Turn:
         """Feed one answer per question (in order) back and re-run the turn."""
         combined = "; ".join(
-            f"{q} -> {a}" for q, a in zip(turn.questions, answers, strict=True) if a)
-        return self.converse(f"{turn.request} [clarified: {combined}]",
-                             model or turn.model)
+            f"{q} -> {a}" for q, a in zip(turn.questions, answers, strict=True) if a
+        )
+        return self.converse(f"{turn.request} [clarified: {combined}]", model or turn.model)
 
     # -- reporting ----------------------------------------------------------- #
 
-    def summarize(self, request: str, steps: Sequence[Step],
-                  results: Sequence[StepResult], model: str) -> str:
+    def summarize(
+        self, request: str, steps: Sequence[Step], results: Sequence[StepResult], model: str
+    ) -> str:
         """Turn already-executed step output into the plain-language answer
         the operator asked for -- a single fixed-shape call, not a tool-use
         loop: the reply is plain text, never parsed as JSON or a task."""
@@ -379,18 +442,22 @@ class Agent(PlanChecks):
             if result is None:
                 continue
             outcome = result.output if result.ok else f"FAILED: {result.error}"
-            lines.append(f"- {step.step_id} (`{step.command}`):\n"
-                         + untrusted_block("command-output", outcome[:2000]))
+            lines.append(
+                f"- {step.step_id} (`{step.command}`):\n"
+                + untrusted_block("command-output", outcome[:2000])
+            )
         prompt = (
             f"The operator asked: {request}\n\n"
             "These steps already ran; here is exactly what each returned:\n"
-            + "\n".join(lines) +
-            "\n\nWrite a short, direct answer to the operator's question using "
+            + "\n".join(lines)
+            + "\n\nWrite a short, direct answer to the operator's question using "
             "only what is shown above. This is a report, not a plan -- do not "
-            "propose any further command.")
+            "propose any further command."
+        )
         backend, real_model = self.resolve_backend(model)
         return backend.chat(
-            real_model, [{"role": "user", "content": prompt}], json_mode=False).strip()
+            real_model, [{"role": "user", "content": prompt}], json_mode=False
+        ).strip()
 
     # -- conversation ------------------------------------------------------ #
 
@@ -411,8 +478,8 @@ class Agent(PlanChecks):
             summary = turn.message or turn.intent.value
             if turn.spec:
                 summary += "\nProposed:\n" + "\n".join(
-                    f"  {s['id'] if 'id' in s else '?'}: {s['run']}"
-                    for s in turn.spec.steps)
+                    f"  {s['id'] if 'id' in s else '?'}: {s['run']}" for s in turn.spec.steps
+                )
             assistant_step = self.context.add(f"a{self._turn_counter}", "assistant", summary)
             if self._on_context_change:
                 self._on_context_change(assistant_step)

@@ -69,6 +69,8 @@ def crash_summary(reporter: CrashReporter) -> str:
         return "no crashes recorded"
     latest = crashes[-1]
     when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest.at))
-    return (f"{len(crashes)} crash(es) recorded\n"
-           f"  most recent: {latest.exception_type} ({latest.site}) at {when}\n"
-           f"    {latest.message[:200]}")
+    return (
+        f"{len(crashes)} crash(es) recorded\n"
+        f"  most recent: {latest.exception_type} ({latest.site}) at {when}\n"
+        f"    {latest.message[:200]}"
+    )

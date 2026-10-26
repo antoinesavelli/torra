@@ -56,7 +56,11 @@ def _round_output(result: RunResult) -> str:
 
 
 def _run_one_round(
-    torra: Torra, request: str, approve: Approve, model: str | None, dry_run: bool,
+    torra: Torra,
+    request: str,
+    approve: Approve,
+    model: str | None,
+    dry_run: bool,
     kind: str,
 ) -> RunResult:
     """One full plan()/execute() turn on the same conversation, the exact

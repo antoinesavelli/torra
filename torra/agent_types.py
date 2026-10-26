@@ -26,10 +26,10 @@ class MalformedTaskError(AgentError):
 class Intent(StrEnum):
     """What the agent decided to do with a turn."""
 
-    ANSWER = "answer"        # a question, no system change needed
-    ASK = "ask"              # underspecified, needs the operator
-    PLAN = "plan"            # enough information, here is a proposal
-    REFUSE = "refuse"        # will not do this
+    ANSWER = "answer"  # a question, no system change needed
+    ASK = "ask"  # underspecified, needs the operator
+    PLAN = "plan"  # enough information, here is a proposal
+    REFUSE = "refuse"  # will not do this
 
 
 @dataclass

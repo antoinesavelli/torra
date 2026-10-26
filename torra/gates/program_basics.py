@@ -19,15 +19,42 @@ _CREDENTIAL_NAME = re.compile(
     r"|credentials|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.pypirc|g?shadow"
     r"|secrets?\.(?:ya?ml|json|toml)|ssh_host_\w+_key|.+\.(?:key|p12|pfx|kdbx)|secring\.gpg"
     r"|\.(?:bash|zsh|psql|mysql|python)_history|terraform\.tfstate(?:\.backup)?|wp-config\.php"
-    r"|rclone\.conf|environ)$", re.IGNORECASE)
+    r"|rclone\.conf|environ)$",
+    re.IGNORECASE,
+)
 _SSH_PUBLIC = re.compile(r"^(?:.+\.pub|known_hosts.*|config|authorized_keys.*)$")
-_CREDENTIAL_DIRS = ("/.aws/", "/.gnupg/", "/.kube/", "/.docker/", "/.azure/", "/.config/gcloud/",
-                    "/.config/gh/", "/.config/rclone/", "/.password-store/")
+_CREDENTIAL_DIRS = (
+    "/.aws/",
+    "/.gnupg/",
+    "/.kube/",
+    "/.docker/",
+    "/.azure/",
+    "/.config/gcloud/",
+    "/.config/gh/",
+    "/.config/rclone/",
+    "/.password-store/",
+)
 #: Concrete names a glob like `.e*` or `id_*` could expand to.
-_CREDENTIAL_LITERALS = (".env", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials", ".netrc",
-                        ".pgpass", ".git-credentials", ".npmrc", ".pypirc", "shadow", "gshadow",
-                        ".bash_history", ".zsh_history", "terraform.tfstate", "wp-config.php",
-                        "rclone.conf")
+_CREDENTIAL_LITERALS = (
+    ".env",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "credentials",
+    ".netrc",
+    ".pgpass",
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+    "shadow",
+    "gshadow",
+    ".bash_history",
+    ".zsh_history",
+    "terraform.tfstate",
+    "wp-config.php",
+    "rclone.conf",
+)
 
 
 def _glob_could_match_a_credential(pattern: str) -> bool:
@@ -35,8 +62,10 @@ def _glob_could_match_a_credential(pattern: str) -> bool:
     than two literal characters (`*`) is skipped, and `*`/`?` never match a leading dot."""
     if not any(c in pattern for c in "*?[") or len(re.sub(r"[*?\[\]]", "", pattern)) < 2:
         return False
-    return any(fnmatch.fnmatchcase(name, pattern) and (pattern.startswith(".") or name[0] != ".")
-               for name in _CREDENTIAL_LITERALS)
+    return any(
+        fnmatch.fnmatchcase(name, pattern) and (pattern.startswith(".") or name[0] != ".")
+        for name in _CREDENTIAL_LITERALS
+    )
 
 
 def reads_credentials(path: str) -> bool:

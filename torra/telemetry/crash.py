@@ -83,14 +83,14 @@ class CrashReporter:
         try/except, same as `TaskLogger.record()`.
         """
         try:
-            tb = "".join(traceback.format_exception(
-                type(error), error, error.__traceback__))
+            tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
             record = CrashRecord(
                 at=self._clock(),
                 site=site,
                 exception_type=type(error).__name__,
                 message=redact_secrets(str(error)),
-                traceback=redact_secrets(tb))
+                traceback=redact_secrets(tb),
+            )
             line = json.dumps(record.to_dict(), sort_keys=True) + "\n"
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as fh:
@@ -109,7 +109,8 @@ class CrashReporter:
         records: list[CrashRecord] = []
         try:
             for number, raw in enumerate(
-                    self.path.read_text(encoding="utf-8").splitlines(), start=1):
+                self.path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
                 if not raw.strip():
                     continue
                 try:

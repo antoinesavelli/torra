@@ -39,14 +39,19 @@ REDACTIONS: list[tuple[str, str]] = [
     (r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}", "Bearer <TOKEN>"),
     (r"(?i)\b((?:set-)?cookie:[ \t]*)[^\r\n]{1,4000}", r"\1<REDACTED>"),
     (r"(?i)\b([a-z][a-z0-9+.-]{1,20}://)[^\s/@]{1,200}@", r"\1<REDACTED>@"),
-    (r"(?i)([?&](?:key|api_?key|access_token|token|sig|signature|secret)=)[^&\s]+", r"\1<REDACTED>"),
+    (
+        r"(?i)([?&](?:key|api_?key|access_token|token|sig|signature|secret)=)[^&\s]+",
+        r"\1<REDACTED>",
+    ),
     (r"(?i)(\s(?:-u|--user)[ =]+)[^\s:]+:\S+", r"\1<REDACTED>"),
     (r"(?i)(--(?:password|passwd|token|secret|api-?key)[ =]+)\S+", r"\1<REDACTED>"),
     (r"(?i)(\bsshpass\s+-p\s*)\S+", r"\1<REDACTED>"),
     (r"(?im)^(\s*(?:password|passwd)\s+)\S+$", r"\1<REDACTED>"),
     # A value under a secret-looking key in JSON or a Python dict, either quote style.
-    (r"(?i)([\"'][A-Za-z0-9_.-]{0,40}(?:pass(?:word|wd)?|secret|token|credentials?|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|client[_-]?secret|psk)[A-Za-z0-9_.-]{0,40}[\"']\s*[:：]\s*)([\"'])[^\"'\n]{0,500}\2",
-     r"\1\2<REDACTED>\2"),
+    (
+        r"(?i)([\"'][A-Za-z0-9_.-]{0,40}(?:pass(?:word|wd)?|secret|token|credentials?|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|client[_-]?secret|psk)[A-Za-z0-9_.-]{0,40}[\"']\s*[:：]\s*)([\"'])[^\"'\n]{0,500}\2",
+        r"\1\2<REDACTED>\2",
+    ),
     (r"(?i)([\"']auth[\"']\s*[:：]\s*)([\"'])[^\"'\n]{0,500}\2", r"\1\2<REDACTED>\2"),
     # Live wire: HANDOFF.md §5.25
     # \S.*$ (to end of line), not \S+ (one token): a multi-word secret like
@@ -54,10 +59,15 @@ REDACTIONS: list[tuple[str, str]] = [
     # Over-redacting the rest of the line is far cheaper than under-redacting a
     # secret. The name may carry a prefix or suffix (OPENROUTER_API_KEY, DATABASE_PASS); both
     # are bounded so hostile text cannot make the match slow.
-    (r"(?im)(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]{0,40}(?:pass(?:word|wd)?|secret|token|credentials?|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|client[_-]?secret|psk)[A-Za-z0-9_.-]{0,40})\s*[=:：]\s*\S.*$",
-     r"\1=<REDACTED>"),
-    (r"-----BEGIN [A-Z ]*(?:PRIVATE KEY|KEY BLOCK)-----[\s\S]*?"
-     r"(?:-----END [A-Z ]*(?:PRIVATE KEY|KEY BLOCK)-----|\Z)", "<PRIVATE_KEY>"),
+    (
+        r"(?im)(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]{0,40}(?:pass(?:word|wd)?|secret|token|credentials?|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|client[_-]?secret|psk)[A-Za-z0-9_.-]{0,40})\s*[=:：]\s*\S.*$",
+        r"\1=<REDACTED>",
+    ),
+    (
+        r"-----BEGIN [A-Z ]*(?:PRIVATE KEY|KEY BLOCK)-----[\s\S]*?"
+        r"(?:-----END [A-Z ]*(?:PRIVATE KEY|KEY BLOCK)-----|\Z)",
+        "<PRIVATE_KEY>",
+    ),
 ]
 
 
@@ -178,6 +188,7 @@ class TaskLogger:
         """Append one record. Never raises; see class docstring."""
         try:
             from .scrub import redact_tree  # lazily: scrub imports this module
+
             record.request = self.scrub(record.request)
             record.abort_reason = self.scrub(record.abort_reason)
             if not record.at:
@@ -195,8 +206,9 @@ class TaskLogger:
 
     @staticmethod
     def _resolve_task_id(result: Any, plan: Any) -> str:
-        return str(getattr(getattr(plan, "spec", None), "task_id", "")
-                   or getattr(result, "task_id", ""))
+        return str(
+            getattr(getattr(plan, "spec", None), "task_id", "") or getattr(result, "task_id", "")
+        )
 
     @staticmethod
     def _resolve_request(result: Any, request: str) -> str:
@@ -204,13 +216,13 @@ class TaskLogger:
 
     @staticmethod
     def _resolve_stages(result: Any) -> list[str]:
-        return list(getattr(result, "stages", None)
-                    or getattr(result, "stages_completed", []) or [])
+        return list(
+            getattr(result, "stages", None) or getattr(result, "stages_completed", []) or []
+        )
 
     @staticmethod
     def _resolve_coverage(result: Any, plan: Any) -> dict[str, Any]:
-        return (getattr(plan, "coverage", None)
-                or getattr(result, "undo_coverage", None) or {})
+        return getattr(plan, "coverage", None) or getattr(result, "undo_coverage", None) or {}
 
     def _base_record(self, result: Any, request: str) -> TaskRecord:
         """Everything derivable without knowing if turn/plan are present."""
@@ -227,8 +239,11 @@ class TaskLogger:
             stages_completed=self._resolve_stages(result),
             abort_reason=str(getattr(result, "abort_reason", "")),
             rollback_ran=rollback is not None,
-            rollback_verified=(getattr(rollback, "ok", None) if rollback
-                               else getattr(result, "rollback_verified", None)),
+            rollback_verified=(
+                getattr(rollback, "ok", None)
+                if rollback
+                else getattr(result, "rollback_verified", None)
+            ),
             undo_coverage=float(coverage.get("coverage_ratio", 0.0)),
             uncovered_steps=list(coverage.get("uncovered", []) or []),
             seconds=float(getattr(result, "seconds", 0.0)),
@@ -245,8 +260,7 @@ class TaskLogger:
         record.model = str(getattr(turn, "model", ""))
         record.routing_rule = str(getattr(turn, "routing_reason", ""))[:80]
         record.repairs = int(getattr(turn, "repairs", 0))
-        record.clarifier_codes = [g.split(":")[0] for g
-                                  in getattr(turn, "clarifier_gaps", [])]
+        record.clarifier_codes = [g.split(":")[0] for g in getattr(turn, "clarifier_gaps", [])]
         # Found in a full-file audit: this field was declared on TaskRecord
         # but never assigned here, so every persisted record carried an
         # empty anchor list. LoopholeAudit only worked because it falls
@@ -271,7 +285,8 @@ class TaskLogger:
         # step to a real True/False (steps needing no confirmation are
         # auto-True), so after a real execute() this is exactly as strict.
         record.approved = all(
-            getattr(sp, "approved", None) is True for sp in getattr(plan, "steps", []))
+            getattr(sp, "approved", None) is True for sp in getattr(plan, "steps", [])
+        )
 
     def from_result(self, result: Any, request: str = "") -> TaskRecord | None:
         """Build a TaskRecord from any result object, old pipeline or new."""
@@ -298,7 +313,8 @@ class TaskLogger:
         records: list[TaskRecord] = []
         try:
             for number, raw in enumerate(
-                    self.path.read_text(encoding="utf-8").splitlines(), start=1):
+                self.path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
                 if not raw.strip():
                     continue
                 try:

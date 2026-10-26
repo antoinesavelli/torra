@@ -28,7 +28,7 @@ __all__ = ["CommandResolver"]
 
 def _part_of_a_redirect(command: str, i: int) -> bool:
     """`&` in `2>&1` or `&>file`, `|` in `>|` (overriding noclobber): an operator's, not a separator."""
-    ch, before, after = command[i], command[i - 1:i], command[i + 1:i + 2]
+    ch, before, after = command[i], command[i - 1 : i], command[i + 1 : i + 2]
     return (ch == "&" and (before in (">", "<") or after == ">")) or (ch == "|" and before == ">")
 
 
@@ -79,7 +79,7 @@ class CommandResolver:
             elif ch in ("'", '"'):
                 quote = ch
                 buf.append(ch)
-            elif command[i:i + 2] in ("&&", "||"):
+            elif command[i : i + 2] in ("&&", "||"):
                 segments.append("".join(buf))
                 buf = []
                 i += 2
@@ -136,7 +136,8 @@ class CommandResolver:
     def _env_runs_a_string(out: list[str]) -> bool:
         """`env -S 'cmd args'` and `env --split-string=...` run a command string."""
         return out[0].rsplit("/", 1)[-1] == "env" and any(
-            a.startswith(("-S", "--split-string")) for a in out[1:4])
+            a.startswith(("-S", "--split-string")) for a in out[1:4]
+        )
 
     @staticmethod
     def _consume_wrapper(out: list[str]) -> bool:
@@ -230,8 +231,7 @@ class CommandResolver:
         if require_pipe_to_shell and not re.search(r"\|\s*(sudo\s+)?(ba|z|k|da)?sh\b", command):
             return None
         # Live wire: HANDOFF.md §5.1
-        for blob in re.findall(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{8,}(?![A-Za-z0-9+/=])",
-                               command):
+        for blob in re.findall(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{8,}(?![A-Za-z0-9+/=])", command):
             try:
                 decoded = base64.b64decode(blob, validate=True).decode("utf-8", "replace")
                 if decoded.strip():
@@ -261,17 +261,17 @@ class CommandResolver:
         spans: list[str] = []
         i, n = 0, len(command)
         while i < n:
-            if command[i:i + 2] in ("$(", "<(", ">("):
+            if command[i : i + 2] in ("$(", "<(", ">("):
                 j = self._matching_paren(command, i + 2)
                 if j is None:
                     break
-                spans.append(command[i + 2:j - 1])
+                spans.append(command[i + 2 : j - 1])
                 i = j
             elif command[i] == "`":
                 j = command.find("`", i + 1)
                 if j == -1:
                     break
-                spans.append(command[i + 1:j])
+                spans.append(command[i + 1 : j])
                 i = j + 1
             else:
                 i += 1
@@ -291,12 +291,14 @@ class CommandResolver:
     def _strip_heredocs(command: str) -> str:
         """Drop a heredoc body fed to a program that only reads it (`cat <<EOF`): it is data. One
         fed to an interpreter stays, because the interpreter runs it."""
+
         def keep_or_drop(m: re.Match[str]) -> str:
-            lead = command[command.rfind("\n", 0, m.start()) + 1:m.start()].split()[:1]
+            lead = command[command.rfind("\n", 0, m.start()) + 1 : m.start()].split()[:1]
             runner = lead[0].rsplit("/", 1)[-1] if lead else ""
             if runner in INTERPRETERS or runner in WRAPPERS:
                 return m.group(0)
             return f"<<{m.group(2)}{m.group(3)}"
+
         return HEREDOC.sub(keep_or_drop, command)
 
     def _resolve_substitutions(self, command: str, depth: int) -> list[ResolvedCommand]:
@@ -305,10 +307,14 @@ class CommandResolver:
         for sub in self._find_command_substitutions(command):
             decoded = self._decode_base64(sub, require_pipe_to_shell=False)
             if decoded:
-                out += [ResolvedCommand(r.argv, r.source, "base64 via substitution")
-                       for r in self.resolve(decoded, depth + 1)]
-            out += [ResolvedCommand(r.argv, r.source, "command substitution")
-                   for r in self.resolve(sub, depth + 1)]
+                out += [
+                    ResolvedCommand(r.argv, r.source, "base64 via substitution")
+                    for r in self.resolve(decoded, depth + 1)
+                ]
+            out += [
+                ResolvedCommand(r.argv, r.source, "command substitution")
+                for r in self.resolve(sub, depth + 1)
+            ]
         return out
 
     @staticmethod
@@ -336,15 +342,19 @@ class CommandResolver:
         resolved: list[ResolvedCommand] = []
         decoded = self._decode_base64(command)
         if decoded:
-            resolved += [ResolvedCommand(r.argv, r.source, "base64 payload")
-                         for r in self.resolve(decoded, depth + 1)]
+            resolved += [
+                ResolvedCommand(r.argv, r.source, "base64 payload")
+                for r in self.resolve(decoded, depth + 1)
+            ]
         resolved += self._resolve_substitutions(command, depth)
 
         env: dict[str, str] = {}
         # env is filled below. A payload's data-only heredoc bodies are dropped first, so the message
         # in `git commit -m "$(cat <<'EOF' ... EOF)"` is not read as shell; the line itself is kept whole.
         self.shell_texts.append((command if depth == 0 else self._strip_heredocs(command), env))
-        for segment in self.split_segments(self._blank_substitutions(self._strip_heredocs(command))):
+        for segment in self.split_segments(
+            self._blank_substitutions(self._strip_heredocs(command))
+        ):
             segment = self._unparen(self._expand_ifs(segment))
             argv = self._substitute(self._strip(self._tokenize(segment), env), env)
             if not argv:
@@ -360,8 +370,10 @@ class CommandResolver:
         program = ResolvedCommand(argv, segment).program
         out: list[ResolvedCommand] = []
         if program == "eval" and len(argv) > 1:
-            out += [ResolvedCommand(r.argv, r.source, "eval")
-                    for r in self.resolve(" ".join(argv[1:]), depth + 1)]
+            out += [
+                ResolvedCommand(r.argv, r.source, "eval")
+                for r in self.resolve(" ".join(argv[1:]), depth + 1)
+            ]
         at = next((i for i, a in enumerate(argv[:-1]) if re.fullmatch(r"-[A-Za-z]*c", a)), None)
         payload = argv[at + 1] if program in INTERPRETERS and at is not None else ""
         if not payload:
@@ -371,6 +383,7 @@ class CommandResolver:
         # opaque ResolvedCommand and left to _judge's checks of the source text.
         if program.startswith("python") or program in ("perl", "ruby", "node"):
             return out + [ResolvedCommand(argv, segment, f"{program} -c source")]
-        return out + [ResolvedCommand(r.argv, r.source, f"{program} -c")
-                      for r in self.resolve(payload, depth + 1)]
-
+        return out + [
+            ResolvedCommand(r.argv, r.source, f"{program} -c")
+            for r in self.resolve(payload, depth + 1)
+        ]

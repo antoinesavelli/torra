@@ -34,8 +34,10 @@ def dependency_warnings(plan: Plan, approvals: dict[str, bool]) -> list[str]:
     match -- it is a hint to double-check, not a gate, and callers must
     not treat an empty result as a guarantee nothing was missed."""
     approved_ids = {
-        sp.step.step_id for sp in plan.steps
-        if not sp.needs_confirmation or approvals.get(sp.step.step_id, False)}
+        sp.step.step_id
+        for sp in plan.steps
+        if not sp.needs_confirmation or approvals.get(sp.step.step_id, False)
+    }
     declined = [sp for sp in plan.steps if sp.step.step_id not in approved_ids]
     declined_paths = {path: sp.step.step_id for sp in declined for path in sp.step.touches}
     if not declined_paths:
@@ -48,5 +50,6 @@ def dependency_warnings(plan: Plan, approvals: dict[str, bool]) -> list[str]:
             if path in sp.step.command:
                 warnings.append(
                     f"{sp.step.step_id} references {path}, which "
-                    f"{declined_id} (declined) would have produced")
+                    f"{declined_id} (declined) would have produced"
+                )
     return warnings

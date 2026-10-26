@@ -26,9 +26,14 @@ class ModelBackend(Protocol):
     equivalent for.
     """
 
-    def chat(self, model: str, messages: Sequence[dict[str, str]],
-              json_mode: bool = False, temperature: float = 0.2,
-              on_thinking: Callable[[str], None] | None = None) -> str:
+    def chat(
+        self,
+        model: str,
+        messages: Sequence[dict[str, str]],
+        json_mode: bool = False,
+        temperature: float = 0.2,
+        on_thinking: Callable[[str], None] | None = None,
+    ) -> str:
         """Send a conversation and return the assistant's reply text."""
         ...
 
@@ -41,8 +46,9 @@ class ModelBackend(Protocol):
         ...
 
 
-def resolve_backend(model: str, backends: Mapping[str, ModelBackend],
-                    default: ModelBackend) -> tuple[ModelBackend, str]:
+def resolve_backend(
+    model: str, backends: Mapping[str, ModelBackend], default: ModelBackend
+) -> tuple[ModelBackend, str]:
     """The backend for `model`, plus `model` with its routing prefix
     stripped -- OpenRouter IDs are already provider-prefixed
     ("anthropic/..."), so a registered "openrouter/..." prefix only picks
@@ -54,5 +60,5 @@ def resolve_backend(model: str, backends: Mapping[str, ModelBackend],
     for prefix, backend in backends.items():
         marker = f"{prefix}/"
         if model.startswith(marker):
-            return backend, model[len(marker):]
+            return backend, model[len(marker) :]
     return default, model

