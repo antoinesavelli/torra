@@ -3802,7 +3802,7 @@ Definition of Done; the story goes in the commit message.
 
 ### 5.1 `SafetyClassifier._decode_base64`'s blob pattern must not require quotes.
 
-Code: `torra/gates/safety.py` (`SafetyClassifier._decode_base64`).
+Code: `torra/gates/safety_resolve.py` (`CommandResolver._decode_base64`).
 
 Base64's own alphabet has no whitespace in it, so `echo BLOB | base64 -d |
 sh` needs no quotes around `BLOB` -- it's at least as natural to write as
@@ -3823,7 +3823,7 @@ when one happens to be present, without requiring one.
 
 ### 5.2 `_strip` must know which wrapper flags consume a value.
 
-Code: `torra/gates/safety.py` (`WRAPPER_VALUE_FLAGS`).
+Code: `torra/gates/safety_tables.py` (`WRAPPER_VALUE_FLAGS`).
 
 The most
 severe gap this project's own audits have found: `timeout -s KILL 5 kill

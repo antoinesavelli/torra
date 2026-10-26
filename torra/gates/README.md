@@ -8,7 +8,11 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 | File | Holds |
 |---|---|
 | `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and the per-program rules (`git`, `curl`, `python -c`) that decide which. Anything absent asks (`HANDOFF.md` §2.60) |
-| `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it |
+| `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it; it composes the four files below and re-exports `RiskLevel`, `ResolvedCommand` and `Verdict` |
+| `safety_resolve.py` | `CommandResolver`: quotes, `VAR=value`, wrappers, `sh -c`, `$(...)` and base64 resolved to concrete argv lists |
+| `safety_judge.py` | `CommandJudge`: one resolved command's argv judged by the per-program rules, plus the regex backstop |
+| `safety_types.py` | `RiskLevel`, `ResolvedCommand` and `Verdict` |
+| `safety_tables.py` | The tables `SafetyClassifier` reads: risky programs, protected prefixes, wrappers, the backstop rows |
 | `assignments.py` | Which variables a call assigns besides a leading `NAME=value` (`export`/`declare`, `read`, `printf -v`, namerefs, `for`, `${NAME:=x}`), so `safety.py` can note a changed `PATH`; a name built at run time asks (`HANDOFF.md` §2.83) |
 | `state.py` | VERIFY_STATE: `StateVerifier`, preconditions rechecked between steps, TTL cached |
 | `script_rules.py` | Recognising the sed and awk programs torra runs without a tick: a parser that accepts only simple sed commands, and an awk check that blanks string literals first (`HANDOFF.md` §2.72) |

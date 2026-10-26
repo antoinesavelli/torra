@@ -25,6 +25,7 @@ or network -- every external dependency is an injected callable (see
 | `test_instruction_files.py` | `CLAUDE.md` stays a one-line import stub, every read-first trigger target exists and is indexed, `AGENTS.md` stays under its byte budget |
 | `test_knowledge_refs.py` | Agent-facing docs cite only `HANDOFF.md` sections, guard tests and `AGENTS.md` area-map paths that still exist; a new `HANDOFF.md` §2/§5 entry stays at 10 non-blank lines and the file under a byte ceiling |
 | `test_claude_code_hook.py` | The Claude Code PreToolUse hook: CRITICAL asks, a concrete DANGEROUS rule informs, it never answers "allow", the verdict log is scrubbed and capped, and each failure fails the way `HANDOFF.md` §2.85 says |
+| `test_module_splits.py` | The 2026-10-25 module splits keep every public import path and the classes they were cut from |
 | `test_defensive_coding_report.py` | The scorecard's Testing rule (a re-exported name covers its module, the bare package covers nothing) and its Modularity nesting join (by `def` line, not by name) |
 | `test_knowledge_questions.py` | `docs/agents/knowledge_questions.yaml` is well formed and leaks no answer, each `expected` passes its own regexes, and every `must_contain` fact is still in the docs the question cites |
 | `test_model_bench.py` | `scripts/dev/model_bench` as a fucone job: `TORRA_OLLAMA_HOST` endpoint, an Ollama outage aborts instead of becoming a row, results land in `FUCONE_RUN_DIR`, the reader refuses an incomplete battery |
