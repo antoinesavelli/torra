@@ -2273,19 +2273,10 @@ part of the original ask:**
    themselves (`curl -fsSL https://ollama.com/install.sh | sh`) --
    upgrading a root-owned binary and restarting a live system service is
    outside what this agent will do unattended, on-request or not.
-2. The installer's fresh systemd unit switched `ollama.service` to a new
-   dedicated `ollama` system user, replacing whatever ran it before
-   (evidently `antoine`, the owner of every file under
-   `/mnt/ParamoStorage/AIModels`). `/mnt/ParamoStorage` itself is
-   `drwx------ antoine antoine` and `AIModels/blobs` is the same --
-   the new user could not traverse into the mount at all, then (after a
-   scoped `setfacl -m u:ollama:--x` traverse grant) could not read the
-   blobs it needed. Fixed by reverting to the previous, already-correct
-   permission model instead of chasing per-directory ACLs: a new
-   `/etc/systemd/system/ollama.service.d/override-user.conf` drop-in
-   pins `User=antoine`/`Group=antoine`, layered on top of the existing
-   hand-tuned `override.conf` from the 2026-08-10 incident (`Requires=
-   mnt-ParamoStorage.mount`, the 5-restart start limit) rather than
+2. The installer's fresh systemd unit switched `ollama.service` to a new dedicated `ollama` system user,
+   which could not read the model store. Fixed by reverting to the previous, already-correct permission
+   model instead of chasing per-directory ACLs: a new drop-in pins the unit's user and group to the
+   operator's, layered on top of the existing hand-tuned override from the 2026-08-10 incident rather than
    replacing it -- both drop-ins apply, base unit last.
 
 **Correction, same day: `muse-glimmer:30b` did not survive contact with

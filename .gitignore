@@ -9,7 +9,7 @@ __pycache__/
 htmlcov/
 .env
 
-# Platform-routine scratch files (~/.local/share/platform-routines/) — always transient,
+# Platform-routine scratch files — always transient,
 # regenerated every run, never real content.
 .doc_audit_scratch.md
 .defensive_scorecard_scratch.md

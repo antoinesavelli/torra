@@ -521,8 +521,8 @@ wearing a percentage sign.
 | `.github/workflows/ci.yml` | ruff, ruff format, mypy, the tests under branch coverage with floors, and the defensive-coding scorecard |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
 | `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
-| `AUDIT_LOG.md` | weekly append-only log from the `torra-doc-audit` opencode routine (systemd user timer, Mon 06:50) — greps doc citations, and a local-model agent judges any that don't resolve real-vs-false-positive. Runner: `~/.local/share/platform-routines/` (a sibling to Paramo's own `paramo-routines/`). |
-| `DEFENSIVE_SCORECARD_LOG.md` | monthly append-only log from the `torra-defensive-scorecard` opencode routine (systemd user timer, 1st, 07:35) — runs `scripts/dev/defensive_coding_report.py --enforce`, and only on a real regression has a local-model agent diagnose the likely commit from recent git history. |
+| `AUDIT_LOG.md` | weekly append-only log from the `torra-doc-audit` opencode routine (scheduled weekly) — greps doc citations, and a local-model agent judges any that don't resolve real-vs-false-positive. Runner: `~/.local/share/platform-routines/` (a sibling to Paramo's own `paramo-routines/`). |
+| `DEFENSIVE_SCORECARD_LOG.md` | monthly append-only log from the `torra-defensive-scorecard` opencode routine (scheduled monthly) — runs `scripts/dev/defensive_coding_report.py --enforce`, and only on a real regression has a local-model agent diagnose the likely commit from recent git history. |
 
 ---
 

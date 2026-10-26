@@ -1,7 +1,6 @@
 # Defensive-Coding Scorecard Drift Log
 
-**Schedule:** Monthly (opencode routine `torra-defensive-scorecard`, systemd user timer
-`torra-defensive-scorecard.timer`, runner: `~/.local/share/platform-routines/`)
+**Schedule:** Monthly (opencode routine `torra-defensive-scorecard`)
 **What it checks:** runs `scripts/dev/defensive_coding_report.py --enforce` — the script's own
 authoritative regression gate (fails if any dimension drops below its recorded last-known-good
 grade, or overall GPA falls below `MIN_GPA`; see `DEFENSIVE_CODING_STANDARDS.md`). No LLM
