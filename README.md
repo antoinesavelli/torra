@@ -427,9 +427,9 @@ mechanism. In both cases the model never authors an `ssh`/`scp` command
 itself; torra constructs the real action.
 
 ```bash
-export TORRA_EXECUTOR_HOST=10.0.0.44
-export TORRA_EXECUTOR_USER=antoine
-export TORRA_EXECUTOR_SSH_KEY=~/.ssh/id_ed25519_executor_link
+export TORRA_EXECUTOR_HOST=192.0.2.10
+export TORRA_EXECUTOR_USER=user
+export TORRA_EXECUTOR_SSH_KEY=~/.ssh/id_ed25519_torra
 ```
 
 Same `.env`/shell-export precedence as `OPENROUTER_API_KEY` above. Absent
