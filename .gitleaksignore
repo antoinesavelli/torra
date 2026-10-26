@@ -1,0 +1,7 @@
+# Synthetic fixtures, reviewed by hand (scrub audit 2026-10-25): a fake key block, fake curl -u lines and a fake JWT.
+# Any other finding still blocks the pre-push hook.
+e4e364646f58b6b3e27811f0ac2b999a7006cbd3:tests/test_review_round_two.py:curl-auth-user:34
+e4e364646f58b6b3e27811f0ac2b999a7006cbd3:tests/test_review_round_two.py:curl-auth-user:35
+7b7f10db70b2185134678f056bbf28e0347b5cf9:tests/test_review_round_two.py:curl-auth-user:26
+a0010df9a73535aea5b66f00764241b5e2c51116:tests/test_secrets.py:private-key:35
+83a65c0e69183265474b78950a9fa6aeb536773c:legacy/break_it_v5.py:jwt:64
