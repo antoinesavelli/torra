@@ -3,19 +3,18 @@ it will do. The other half, `VerifiedRollback` (proving each one worked),
 lives in `rollback.py` -- split out once this file crossed the 500 functional
 LOC modularity cap; see DEFENSIVE_CODING_STANDARDS.md §1.2.
 
-Depends on: stdlib only.
+Depends on: torra.gates.undo_types (the value types, re-exported here), torra.gates.undo_shadow
+(the shadow directory), torra.gates.undo_remote (snapshots over the executor runner),
+torra.gates.service_state.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
 import subprocess
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -25,68 +24,10 @@ from .service_state import (
     systemctl_query,
     systemctl_scope,
 )
+from .undo_remote import RemoteCapture
+from .undo_types import Snapshot, SnapshotKind, UndoAction
 
 __all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
-
-
-class SnapshotKind(StrEnum):
-    """What kind of prior state a snapshot captured."""
-
-    FILE_CONTENT = "file_content"
-    FILE_ABSENT = "file_absent"
-    DIR_ABSENT = "dir_absent"
-    SERVICE_STATE = "service_state"
-    PACKAGE_SET = "package_set"
-
-
-@dataclass
-class Snapshot:
-    """Prior state captured before a step ran."""
-
-    kind: SnapshotKind
-    target: str
-    detail: str = ""
-    shadow_path: str | None = None
-    digest: str | None = None
-    payload: Any | None = None
-    mode: int | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serializable dict form."""
-        d = asdict(self)
-        d["kind"] = self.kind.value
-        if isinstance(d.get("payload"), (set, frozenset)):
-            d["payload"] = sorted(d["payload"])
-        return d
-
-
-@dataclass
-class UndoAction:
-    """An undo that can prove it worked.
-
-    `verify` returns True when the system is genuinely back to its pre-step
-    state. Without it, "undone" only means the callable did not raise, which is
-    a much weaker claim than it reads as.
-    """
-
-    description: str
-    undo: Callable[[], Any]
-    safe: bool = True
-    verify: Callable[[], bool] | None = None
-    generated: bool = False
-    snapshot: Snapshot | None = None
-    step_id: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serializable dict form, excluding callables."""
-        return {
-            "description": self.description,
-            "safe": self.safe,
-            "generated": self.generated,
-            "step_id": self.step_id,
-            "has_verifier": self.verify is not None,
-            "snapshot": self.snapshot.to_dict() if self.snapshot else None,
-        }
 
 
 #: apt/apt-get only, not dnf or pacman: `undo_packages` below hardcodes
@@ -104,7 +45,7 @@ PACKAGE_PATTERN = re.compile(
 MKDIR_PATTERN = re.compile(r"\bmkdir\b(?:\s+-\w+)*\s+([^\s;|&]+)")
 
 
-class UndoGenerator:
+class UndoGenerator(RemoteCapture):
     """Derives undo actions from what a step declares it will do.
 
     Without this, ROLLBACK_ON_FAIL is a promise torra cannot keep for any
@@ -118,12 +59,6 @@ class UndoGenerator:
     """
 
     MAX_SHADOW_BYTES: int = 64 * 1024 * 1024
-    #: A sibling torra-shadow-<pid>* directory is only reaped once it is
-    #: BOTH this old AND its owning pid is dead -- an in-progress run, even
-    #: a long one, must never have its snapshots pulled out from under it.
-    STALE_SHADOW_SECONDS: float = 24 * 3600
-    #: A directory with no owner record (from before `owner.pid` existed) waits this long.
-    LEGACY_SHADOW_SECONDS: float = 7 * 24 * 3600
 
     def __init__(
         self,
@@ -167,83 +102,6 @@ class UndoGenerator:
         self._claim_shadow_dir()
         self._reap_stale_shadows()
 
-    def _claim_shadow_dir(self) -> None:
-        """Record the owning pid beside the directory (`<name>.owner`; cleanup() leaves it empty)."""
-        try:
-            self._owner_file(self.shadow_dir).write_text(str(os.getpid()), encoding="utf-8")
-        except OSError:
-            pass
-
-    @staticmethod
-    def _owner_file(entry: Path) -> Path:
-        return entry.with_name(entry.name + ".owner")
-
-    @staticmethod
-    def _shadow_owner(entry: Path) -> int | None:
-        """The pid that owns a shadow directory: its owner file, else a pid in its name."""
-        import re
-        try:
-            return int(UndoGenerator._owner_file(entry).read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
-            pass
-        match = re.match(r"torra-shadow-(\d+)(?:-|$)", entry.name)
-        return int(match.group(1)) if match else None
-
-    # -- reaping ------------------------------------------------------------ #
-
-    @staticmethod
-    def _pid_alive(pid: int) -> bool:
-        """True when a process with this pid is still running."""
-        try:
-            os.kill(pid, 0)
-        except (ProcessLookupError, OverflowError, ValueError):
-            return False
-        except PermissionError:
-            return True  # exists, just not ours to signal
-        except OSError:
-            return False
-        return True
-
-    def _reap_stale_shadows(self) -> None:
-        """Remove sibling shadow directories left by dead, old runs.
-
-        Nothing in this codebase called `cleanup()` after a completed run --
-        `Torra.close()`'s own docstring says shadow copies are "kept for
-        post-mortem", but that only makes sense for a *failed* run whose
-        rollback someone might want to inspect. `Torra.execute()` now
-        calls `cleanup()` directly on success, so this reaper only ever
-        has failed-run leftovers to catch, plus anything from before this
-        fix existed (14 such directories were already sitting on one real
-        machine when this was found in a full-file audit). A directory is
-        reaped only once it is both stale by age AND its owning pid is
-        dead, so a run genuinely still in progress is never touched.
-        """
-        import time
-
-        parent = self.shadow_dir.parent
-        try:
-            entries = list(parent.iterdir()) if parent.is_dir() else []
-        except OSError:
-            return
-        now = time.time()
-        for entry in entries:
-            if entry == self.shadow_dir or not entry.is_dir():
-                continue
-            if not entry.name.startswith("torra-shadow-"):
-                continue
-            owner = self._shadow_owner(entry)
-            try:
-                age = now - entry.stat().st_mtime
-            except OSError:
-                continue
-            if owner is None:
-                stale = age >= self.LEGACY_SHADOW_SECONDS
-            else:
-                stale = age >= self.STALE_SHADOW_SECONDS and not self._pid_alive(owner)
-            if stale:
-                shutil.rmtree(entry, ignore_errors=True)
-                self._owner_file(entry).unlink(missing_ok=True)
-
     # -- probes ------------------------------------------------------------ #
 
     _systemctl_scope = staticmethod(systemctl_scope)
@@ -265,20 +123,6 @@ class UndoGenerator:
             return {line.strip() for line in out.stdout.splitlines() if line.strip()}
         except Exception:
             return set()
-
-    @staticmethod
-    def digest(path: Path) -> str | None:
-        """SHA256 of a file, or None when absent or unreadable."""
-        if not path.exists():
-            return None
-        h = hashlib.sha256()
-        try:
-            with path.open("rb") as fh:
-                while chunk := fh.read(1 << 20):
-                    h.update(chunk)
-        except OSError:
-            return None
-        return h.hexdigest()
 
     # -- copying ----------------------------------------------------------- #
 
@@ -376,93 +220,6 @@ class UndoGenerator:
 
         return UndoAction(f"restore {target} from snapshot ({how})", undo_restore,
                           True, lambda: self.digest(target) == dig, True, snap, step_id)
-
-    @staticmethod
-    def _read_remote_bytes(runner: Callable[[str, str | None, float | None], str],
-                           remote_path: str) -> bytes:
-        """A remote file's exact bytes (the runner strips output, which `cat` lost newlines to)."""
-        import base64
-        import shlex
-        return base64.b64decode(runner(f"base64 -w0 -- {shlex.quote(remote_path)}", None, 30.0),
-                                validate=True)
-
-    def capture_remote_file(self, remote_path: str, step_id: str = "") -> UndoAction | None:
-        """Snapshot one file on executor (over `self._executor_runner`) and
-        build its restore action -- the direct remote mirror of
-        `capture_file`, same real, provable undo/verify bar.
-
-        `None` (no `UndoAction` at all) whenever the remote original can't
-        be captured for any reason -- no executor configured, unreachable,
-        permission denied, anything. That makes the calling `remote_push`
-        step honestly "uncovered", the same philosophy this class already
-        applies to `dd`/`mkfs`/anything it cannot guarantee an inverse for:
-        never a fabricated or best-effort undo (`HANDOFF.md` §2.53)."""
-        if self._executor_runner is None:
-            self.skipped.append(f"{remote_path} (executor): no executor configured")
-            return None
-        runner = self._executor_runner
-
-        import shlex
-        exists_probe = f"test -e {shlex.quote(remote_path)} && echo yes || echo no"
-        try:
-            exists = runner(exists_probe, None, 15.0).strip() == "yes"
-        except Exception as exc:
-            self.skipped.append(f"{remote_path} (executor): existence check failed {exc!r}")
-            return None
-
-        if not exists:
-            def undo_absent() -> None:
-                """Delete whatever the push created on executor."""
-                runner(f"rm -f -- {shlex.quote(remote_path)}", None, 15.0)
-
-            def verify_absent() -> bool:
-                try:
-                    return runner(exists_probe, None, 15.0).strip() == "no"
-                except Exception:
-                    return False
-
-            snap = Snapshot(SnapshotKind.FILE_ABSENT, remote_path,
-                            "did not exist on executor before the step")
-            self.snapshots.append(snap)
-            return UndoAction(
-                f"delete {remote_path} on executor (it did not exist before)",
-                undo_absent, True, verify_absent, True, snap, step_id)
-
-        try:
-            content = self._read_remote_bytes(runner, remote_path)
-        except Exception as exc:
-            self.skipped.append(f"{remote_path} (executor): shadow capture failed {exc!r}")
-            return None
-
-        self._counter += 1
-        shadow = self.shadow_dir / f"{self._counter:05d}_executor_{Path(remote_path).name}"
-        try:
-            shadow.write_bytes(content)
-        except OSError as exc:
-            self.skipped.append(f"{remote_path} (executor): shadow write failed {exc!r}")
-            return None
-
-        dig = self.digest(shadow)
-        snap = Snapshot(SnapshotKind.FILE_CONTENT, remote_path,
-                        f"{len(content)} bytes via executor base64", str(shadow), dig)
-        self.snapshots.append(snap)
-
-        def undo_restore() -> None:
-            """Push the shadowed bytes back to executor."""
-            import base64
-            encoded = base64.b64encode(shadow.read_bytes()).decode("ascii")
-            runner(f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(remote_path)}",
-                  None, 30.0)
-
-        def verify_restore() -> bool:
-            try:
-                current = self._read_remote_bytes(runner, remote_path)
-            except Exception:
-                return False
-            return hashlib.sha256(current).hexdigest() == dig
-
-        return UndoAction(f"restore {remote_path} on executor from snapshot",
-                          undo_restore, True, verify_restore, True, snap, step_id)
 
     def capture_service(self, unit: str, step_id: str = "") -> UndoAction:
         """Snapshot a unit's state and build its restore action."""

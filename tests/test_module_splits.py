@@ -1,7 +1,8 @@
 """The 2026-10-25 module splits kept every public import path and the classes they were cut from.
 
 Depends on: torra.gates.safety (and its parts safety_types, safety_tables, safety_resolve,
-safety_judge), torra.gates.known_programs (and its parts program_basics, program_tables).
+safety_judge), torra.gates.known_programs (and its parts program_basics, program_tables),
+torra.gates.undo (and its parts undo_types, undo_shadow, undo_remote).
 """
 
 from __future__ import annotations
@@ -15,6 +16,10 @@ from torra.gates import (
     safety_resolve,
     safety_tables,
     safety_types,
+    undo,
+    undo_remote,
+    undo_shadow,
+    undo_types,
 )
 
 
@@ -40,3 +45,11 @@ def test_known_programs_keeps_its_public_names() -> None:
     assert known_programs.PREDICATES is program_tables.PREDICATES
     assert known_programs.SUBCOMMANDS is program_tables.SUBCOMMANDS
 
+
+
+def test_undo_keeps_its_public_names_and_composes_its_two_halves() -> None:
+    assert undo.Snapshot is undo_types.Snapshot
+    assert undo.SnapshotKind is undo_types.SnapshotKind
+    assert undo.UndoAction is undo_types.UndoAction
+    assert undo.UndoGenerator.__mro__[1:3] == (undo_remote.RemoteCapture, undo_shadow.ShadowStore)
+    assert undo.UndoGenerator.STALE_SHADOW_SECONDS is undo_shadow.ShadowStore.STALE_SHADOW_SECONDS

@@ -2554,7 +2554,7 @@ pre-push snapshot itself failed -- CRITICAL guarantees this always surfaces
 with the strongest visual weight the UI has, never blending in with a
 routine step.
 
-**Undo: `UndoGenerator.capture_remote_file()`** (`torra/gates/undo.py`) is
+**Undo: `UndoGenerator.capture_remote_file()`** (`torra/gates/undo_remote.py`) is
 the direct remote mirror of `capture_file()`, same real, provable bar (a
 `verify` that re-checks actual state, not "the call didn't raise"). Snapshot
 happens at gate time (`for_step()`, before the push ever runs), stored in

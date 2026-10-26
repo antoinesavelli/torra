@@ -22,6 +22,9 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 | `script_rules.py` | Recognising the sed and awk programs torra runs without a tick: a parser that accepts only simple sed commands, and an awk check that blanks string literals first (`HANDOFF.md` §2.72) |
 | `service_state.py` | Reading and restoring systemd unit state for a step's undo: which units a `systemctl` step names, a unit's scope, active and enabled state, and the verbs that put both back (`HANDOFF.md` §2.63) |
 | `undo.py` | ROLLBACK_ON_FAIL, half one: `UndoGenerator` derives undo actions from what a step declares -- also `capture_remote_file`, the same real snapshot/restore bar over an optional executor SSH runner, for `remote_push` steps (`HANDOFF.md` §2.53) |
+| `undo_types.py` | `SnapshotKind`, `Snapshot` and `UndoAction`; `undo.py` re-exports them |
+| `undo_shadow.py` | `ShadowStore`: the shadow directory a generator snapshots into, reaping dead runs' leftovers, file hashing |
+| `undo_remote.py` | `RemoteCapture`: `capture_remote_file`, the snapshot and restore of a file on the executor |
 | `rollback.py` | ROLLBACK_ON_FAIL, half two: `VerifiedRollback` proves each undo actually worked |
 | `clarifier.py` | ASK_CLARIFYING_QUESTIONS: `Clarifier` detects ambiguity by missing structure, not phrasing |
 | `router.py` | Model routing: `ModelRouter` scores every rule instead of taking the first match -- also tracks `model_chat_capable`/`model_thinking_capable` from the daemon's own `/api/show` data (`HANDOFF.md` §2.31) |
