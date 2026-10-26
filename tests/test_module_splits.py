@@ -2,11 +2,13 @@
 
 Depends on: torra.gates.safety (and its parts safety_types, safety_tables, safety_resolve,
 safety_judge), torra.gates.known_programs (and its parts program_basics, program_tables),
-torra.gates.undo (and its parts undo_types, undo_shadow, undo_remote).
+torra.gates.undo (and its parts undo_types, undo_shadow, undo_remote), torra.pipeline (and its
+part pipeline_steps).
 """
 
 from __future__ import annotations
 
+from torra import pipeline, pipeline_steps
 from torra.gates import (
     known_programs,
     program_basics,
@@ -53,3 +55,9 @@ def test_undo_keeps_its_public_names_and_composes_its_two_halves() -> None:
     assert undo.UndoAction is undo_types.UndoAction
     assert undo.UndoGenerator.__mro__[1:3] == (undo_remote.RemoteCapture, undo_shadow.ShadowStore)
     assert undo.UndoGenerator.STALE_SHADOW_SECONDS is undo_shadow.ShadowStore.STALE_SHADOW_SECONDS
+
+
+def test_torra_keeps_execute_and_inherits_the_step_loop() -> None:
+    assert pipeline.Torra.__mro__[1] is pipeline_steps.StepRunner
+    assert "execute" in vars(pipeline.Torra) and "execute" not in vars(pipeline_steps.StepRunner)
+    assert {"_run_steps", "_arm_step", "_sweep_rollback"} <= set(vars(pipeline_steps.StepRunner))

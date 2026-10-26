@@ -11,6 +11,7 @@ The package. Model proposes, five gates decide, the operator approves.
 | `agent_types.py` | The data model `Agent` produces: `Turn`, `Intent`, `AgentError`, `MalformedTaskError` (re-exported by `agent.py`) |
 | `prompts.py` | `PLAN_SCHEMA`/`SYSTEM_PROMPT` -- the literal text handed to the model, split out of `agent.py` |
 | `pipeline.py` | `Torra`, the seven-stage orchestrator, the only thing that decides what runs |
+| `pipeline_steps.py` | `StepRunner`, the step loop `Torra.execute` drives: arm each step's undos, recheck and conflict guards, run it, sweep rollback on failure, finish a success |
 | `pipeline_types.py` | The data model `Torra` produces: `Stage`, `Outcome`, `StepPlan`, `Plan`, `RunResult` |
 | `pipeline_report.py` | Stage 7, report: the model's summary, the audit file and the telemetry record for one `RunResult` (`Torra._finish` delegates here) |
 | `pipeline_rollback.py` | Rollback bookkeeping for one `execute()`: classify the declared entries, skip undos for files changed outside torra, unwind the stack (`HANDOFF.md` §2.59) |
