@@ -13,3 +13,5 @@ htmlcov/
 # regenerated every run, never real content.
 .doc_audit_scratch.md
 .defensive_scorecard_scratch.md
+# A personal certification study guide that lives beside the code: never versioned.
+AIGP_STUDY_GUIDE.md
