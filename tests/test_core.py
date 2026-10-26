@@ -242,10 +242,10 @@ class TestExecutorObservation:
 
     def test_resolve_executor_config_reads_from_environment(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TORRA_EXECUTOR_HOST", "10.0.0.44")
-        monkeypatch.setenv("TORRA_EXECUTOR_USER", "antoine")
+        monkeypatch.setenv("TORRA_EXECUTOR_HOST", "192.0.2.10")
+        monkeypatch.setenv("TORRA_EXECUTOR_USER", "user")
         monkeypatch.setenv("TORRA_EXECUTOR_SSH_KEY", "/some/key")
-        assert resolve_executor_config() == ("10.0.0.44", "antoine", "/some/key")
+        assert resolve_executor_config() == ("192.0.2.10", "user", "/some/key")
 
     def test_resolve_executor_config_explicit_args_override_environment(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -295,7 +295,7 @@ class TestExecutorObservation:
             return subprocess.CompletedProcess(argv, 0, stdout="remote output\n", stderr="")
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        runner = build_ssh_runner("10.0.0.44", user="antoine", key_path="~/.ssh/exec_key")
+        runner = build_ssh_runner("192.0.2.10", user="user", key_path="~/.ssh/exec_key")
         result = runner("hostname", None, 10.0)
 
         assert result == "remote output"
@@ -303,7 +303,7 @@ class TestExecutorObservation:
         assert argv[0] == "ssh"
         assert "BatchMode=yes" in argv
         assert "-i" in argv and os.path.expanduser("~/.ssh/exec_key") in argv
-        assert "antoine@10.0.0.44" in argv
+        assert "user@192.0.2.10" in argv
         assert argv[-1] == "hostname"
 
     def test_build_ssh_runner_raises_like_shell_on_a_nonzero_exit(
@@ -312,7 +312,7 @@ class TestExecutorObservation:
             return subprocess.CompletedProcess(argv, 255, stdout="", stderr="Connection refused")
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        runner = build_ssh_runner("10.0.0.44")
+        runner = build_ssh_runner("192.0.2.10")
         with pytest.raises(RuntimeError, match="exit 255.*Connection refused"):
             runner("hostname", None, 10.0)
 

@@ -1155,7 +1155,7 @@ def test_executor_config_reaches_the_default_observer_when_configured(
     sentinel_runner = object()
 
     monkeypatch.setattr(agent_module, "resolve_executor_config",
-                        lambda: ("10.0.0.44", "antoine", "/key"))
+                        lambda: ("192.0.2.10", "user", "/key"))
 
     def fake_build_ssh_runner(host, user="", key_path="", connect_timeout=5.0):
         seen["ssh_runner_args"] = (host, user, key_path)
@@ -1171,7 +1171,7 @@ def test_executor_config_reaches_the_default_observer_when_configured(
     agent = Agent(OllamaClient(transport=lambda p, pay, t: {}))
     state = agent.observe()
 
-    assert seen["ssh_runner_args"] == ("10.0.0.44", "antoine", "/key")
+    assert seen["ssh_runner_args"] == ("192.0.2.10", "user", "/key")
     assert seen["runner"] is sentinel_runner
     assert state.executor is not None
     assert state.executor.hostname == "executor-fake"

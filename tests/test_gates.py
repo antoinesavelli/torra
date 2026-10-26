@@ -69,7 +69,7 @@ class TestSafety:
         ("grep x /etc/fstab 2>/dev/null > /etc/fstab", "a real redirect after a /dev/null one"),
         ("echo ok > /dev/null; echo '' > /etc/fstab", "second statement truncates a system file"),
         ("tee /tmp/../etc/fstab", "dot-dot path that lands in /etc"),
-        ("rsync -a ./payload antoine@executor:/etc/", "rsync to another machine"),
+        ("rsync -a ./payload user@executor:/etc/", "rsync to another machine"),
         ("rsync -a ./payload rsync://executor/etc/", "rsync daemon url"),
     ]
 

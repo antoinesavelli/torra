@@ -2467,7 +2467,7 @@ present, is informational only -- confirmed live it holds: asked to
 question about the service name rather than either restarting the *local*
 service by mistake or proposing an `ssh` step.
 
-Confirmed live against the real executor box (`10.0.0.44`): `torra ask
+Confirmed live against the real executor box (`TORRA_EXECUTOR_HOST`): `torra ask
 --non-interactive "what does executor look like right now"` correctly
 reported its real hostname, kernel, GPU (RTX 2070 SUPER, real free VRAM),
 disk, and memory, answered directly from observed state with zero steps
@@ -2482,7 +2482,7 @@ proposed.
 > and four `tests/test_agent.py` cases (config reaching the default observer,
 > the no-config default path never touching SSH at all, the executor state
 > sharing the local state's cache, and the new `SYSTEM_PROMPT` rule's
-> presence). No live-SSH test is in the automated suite -- `10.0.0.44` is a
+> presence). No live-SSH test is in the automated suite -- the executor is a
 > specific external host, not the always-present-on-any-runner exception
 > `systemctl`/`dpkg-query`/`inotify` get; the manual check above is the
 > real-network verification instead.
@@ -2584,7 +2584,7 @@ to support manual undo after success, for any file, local or remote. The
 real, supported path is `_sweep_rollback()` firing automatically when a
 *later* step in the *same* run fails.
 
-**Confirmed live, twice, against the real executor box (`10.0.0.44`):**
+**Confirmed live, twice, against the real executor box (`TORRA_EXECUTOR_HOST`):**
 first, a real pull → real local edit → real push, confirmed by an
 independent `cat` over a fresh SSH connection that the remote content
 genuinely changed. Second, the same three steps followed by a step that
