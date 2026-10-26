@@ -43,7 +43,7 @@ top-level path, e.g. `from torra.gates import SafetyClassifier`. Read in this or
 Break any of these and the safety story collapses silently. There is a test for
 each; if you find yourself deleting one of those tests, stop.
 
-New entries take the next unused number and the shape in `agents/LOOP.md`'s
+New entries take the next unused number and the shape in `docs/agents/LOOP.md`'s
 Definition of Done; the story goes in the commit message.
 
 ### 2.1 The classified command IS the executed command
@@ -3810,7 +3810,7 @@ applies to itself.
 
 Places where an obvious-looking change is wrong.
 
-New entries take the next unused number and the shape in `agents/LOOP.md`'s
+New entries take the next unused number and the shape in `docs/agents/LOOP.md`'s
 Definition of Done; the story goes in the commit message.
 
 ### 5.1 `SafetyClassifier._decode_base64`'s blob pattern must not require quotes.

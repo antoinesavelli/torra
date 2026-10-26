@@ -99,7 +99,7 @@ it failed, don't reopen it" or "the operator prefers Y."
    (durable across sessions, not scoped to one conversation's context).
 3. Apply the four-question gate before wiring it into `SYSTEM_PROMPT` --
    `docs/README.md`'s own playbook already says not to do that step in the
-   same change that adds the source file (see agents/PLAYBOOKS.md's "Adding OS domain
+   same change that adds the source file (see docs/agents/PLAYBOOKS.md's "Adding OS domain
    knowledge to `docs/`" playbook, item 4).
 
 **Not started.** No file exists for this yet; this section is the design

@@ -1,8 +1,8 @@
 # torra — Agent Instructions
 
 This file holds the content; `CLAUDE.md` only imports it (`@AGENTS.md`). Auto-loaded by OpenCode via the `AGENTS.md` convention.
-If something you need isn't here, say so instead of guessing. Topic files live in `agents/` (not `docs/`: that folder is OS
-knowledge fed to the planning model).
+If something you need isn't here, say so instead of guessing. Topic files live in `docs/agents/`. The other `docs/*.md` files are
+OS reference material for the planning model (`docs/README.md`), a different audience.
 
 A local model proposes an operating-system change. Five gates decide whether it runs. The
 operator approves. This file is instructions for an agent **editing this codebase** — not
@@ -19,9 +19,9 @@ shell commands against a real Pop!_OS box (package managers, systemd, the filesy
 configuration), and a wrong OS-level command is not a bug you patch afterwards: it already ran. So
 commands are resolved the way a real shell resolves them, not the way a regex guesses; systemd scope
 is checked against the real unit, not assumed; and the model never skips a gate. The guardrails
-that follow, with their reasons: `agents/GUARDRAILS.md`.
+that follow, with their reasons: `docs/agents/GUARDRAILS.md`.
 
-<!-- doctrine-core:begin (source: /mnt/ParamoStorage/system-library/AGENT_DOCTRINE_CORE.md; edit there, then run check.sh agents in system-library) -->
+<!-- doctrine-core:begin (source: /mnt/ParamoStorage/system-library/AGENT_DOCTRINE_CORE.md; edit there, then run tools/check.sh agents) -->
 ## Operating doctrine (core)
 
 Loop: OBSERVE real state (the docs/map and the actual code or system, never memory of a prior
@@ -59,7 +59,7 @@ staged. Found a hunk you didn't write? Stop and find out whose it is.
 **Guidance placement.** Rules go in `AGENTS.md` (or a `docs/agents/<TOPIC>.md` / nested
 `<dir>/AGENTS.md`), never in `CLAUDE.md`, which only imports `AGENTS.md`.
 
-**Context is spend.** Every turn re-reads the whole conversation: batch independent calls in one turn, grep before reading and read only the lines needed, cap command output (`head`, `grep -m`, `--stat`), and offer a handoff to a fresh session at a task boundary once context is large.
+**Context is spend.** Every turn re-reads the whole conversation: batch independent calls in one turn, grep before reading and read only the lines needed, cap command output (`head`, `grep -m`, `--stat`). **Don't grow a window past its task:** separable work (a follow-up, an unrelated finding, the next phase, a heavy read or search) starts in a fresh context, not here — call `spawn_task` (the chip the user clicks to open a new session; its prompt must stand alone) or delegate to a subagent; where neither exists, offer a handoff prompt at the task boundary.
 
 Full doctrine, read the section on demand (`/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md`):
 *Code conventions* and *Testing* before code, *Writing* before a doc · *Concurrent sessions* before
@@ -71,10 +71,10 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 
 | Before you... | Read |
 |---|---|
-| plan or run a change (the loop, what is ask-first here, the Definition of Done) | [`agents/LOOP.md`](agents/LOOP.md) |
-| touch classification, routing, rollback or the gates, or decide a check is wrong | [`agents/GUARDRAILS.md`](agents/GUARDRAILS.md) |
-| extend classification, add a gate, add OS knowledge to `docs/`, fix a live-wire bug, or add any feature | [`agents/PLAYBOOKS.md`](agents/PLAYBOOKS.md) |
-| write code, add a test, cite a source of truth, or record something you learned | [`agents/CONVENTIONS.md`](agents/CONVENTIONS.md) |
+| plan or run a change (the loop, what is ask-first here, the Definition of Done) | [`docs/agents/LOOP.md`](docs/agents/LOOP.md) |
+| touch classification, routing, rollback or the gates, or decide a check is wrong | [`docs/agents/GUARDRAILS.md`](docs/agents/GUARDRAILS.md) |
+| extend classification, add a gate, add OS knowledge to `docs/`, fix a live-wire bug, or add any feature | [`docs/agents/PLAYBOOKS.md`](docs/agents/PLAYBOOKS.md) |
+| write code, add a test, cite a source of truth, or record something you learned | [`docs/agents/CONVENTIONS.md`](docs/agents/CONVENTIONS.md) |
 | delegate work to another model, edit a skill, or a guard fails | `/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md` |
 
 ## Area Maps — read these first (token-efficient navigation)
@@ -91,7 +91,7 @@ Read the map for the area you're touching before grepping the source tree.
 | Runnable example task files | `examples/README.md` |
 | OS domain knowledge fed to the planning model (measured gaps only) | `docs/README.md` |
 | Model-quality benchmark torra | `scripts/dev/model_bench/README.md` |
-| Agent topic files (targets of the read-first triggers above) | `agents/README.md` |
+| Agent topic files (targets of the read-first triggers above) | `docs/agents/README.md` |
 | **Invariants (§2), live wires (§5) and open work (§6), with the story behind each** | `HANDOFF.md` §2, §5, §6 |
 | How code here is graded (six dimensions, tiering, floors) | `DEFENSIVE_CODING_STANDARDS.md` |
 | Migrating off Claude Code as operator (what's built, what's scoped but not) | `CLAUDE_MIGRATION_ROADMAP.md` |

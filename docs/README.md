@@ -23,6 +23,10 @@ into the live model-facing prompt is a change to torra's core loop and
 belongs in its own reviewed change with its own test, not silently bundled
 into adding a docs file.
 
+Only the four files in the table above are planning-model reference material. `DESIGN.md`,
+`DECISIONS.md`, `STATUS.md` and `agents/` in this folder are for agents editing torra: when the
+wiring is built, it names the table's files and never globs `docs/`.
+
 ## Adding to this set
 
 Add a fact only when a benchmark run in `scripts/dev/model_bench/` actually

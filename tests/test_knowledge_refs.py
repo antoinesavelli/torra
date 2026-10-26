@@ -1,6 +1,6 @@
 """CI guard: agent-facing docs cite only what still exists, HANDOFF.md's growth is capped, and plans open with their status.
 
-Depends on: the root *.md, agents/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
+Depends on: the root *.md, docs/agents/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def _line(text: str, pos: int) -> int:
 
 
 def _section_ref_sources() -> list[Path]:
-    found = {*ROOT.glob("*.md"), *(ROOT / "agents").glob("*.md")}
+    found = {*ROOT.glob("*.md"), *(ROOT / "docs" / "agents").glob("*.md")}
     for sub in ("torra", "tests"):
         found.update(p for ext in ("py", "md") for p in (ROOT / sub).rglob(f"*.{ext}"))
     return sorted(found)
@@ -69,7 +69,7 @@ def _cited_tests(text: str) -> Iterator[tuple[str, str, str, int]]:
 
 
 def test_every_cited_guard_test_exists() -> None:
-    docs = [ROOT / "HANDOFF.md", ROOT / "AGENTS.md", *sorted((ROOT / "agents").glob("*.md"))]
+    docs = [ROOT / "HANDOFF.md", ROOT / "AGENTS.md", *sorted((ROOT / "docs" / "agents").glob("*.md"))]
     defined: dict[str, set[str] | None] = {}
     stale, cited = [], 0
     for doc in docs:
@@ -151,7 +151,7 @@ def test_handoff_stays_under_its_size_ceiling() -> None:
     )
 
 
-# agents/CONVENTIONS.md, "A multi-step plan": the three lines every plan opens with.
+# docs/agents/CONVENTIONS.md, "A multi-step plan": the three lines every plan opens with.
 _PLAN_HEADER = (
     re.compile(r"^Status: (active|done)$", re.M),
     re.compile(r"^Owner decisions pending: \S", re.M),
@@ -166,6 +166,6 @@ def test_every_plan_opens_with_its_status_header() -> None:
         head = "\n".join(plan.read_text().splitlines()[:12])
         missing += [f"{plan.name}: {p.pattern}" for p in _PLAN_HEADER if not p.search(head)]
     assert not missing, (
-        "plan header lines missing from the first 12 lines (agents/CONVENTIONS.md, "
+        "plan header lines missing from the first 12 lines (docs/agents/CONVENTIONS.md, "
         "'A multi-step plan'):\n" + "\n".join(missing)
     )

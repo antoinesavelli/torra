@@ -1,7 +1,7 @@
-# agents/ — Area Map
+# docs/agents/ — Area Map
 
-Topic files that `AGENTS.md`'s read-first triggers point to. **Not** `docs/`: `docs/*.md` is OS knowledge fed to the planning
-model (measured gaps only, `docs/README.md`); these are instructions for an agent editing this codebase. Keep the two apart.
+Topic files that `AGENTS.md`'s read-first triggers point to. **Not** the OS reference files in `docs/` (measured gaps only, listed in `docs/README.md`): those are
+meant for the planning model, these are instructions for an agent editing this codebase. Keep the two apart.
 
 | File | What it is |
 |---|---|

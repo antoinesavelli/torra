@@ -25,7 +25,7 @@ wrong command runs against a real filesystem, package manager, or init system.
   act on the wrong unit. When code decides how to query or act on a systemd unit, verify
   scope explicitly; don't default to whichever scope was convenient to write first.
 - **OS domain knowledge fed to the planning model grows from a measured gap, never a guess.**
-  `docs/*.md` exists only for facts a real benchmark run (`scripts/dev/model_bench/`) caught a
+  The reference files in `docs/` (`docs/README.md`'s table) exist only for facts a real benchmark run (`scripts/dev/model_bench/`) caught a
   model getting wrong, vague, or hallucinated (see `docs/README.md`) — not from "this seems
   like something a Pop!_OS agent should know." A docs file written from guesswork is the same
   failure mode as an untested gate: it looks like coverage and isn't. Add a themed file only

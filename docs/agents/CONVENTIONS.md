@@ -46,11 +46,11 @@ in "Where new information goes".
 | Live wires ("an obvious-looking change here is wrong") | `HANDOFF.md` §5.N, plus a `# Live wire: HANDOFF.md §5.N` comment at the code site | `tests/test_knowledge_refs.py` (every cited §N.M header exists) |
 | Dead ends (tried, failed, don't reopen) | `HANDOFF.md` §3 | *(trust-based)* |
 | Open work | one owner per item: grade findings (P-/D-numbered) in `GRADE_TO_A_PLAN.md` until that plan closes (its leftovers then move to §6), everything else in `HANDOFF.md` §6, or in `TODO.md` (the only mutable checklist) while it is in-flight work not yet worth a §6 item; an item leaves `TODO.md` by moving to §6 or being deleted; where an item appears in two places, the other keeps only a link | *(trust-based; a fixed item shrinks to its pointer)* |
-| OS domain knowledge for the planning model | `docs/*.md` | `scripts/dev/model_bench/` benchmark results (`REPORT.md`) |
+| OS domain knowledge for the planning model | the reference files in `docs/` (`docs/README.md`'s table) | `scripts/dev/model_bench/` benchmark results (`REPORT.md`) |
 | Model catalog / routing rules | `torra/gates/router.py` (`ROUTING_RULES`) | `tests/test_gates.py::TestRouting` |
 | Contract summary (entry points, outcomes, stages, exit codes) | `HANDOFF.md` §8 | *(trust-based: cross-check against `pipeline.py`/`cli.py` if it looks stale)* |
 | Cross-session context only Claude needs | the Claude memory directory (see Memory) | *(trust-based)* |
-| Whether a fresh agent answers correctly | `agents/knowledge_questions.yaml` | `tests/test_knowledge_questions.py` (every expected fact is in its source docs); the fresh-agent grade is manual |
+| Whether a fresh agent answers correctly | `docs/agents/knowledge_questions.yaml` | `tests/test_knowledge_questions.py` (every expected fact is in its source docs); the fresh-agent grade is manual |
 
 ## Where new information goes
 
@@ -65,11 +65,11 @@ check the last column, which is the miswrite that causes the rot.
 | A dead end: tried X, it failed | `HANDOFF.md` §3 | memory or a commit message: nobody reads either before trying X again |
 | Open work | its one owner (see the registry); the other place gets a link | both places in full |
 | What a file does | its one-line module docstring, indexed by its directory's `README.md` row | restated in several docs |
-| OS knowledge for the planning model | `docs/*.md`, only from a measured `scripts/dev/model_bench/` gap | a guess, or `agents/` (that is for agents editing torra) |
+| OS knowledge for the planning model | a reference file in `docs/`, only from a measured `scripts/dev/model_bench/` gap | a guess, or `docs/agents/` (that is for agents editing torra) |
 | Cross-session context only Claude needs (accounts, the owner's preferences, gotchas of tools outside this repo) | the Claude memory directory | a repo doc; but anything OpenCode or the local model also needs goes in the repo, because Claude memory is Claude-only |
-| A rule for agents editing torra | `AGENTS.md` if it must be loaded at start (under its 14,400-byte budget), else an `agents/<TOPIC>.md` behind a read-first trigger and a row in `agents/README.md` | `CLAUDE.md`: it only imports `AGENTS.md` |
+| A rule for agents editing torra | `AGENTS.md` if it must be loaded at start (under its 14,400-byte budget), else a `docs/agents/<TOPIC>.md` behind a read-first trigger and a row in `docs/agents/README.md` | `CLAUDE.md`: it only imports `AGENTS.md` |
 | A multi-step plan | a root `*_PLAN.md` or `*_ROADMAP.md` whose first lines are `Status: active` (or `done`), `Owner decisions pending: <ids or none>` and `Last verified: <sha> on <date>`, plus an `AGENTS.md` Area Maps row. A plan holds design and decisions, never checkboxes. Update `Last verified` only when you re-checked the plan against the code at that sha. The commit that completes a plan retires it with `git rm` (ask first) and updates every reference; `tests/test_knowledge_refs.py` checks the header | a checklist inside a plan, or a finished plan left in place or copied into `HANDOFF.md` or `AGENTS.md`: it would read as live |
-| A fact a fresh agent must get right | a question in `agents/knowledge_questions.yaml`, changed in the same commit as the fact | only the doc: then nothing notices when it drifts |
+| A fact a fresh agent must get right | a question in `docs/agents/knowledge_questions.yaml`, changed in the same commit as the fact | only the doc: then nothing notices when it drifts |
 
 ## Tool Use Patterns
 

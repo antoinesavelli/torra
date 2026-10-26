@@ -1,6 +1,6 @@
-"""CI guard: agents/knowledge_questions.yaml is well-formed, gradeable, and still true to its docs.
+"""CI guard: docs/agents/knowledge_questions.yaml is well-formed, gradeable, and still true to its docs.
 
-Depends on: agents/knowledge_questions.yaml and the docs each question names as sources.
+Depends on: docs/agents/knowledge_questions.yaml and the docs each question names as sources.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ _REQUIRED = ("id", "question", "expected", "must_contain", "sources")
 
 
 def _questions() -> list[dict[str, Any]]:
-    data = yaml.safe_load((ROOT / "agents" / "knowledge_questions.yaml").read_text("utf-8"))
+    data = yaml.safe_load((ROOT / "docs" / "agents" / "knowledge_questions.yaml").read_text("utf-8"))
     assert isinstance(data, list), "knowledge_questions.yaml must be a YAML list"
     return data
 
