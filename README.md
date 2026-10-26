@@ -4,6 +4,13 @@
 
 A local model proposes. Five gates decide. You approve. Then it runs.
 
+torra is a terminal agent for operating-system work on a Linux machine (built and used on Pop!_OS). A
+model running locally through Ollama reads the real machine state and proposes a plan in the same
+structure as a hand-written task file. Five code-based guardrails resolve every command to argv,
+classify it, and snapshot the files it touches; they hold every step rated DANGEROUS or CRITICAL, and any
+program they do not recognise, until the operator ticks it. The model never gets a shell. It is in
+progress and one person's tool, with no outside users: the classifier is unfinished (`docs/STATUS.md`).
+
 **Status: in progress.** What is built, what was measured and what is still open: `docs/STATUS.md`.
 
 ```bash
@@ -509,6 +516,9 @@ wearing a percentage sign.
 | `docs/DESIGN.md` · `DECISIONS.md` · `STATUS.md` | the design as built · decisions with their why and parked work · the single owner of current status, measured numbers and known gaps |
 | `docs/agents/` | topic files for agents editing this repo: `LOOP.md` (loop, Definition of Done), `GUARDRAILS.md`, `PLAYBOOKS.md`, `CONVENTIONS.md`, `knowledge_questions.yaml` |
 | `AGENTS.md` · `CLAUDE.md` | agent instructions · `@AGENTS.md` only |
+| `pyproject.toml` · `uv.lock` | package and tool config (ruff, mypy `--strict`, pytest) · locked dependencies |
+| `.githooks/` · `LICENSE` | `pre-commit` refuses credentials and torra's own state files, `pre-push` scans the whole history with gitleaks (enable with `git config core.hooksPath .githooks`) · MIT |
+| `.github/workflows/ci.yml` | ruff, ruff format, mypy, the tests under branch coverage with floors, and the defensive-coding scorecard |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
 | `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
 | `AUDIT_LOG.md` | weekly append-only log from the `torra-doc-audit` opencode routine (systemd user timer, Mon 06:50) — greps doc citations, and a local-model agent judges any that don't resolve real-vs-false-positive. Runner: `~/.local/share/platform-routines/` (a sibling to Paramo's own `paramo-routines/`). |

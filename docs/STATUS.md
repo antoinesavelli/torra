@@ -93,4 +93,5 @@ One owner per item, as `docs/agents/CONVENTIONS.md` registers it; this page only
 
 ## Repo metadata (drafts for the owner's approval, applied in Phase C)
 
-GitHub topics: `os-engineering`, `local-llm`, `ollama`, `command-safety`, `textual`, `linux`.
+GitHub About (= `pyproject.toml` `description`): see that file.
+GitHub topics: `ollama`, `local-llm`, `linux`, `textual`, `ai-agents`, `human-in-the-loop`.

@@ -127,6 +127,7 @@ collection without the venv.
 | Task | Command |
 |---|---|
 | Install | `uv sync --locked --extra fast` |
+| After a fresh clone (the setting lives in `.git/config`) | `git config core.hooksPath .githooks` |
 | Tests (all; the count never drops) | `uv run pytest -q` |
 | Tests (one file/case) | `uv run pytest tests/test_gates.py -k <name>` |
 | Lint | `uv run ruff check .` |

@@ -16,7 +16,7 @@ name = "torra"
 # packaging spec (PEP 621: `version` is mandatory unless declared `dynamic`),
 # so it stays present and fixed.
 version = "0.0.0"
-description = "A local model proposes OS changes, five deterministic gates classify them, and the operator approves what runs."
+description = "A local model proposes operating-system changes; five code-based gates classify them and snapshot what they touch, and the operator ticks every risky step before it runs."
 requires-python = ">=3.12"
 # Runtime pins are exactly the versions the former requirements-lock.txt held;
 # uv.lock pins the transitive set. Raise a pin deliberately, not as a reflex.
