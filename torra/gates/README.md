@@ -7,7 +7,11 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 
 | File | Holds |
 |---|---|
-| `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and the per-program rules (`git`, `curl`, `python -c`) that decide which. Anything absent asks (`HANDOFF.md` §2.60) |
+| `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and `trust()`, which looks a program up in the tables and decides which. Anything absent asks (`HANDOFF.md` §2.60); it re-exports the trust levels, `reads_credentials`, `PREDICATES` and `SUBCOMMANDS` |
+| `program_tables.py` | `SUBCOMMANDS` and `PREDICATES`: per-program subcommand sets and the check each program gets |
+| `program_checks.py` | The flag helpers and the per-program checks for `python -c`, `sed`, `awk`, `curl`, `tar`, `rsync` and `git` |
+| `system_checks.py` | The per-program checks for network, packages, firewall, kernel, disks and the other system tools |
+| `program_basics.py` | The trust levels, `reads_credentials` (which file names hold secrets) and the subcommand finder |
 | `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it; it composes the four files below and re-exports `RiskLevel`, `ResolvedCommand` and `Verdict` |
 | `safety_resolve.py` | `CommandResolver`: quotes, `VAR=value`, wrappers, `sh -c`, `$(...)` and base64 resolved to concrete argv lists |
 | `safety_judge.py` | `CommandJudge`: one resolved command's argv judged by the per-program rules, plus the regex backstop |
