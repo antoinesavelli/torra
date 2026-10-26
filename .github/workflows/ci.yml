@@ -46,7 +46,7 @@ jobs:
         # weak assertions.
         run: |
           uv run coverage report --fail-under=96
-          uv run coverage report --fail-under=97 --include="torra/gates/*,torra/pipeline.py,torra/pipeline_rollback.py,torra/core/tasks.py,torra/core/process.py,torra/core/resume.py"
+          uv run coverage report --fail-under=97 --include="torra/gates/*,torra/pipeline.py,torra/pipeline_steps.py,torra/pipeline_rollback.py,torra/core/tasks.py,torra/core/process.py,torra/core/resume.py"
 
       - name: Defensive-coding scorecard
         run: uv run python scripts/dev/defensive_coding_report.py --verbose --enforce
