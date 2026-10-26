@@ -1,0 +1,7 @@
+# One glob per line (bash [[ == ]] patterns, so `*` also crosses `/`). A staged path that matches is refused.
+# torra's own state is the operator's real commands and model replies; it lives under ~/.torra, never in this repo.
+*tasks.jsonl
+*verdicts.jsonl
+*transcript.jsonl
+*.audit.json
+*torra-shadow-*

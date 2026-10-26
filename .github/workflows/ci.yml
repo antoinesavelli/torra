@@ -1,7 +1,6 @@
-# Runs on every push to main and every PR: the full test suite under branch
-# coverage (with floors, below), mypy, and
-# the defensive-coding scorecard with --enforce (fails the build if any
-# dimension drops below the floor recorded in
+# Runs on every push to main and every PR: ruff, ruff format, mypy --strict, the full test
+# suite under branch coverage (with floors, below), and the defensive-coding scorecard with
+# --enforce (fails the build if any dimension drops below the floor recorded in
 # scripts/dev/defensive_coding_report.py's ENFORCE_FLOORS).
 # (A hardcoded test count went stale here once already -- found in a
 # full-file audit -- so don't put one back.)
@@ -19,22 +18,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        # Pinned (requirements-lock.txt), not floating latest -- a
-        # transitive dependency's breaking release used to be able to
+        # Pinned by uv.lock (--locked fails the build if it is out of date with pyproject.toml), not
+        # floating latest -- a transitive dependency's breaking release used to be able to
         # change what CI tests against between one run and the next with
         # no corresponding code change to explain a sudden failure.
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements-lock.txt
-          pip install -e . --no-deps
+        run: uv sync --locked --extra fast
+
+      - run: uv run ruff check .
+
+      - run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy
 
       - name: Run the test suite under branch coverage
-        run: coverage run --branch --source=torra -m pytest tests/ -q
+        run: uv run coverage run --branch --source=torra -m pytest tests/ -q
 
       - name: Coverage floors
         # Measured 2026-10-04: 98% overall and 98% on the safety path. Raise a floor when it
@@ -42,11 +45,8 @@ jobs:
         # covered code (HANDOFF.md §2.59), so this guards against losing tests, not against
         # weak assertions.
         run: |
-          coverage report --fail-under=96
-          coverage report --fail-under=97 --include="torra/gates/*,torra/pipeline.py,torra/pipeline_rollback.py,torra/core/tasks.py,torra/core/process.py,torra/core/resume.py"
-
-      - name: Type check
-        run: mypy torra/
+          uv run coverage report --fail-under=96
+          uv run coverage report --fail-under=97 --include="torra/gates/*,torra/pipeline.py,torra/pipeline_rollback.py,torra/core/tasks.py,torra/core/process.py,torra/core/resume.py"
 
       - name: Defensive-coding scorecard
-        run: python3 scripts/dev/defensive_coding_report.py --verbose --enforce
+        run: uv run python scripts/dev/defensive_coding_report.py --verbose --enforce
