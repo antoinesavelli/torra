@@ -4,15 +4,20 @@ Status: active
 
 Owner decisions pending: D8 (section 2)
 
-Last verified: 2d5f82b on 2026-10-13 (the Phase 5 re-grade, section 3)
+Last verified: 61b6886 on 2026-10-21
 
-Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. **Phases 0 to 4 are done or
-withdrawn; the Phase 5 re-grade (B+, exit not met) left P5.1 to P5.4 and the blind red-team open.** Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
+Every Phase 0 to 4 item below was re-read against the code and
+is done or withdrawn. Still open: P5.1, P5.2 and P5.3 (re-probed in-process, all three reproduce), D8, the Phase 5
+red-team and the P3.3 model-bench scenario. Suite at this commit: 1667 passed.
+
+Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
 construction, `Torra.execute`, persisted-state formats), so each one needs the owner's go-ahead before its
 change lands. Section 2 lists the decisions to take first.
 
-Every finding below cites `file:line` at `6e6bcdc`. Items marked **verify first** came from a delegated
-evidence pass and were not re-checked by hand; confirm the defect exists before fixing it.
+Findings in Phases 0 to 3 cite `file:line` at `6e6bcdc` and the Phase 5 findings at `2d5f82b`: the lines where
+the defect was, not where the code is now. A done item's cited lines no longer exist. The open items give
+their current lines in square brackets. Items marked **verify first** came from a delegated evidence pass;
+all were re-read at `6e6bcdc` on 2026-10-21 and every one was real.
 
 ## 1. Baseline and target
 
@@ -205,7 +210,7 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   Exit with the first real failing status rather than 1. *Proof:* these eight cases on both execution paths,
   mirroring the SIGPIPE tests (`tests/test_core.py:2130-2168`). Ask-first (D2).
 - **P2.3 DONE 2026-10-04 (`HANDOFF.md` §2.63).** **Service undo is wrong for enable, disable, mask and `--now`.** `SERVICE_PATTERN`
-  (`undo.py:85-87`) reads `systemctl enable --now nginx` as unit `--now`. Enable, disable and mask are "undone"
+  (`undo.py:85-87` at `6e6bcdc`; now `gates/service_state.py:14`) reads `systemctl enable --now nginx` as unit `--now`. Enable, disable and mask are "undone"
   by start or stop and verified with `is-active` (`undo.py:454-473`), so the result reads "undone" when the
   enablement never changed back. Parse the resolved argv instead of a regex: skip flags and handle several
   units. Capture both `is-active` and `is-enabled` (masked included), restore each, and verify both.
@@ -325,7 +330,7 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   by itself") and P3.3 ("untrusted content never carries instruction authority"), each with its test. Add §5
   entries per fix and update §6.
 - **P4.8 DONE 2026-10-13.** Carry out D6.
-- **P4.9 DONE 2026-10-04 (`40bede7`).** `AUDIT_FINDINGS.md` says open findings get full write-ups there. Add one line pointing at this plan
+- **P4.9 DONE 2026-10-04 (`40bede7`); the file was retired in `7c5b314`, so the pointer is moot.** `AUDIT_FINDINGS.md` says open findings get full write-ups there. Add one line pointing at this plan
   as the open-findings tracker instead of duplicating it, then shrink each entry as its item lands.
 
 Doc items P4.3 to P4.6 are mechanical and suit the local model (`local-model-subagent`, one atomic edit per
@@ -343,7 +348,7 @@ Not in the 2026-10-03 grade. The first real use since 2026-09-18, a replay of th
 | A command bash cannot parse, or a template slot such as `<found-path>`, reached the tick | Done: repaired, then refused | §2.79 |
 | A step needing a tick targeted an invented path; nothing checked | Done: repaired, then warned (advisory) | §2.80 |
 | The tick came with the command line only | Half done: the prompt shows what each path is | §2.81, D8 |
-| `cat /var/run/reboot-required` rates DANGEROUS (the backstop matches "reboot" in the file name) | Open; a classifier change, so for the re-grade below | P5.3 |
+| `cat /var/run/reboot-required` rates DANGEROUS (the backstop matches "reboot" in the file name) | Open at `61b6886` (still DANGEROUS); a classifier change, so for the re-grade below | P5.3 |
 
 Two of these add fields to `audit/*.audit.json` (`warnings`, `preview`), an ask-first format change; both are
 additive and nothing reads audit files back.
@@ -408,8 +413,9 @@ moved no verdict.
   `printf -v NAME` are listed read-only, and `declare -n` binds a nameref whose target is never checked.
   `PATH` is already exported in a step's environment, so a later bare name resolves through the new value
   and runs a program torra never judged. That is P1.3 item 3's shape, through a different builtin.
+- *Still present at `61b6886`* (all four probes SAFE, in-process).
 - *Evidence.* `ASSIGNMENT_BUILTINS` (`torra/gates/safety.py:174`) omits `read` and `printf`;
-  `_note_builtin_assignments` (`safety.py:395-399`) notes only `NAME=` operands, so `declare -n P=PATH` notes
+  `_note_builtin_assignments` (`safety.py:395-399` [now `:396-400`]) notes only `NAME=` operands, so `declare -n P=PATH` notes
   `P`; `printf` and `read` are in `READ_ONLY_PROGRAMS` (`known_programs.py:29`, `:30`). Classified SAFE with
   no tick: `read PATH <<< /tmp/x; ls`, `printf -v PATH %s /tmp/x; ls`, `declare -n P=PATH; P=/tmp/x; ls`,
   and `read -r BASH_ENV <<< /tmp/x/env; export BASH_ENV; ls`. `mapfile` asks, as an unknown program.
@@ -424,9 +430,10 @@ Major; ask-first (the classifier), approved by the owner 2026-10-23. Judged as p
 token counts as an operand there, as for `mount`, so `hostname -I > f` asks too.
 - *What's wrong.* With an operand, `-F`/`--file` or `-b`, `hostname` changes the system's host name. It is
   a system-altering command a model would plausibly propose ("rename this box"), and it gets no tick.
+- *Still present at `61b6886`* (`hostname newbox` and `hostname -F /etc/hostname` SAFE; `sudo hostname newbox` CAUTION).
 - *Evidence.* `hostname` is in `READ_ONLY_PROGRAMS` (`known_programs.py:31`) with no judge of its own; only
   `hostnamectl` has one (`:444`). `hostname newbox` and `hostname -F /tmp/x/name` are SAFE; `sudo hostname
-  newbox` is CAUTION from the backstop's `sudo` row (`safety.py:227`), still no tick.
+  newbox` is CAUTION from the backstop's `sudo` row (`safety.py:227` [now `:228`]), still no tick.
 - *Proposed fix.* Move `hostname` to a judge that is read-only with no operand and display flags only
   (`-s -f -d -i -I -A -a -y`); an operand or any other flag asks.
 - *Regression test.* `hostname newbox`, `sudo hostname newbox`, `hostname -F /etc/hostname` and
@@ -441,8 +448,9 @@ Ask-first (it loosens a guard, so the owner decides).
   file names and search terms, even when every command resolved cleanly. The false ticks land on exactly the
   read-only diagnostics an operator asks for ("does it need a reboot", "why did it shut down"). Over-ticking
   trains rubber-stamping (§2.4), and live it cost two repair rounds (a "declare touches" complaint on a `cat`).
-- *Evidence.* The rows are `safety.py:221` and `:223`; `classify()` runs them on every command
-  (`safety.py:937`), though the table's own comment (`safety.py:212-213`) says it is for when parsing fails.
+- *Still present at `61b6886`*: all six probes below are DANGEROUS, and the five real power commands stay DANGEROUS.
+- *Evidence.* The rows are `safety.py:221` and `:223` [now `:222` and `:224`]; `classify()` runs them on every
+  command (`safety.py:937` [now `:939`]), though the table's own comment (`safety.py:212-213` [now `:213-214`]) says it is for when parsing fails.
   DANGEROUS today: `cat /var/run/reboot-required`, `test -f /var/run/reboot-required && echo yes`,
   `journalctl -b -1 -n 50 | grep -i shutdown`, `systemctl status systemd-halt.service`, `last -x shutdown
   reboot | head`, and `ls /usr/share/doc/rm-protection` (the `rm` row).
@@ -453,16 +461,22 @@ Ask-first (it loosens a guard, so the owner decides).
 - *Regression test.* Those five stay DANGEROUS; the six read-only probes are SAFE; a line that fails to parse
   and contains `reboot` or `rm` still asks.
 
-**P5.4 Two decision-path functions break the CCN ceiling that `AGENTS.md` says nothing breaks.** Minor.
+**P5.4 ~~Two decision-path functions break the CCN ceiling that `AGENTS.md` says nothing breaks.~~ DONE 2026-10-13
+(`309d59f`).** Minor. Scorecard at `61b6886`: 0 decision-path functions at CCN 15 or more. `Agent.converse` went
+20 to 13 (model choice moved to `Agent._route`) and `describe_path` 15 to 6 (`_describe_dir`). The sentence at
+`AGENTS.md:173` no longer exists after the trim in `6fce92e`; the ceiling is stated in
+`DEFENSIVE_CODING_STANDARDS.md:53`, and it holds.
 - *What's wrong.* `AGENTS.md:173` says no graded-tier function reaches CCN 15. The scorecard at `2d5f82b`
   lists two: `Agent.converse` at 20 (`torra/agent.py:311`) and `describe_path` at 15 (`torra/preview.py:73`).
-  `converse` grew with the repair rounds of §2.78 to §2.82.
+  `converse` grew with the repair rounds of §2.78 to §2.82. (Citations in this item are at `2d5f82b`.)
 - *Proposed fix.* Extract the repair-round branches of `converse` into helpers and split `describe_path`;
   until then, correct the sentence in `AGENTS.md`.
 - *Regression test.* `defensive_coding_report.py --verbose` lists no decision-path function at CCN 15 or
   more.
 
-**What closes Phase 5.** Fix P5.1 and P5.2, decide P5.3, run the blind red-team, then re-grade.
+**What closes Phase 5.** Fix P5.1 and P5.2, decide P5.3, run the blind red-team, then re-grade. (P5.4 is done.
+The 63-command blind red-team in `HANDOFF.md` §2.72 ran on 2026-10-04, before this grade; the 30-command
+Phase 5 one has not run.)
 
 ## 4. Projected grades (estimates)
 

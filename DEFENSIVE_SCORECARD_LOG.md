@@ -68,3 +68,22 @@ clean `--enforce` run appends a bare pass entry with the scorecard attached, no 
   OVERALL        [A]  GPA 3.83 (decision-path weighted)
 ====================================================================
 ```
+
+### Run: 2026-10-13
+
+**--enforce: no regression (all dimensions at or above their recorded floor).**
+
+```
+====================================================================
+                     DEFENSIVE CODING SCORECARD                     
+====================================================================
+  Complexity     [A]  2 decision-path fn(s) >= CCN 15 (0.4%), 544 checked
+  Documentation  [A]  38/38 carry 'Depends on:' (100%), 38/38 have a module docstring
+  Typing         [A]  returns 100%, params 100%
+  Testing        [A]  38/38 import-covered by tests (100%)
+  Modularity     [B]  14 fn(s) nested >= depth 3 & CCN >= 10, 1 decision-path file(s) > 500 LOC
+  Lint           [A]  0 ruff issue(s)
+--------------------------------------------------------------------
+  OVERALL        [A]  GPA 3.83 (decision-path weighted)
+====================================================================
+```
