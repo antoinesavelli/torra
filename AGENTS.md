@@ -75,6 +75,7 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 | touch classification, routing, rollback or the gates, or decide a check is wrong | [`docs/agents/GUARDRAILS.md`](docs/agents/GUARDRAILS.md) |
 | extend classification, add a gate, add OS knowledge to `docs/`, fix a live-wire bug, or add any feature | [`docs/agents/PLAYBOOKS.md`](docs/agents/PLAYBOOKS.md) |
 | write code, add a test, cite a source of truth, or record something you learned | [`docs/agents/CONVENTIONS.md`](docs/agents/CONVENTIONS.md) |
+| change behavior the design covers, make or reverse a decision, or report status | [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md); status goes only in [`docs/STATUS.md`](docs/STATUS.md) |
 | delegate work to another model, edit a skill, or a guard fails | `/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md` |
 
 ## Area Maps — read these first (token-efficient navigation)
@@ -89,7 +90,10 @@ Read the map for the area you're touching before grepping the source tree.
 | Task logging, human labels, drift/loophole audits | `torra/telemetry/README.md` |
 | Tests (organised by subsystem) | `tests/README.md` |
 | Runnable example task files | `examples/README.md` |
-| OS domain knowledge fed to the planning model (measured gaps only) | `docs/README.md` |
+| The design: purpose, scope, the principle, module split | `docs/DESIGN.md` |
+| Decisions with their why, and parked work with its revival trigger (a new decision or a reversal adds a row in the same change) | `docs/DECISIONS.md` |
+| **Dynamic status** (phase, measured numbers, known gaps, GitHub topics): the single owner | `docs/STATUS.md` |
+| OS domain knowledge fed to the planning model (measured gaps only; the four files `docs/README.md` lists, never a glob of `docs/`) | `docs/README.md` |
 | Model-quality benchmark torra | `scripts/dev/model_bench/README.md` |
 | Agent topic files (targets of the read-first triggers above) | `docs/agents/README.md` |
 | **Invariants (§2), live wires (§5) and open work (§6), with the story behind each** | `HANDOFF.md` §2, §5, §6 |
@@ -135,3 +139,19 @@ dependencies, so `tests/` fails at collection without the venv.
 | Classify a task file without running it | `torra check task.yaml` |
 | What torra has recorded about itself | `torra evidence` |
 | Model-quality benchmark | `scripts/dev/model_bench/bench.py` (see its `README.md`) |
+
+## Ask first / never
+
+**Ask first:** editing `torra/gates/**`, `torra/pipeline.py` or `torra/core/tasks.py` (`.claude/settings.json` asks too) and anything
+between "model proposes" and "shell executes"; the formats of `resume/*.json`, `telemetry/tasks.jsonl` and `audit/*.audit.json`;
+creating a remote or any push; adding or reading a secret; a systemd unit or timer (two timers run torra routines); a paid API or
+other spend; deleting files or branches; raising `HANDOFF.md`'s byte ceiling.
+**Never:** sudo; lowering a coverage floor or a scorecard floor to turn a build green; recreating `.venv` (a Claude Code
+`PreToolUse` hook runs `.venv/bin/python -I scripts/claude_code_hook.py` in every session; experiment with
+`UV_PROJECT_ENVIRONMENT=/tmp/<dir>` instead); committing `.env`, credentials or `~/.torra` data.
+
+## Definition of Done (full text `docs/agents/LOOP.md`)
+
+Tests pass and the count never drops, `ruff check`, `ruff format --check` and `mypy` clean, the defensive-coding scorecard held,
+docs current (the directory `README.md` row, `HANDOFF.md` §2 for an invariant, `docs/STATUS.md`, a `docs/DECISIONS.md` row for
+a new decision), committed by explicit path.

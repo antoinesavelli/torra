@@ -22,19 +22,7 @@ torra doctor
 Eight modules, ~6,900 lines shipped. `core.py`, `gates.py` and `telemetry.py` were later
 each split into a same-named package of single-concern submodules (see
 `DEFENSIVE_CODING_STANDARDS.md` §1.2 for why); every name still imports from the same
-top-level path, e.g. `from torra.gates import SafetyClassifier`. Read in this order:
-
-1. `torra/core/` — `Step`, `TaskSpec` (`tasks.py`), `OllamaClient` (`ollama.py`),
-   conflict detection (`conflict.py`) — see `torra/core/README.md`
-2. `torra/gates/` — the five guardrails (`rollback.py`+`undo.py` is one
-   guardrail, ROLLBACK_ON_FAIL, split across two files past the LOC cap) —
-   see `torra/gates/README.md`
-3. `torra/agent.py` — the model loop
-4. `torra/pipeline.py` — `Torra`, the seven stages, the only orchestrator
-   (`torra/pipeline_types.py` holds the `Stage`/`Outcome`/`Plan`/`RunResult`
-   data model it produces, re-exported from `pipeline.py` unchanged)
-
-`tui.py`, `cli.py` and `torra/telemetry/` are leaves. Nothing depends on them.
+top-level path, e.g. `from torra.gates import SafetyClassifier`. Read in the order `docs/DESIGN.md` §3 gives (core, gates, agent, pipeline; the rest are leaves).
 
 ---
 
@@ -4660,10 +4648,4 @@ test command     python3 -m pytest tests/ -q     # every test passes; the count 
 
 ## 9. The one thing to keep
 
-If everything else here is rewritten, keep this: **the model proposes, and
-something that is not the model decides.**
-
-Six phases of gate-building were spent on the wrong problem, because nobody
-checked that an agent was going to be plugged in. The gates turned out to be
-worth keeping anyway, and the reason is that separation. A model that could act
-directly would have made every one of them optional.
+Moved to `docs/DESIGN.md` §2: the model proposes, and something that is not the model decides.

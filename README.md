@@ -4,16 +4,7 @@
 
 A local model proposes. Five gates decide. You approve. Then it runs.
 
-**Status: in progress.** A program the command classifier does not recognise
-needs a tick. Three shell shapes that still ran such a program with no tick
-(deeply nested `sh -c` or `$(...)`, `hash -p`, and an exported `PATH`,
-`LD_PRELOAD` or `BASH_ENV`) were found on 2026-10-08 and closed on 2026-10-09,
-each with a test (`HANDOFF.md` §2.75). The Phase 5 source read (`GRADE_TO_A_PLAN.md`)
-found more of that shape (`read PATH`, `printf -v PATH`, namerefs) and `hostname newbox`
-running unticked; closed on 2026-10-23 (§2.83, §2.84). Its blind red-team has not
-run; until it does, treat the classifier as unfinished.
-The plan checks added on 2026-10-11 and 2026-10-12 (`HANDOFF.md` §2.78-2.81) have
-met real models only in plan-only runs. All of it was pushed on 2026-10-13.
+**Status: in progress.** What is built, what was measured and what is still open: `docs/STATUS.md`.
 
 ```bash
 pip install -e .
@@ -344,7 +335,7 @@ system and reports one of three states: `undone` (the check passed),
 **ASK_CLARIFYING_QUESTIONS.** Detects ambiguity by what a request is missing (a
 path, unit, host, version, file or quantity), not by how it is phrased. On
 2026-10-09 it flagged all 18 ambiguous requests in its test corpus and 1 of 10
-specific ones. On real traffic the model asks far less often: see Known gaps.
+specific ones. On real traffic the model asks far less often: see the known gaps in `docs/STATUS.md`.
 
 ---
 
@@ -519,6 +510,9 @@ wearing a percentage sign.
 | `tests/` | the test suite, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/README.md` |
+| `docs/DESIGN.md` · `DECISIONS.md` · `STATUS.md` | the design as built · decisions with their why and parked work · the single owner of current status, measured numbers and known gaps |
+| `docs/agents/` | topic files for agents editing this repo: `LOOP.md` (loop, Definition of Done), `GUARDRAILS.md`, `PLAYBOOKS.md`, `CONVENTIONS.md`, `knowledge_questions.yaml` |
+| `AGENTS.md` · `CLAUDE.md` | agent instructions · `@AGENTS.md` only |
 | `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
 | `DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
 | `AUDIT_LOG.md` | weekly append-only log from the `torra-doc-audit` opencode routine (systemd user timer, Mon 06:50) — greps doc citations, and a local-model agent judges any that don't resolve real-vs-false-positive. Runner: `~/.local/share/platform-routines/` (a sibling to Paramo's own `paramo-routines/`). |
@@ -526,68 +520,10 @@ wearing a percentage sign.
 
 ---
 
-## Where the numbers come from
+## Status and measurements
 
-All run on 2026-10-12 at commit `f9c0cd6`.
-
-| Result | Measured how |
-|---|---|
-| 1650 tests, all passing | `python3 -m pytest tests/ -q` |
-| 31 of 31 evasion cases classified DANGEROUS or CRITICAL; 0 of 31 routine commands needed a tick | `tests/test_gates.py::TestSafety` |
-| 150 commands that must ask (55 unknown or unproven, 9 critical, 70 from a source-reading review, 16 from the 2026-10-08 probe) all ask; 138 read-only or routine commands run unticked | `tests/test_known_programs.py` |
-| Clarifier flagged 18 of 18 ambiguous requests and 1 of 10 specific ones | `tests/test_gates.py::TestClarifier` |
-| On the 183 steps of the 121 past plans in the owner's `~/.torra/audit`: 11 need a tick (6%; 7 did when they ran); the syntax check flags 2 steps, both broken; the missing-path check flags 5 plans (4%); the placeholder check flags 1 step, a real slot | Replaying those plans through the current checks, no model runs, nothing executed |
-| Eight plan-only runs on `devstral:24b` and `gpt-oss:20b`: the schema repair, the syntax check and the missing-path check each fired correctly at least once; the placeholder refusal was not triggered | Live, against the real models, in a scratch workdir, nothing executed (6 runs at `3aae981`, 2 at `f9c0cd6`) |
-
-The first four rows came from data generated in testing, not from real use.
-The last two touch real traffic, but it is one person's machine and a few
-hundred tasks. That is the single largest caveat on this whole project and it
-is not resolved.
-
-The six-phase prototype this package was consolidated from (`legacy/`) has
-been removed from the repository. A handful of numbers previously cited here
-— a 5,143x tree-watching speedup, checkpoint-size reduction, bytes-per-logged-task
-— were measured only against that removed code and are no longer independently
-reproducible; see `HANDOFF.md` §4 ("What was here before") for the honest
-accounting. This project's own standard is that an unreproducible citation
-isn't one, so those numbers are no longer claimed here at all.
-
----
-
-## Known gaps
-
-1. **Model judgement is measured now, and the first real finding is still
-   open.** The gates are tested against fixed corpora; tests still use a scripted
-   backend and prove nothing about judgement on their own. But real traffic
-   now flows through telemetry and gets hand-labeled (`torra label`), and
-   that measurement found the model stops and asks for only ~18% of requests
-   a human calls genuinely ambiguous (82% live false-negative rate against a
-   0% synthetic baseline). Whether a routing fix already found along the way
-   closes that gap isn't confirmed yet -- too little traffic has run since.
-   One related failure shape is fixed: a question torra could answer
-   itself with a read-only command (`lsblk`, `systemctl --failed`, ...)
-   used to get deflected back to "please run that yourself" instead of the
-   torra just running it -- live A/B tested against the real model before
-   shipping. See `HANDOFF.md` §6.1 and §2.40.
-2. **Real traffic exists, and it already found two real bugs.** Recorded
-   tasks are hand-labeled (`torra label`), and that
-   loop has already surfaced a pipefail/SIGPIPE bug and a VRAM-routing bug
-   that reading the code alone hadn't caught. See `HANDOFF.md` §6.2.
-3. **Undo coverage ceiling is narrower than it looks.** `dd`/`mkfs` writing
-   to a regular file is already covered automatically, the same as any other
-   command, as long as the file is declared in `touches:`. Only `dd`/`mkfs`
-   against a **raw device** and database migrations need a hand-written
-   `rollback:` entry -- there's no prior on-disk state to snapshot for
-   either. The plan pane names which steps those are. See `HANDOFF.md` §6.3.
-4. **Tree watching misses a same-size same-mtime edit.** The declared-path
-   SHA256 layer catches it, so `touches:` still matters.
-5. **You tick before the plan's own checks run.** Every tick is collected
-   before step 1, so in a "list it, then delete it" plan the listing cannot
-   inform the tick. The prompt now says what each target is; asking at the
-   moment each step runs is an open decision (`GRADE_TO_A_PLAN.md` D8).
-6. **A read-only probe can need a tick.** `cat /var/run/reboot-required`
-   rates DANGEROUS because the regex backstop matches "reboot" in the file
-   name. It errs toward asking. See `HANDOFF.md` §6.5.
+The measured results (with the date and commit each was run at) and the known gaps live in
+`docs/STATUS.md`, the single place that states what is true now.
 
 ---
 
@@ -606,6 +542,6 @@ The other 10 carry no trailer, which says nothing either way about who wrote the
 python3 -m pytest tests/ -q
 ```
 
-On 2026-10-12 (commit `f9c0cd6`) this ran 1650 tests, all passing.
+The last recorded run is in `docs/STATUS.md`.
 Nothing needs a live Ollama, systemd, or network. Every external dependency is
 an injected callable, which is also how you wire it to the real thing.
