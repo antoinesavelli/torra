@@ -40,7 +40,7 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
 
 Not complete until all hold, in the *same* change:
 
-1. **Tests run and pass.** `python3 -m pytest tests/ -q` — every test must pass and
+1. **Tests run and pass.** `uv run pytest -q` — every test must pass and
    the count never drops. A change that adds behavior without adding a test
    for it isn't done; a change that *removes* a test to make the suite pass is very likely
    deleting the thing HANDOFF.md §2 told you not to delete — stop and re-read that section
@@ -59,9 +59,9 @@ Not complete until all hold, in the *same* change:
    heading: the story goes in the commit. `tests/test_knowledge_refs.py` checks that cap and a
    byte ceiling on the file; when one fails, shrink the entry or §6 item the change supersedes.
    Raising the ceiling is the owner's call.
-5. **Lint and types clean.** `ruff check .` on touched files; `mypy <touched files>` with zero
-   new errors vs. the pre-change baseline.
-6. **Defensive-coding scorecard held.** `python3 scripts/dev/defensive_coding_report.py` — no
+5. **Lint and types clean.** `uv run ruff check .`, `uv run ruff format --check .` and `uv run mypy`
+   (`--strict` on the package) all clean.
+6. **Defensive-coding scorecard held.** `uv run python scripts/dev/defensive_coding_report.py` — no
    graded dimension drops a letter grade from the current baseline in `DEFENSIVE_CODING_STANDARDS.md`
    §2.1 (`ENFORCE_FLOORS` in the script is the enforced version of that baseline). If one drops,
    fix the regression in the same change — see that doc §2's extraction pattern for Modularity.

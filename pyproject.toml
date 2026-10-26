@@ -4,39 +4,50 @@
 # rules and thresholds.
 
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "torra"
-# Not maintained -- this is a solo, private tool with no external
-# consumers of the package as an API. `git log`/GitHub's own commit and
-# compare views are the record of what changed and when; there is no
-# CHANGELOG.md, no tags, and no `torra --version` flag to keep in sync
-# with a number here. Required by the packaging spec (PEP 621: `version`
-# is mandatory unless declared `dynamic`), so it stays present and fixed.
+# Not maintained -- this is a solo tool with no external consumers of the
+# package as an API. `git log`/GitHub's own commit and compare views are the
+# record of what changed and when; there is no CHANGELOG.md, no tags, and no
+# `torra --version` flag to keep in sync with a number here. Required by the
+# packaging spec (PEP 621: `version` is mandatory unless declared `dynamic`),
+# so it stays present and fixed.
 version = "0.0.0"
-description = "A local model proposes, five gates decide, you approve. Pop-OS terminal agent."
-requires-python = ">=3.10"
-dependencies = ["PyYAML>=6.0", "textual>=0.60", "python-dotenv>=1.0"]
+description = "A local model proposes OS changes, five deterministic gates classify them, and the operator approves what runs."
+requires-python = ">=3.12"
+# Runtime pins are exactly the versions the former requirements-lock.txt held;
+# uv.lock pins the transitive set. Raise a pin deliberately, not as a reflex.
+dependencies = ["PyYAML==6.0.3", "textual==8.2.8", "python-dotenv==1.2.3"]
 
 [project.optional-dependencies]
-fast = ["inotify_simple>=1.3"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
-lint = ["ruff>=0.6", "mypy>=1.10", "radon>=6.0", "coverage>=7.0"]
+fast = ["inotify-simple==2.0.1"]
 
 [project.scripts]
 torra = "torra.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["torra*"]
+[dependency-groups]
+dev = [
+    "pytest==9.0.3",
+    "ruff==0.16.3",
+    "mypy==2.3.1",
+    "pytest-asyncio==1.4.0",
+    "coverage==7.15.2",
+    "radon==6.0.1",
+    "types-pyyaml==6.0.12.20260906",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["torra"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
@@ -48,12 +59,17 @@ select = [
     "UP",       # pyupgrade -- modernize syntax
     "C4",       # comprehension style
     "TID",      # tidy imports (no relative-import spaghetti)
+    "S602", "S604", "S605",  # shell=True and shell-string process starts
+    "C90",      # mccabe complexity, ceiling below
 ]
 ignore = [
     "E501",  # line length -- not worth fighting line-by-line, see DEFENSIVE_CODING_STANDARDS.md
 ]
 
+[tool.ruff.lint.mccabe]
+max-complexity = 14
+
 [tool.mypy]
-python_version = "3.10"
-exclude = ["build", ".venv"]
-ignore_missing_imports = true
+python_version = "3.12"
+strict = true
+files = ["torra"]

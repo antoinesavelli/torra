@@ -30,5 +30,5 @@ or network -- every external dependency is an injected callable (see
 | `test_model_bench.py` | `scripts/dev/model_bench` as a fucone job: `TORRA_OLLAMA_HOST` endpoint, an Ollama outage aborts instead of becoming a row, results land in `FUCONE_RUN_DIR`, the reader refuses an incomplete battery |
 
 ```bash
-python3 -m pytest tests/ -q              # every test passes; the count never drops
+uv run pytest -q                         # every test passes; the count never drops
 ```

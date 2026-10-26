@@ -34,12 +34,11 @@ if [ ! -f .venv/bin/activate ]; then
 fi
 
 echo "== reinstalling =="
-.venv/bin/pip install -r requirements-lock.txt -q
-.venv/bin/pip install -e . --no-deps -q
+uv sync --locked --extra fast
 
 echo "== running tests =="
-# .venv/bin/python3 explicitly, not a bare `python3` or an assumed-active
-# shell -- bare python3 has none of this project's dependencies installed.
-.venv/bin/python3 -m pytest tests/ -q
+# `uv run`, not a bare `python3` or an assumed-active shell -- bare python3
+# has none of this project's dependencies installed.
+uv run pytest -q
 
 echo "== update complete =="

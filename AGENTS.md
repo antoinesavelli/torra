@@ -9,9 +9,9 @@ operator approves. This file is instructions for an agent **editing this codebas
 instructions torra itself sends to its planning model (that's `torra/prompts.py`'s
 `SYSTEM_PROMPT` and `docs/`, a different audience entirely; don't conflate the two).
 
-Stack: Python 3.10+, ruff, mypy, pytest, Textual. Entry points: `torra.cli:main`,
+Stack: Python 3.12, uv, ruff, mypy --strict, pytest, Textual. Entry points: `torra.cli:main`,
 `torra.pipeline:Torra` (the only orchestrator). Tests: **every one must pass, and the count never drops**
-(`python3 -m pytest tests/ -q`) — nothing in `tests/` touches a live Ollama, systemd, or
+(`uv run pytest -q`) — nothing in `tests/` touches a live Ollama, systemd, or
 network; every external dependency is an injected callable (see `tests/conftest.py`).
 
 **This is an operating-system engineering agent first, a chat UI second.** The gates hold back real
@@ -121,19 +121,20 @@ replacement. If any of these is unclear before you act, read the full entry, the
 
 ## Key Entry Points
 
-Run from `/mnt/ParamoStorage/corsu/torra` and use `.venv/bin/python` wherever a command says `python3`: system Python lacks the
-dependencies, so `tests/` fails at collection without the venv.
+Run from `/mnt/ParamoStorage/corsu/torra` with `uv run`: system Python lacks the dependencies, so `tests/` fails at
+collection without the venv.
 
 | Task | Command |
 |---|---|
-| Tests (all; the count never drops) | `python3 -m pytest tests/ -q` |
-| Tests (one file/case) | `python3 -m pytest tests/test_gates.py -k <name>` |
-| Lint | `ruff check .` |
-| Format | `ruff format .` |
-| Type check | `mypy torra/` |
-| Defensive-coding scorecard | `python3 scripts/dev/defensive_coding_report.py` (`--area <pkg>` · `--enforce` · `--verbose`) |
-| Environment check | `torra doctor` |
-| One-shot request | `torra ask "..."` |
+| Install | `uv sync --locked --extra fast` |
+| Tests (all; the count never drops) | `uv run pytest -q` |
+| Tests (one file/case) | `uv run pytest tests/test_gates.py -k <name>` |
+| Lint | `uv run ruff check .` |
+| Format | `uv run ruff format .` (CI runs `--check`) |
+| Type check | `uv run mypy` (`--strict`, package `torra`) |
+| Defensive-coding scorecard | `uv run python scripts/dev/defensive_coding_report.py` (`--area <pkg>` · `--enforce` · `--verbose`) |
+| Environment check | `uv run torra doctor` |
+| One-shot request | `uv run torra ask "..."` |
 | Plan only, run nothing | `torra plan "..."` |
 | Run a hand-written task file (no model) | `torra run task.yaml` |
 | Classify a task file without running it | `torra check task.yaml` |

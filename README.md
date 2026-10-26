@@ -7,9 +7,9 @@ A local model proposes. Five gates decide. You approve. Then it runs.
 **Status: in progress.** What is built, what was measured and what is still open: `docs/STATUS.md`.
 
 ```bash
-pip install -e .
-torra doctor
-torra
+uv sync
+uv run torra doctor
+uv run torra
 ```
 
 ---
@@ -48,7 +48,7 @@ the steps, because a plan may create the path itself.
 
 ## Install
 
-Needs Python 3.10+, Ollama running locally with at least one model pulled.
+Needs Python 3.12+, [uv](https://docs.astral.sh/uv/), and Ollama running locally with at least one model pulled.
 
 To use an Ollama on another machine (say through an SSH tunnel), set
 `TORRA_OLLAMA_HOST=http://127.0.0.1:11435`. Only the model calls follow it; the
@@ -58,12 +58,8 @@ machine torra runs on.
 ```bash
 git clone https://github.com/antoinesavelli/torra.git ~/torra
 cd ~/torra
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip -q
-pip install -r requirements-lock.txt
-pip install -e . --no-deps
-python3 -m pytest tests/ -q
+uv sync --locked --extra fast
+uv run pytest -q
 ```
 
 Expect every test to pass. Then:
@@ -79,7 +75,7 @@ Put it on PATH permanently:
 echo "alias torra='~/torra/.venv/bin/torra'" >> ~/.bashrc && source ~/.bashrc
 ```
 
-`inotify_simple` is optional. With it, conflict detection checks only the paths
+`inotify_simple` is optional (the `fast` extra, `uv sync --extra fast`). With it, conflict detection checks only the paths
 the kernel reports changed, plus a periodic full walk; without it, every check walks the tree.
 `textual` is required for the interface but not for `run` or `check`.
 
@@ -539,7 +535,7 @@ The other 10 carry no trailer, which says nothing either way about who wrote the
 ## Running the tests
 
 ```bash
-python3 -m pytest tests/ -q
+uv run pytest -q
 ```
 
 The last recorded run is in `docs/STATUS.md`.

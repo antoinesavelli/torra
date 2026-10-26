@@ -13,9 +13,8 @@ your change touches: `grep -n '^### 2\.' HANDOFF.md` lists every invariant and
 ## 1. Orientation, in ninety seconds
 
 ```bash
-cd <repo> && python3 -m venv .venv && source .venv/bin/activate
-pip install pytest pytest-asyncio pyyaml textual inotify_simple && pip install -e .
-python3 -m pytest tests/ -q          # every test passes; the count never drops
+cd <repo> && uv sync --locked --extra fast
+uv run pytest -q                     # every test passes; the count never drops
 torra doctor
 ```
 
