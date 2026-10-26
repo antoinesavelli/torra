@@ -121,7 +121,7 @@ replacement. If any of these is unclear before you act, read the full entry, the
 
 ## Key Entry Points
 
-Run from `/mnt/ParamoStorage/corsu/torra` with `uv run`: system Python lacks the dependencies, so `tests/` fails at
+Run from the repo root with `uv run`: system Python lacks the dependencies, so `tests/` fails at
 collection without the venv.
 
 | Task | Command |

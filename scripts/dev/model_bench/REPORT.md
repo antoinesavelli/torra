@@ -10,7 +10,7 @@ running `ollama serve`, driving the *real* `torra.agent.Agent` and
 No models were pulled on this machine before this benchmark, and the
 configured systemd unit (`ollama.service`) points `OLLAMA_MODELS` at a path
 that doesn't exist, on a drive that's 92% full regardless. `ollama serve` was
-run manually for this benchmark with `OLLAMA_MODELS=/mnt/ParamoStorage/ollama-models`
+run manually for this benchmark with `OLLAMA_MODELS=/mnt/data/ollama-models`
 (495GB free) instead of touching the systemd unit. If these models should
 persist beyond this benchmark, the unit file needs a human to fix its
 `OLLAMA_MODELS` path — that's a system-config change outside what an agent
@@ -253,7 +253,7 @@ exactly as designed.
 Two caveats surfaced: it correctly *inferred* that the locally-pulled Ollama
 models were a likely disk hog (from `state.ollama_models` in the observed
 context) but *hallucinated* the wrong path for them (`/home/paramo/models`
-instead of the real `/mnt/ParamoStorage/ollama-models`) — `observe_machine()`
+instead of the real `/mnt/data/ollama-models`) — `observe_machine()`
 didn't expose `OLLAMA_MODELS` at the time, so the model filled the gap with a
 plausible guess. And the rollback entry it declared for a plain `apt`
 security-update task (see below) was a non-sequitur about purging a PPA that
@@ -267,7 +267,7 @@ specifically, not the main plan.
 commonly differ, exactly as they did on this machine, where the systemd
 unit sets the variable but an unrelated shell never sees it. Re-asked
 directly ("where are the local Ollama models stored, and how much space are
-they using?") after the fix, devstral answered `/mnt/ParamoStorage/ollama-models`
+they using?") after the fix, devstral answered `/mnt/data/ollama-models`
 correctly and, notably, said the size wasn't available in the observed
 state rather than inventing a number — the honest answer once the
 grounding data was actually there. Covered by `tests/test_core.py`.
@@ -993,7 +993,7 @@ concluding anything from one sample per model.
 ## 2026-08-23 — Site-knowledge library instruction wording, measured live
 
 Motivated by a real request ("when was the last borg backup made") that the
-torra answered by asking a clarifying question, when `/mnt/ParamoStorage/system-library/`
+torra answered by asking a clarifying question, when `/srv/system-library/`
 already documented the exact backup setup on this machine and torra
 had zero code path to it. Built `TORRA_KNOWLEDGE_DIR` (see `HANDOFF.md`
 §5's new "Site-knowledge library" entry) and iterated the instruction text

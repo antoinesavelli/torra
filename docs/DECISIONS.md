@@ -13,14 +13,14 @@ or a doc); the why is in the source when it is long. Approaches tried and abando
 | D-005 | 2026-10-24 | The Claude Code hook (`scripts/claude_code_hook.py`) asks on CRITICAL and never answers "allow" | An "allow" would skip Claude Code's own permission rules; asking at DANGEROUS would prompt on 41.6% of 84,078 measured commands. Source: `HANDOFF.md` §2.85, `051d658` | Standing |
 | D-006 | 2026-08-25 | No version bumps, tags, `CHANGELOG.md` or `torra --version`; `pyproject.toml` `version` stays `0.0.0` | A solo tool with no consumers of the package as an API; `git log` and `HANDOFF.md` §2 are the record. Source: `docs/agents/LOOP.md` Definition of Done item 7, `0845072` | Standing |
 | D-007 | 2026-07-28 | The OS reference files in `docs/` are not wired into `torra.agent.SYSTEM_PROMPT` | Injecting them changes the core loop and needs its own reviewed change and test. Source: `docs/README.md`, `docs/agents/GUARDRAILS.md`, `5bfa622` | Standing; see Parked P-1 |
-| D-008 | 2026-10-25 | torra lives at `/mnt/ParamoStorage/corsu/torra` | Corsican AI products share one parent. Source: migration plan decision 1 (below), `302470c` | Done |
+| D-008 | 2026-10-25 | torra lives in the shared `corsu/` folder | Corsican AI products share one parent. Source: migration plan decision 1 (below), `302470c` | Done |
 | D-009 | 2026-10-25 | `agents/` becomes `docs/agents/`, beside `DESIGN.md`, `DECISIONS.md`, `STATUS.md` | The corsu repo standard. Source: migration plan decision 5, `818f9ff` | Done |
 | D-010 | 2026-10-25 | Python 3.12, uv with a committed `uv.lock`, ruff, `mypy --strict`, pytest; `requirements-lock.txt` and Python 3.10 retired | The corsu toolchain baseline. Source: migration plan decision 6 | Done |
 | D-011 | 2026-10-25 | MIT license; public on `antoinesavelli/torra`, pushed directly to the existing remote | Source: migration plan decisions 7 and 9 | License done; push pending |
 | D-012 | 2026-10-25 | A gitleaks pre-push hook over full history, GitHub secret scanning and push protection; CI runs ruff, ruff format, mypy, pytest plus torra's coverage floors and defensive scorecard | Source: migration plan decision 8 | Hooks and CI done; GitHub settings pending |
 | D-013 | 2026-10-25 | The private `paramotrading/torra` repo is deleted | Stale since 2026-09-05. Source: migration plan decision 12 | Pending (owner, Phase C) |
 
-The migration plan is `/mnt/ParamoStorage/system-library/docs/plans/2026-10-25-corsu-migration.md`; its decisions
+The migration plan is `docs/plans/2026-10-25-corsu-migration.md` in the private system-library repo; its decisions
 are the owner's, made in the 2026-10-25 grilling.
 
 ## Parked

@@ -21,7 +21,7 @@ met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 
 ## Code health
 
-Measured 2026-10-25 at commit `57a4f04`, from `/mnt/ParamoStorage/corsu/torra` with `uv run`.
+Measured 2026-10-25 at commit `57a4f04`, from the repo root with `uv run`.
 
 | Result | Measured how |
 |---|---|

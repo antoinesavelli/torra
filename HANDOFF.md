@@ -3561,7 +3561,7 @@ step, `borg list <repo> --last 1`, a real slot.
 **Rule:** A tick-needing step that names a missing absolute local path no earlier step creates gets a repair round, then a non-blocking warning (`Turn.warnings`/`Plan.warnings`); off unless `path_exists` is wired in. **Guard:** `tests/test_path_warnings.py::test_a_missing_path_is_named_with_its_step` and `tests/test_path_warnings.py::test_a_plan_naming_a_missing_path_gets_a_repair_round`.
 
 Found 2026-10-11: the plan above targeted `/home/user/...` on a machine whose
-home is `/home/antoine`, and nothing checked. Advisory, like
+home is `/home/alex`, and nothing checked. Advisory, like
 `dependency_warnings`, because a plan may create the path itself.
 
 1. **`path_warnings.missing_path_warnings(spec, exists, only)`** reads the argv
@@ -4525,7 +4525,7 @@ finding shrinks rather than accumulates.
   header, §2.36, §2.44, §2.52, §2.59). Each entry's Rule line states what the
   code does now; the prose is kept as history.
 - **Open, the owner's.** The rename backups `harness-pre-torra-rename.bundle`
-  and `dot-harness-pre-torra.tgz` are still in `/mnt/ParamoStorage/archive/`.
+  and `dot-harness-pre-torra.tgz` are still in `/mnt/data/archive/`.
   Delete them only on the owner's say-so (from the retired `RENAME_TO_TORRA.md`).
 - **Found 2026-10-14.** A comment near `torra/gates/router.py:92` still says
   `muse-glimmer:30b` is pulled; it is not (`ollama list`). Comment only; on the
@@ -4540,7 +4540,7 @@ forever. Four had built up between 2026-07-28 and 2026-10-12. Two were in
 the format from before §2.64 (no digests, so never trusted), one had
 `completed: []`, and `delete-folder.json` vouched for `check-folder`, an
 `ls -l` of a path that no longer existed. All four were archived to
-`/mnt/ParamoStorage/archive/torra-state-cleanup-20261013.tgz` and deleted.
+`/mnt/data/archive/torra-state-cleanup-20261013.tgz` and deleted.
 
 The digest check (§2.64 point 3) keeps a stale file inert unless the new
 plan is a byte-identical retry. That case is still open:
