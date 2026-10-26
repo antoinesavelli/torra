@@ -130,7 +130,8 @@ class OllamaClient:
             request = urllib.request.Request(url, method="GET")
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                return json.loads(response.read().decode("utf-8") or "{}")
+                reply: dict[str, Any] = json.loads(response.read().decode("utf-8") or "{}")
+                return reply
         except urllib.error.HTTPError as exc:
             # Found live: a bad or unpulled model name surfaced to the operator
             # as the generic "HTTP Error 404: Not Found" -- Ollama's own body

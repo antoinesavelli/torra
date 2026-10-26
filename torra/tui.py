@@ -732,7 +732,7 @@ class ConfirmDialog(ModalScreen[bool]):
         self.dismiss(False)
 
 
-class TorraApp(App):
+class TorraApp(App[None]):
     """The tabbed terminal interface -- one tab per independent session."""
 
     CSS = """

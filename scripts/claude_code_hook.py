@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
@@ -51,7 +51,7 @@ def record(event: dict[str, Any], verdict: Verdict, log: Path) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     if log.exists() and log.stat().st_size > MAX_LOG_BYTES:
         log.replace(log.with_name(log.name + ".1"))
-    row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    row = {"at": datetime.now(UTC).isoformat(timespec="seconds"),
            "session": event.get("session_id", ""), "cwd": event.get("cwd", ""), "level": verdict.level.value,
            "command": redact_secrets(verdict.command)[:500], "reasons": [redact_secrets(r) for r in verdict.reasons]}
     with log.open("a", encoding="utf-8") as out:

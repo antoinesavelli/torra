@@ -85,7 +85,8 @@ class OpenRouterClient:
                      "Authorization": f"Bearer {self.api_key}"})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                return json.loads(response.read().decode("utf-8") or "{}")
+                reply: dict[str, Any] = json.loads(response.read().decode("utf-8") or "{}")
+                return reply
         except urllib.error.HTTPError as exc:
             raise OllamaError(f"HTTP {exc.code}: {self._http_error_detail(exc)}") from exc
 

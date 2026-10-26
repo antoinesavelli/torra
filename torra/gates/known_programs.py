@@ -422,7 +422,9 @@ def _nmcli(argv: Sequence[str]) -> str | None:
     return READ_ONLY if words & {"show", "status", "list"} and not words & _NMCLI_WRITES else None
 
 
-def _listing_only(allowed_short: str, allowed_long: frozenset[str]):
+def _listing_only(
+    allowed_short: str, allowed_long: frozenset[str]
+) -> Callable[[Sequence[str]], str | None]:
     """Read-only when it has no operands, at least one flag, and only the listed flags."""
     def judge(argv: Sequence[str]) -> str | None:
         flags = [a for a in argv[1:] if a.startswith("-")]
