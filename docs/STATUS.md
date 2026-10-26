@@ -19,6 +19,23 @@ run; until it does, treat the classifier as unfinished.
 The plan checks added on 2026-10-11 and 2026-10-12 (`HANDOFF.md` §2.78-2.81) have
 met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 
+## Code health
+
+Measured 2026-10-25 at commit `57a4f04`, from `/mnt/ParamoStorage/corsu/torra` with `uv run`.
+
+| Result | Measured how |
+|---|---|
+| 1921 tests, all passing | `uv run pytest -q` |
+| `ruff check`, `ruff format --check` and `mypy --strict` clean | `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy` |
+| Branch coverage 98% overall (floor 96) and 99% on the safety path (floor 97) | `.github/workflows/ci.yml`'s two `coverage report` lines |
+| Defensive-coding scorecard A (GPA 3.83), with 0 decision-path files over 500 functional LOC | `uv run python scripts/dev/defensive_coding_report.py --verbose --enforce` |
+
+The tree was formatted on 2026-10-25 (`ruff format`, `*.md` excluded) after five modules that formatting
+would have pushed past 500 functional LOC were split by cohesion with no change to their code:
+`gates/safety.py`, `gates/known_programs.py`, `gates/undo.py`, `pipeline.py` and `agent.py`. Each public
+import path is kept (`tests/test_module_splits.py`), and each class now inherits the part it was cut from.
+Largest decision-path file after formatting: `core/machine.py` at 486.
+
 ## Where the numbers come from
 
 All run on 2026-10-12 at commit `f9c0cd6`.
