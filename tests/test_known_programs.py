@@ -111,6 +111,8 @@ READ_ONLY_COMMANDS = [
     "amixer get Master",
     "ssh-keygen -lf ~/.ssh/id_ed25519.pub",
     "tmux ls",
+    "tmux ls -F '#{session_name}'",
+    "tmux display-message -p '#S'",
     "borg list /backup/repo",
     "systemd-analyze blame | head",
     "for f in /var/log/*.log; do wc -l $f; done",
@@ -474,6 +476,30 @@ def test_a_power_command_or_an_rm_still_asks_parsed_or_not(command: str) -> None
     """P5.3: those backstop rows now fire only on a parse failure; the argv rules cover a parsed line."""
     verdict = SafetyClassifier().classify(command)
     assert verdict.needs_confirmation, (command, verdict.level, verdict.reasons)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "tmux display-message -p '#(touch /tmp/x)'",
+        'tmux display-message "#(id)"',
+        "tmux display-message -p '#{?#(true),a,b}'",
+        "tmux ls -F '#(id)'",
+        "tmux list-windows -F '#(id)'",
+        "tmux list-sessions -f '#{==:#(id),x}'",
+        "tmux list-commands -F '#(id)'",
+        "tmux has-session -t '#(id)'",
+        "tmux -Lx ls -F '#(id)'",
+        "tmux display-message -p $'#\\x28id)'",
+        "tmux display-message -p \"$(echo '#(id)')\"",
+        'tmux capture-pane -p -t "$PANE"',
+    ],
+)
+def test_a_tmux_format_that_runs_a_command_asks(command: str) -> None:
+    """§2.92: tmux runs a `#(...)` it expands, so a read-only subcommand carrying one is not read-only."""
+    verdict = SafetyClassifier().classify(command)
+    assert verdict.level is RiskLevel.DANGEROUS, (command, verdict.level, verdict.reasons)
+    assert any("#(...)" in r for r in verdict.reasons), verdict.reasons
 
 
 def test_the_bar_of_a_noclobber_redirect_is_not_a_pipe() -> None:

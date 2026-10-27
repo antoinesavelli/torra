@@ -169,9 +169,8 @@ Open, each small.
 - **Classifier gaps left open** (`docs/INVARIANTS.md §2.72`):
   - `pytest` and `pip install` run arbitrary code and stay CAUTION. By design.
   - A relative path after a `cd` into a non-system directory is not tracked.
-  - Program-specific format strings are not parsed. Re-checked 2026-10-27:
-    `tmux display-message -p '#(touch /tmp/x)'` classifies SAFE although tmux runs the `#(...)` command, so this is
-    a real hole, not only a theoretical one (gates path, the owner's call).
+  - Program-specific format strings are not parsed in general. tmux's `#(...)` is closed (`docs/INVARIANTS.md
+    §2.92`, 2026-10-27); `#{E:...}`/`#{T:...}`, which re-expand an option or a pane title as a format, stay SAFE.
   - Case and symlink spellings of a protected path rely on `_protected`'s own normalisation.
 - **Heredoc bodies are scanned for redirects** (`docs/INVARIANTS.md §2.87`): an over-tick. Re-checked 2026-10-27:
   `cat <<EOF` with `echo a > /etc/x` in the body is CRITICAL.

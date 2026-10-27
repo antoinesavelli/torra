@@ -1479,3 +1479,13 @@ plain default-index or local install stays CAUTION.
 `-ihttps://...`, `-f ./wheels`, long-option prefixes and `PIP_<NAME>` variables unticked too.
 **Guarded by:** `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_install_from_an_untrusted_index_needs_a_tick`, `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_short_source_option_needs_a_tick_however_it_is_spelled`, `tests/test_gates.py::TestSafetyCoverageEdges::test_a_pip_source_needs_a_tick_when_abbreviated_or_set_in_the_environment`
 **Fix:** `8e487d6`
+
+### 2.92 A tmux argument that can carry a `#(...)` format needs a tick
+
+**Rule:** `_judge_tmux` makes any tmux command DANGEROUS when an argument contains `#(` or an expansion torra
+cannot see (`EXPANSION`: a `$var`, a `$(...)`, a backtick), so a read-only subcommand (`ls`, `list-*`,
+`display-message`, `has-session`, `capture-pane`) runs unticked only with literal, `#(`-free arguments.
+**Why:** tmux runs the shell command inside `#(...)` wherever it expands a format (`-F`, a `-f` filter, a
+`display-message` text), so `tmux display-message -p '#(touch /tmp/x)'` ran a command at SAFE (STATUS gap 6.5).
+**Guarded by:** `tests/test_known_programs.py::test_a_tmux_format_that_runs_a_command_asks`, the tmux rows in `READ_ONLY_COMMANDS`
+**Fix:** `_judge_tmux` in `torra/gates/safety_judge.py`

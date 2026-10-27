@@ -16,6 +16,7 @@ from .safety_tables import (
     BACKSTOP,
     CRITICAL_UNITS,
     DOCUMENT_CONTAINER_EXTENSIONS,
+    EXPANSION,
     INSTALL_VERBS,
     LISTING_TOOLS,
     METADATA_ONLY,
@@ -105,6 +106,7 @@ class CommandJudge:
                 lambda: self._judge_script_source(program, argv),
             ),
             (program == "kill", lambda: self._judge_kill(argv)),
+            (program == "tmux", lambda: self._judge_tmux(argv)),
             (program == "docker", lambda: self._judge_docker(argv)),
             (program in ("chmod", "chown"), lambda: self._judge_chmod_chown(program, protected)),
             (
@@ -379,6 +381,14 @@ class CommandJudge:
             return [(RiskLevel.CRITICAL, "kill of a whole process group or every process")]
         if not pids or not all(p.isdigit() for p in pids):
             return [(RiskLevel.DANGEROUS, "kill of a process torra cannot name (computed pid)")]
+        return []
+
+    @staticmethod
+    def _judge_tmux(argv: list[str]) -> list[tuple[RiskLevel, str]]:
+        # tmux runs the shell command inside a `#(...)` wherever it expands a format: `-F`, `-f`
+        # filters, a `display-message` text (§2.92). An argument torra cannot see may carry one.
+        if any("#(" in a or EXPANSION.search(a) for a in argv[1:]):
+            return [(RiskLevel.DANGEROUS, "tmux runs the command in a #(...) format")]
         return []
 
     @staticmethod
