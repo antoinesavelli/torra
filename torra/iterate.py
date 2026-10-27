@@ -94,7 +94,7 @@ def iterate(
     adds no new gate, no new Step construction, and no second way to run a
     command. It is the same sequence of turns a human retyping "that failed,
     fix it" after reading real output would produce, just bounded and
-    automatic. See CLAUDE_MIGRATION_ROADMAP.md's design note for why that
+    automatic. See docs/plans/CLAUDE_MIGRATION_ROADMAP.md's design note for why that
     keeps it off the safety-critical path this repo's AGENTS.md gates on
     asking first.
 

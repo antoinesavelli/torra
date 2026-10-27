@@ -1,4 +1,4 @@
-# docs/
+# docs/os/
 
 Reference material for torra's planning model, split by theme. Scoped
 to *measured* knowledge gaps, not a general Pop!_OS/System76 manual —
@@ -24,8 +24,8 @@ belongs in its own reviewed change with its own test, not silently bundled
 into adding a docs file.
 
 Only the four files in the table above are planning-model reference material. `DESIGN.md`,
-`DECISIONS.md`, `STATUS.md` and `agents/` in this folder are for agents editing torra: when the
-wiring is built, it names the table's files and never globs `docs/`.
+`DECISIONS.md`, `STATUS.md`, `USAGE.md`, `agents/`, `plans/` and `reports/` in `docs/` are for agents editing torra: when the
+wiring is built, it names the table's files and never globs `docs/os/`.
 
 ## Adding to this set
 

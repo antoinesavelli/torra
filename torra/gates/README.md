@@ -31,6 +31,6 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 | `decisions.py` | TRANSPARENCY: `DecisionLog`, every branch logged with its reasoning |
 
 `rollback.py`/`undo.py` split out of one file once it crossed the 500 functional
-LOC modularity cap -- see `DEFENSIVE_CODING_STANDARDS.md` §1.2 and §2.1's update.
+LOC modularity cap -- see `docs/agents/DEFENSIVE_CODING_STANDARDS.md` §1.2 and §2.1's update.
 
 See [`HANDOFF.md` §2](../../HANDOFF.md) for the invariants each gate protects.

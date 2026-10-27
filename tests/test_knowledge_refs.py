@@ -1,6 +1,6 @@
 """CI guard: agent-facing docs cite only what still exists, HANDOFF.md's growth is capped, and plans open with their status.
 
-Depends on: the root *.md, docs/agents/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
+Depends on: the root *.md, docs/**/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def _line(text: str, pos: int) -> int:
 
 
 def _section_ref_sources() -> list[Path]:
-    found = {*ROOT.glob("*.md"), *(ROOT / "docs" / "agents").glob("*.md")}
+    found = {*ROOT.glob("*.md"), *(ROOT / "docs").rglob("*.md")}
     for sub in ("torra", "tests"):
         found.update(p for ext in ("py", "md") for p in (ROOT / sub).rglob(f"*.{ext}"))
     return sorted(found)
@@ -166,7 +166,9 @@ _PLAN_HEADER = (
 def test_every_plan_opens_with_its_status_header() -> None:
     """A plan with no status or verified-at sha reads as live long after it went stale."""
     missing = []
-    for plan in sorted([*ROOT.glob("*_PLAN.md"), *ROOT.glob("*_ROADMAP.md")]):
+    plans = sorted((ROOT / "docs" / "plans").glob("*.md"))
+    assert plans, "no plans found under docs/plans: the glob likely broke"
+    for plan in plans:
         head = "\n".join(plan.read_text().splitlines()[:12])
         missing += [f"{plan.name}: {p.pattern}" for p in _PLAN_HEADER if not p.search(head)]
     assert not missing, (

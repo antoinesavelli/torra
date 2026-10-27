@@ -1,6 +1,6 @@
 # Build, dependency, and tool config for torra package. `[tool.ruff]` and
 # `[tool.mypy]` here are what `scripts/dev/defensive_coding_report.py` and CI
-# both run against -- see DEFENSIVE_CODING_STANDARDS.md for why these specific
+# both run against -- see docs/agents/DEFENSIVE_CODING_STANDARDS.md for why these specific
 # rules and thresholds.
 
 [build-system]
@@ -67,7 +67,7 @@ select = [
     "C90",      # mccabe complexity, ceiling below
 ]
 ignore = [
-    "E501",  # line length -- not worth fighting line-by-line, see DEFENSIVE_CODING_STANDARDS.md
+    "E501",  # line length -- not worth fighting line-by-line, see docs/agents/DEFENSIVE_CODING_STANDARDS.md
 ]
 
 [tool.ruff.lint.mccabe]

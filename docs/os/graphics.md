@@ -1,6 +1,6 @@
 # Graphics switching (hybrid NVIDIA hardware)
 
-Part of the scoped Pop!_OS reference set — see `docs/README.md` for how these
+Part of the scoped Pop!_OS reference set — see `docs/os/README.md` for how these
 files exist and when to add to them.
 
 ## The System76-specific tool
@@ -23,7 +23,7 @@ This was the single most-missed fact in the benchmark
 
 - qwen3:8b named `nvidia-prime` (the generic, non-Pop!_OS-native mechanism).
 - devstral named `pop-shell` — confusing graphics switching with the tiling
-  window manager entirely (see `docs/desktop_environment.md`); Pop Shell has
+  window manager entirely (see `docs/os/desktop_environment.md`); Pop Shell has
   nothing to do with graphics.
 - qwen3:32b was the only model to name `system76-power` correctly.
 

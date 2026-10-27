@@ -417,7 +417,7 @@ All six steps above are complete for `torra/`:
    `.github/workflows/ci.yml` runs `pytest`, `mypy`, and the scorecard with `--enforce` on every
    push and pull request.
 5. Every package (`torra/`, `torra/gates/`, `torra/core/`, `torra/telemetry/`) plus
-   `tests/`, `examples/`, and `docs/` has an area-map `README.md`.
+   `tests/`, `examples/`, `docs/os/` and `docs/agents/` has an area-map `README.md`.
 6. Next: if a future change clears a floor (Complexity/Modularity's file-size signal already
    did, see §2.1's update), raise that dimension's floor in the same change — don't leave it
    slack. Modularity's nested-complexity signal is the next candidate, if a future change

@@ -53,7 +53,7 @@ scorecard's `--enforce` floors must hold and the suite must stay green.
 | D3 | Resume file format gains `in_progress` and a per-step `command_digest` (persisted-state change). Old files lacking them mean "start fresh". | Yes. | P2.4 |
 | D4 **(decided yes, 2026-10-09)** | CLI `ask` shows the plan and asks once ("run this plan? [y/N]") before running anything, with `--yes` to skip. `ask --verify` fix rounds always ask. | Yes. Adds a human step, removes none. | P3.4 |
 | D5 | Stop exporting `.env` into `os.environ`. Read it with `dotenv_values()` and hand the key to `OpenRouterClient` directly. | Yes. | P3.2 |
-| D6 **(done, 2026-10-13)** | Commit the untracked routine logs (`AUDIT_LOG.md`, `DEFENSIVE_SCORECARD_LOG.md`), `opencode.json` and the `.gitignore` edit. Push the 10 local commits so CI runs again. CI last ran on 2026-09-03, green. Done: committed in `2ebb3a2` on 2026-10-04; pushed on 2026-10-13 to the new public repo `antoinesavelli/torra` instead of `paramotrading`; CI green at `2d5f82b`. | Yes. Pushing is outward-facing, so it is the owner's action. | P4.8 |
+| D6 **(done, 2026-10-13)** | Commit the untracked routine logs (`docs/reports/AUDIT_LOG.md`, `docs/reports/DEFENSIVE_SCORECARD_LOG.md`), `opencode.json` and the `.gitignore` edit. Push the 10 local commits so CI runs again. CI last ran on 2026-09-03, green. Done: committed in `2ebb3a2` on 2026-10-04; pushed on 2026-10-13 to the new public repo `antoinesavelli/torra` instead of `paramotrading`; CI green at `2d5f82b`. | Yes. Pushing is outward-facing, so it is the owner's action. | P4.8 |
 | D7 | The TUI is one 1,914-line file. It is peripheral tier and ungraded by the scorecard. | Out of scope for this plan unless the owner wants it. | none |
 | D8 **(open, 2026-10-12)** | Ask for each DANGEROUS/CRITICAL tick at the moment that step runs, after the earlier steps' output is shown, instead of collecting every tick before step 1 (`Torra.execute` → `_apply_approvals`). Needs three answers: what a no does mid-run (stop, with completed steps kept and their undo on the stack, is the recommendation), whether the operator must stay at the terminal for plans with ticks, and whether a crash-resume re-asks. | Wait for real-use evidence. `HANDOFF.md` §2.81 (show what each target is at the tick) is built and covers the cheap half; live, 3 of 6 plans had the find-then-act shape this would serve. | none yet |
 
@@ -71,7 +71,7 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   `agent.py` 561, besides `safety.py` growing from 619 to 736). Modularity falls from B to D, below its B floor,
   and the GPA from 3.83 to 3.50, so `--enforce` fails. `skip-magic-trailing-comma` gives the same result. The
   repo's dense hand-formatted style is what the scorecard baseline was measured on, and no floor gets lowered to
-  admit a formatter. `ruff format` is not adopted, nothing in `DEFENSIVE_CODING_STANDARDS.md` requires it, and
+  admit a formatter. `ruff format` is not adopted, nothing in `docs/agents/DEFENSIVE_CODING_STANDARDS.md` requires it, and
   the "53 files fail `ruff format --check`" deduction in the grade is withdrawn with it.
 - **P0.2 Pin the reproduction. FOLDED INTO P1.1.** Test first, watch it fail, then fix, in one commit. The
   reproduction was `/tmp/torra_repro/test_blocked_rollback_repro.py`; `/tmp` is ephemeral, so P1.1's tests are
@@ -465,7 +465,7 @@ Ask-first (it loosens a guard, so the owner decides).
 (`309d59f`).** Minor. Scorecard at `61b6886`: 0 decision-path functions at CCN 15 or more. `Agent.converse` went
 20 to 13 (model choice moved to `Agent._route`) and `describe_path` 15 to 6 (`_describe_dir`). The sentence at
 `AGENTS.md:173` no longer exists after the trim in `6fce92e`; the ceiling is stated in
-`DEFENSIVE_CODING_STANDARDS.md:53`, and it holds.
+`docs/agents/DEFENSIVE_CODING_STANDARDS.md:53`, and it holds.
 - *What's wrong.* `AGENTS.md:173` says no graded-tier function reaches CCN 15. The scorecard at `2d5f82b`
   lists two: `Agent.converse` at 20 (`torra/agent.py:311`) and `describe_path` at 15 (`torra/preview.py:73`).
   `converse` grew with the repair rounds of §2.78 to §2.82. (Citations in this item are at `2d5f82b`.)

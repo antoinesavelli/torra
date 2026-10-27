@@ -12,7 +12,7 @@ or a doc); the why is in the source when it is long. Approaches tried and abando
 | D-004 | 2026-08-23 | The site-knowledge library gives the model a topic index only; reading a file is an ordinary gated plan step | File contents wired into the prompt would bypass the gate a step gets. Source: `HANDOFF.md` §5.21, `583f99f` | Standing |
 | D-005 | 2026-10-24 | The Claude Code hook (`scripts/claude_code_hook.py`) asks on CRITICAL and never answers "allow" | An "allow" would skip Claude Code's own permission rules; asking at DANGEROUS would prompt on 41.6% of 84,078 measured commands. Source: `HANDOFF.md` §2.85, `051d658` | Standing |
 | D-006 | 2026-08-25 | No version bumps, tags, `CHANGELOG.md` or `torra --version`; `pyproject.toml` `version` stays `0.0.0` | A solo tool with no consumers of the package as an API; `git log` and `HANDOFF.md` §2 are the record. Source: `docs/agents/LOOP.md` Definition of Done item 7, `0845072` | Standing |
-| D-007 | 2026-07-28 | The OS reference files in `docs/` are not wired into `torra.agent.SYSTEM_PROMPT` | Injecting them changes the core loop and needs its own reviewed change and test. Source: `docs/README.md`, `docs/agents/GUARDRAILS.md`, `5bfa622` | Standing; see Parked P-1 |
+| D-007 | 2026-07-28 | The OS reference files in `docs/os/` are not wired into `torra.agent.SYSTEM_PROMPT` | Injecting them changes the core loop and needs its own reviewed change and test. Source: `docs/os/README.md`, `docs/agents/GUARDRAILS.md`, `5bfa622` | Standing; see Parked P-1 |
 | D-008 | 2026-10-25 | torra lives in the shared `corsu/` folder | Corsican AI products share one parent. Source: migration plan decision 1 (below), `302470c` | Done |
 | D-009 | 2026-10-25 | `agents/` becomes `docs/agents/`, beside `DESIGN.md`, `DECISIONS.md`, `STATUS.md` | The corsu repo standard. Source: migration plan decision 5, `818f9ff` | Done |
 | D-010 | 2026-10-25 | Python 3.12, uv with a committed `uv.lock`, ruff, `mypy --strict`, pytest; `requirements-lock.txt` and Python 3.10 retired | The corsu toolchain baseline. Source: migration plan decision 6 | Done |
@@ -27,8 +27,8 @@ are the owner's, made in the 2026-10-25 grilling.
 
 | ID | Parked item | Revival trigger |
 |---|---|---|
-| P-1 | Wiring `docs/` reference files into the planning model's prompt | Its own reviewed change with its own test (`docs/README.md`) |
-| P-2 | Ask each DANGEROUS/CRITICAL tick when its step runs, not all before step 1 (`GRADE_TO_A_PLAN.md` D8, open since 2026-10-12) | "Wait for real-use evidence"; needs the owner's answers on what a no does mid-run, whether the operator must stay at the terminal, and whether a resume re-asks |
-| P-3 | `iterate()` resolving a NEEDS_ANSWER round instead of stopping (`CLAUDE_MIGRATION_ROADMAP.md`, bucket 1) | "Only if it's actually hit in practice, with a real example in hand" |
+| P-1 | Wiring `docs/os/` reference files into the planning model's prompt | Its own reviewed change with its own test (`docs/os/README.md`) |
+| P-2 | Ask each DANGEROUS/CRITICAL tick when its step runs, not all before step 1 (`docs/plans/GRADE_TO_A_PLAN.md` D8, open since 2026-10-12) | "Wait for real-use evidence"; needs the owner's answers on what a no does mid-run, whether the operator must stay at the terminal, and whether a resume re-asks |
+| P-3 | `iterate()` resolving a NEEDS_ANSWER round instead of stopping (`docs/plans/CLAUDE_MIGRATION_ROADMAP.md`, bucket 1) | "Only if it's actually hit in practice, with a real example in hand" |
 | P-4 | Session-scale memory/research continuity for the model (roadmap bucket 3) | The four-question gate in `HANDOFF.md` §7 passes; not started |
 | P-5 | Claude Code ecosystem conveniences: subagents, skills, connectors, scheduling (roadmap bucket 4) | A specific convenience turns out to be load-bearing for the operator's workflow, not hypothetically useful |

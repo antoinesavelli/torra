@@ -25,12 +25,12 @@ wrong command runs against a real filesystem, package manager, or init system.
   act on the wrong unit. When code decides how to query or act on a systemd unit, verify
   scope explicitly; don't default to whichever scope was convenient to write first.
 - **OS domain knowledge fed to the planning model grows from a measured gap, never a guess.**
-  The reference files in `docs/` (`docs/README.md`'s table) exist only for facts a real benchmark run (`scripts/dev/model_bench/`) caught a
-  model getting wrong, vague, or hallucinated (see `docs/README.md`) — not from "this seems
+  The reference files in `docs/os/` (`docs/os/README.md`'s table) exist only for facts a real benchmark run (`scripts/dev/model_bench/`) caught a
+  model getting wrong, vague, or hallucinated (see `docs/os/README.md`) — not from "this seems
   like something a Pop!_OS agent should know." A docs file written from guesswork is the same
   failure mode as an untested gate: it looks like coverage and isn't. Add a themed file only
-  behind a benchmark result, and update `docs/README.md`'s table in the same change. Wiring
-  any of `docs/` into `torra.agent.SYSTEM_PROMPT` is its own reviewed change with its own
+  behind a benchmark result, and update `docs/os/README.md`'s table in the same change. Wiring
+  any of `docs/os/` into `torra.agent.SYSTEM_PROMPT` is its own reviewed change with its own
   test — never bundle it into "just adding a docs file."
 - **Model routing consults the live daemon before it guesses.** `ModelRouter` and
   `Accelerator.fits` use real `/api/show` data (params, `capabilities`) when available; the

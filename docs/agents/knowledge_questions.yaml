@@ -162,19 +162,19 @@
     - docs/agents/GUARDRAILS.md
 
 - id: docs-growth-rule
-  question: "What evidence must exist before a new fact is added to docs/*.md, where is that evidence produced, and which index file must change in the same change?"
-  expected: "A measured gap: a benchmark run in scripts/dev/model_bench/ that caught a model getting the fact wrong, vague or hallucinated; never a guess. docs/README.md's table (including its Measured gap? column) is updated in the same change, and wiring any docs content into torra.agent.SYSTEM_PROMPT is a separate reviewed change."
+  question: "What evidence must exist before a new fact is added to docs/os/*.md, where is that evidence produced, and which index file must change in the same change?"
+  expected: "A measured gap: a benchmark run in scripts/dev/model_bench/ that caught a model getting the fact wrong, vague or hallucinated; never a guess. docs/os/README.md's table (including its Measured gap? column) is updated in the same change, and wiring any docs content into torra.agent.SYSTEM_PROMPT is a separate reviewed change."
   must_contain:
     - 'measured\s+gap|benchmark\w*[\s\S]{0,100}\b(wrong|vague|hallucinat\w+)'
     - 'model_bench'
-    - 'docs\W+README'
+    - 'docs\W+os\W+README'
   must_not_contain:
     - 'whenever\s+(it\s+)?seems\s+(useful|helpful|relevant)'
   sources:
     - AGENTS.md
     - docs/agents/GUARDRAILS.md
     - docs/agents/PLAYBOOKS.md
-    - docs/README.md
+    - docs/os/README.md
 
 - id: claude-md-stub
   question: "What does CLAUDE.md in this repo contain, and where do an agent's rules and instructions actually live?"

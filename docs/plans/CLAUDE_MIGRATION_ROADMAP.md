@@ -30,7 +30,7 @@ loop didn't exist here before this change.
 
 **What shipped:** `torra/iterate.py`'s `iterate()`, wired into
 `torra ask --verify "<check>" [--max-iterations N]` (default 3). See
-README.md's "`ask --verify`" section for usage.
+docs/USAGE.md's "`ask --verify`" section for usage.
 
 **Design constraint that shaped it:** torra's AGENTS.md gates
 `Torra.execute`, the five gates, and `Step.command`/`Step.run`
@@ -71,7 +71,7 @@ second" (`AGENTS.md`).
 finds themselves asking Claude Code to run a deploy, restart a service,
 edit a systemd unit, or touch anything package/filesystem-level on this
 box, that's a `torra ask "..."` call instead. Nothing here needs a
-`CLAUDE_MIGRATION_ROADMAP.md` action item beyond naming it -- if a *specific*
+`docs/plans/CLAUDE_MIGRATION_ROADMAP.md` action item beyond naming it -- if a *specific*
 task type keeps getting routed to Claude Code instead of torra because
 torra genuinely can't do it, that's a concrete, measurable gap worth its
 own entry the next time this doc is revisited (see the four-question gate:
@@ -83,14 +83,14 @@ measure before building).
 `~/.claude/projects/<path>/memory/`: `user`/`feedback`/`project`/`reference`
 typed files plus an `MEMORY.md` index) that persists decisions, dead ends,
 and project context across sessions. torra has an analogous but narrower
-mechanism -- the "site-knowledge library" (`docs/*.md`, a topic index fed to
-the planning model every turn, see README.md's "Site-knowledge library"
+mechanism -- the "site-knowledge library" (`docs/os/*.md`, a topic index fed to
+the planning model every turn, see docs/USAGE.md's "Site-knowledge library"
 section) -- but that's OS/machine domain knowledge, gated on a measured
 benchmark gap (`scripts/dev/model_bench/`), not a place for "we tried X,
 it failed, don't reopen it" or "the operator prefers Y."
 
 **What a build here would look like**, if picked up:
-1. A new file kind under `docs/` (or a sibling directory, if `docs/`'s own
+1. A new file kind under `docs/` (or a sibling directory, if `docs/os/`'s own
    measured-gap discipline shouldn't apply to it) holding session-scale
    decisions/dead-ends, analogous to the vault's `project`/`feedback` types.
 2. A way for the *model* to write to it, not just read it -- `read_memory.py`
@@ -98,9 +98,9 @@ it failed, don't reopen it" or "the operator prefers Y."
    model's context, tagged by path"; a memory write is a different shape
    (durable across sessions, not scoped to one conversation's context).
 3. Apply the four-question gate before wiring it into `SYSTEM_PROMPT` --
-   `docs/README.md`'s own playbook already says not to do that step in the
+   `docs/os/README.md`'s own playbook already says not to do that step in the
    same change that adds the source file (see docs/agents/PLAYBOOKS.md's "Adding OS domain
-   knowledge to `docs/`" playbook, item 4).
+   knowledge to `docs/os/`" playbook, item 4).
 
 **Not started.** No file exists for this yet; this section is the design
 starting point, not a stub implementation.

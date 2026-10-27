@@ -20,7 +20,7 @@ torra doctor
 
 Eight modules, ~6,900 lines shipped. `core.py`, `gates.py` and `telemetry.py` were later
 each split into a same-named package of single-concern submodules (see
-`DEFENSIVE_CODING_STANDARDS.md` §1.2 for why); every name still imports from the same
+`docs/agents/DEFENSIVE_CODING_STANDARDS.md` §1.2 for why); every name still imports from the same
 top-level path, e.g. `from torra.gates import SafetyClassifier`. Read in the order `docs/DESIGN.md` §3 gives (core, gates, agent, pipeline; the rest are leaves).
 
 ---
@@ -1099,7 +1099,7 @@ regressed the defensive-coding scorecard's Complexity dimension:
 tier (not scorecard-enforced) while `torra/telemetry/` is core tier, so
 moving it into a graded package surfaced pre-existing complexity that had
 simply never been counted before. Fixed the same day, same change, via the
-`DEFENSIVE_CODING_STANDARDS.md` §2 extraction pattern (four independent
+`docs/agents/DEFENSIVE_CODING_STANDARDS.md` §2 extraction pattern (four independent
 sections -- outcomes/backend/latency/rollback -- split into their own
 `_outcome_lines`/`_backend_line`/`_latency_line`/`_rollback_line`
 functions, `health_summary` reduced to a thin orchestrator).
@@ -1153,7 +1153,7 @@ unknown, not "yes."**
   (same category as `model_override`), cleared by `_clear_thinking` the
   moment `_planned` renders the turn's outcome. A future change that wires
   this into a persisted format is a deliberate scope expansion, not a bug
-  fix -- it needs its own review, the same way wiring `docs/` into
+  fix -- it needs its own review, the same way wiring `docs/os/` into
   `SYSTEM_PROMPT` does.
 
 > Guarded by `tests/test_core.py::TestModelInfo` (`thinking_capable`
@@ -1597,7 +1597,7 @@ Two choices worth stating so a future edit doesn't quietly undo them:
   with a stale or placeholder value without it silently shadowing a
   real one set elsewhere.
 
-`.env` is gitignored; only `OPENROUTER_API_KEY` is read from it (see README.md's
+`.env` is gitignored; only `OPENROUTER_API_KEY` is read from it (see docs/USAGE.md's
 OpenRouter section for the expected key), never a real value committed anywhere.
 
 > Guarded by `tests/test_cli.py::TestLoadEnvFile`: a not-yet-set variable
@@ -1643,7 +1643,7 @@ filter live even if it could. Each entry in the list is only added after
 a real live slug lookup plus an actual `torra plan`/`ask` call through
 it succeeded (`x-ai/grok-4.6` and `deepseek/deepseek-v4-pro`, both
 confirmed this way) -- the same "measure, don't guess" discipline this file
-applies to `docs/*.md` and routing rules elsewhere. Remote entries are
+applies to `docs/os/*.md` and routing rules elsewhere. Remote entries are
 tagged `(remote, paid)` in the picker so a tap doesn't trigger a paid call
 by accident. Anything beyond that verified list still goes through
 `/model <name>`, which is unaffected by any of this -- it never consulted
@@ -3414,7 +3414,7 @@ is reported, not repaired.
 **Rule:** A depth-limit hit in `resolve()` sets `unwrap_limit_hit` and makes the line DANGEROUS; `hash` is judged by `trust()` (`_avoiding("p")`), and `export`/`declare`/`typeset`/`local`/`readonly` assignments go through `_note_assignment` so `RISKY_ENV` sees them (every other way bash assigns: §2.83). **Guard:** `tests/test_known_programs.py::test_a_line_nested_past_the_unwrap_limit_asks` and `tests/test_known_programs.py::test_rebinding_what_a_command_name_runs_asks`, and 2 more below.
 
 Found 2026-10-08 by probing §2.60's "unknown means ask" from outside the corpora
-(`GRADE_TO_A_PLAN.md` P1.3). Three shapes still classified SAFE:
+(`docs/plans/GRADE_TO_A_PLAN.md` P1.3). Three shapes still classified SAFE:
 
 1. **Past the unwrap limit.** `resolve()` returns nothing beyond `max_depth`
    (4), and `_unwrap` keeps only a `sh -c` payload's commands, never the
@@ -3443,7 +3443,7 @@ belongs in a test that builds it (`_nested`), not only a fixed string.
 
 **Rule:** `TaskSpec.validate` refuses a `task_id` or step id that `redact_secrets` would change (`_validate_id`) without repeating it in the message, and `TaskLogger.record` runs `redact_tree` over the whole record. **Guard:** `tests/test_core.py::TestTaskSpecBasicValidation::test_an_id_that_holds_a_secret_is_refused_without_repeating_it` and `tests/test_telemetry.py::TestRedaction::test_every_string_field_is_scrubbed_not_just_the_free_text_ones`, and 2 more below.
 
-Found 2026-10-09 checking `GRADE_TO_A_PLAN.md` P3.1. The model writes
+Found 2026-10-09 checking `docs/plans/GRADE_TO_A_PLAN.md` P3.1. The model writes
 `task_id` and step ids, and nothing constrained them. A key-shaped id
 reached `tasks.jsonl` (`TaskLogger.record` scrubbed only `request` and
 `abort_reason`) and named the resume file, which nothing scrubs.
@@ -3469,7 +3469,7 @@ reached `tasks.jsonl` (`TaskLogger.record` scrubbed only `request` and
 
 **Rule:** Interactive `torra ask` asks 'run this plan?' once before any step runs, and anything but yes declines through `Torra.reject()`; `--yes` skips that question but never a DANGEROUS tick, and `--verify` shows every round and a fix round always asks. **Guard:** `tests/test_cli.py::test_ask_interactive_asks_once_and_a_no_rejects_the_plan` and `tests/test_iterate.py::test_a_declined_round_goes_through_reject_and_stops`, and 7 more below.
 
-Decision D4 in `GRADE_TO_A_PLAN.md` (P3.4). Interactive `ask` printed the
+Decision D4 in `docs/plans/GRADE_TO_A_PLAN.md` (P3.4). Interactive `ask` printed the
 plan and then ran every SAFE and CAUTION step with no question; `ask
 --verify` printed no plan for any round, so a model-written fix ran unseen.
 
@@ -3501,7 +3501,7 @@ are unchanged.
 
 **Rule:** A task that fails `TaskSpec.validate` raises `MalformedTaskError`, and `converse()` feeds the validator's message back for a repair round on the shared `max_repairs` budget; out of revisions the error is raised, and a corrected plan still gets the risk screen. **Guard:** `tests/test_agent.py::test_a_step_with_an_unknown_field_gets_a_repair_round_not_a_dead_end` and `tests/test_agent.py::test_a_task_that_stays_malformed_is_still_an_error_once_repairs_run_out`, and 2 more below.
 
-Found 2026-10-11 in the first real use since 2026-09-18 (`GRADE_TO_A_PLAN.md`
+Found 2026-10-11 in the first real use since 2026-09-18 (`docs/plans/GRADE_TO_A_PLAN.md`
 P3.7, the part left open). `gpt-oss:20b` put `safe`, a field of a `rollback`
 entry, on a step, and `ask` ended after one model call with "unknown
 field(s) ['safe']", while a plan that parsed but was CRITICAL got a revision.
@@ -3577,7 +3577,7 @@ home is `/home/alex`, and nothing checked. Advisory, like
    read-only existence probes (`cat /etc/motd`, `ls /var/run/ollama.pid
    2>/dev/null`); after this change, 4% (5 plans: the real invented-path
    `rm -r`, two under the since-moved repo, two knock-ons of the
-   `reboot-required` classifier finding (`GRADE_TO_A_PLAN.md` P5.3)). Every
+   `reboot-required` classifier finding (`docs/plans/GRADE_TO_A_PLAN.md` P5.3)). Every
    step still counts toward what the plan creates.
 3. **In the agent:** a repair round whose guidance is to copy the request's
    own path exactly, in single quotes, or ask, and that steps cannot pass
@@ -3605,7 +3605,7 @@ from `gpt-oss:20b`, which then reached the operator with the warning.
 **Rule:** A step that needs a tick carries a lazy `StepPlan.preview` (read-only `preview.describe_path`, never following symlinks, capped at 5000 entries or 1 s) that the tick prompt shows under 'on disk:'; gating never touches the disk. **Guard:** `tests/test_preview.py::test_a_step_that_needs_a_tick_carries_a_preview` and `tests/test_preview.py::test_the_tick_prompt_shows_what_the_step_will_act_on_before_it_asks`.
 
 Real-use finding 4 of 2026-10-11, the cheap half (option B; option A, asking
-at the moment each critical step runs, is `GRADE_TO_A_PLAN.md` D8): the
+at the moment each critical step runs, is `docs/plans/GRADE_TO_A_PLAN.md` D8): the
 operator was asked to approve `rm -r <path>` having seen only the command.
 
 1. **`preview.describe_path`** looks one path up read-only ("directory, 2
@@ -3657,7 +3657,7 @@ CRITICAL), with the preview showing the 3 files.
 
 **Rule:** `assignments.assigned_names` hands `_note_assignment` each name a call sets besides a leading `NAME=value` (`export`/`declare`/`typeset`/`local`/`readonly` operands with subscripts, `read` names and `-a`, `printf -v`, a nameref's target, a `for` variable, `${NAME:=x}`), and a name the line builds at run time (`$`, a substitution, braces, a glob, a nameref with no target yet) is `UNSEEN` and asks.
 
-**Why:** §2.75 counted only `NAME=` operands, so `read PATH <<< /x; ls`, `printf -v PATH`, `declare -n P; P=PATH; P=/x`, `for PATH in /x` and `: ${LD_PRELOAD:=/x.so}; export LD_PRELOAD` ran a program torra never judged (`GRADE_TO_A_PLAN.md` P5.1, plus the shapes its fix's re-read found). Replaying the 184 distinct logged commands moved no verdict.
+**Why:** §2.75 counted only `NAME=` operands, so `read PATH <<< /x; ls`, `printf -v PATH`, `declare -n P; P=PATH; P=/x`, `for PATH in /x` and `: ${LD_PRELOAD:=/x.so}; export LD_PRELOAD` ran a program torra never judged (`docs/plans/GRADE_TO_A_PLAN.md` P5.1, plus the shapes its fix's re-read found). Replaying the 184 distinct logged commands moved no verdict.
 
 **Guard:** `tests/test_known_programs.py::test_rebinding_what_a_command_name_runs_asks`, `tests/test_known_programs.py::test_assigned_names_reads_each_way_a_builtin_sets_a_variable`, and the `read`/`printf`/`for` rows in `STILL_RUN`.
 
@@ -3665,7 +3665,7 @@ CRITICAL), with the preview showing the 3 files.
 
 **Rule:** `hostname` is judged in `known_programs.PREDICATES`, read-only only with no operand and display flags (`-a -A -d -f -i -I -s -y`, their long forms, `-h`, `-V`); an operand, `-F`/`--file` or `-b` sets the host name and asks.
 
-**Why:** It sat in `READ_ONLY_PROGRAMS`, so "rename this box" as `hostname newbox` ran with no tick (`GRADE_TO_A_PLAN.md` P5.2). A redirect token counts as an operand, as for `mount`, so `hostname -I > f` asks too.
+**Why:** It sat in `READ_ONLY_PROGRAMS`, so "rename this box" as `hostname newbox` ran with no tick (`docs/plans/GRADE_TO_A_PLAN.md` P5.2). A redirect token counts as an operand, as for `mount`, so `hostname -I > f` asks too.
 
 **Guard:** `tests/test_known_programs.py::test_a_reviewed_bypass_now_asks` (`SETS_THE_HOST_NAME`) and the `hostname` rows in `STILL_RUN`.
 
@@ -3713,7 +3713,7 @@ CRITICAL), with the preview showing the 3 files.
 
 **Rule:** The two `BACKSTOP` rows in `UNPARSED_ONLY` ("host power state", "file deletion") fire only when `resolve()` recorded a parse failure or hit the unwrap limit; a parsed `reboot`, `shutdown`, `halt`, `systemctl poweroff` or `rm` is judged by its argv rule.
 
-**Why:** They matched a bare word in any operand, so `cat /var/run/reboot-required`, `last -x shutdown` and `ls .../rm-protection` needed a tick (`GRADE_TO_A_PLAN.md` P5.3, owner-approved 2026-10-25). Replaying 74,712 distinct commands moved 183 verdicts, all down, none of them running one of those programs.
+**Why:** They matched a bare word in any operand, so `cat /var/run/reboot-required`, `last -x shutdown` and `ls .../rm-protection` needed a tick (`docs/plans/GRADE_TO_A_PLAN.md` P5.3, owner-approved 2026-10-25). Replaying 74,712 distinct commands moved 183 verdicts, all down, none of them running one of those programs.
 
 **Guard:** `tests/test_known_programs.py::test_a_power_command_or_an_rm_still_asks_parsed_or_not` and the P5.3 rows in `READ_ONLY_COMMANDS`.
 
@@ -4443,11 +4443,11 @@ finding shrinks rather than accumulates.
 
 ### 6.5 Smaller, known
 
-- **Open, owned by `GRADE_TO_A_PLAN.md` P5.3:** `cat /var/run/reboot-required` rates DANGEROUS (a backstop false positive).
+- **Open, owned by `docs/plans/GRADE_TO_A_PLAN.md` P5.3:** `cat /var/run/reboot-required` rates DANGEROUS (a backstop false positive).
 - **Found 2026-10-12, left as is by the owner.** The pre-existing "the
   `request` line is underspecified" prescreen complaint spent 2 of 3
   model calls on a correct read-only plan (`ps aux --sort=-%mem`).
-- **Open design question, owned by `GRADE_TO_A_PLAN.md` D8:** ask each tick at the moment its step runs.
+- **Open design question, owned by `docs/plans/GRADE_TO_A_PLAN.md` D8:** ask each tick at the moment its step runs.
 - The missing-path check (§2.80) is a heuristic: it misses paths built at
   run time and could flag a plan that creates a path in a way it does not
   recognise (one wasted repair round and a warning).
@@ -4476,7 +4476,7 @@ finding shrinks rather than accumulates.
   headroom this project already cares about for model routing (see the
   `CPU_PARAM_CEILING_B` guardrail) -- an unmeasured, environment-specific
   tradeoff, not a clear win. No measured performance problem motivated
-  looking at this in the first place (`docs/README.md`'s own
+  looking at this in the first place (`docs/os/README.md`'s own
   benchmark-before-build rule applies here too) -- reopen only if one
   shows up.
 - One blind-corpus clarifier false positive (`run nvidia-smi and report the free

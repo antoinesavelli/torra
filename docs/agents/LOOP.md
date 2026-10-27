@@ -18,7 +18,7 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
 2. **MODEL** — Identify blast radius. Is this on the safety-critical path (gates, the
    classifier, `Step.command`/`Step.run` construction, `Torra.execute`/`Torra.reject`, anything
    between "model proposes" and "shell executes") or peripheral (`cli.py`, `tui.py`, `__init__.py`,
-   a docs file; tiers: `DEFENSIVE_CODING_STANDARDS.md` §0)? That answer decides how
+   a docs file; tiers: `docs/agents/DEFENSIVE_CODING_STANDARDS.md` §0)? That answer decides how
    much rigor and how much asking-first this needs.
 3. **DECIDE** — State the plan in one sentence. Ask if it touches the safety-critical path or
    persisted-state format (`resume/*.json`, `telemetry/tasks.jsonl`, `audit/*.audit.json`);
@@ -46,7 +46,7 @@ Not complete until all hold, in the *same* change:
    deleting the thing HANDOFF.md §2 told you not to delete — stop and re-read that section
    before doing it.
 2. **Per-file docstring current.** One line + a `Depends on:` line for every touched module
-   (see `DEFENSIVE_CODING_STANDARDS.md` §1.3). If you changed what a file does or imports, fix it.
+   (see `docs/agents/DEFENSIVE_CODING_STANDARDS.md` §1.3). If you changed what a file does or imports, fix it.
 3. **Area map current.** New/moved/renamed file → update that directory's `README.md` in the
    same change. New top-level directory → add a `README.md` and a row to the Area Maps table
    in `AGENTS.md`.
@@ -62,7 +62,7 @@ Not complete until all hold, in the *same* change:
 5. **Lint and types clean.** `uv run ruff check .`, `uv run ruff format --check .` and `uv run mypy`
    (`--strict` on the package) all clean.
 6. **Defensive-coding scorecard held.** `uv run python scripts/dev/defensive_coding_report.py` — no
-   graded dimension drops a letter grade from the current baseline in `DEFENSIVE_CODING_STANDARDS.md`
+   graded dimension drops a letter grade from the current baseline in `docs/agents/DEFENSIVE_CODING_STANDARDS.md`
    §2.1 (`ENFORCE_FLOORS` in the script is the enforced version of that baseline). If one drops,
    fix the regression in the same change — see that doc §2's extraction pattern for Modularity.
 7. **No version bumps, tags, or a `CHANGELOG.md` entry.** This is a solo, private tool with

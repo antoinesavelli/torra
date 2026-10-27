@@ -1,6 +1,6 @@
 # Package management, upgrades, and base system
 
-Part of the scoped Pop!_OS reference set — see `docs/README.md` for how these
+Part of the scoped Pop!_OS reference set — see `docs/os/README.md` for how these
 files exist and when to add to them.
 
 ## Package manager

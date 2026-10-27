@@ -3,7 +3,7 @@
 **Schedule:** Monthly (opencode routine `torra-defensive-scorecard`)
 **What it checks:** runs `scripts/dev/defensive_coding_report.py --enforce` — the script's own
 authoritative regression gate (fails if any dimension drops below its recorded last-known-good
-grade, or overall GPA falls below `MIN_GPA`; see `DEFENSIVE_CODING_STANDARDS.md`). No LLM
+grade, or overall GPA falls below `MIN_GPA`; see `docs/agents/DEFENSIVE_CODING_STANDARDS.md`). No LLM
 judgment decides *whether* there was a regression — only *why*: when `--enforce` fails, an
 opencode agent correlates the failure with recent commit history to point at a likely cause. A
 clean `--enforce` run appends a bare pass entry with the scorecard attached, no agent turn.

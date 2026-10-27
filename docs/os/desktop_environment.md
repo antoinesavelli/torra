@@ -1,13 +1,13 @@
 # Pop Shell vs. COSMIC — two different things
 
-Part of the scoped Pop!_OS reference set — see `docs/README.md` for how these
+Part of the scoped Pop!_OS reference set — see `docs/os/README.md` for how these
 files exist and when to add to them.
 
 ## Pop Shell
 
 A GNOME Shell extension: adds tiling window management on top of the (older,
 GTK/GNOME-based) Pop!_OS desktop. It is **not a desktop environment on its
-own** and has nothing to do with graphics switching (see `docs/graphics.md`
+own** and has nothing to do with graphics switching (see `docs/os/graphics.md`
 for the gap that confusion caused in one benchmarked model).
 
 ## COSMIC

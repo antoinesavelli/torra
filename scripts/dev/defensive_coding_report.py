@@ -3,7 +3,7 @@
 
 Depends on: radon (complexity), ruff (lint, invoked as a subprocess), stdlib
 ast (docstrings/type hints/test-import scanning). Read-only: never edits code.
-See DEFENSIVE_CODING_STANDARDS.md for what each dimension means and why.
+See docs/agents/DEFENSIVE_CODING_STANDARDS.md for what each dimension means and why.
 """
 
 from __future__ import annotations

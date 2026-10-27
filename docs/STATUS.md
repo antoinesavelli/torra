@@ -12,7 +12,7 @@ A program the command classifier does not recognise
 needs a tick. Three shell shapes that still ran such a program with no tick
 (deeply nested `sh -c` or `$(...)`, `hash -p`, and an exported `PATH`,
 `LD_PRELOAD` or `BASH_ENV`) were found on 2026-10-08 and closed on 2026-10-09,
-each with a test (`HANDOFF.md` §2.75). The Phase 5 source read (`GRADE_TO_A_PLAN.md`)
+each with a test (`HANDOFF.md` §2.75). The Phase 5 source read (`docs/plans/GRADE_TO_A_PLAN.md`)
 found more of that shape (`read PATH`, `printf -v PATH`, namerefs) and `hostname newbox`
 running unticked; closed on 2026-10-23 (§2.83, §2.84). Its blind red-team has not
 run; until it does, treat the classifier as unfinished.
@@ -92,21 +92,64 @@ isn't one, so those numbers are no longer claimed here at all.
 5. **You tick before the plan's own checks run.** Every tick is collected
    before step 1, so in a "list it, then delete it" plan the listing cannot
    inform the tick. The prompt now says what each target is; asking at the
-   moment each step runs is an open decision (`GRADE_TO_A_PLAN.md` D8).
+   moment each step runs is an open decision (`docs/plans/GRADE_TO_A_PLAN.md` D8).
 6. **A read-only probe can need a tick.** `cat /var/run/reboot-required`
    rates DANGEROUS because the regex backstop matches "reboot" in the file
    name. It errs toward asking. See `HANDOFF.md` §6.5.
 
 ## Open work
 
-One owner per item, as `docs/agents/CONVENTIONS.md` registers it; this page only points.
+One owner per item, as `docs/agents/CONVENTIONS.md` registers it: the table points at other owners; the checklists below are owned here.
 
 | Where | What |
 |---|---|
-| `GRADE_TO_A_PLAN.md` | Phase 5 findings P5.1 to P5.3, owner decision D8, the blind red-team |
-| `TODO.md` | the planner/verifier prototype checklist (`scripts/dev/model_bench/planner_verifier.py`) |
+| `docs/plans/GRADE_TO_A_PLAN.md` | Phase 5 findings P5.1 to P5.3, owner decision D8, the blind red-team |
 | `HANDOFF.md` §6 | unfinished work with its story |
-| `CLAUDE_MIGRATION_ROADMAP.md` | buckets 2 to 4 of moving the operator role off Claude Code (parked: `docs/DECISIONS.md`) |
+| `docs/plans/CLAUDE_MIGRATION_ROADMAP.md` | buckets 2 to 4 of moving the operator role off Claude Code (parked: `docs/DECISIONS.md`) |
+
+### Planner/verifier prototype (`scripts/dev/model_bench/planner_verifier.py`)
+
+State as of 2026-10-14: 9b planner (`qwen3.5:9b`) with a 24b verifier (`devstral:24b`); structured
+findings, veto decided in code. One run: fixed set 7/7 good passed and 2/2 bad blocked, live clean
+plans 1/8 vetoed, planted path caught 5/8. The git-recoverable exemption was added after the fixed
+set showed a wrong veto, so that 7/7 is partly tuned. Committed 2026-10-21 (`61b6886`).
+
+- [ ] Repeat `--fixed-only` 3 to 5 times and report the spread of the 7/7 and 2/2.
+- [ ] The `invented_specific` fix for description-only quotes (`executable_text`, pinned by
+      `--self-check`) is not yet re-measured on a live run.
+- [ ] Look at the 3 missed planted-path controls (docker-prune, install-and-enable, timer); two
+      reviews timed out or named other things.
+- [ ] Add a short note on the swapped roles, structured findings and fixed set to
+      `scripts/dev/model_bench/REPORT.md`, replacing "Torra has no LLM-based verifier today".
+
+### Both projects on the workstation
+
+- [ ] Optional: set `OLLAMA_MAX_LOADED_MODELS=2` (`sudo systemctl edit ollama`, then restart) so a
+      24b and an 8b stay resident together (about 20 GB of the 4090's 24 GB). Not needed for the
+      prototype, which plans every task first and verifies afterwards. Restart only when no
+      pruvera trial is running.
+
+### pruvera (after the live trial finishes)
+
+- [ ] A per-role model through the sandbox's inference filter, so a 24b can supervise an 8b in a
+      trial. This is a harness change: pre-register it through `bench.experiment`, land it per the
+      bench-edits memory (git-archive copy, one guarded commit), and check whether it widens what a
+      local model may do unsupervised (the rule-change gate).
+
+### Executor (8 GB) as the 8b planner host
+
+- 2026-10-15: `bench.make_metrics_transport` hardcoded the workstation host, so an earlier "executor"
+  run never reached executor (the 404s were `llama3.1:8b` missing on the workstation); fixed with a
+  `host` argument. First real run, `llama3.1:8b` on executor with `devstral:24b` on the workstation:
+  10 plans, 5 vetoed (most on names the 8b planner invented, e.g. `postgresql-13`, `/srv/api/.env`),
+  planted path caught as a blocker in 2 of 10 (the verifier usually filed it as `style`, minor).
+  One run, and `planner_verifier.py` was being edited by the other chips during it.
+- [ ] Re-run once the chips land, and check the vetoed plans by hand: are the invented names real
+      planner hallucinations (then the vetoes are right) or defaults the check should allow.
+- [ ] Decide what to do about the verifier calling a planted path `style`: promote by quote check
+      regardless of kind, or leave it.
+- [ ] Executor has only `hermes3:8b` and `llama3.1:8b`; try `hermes3:8b` as the planner too.
+- [ ] `bin/executor-ollama-tunnel down` when finished; it is currently up.
 
 ## Repo metadata (drafts for the owner's approval, applied in Phase C)
 

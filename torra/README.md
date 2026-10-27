@@ -27,6 +27,6 @@ The package. Model proposes, five gates decide, the operator approves.
 
 Read `agent.py` and `pipeline.py` after the three subpackages above — see
 [`HANDOFF.md`](../HANDOFF.md) for the full reading order and the invariants
-that must not be broken. [`DEFENSIVE_CODING_STANDARDS.md`](../DEFENSIVE_CODING_STANDARDS.md)
+that must not be broken. [`docs/agents/DEFENSIVE_CODING_STANDARDS.md`](../docs/agents/DEFENSIVE_CODING_STANDARDS.md)
 covers how code here is written and graded; run
 `python3 scripts/dev/defensive_coding_report.py` for the current scorecard.

@@ -1,8 +1,8 @@
 # torra — Agent Instructions
 
 This file holds the content; `CLAUDE.md` only imports it (`@AGENTS.md`). Auto-loaded by OpenCode via the `AGENTS.md` convention.
-If something you need isn't here, say so instead of guessing. Topic files live in `docs/agents/`. The other `docs/*.md` files are
-OS reference material for the planning model (`docs/README.md`), a different audience.
+If something you need isn't here, say so instead of guessing. Topic files live in `docs/agents/`. `docs/os/` is
+OS reference material for the planning model (`docs/os/README.md`), a different audience.
 
 A local model proposes an operating-system change. Five gates decide whether it runs. The
 operator approves. This file is instructions for an agent **editing this codebase** — not
@@ -73,7 +73,7 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 |---|---|
 | plan or run a change (the loop, what is ask-first here, the Definition of Done) | [`docs/agents/LOOP.md`](docs/agents/LOOP.md) |
 | touch classification, routing, rollback or the gates, or decide a check is wrong | [`docs/agents/GUARDRAILS.md`](docs/agents/GUARDRAILS.md) |
-| extend classification, add a gate, add OS knowledge to `docs/`, fix a live-wire bug, or add any feature | [`docs/agents/PLAYBOOKS.md`](docs/agents/PLAYBOOKS.md) |
+| extend classification, add a gate, add OS knowledge to `docs/os/`, fix a live-wire bug, or add any feature | [`docs/agents/PLAYBOOKS.md`](docs/agents/PLAYBOOKS.md) |
 | write code, add a test, cite a source of truth, or record something you learned | [`docs/agents/CONVENTIONS.md`](docs/agents/CONVENTIONS.md) |
 | change behavior the design covers, make or reverse a decision, or report status | [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md); status goes only in [`docs/STATUS.md`](docs/STATUS.md) |
 | delegate work to another model, edit a skill, or a guard fails | `/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md` |
@@ -92,14 +92,17 @@ Read the map for the area you're touching before grepping the source tree.
 | Runnable example task files | `examples/README.md` |
 | The design: purpose, scope, the principle, module split | `docs/DESIGN.md` |
 | Decisions with their why, and parked work with its revival trigger (a new decision or a reversal adds a row in the same change) | `docs/DECISIONS.md` |
-| **Dynamic status** (phase, measured numbers, known gaps, GitHub topics): the single owner | `docs/STATUS.md` |
-| OS domain knowledge fed to the planning model (measured gaps only; the four files `docs/README.md` lists, never a glob of `docs/`) | `docs/README.md` |
+| **Dynamic status** (phase, measured numbers, known gaps, open work, GitHub topics): the single owner | `docs/STATUS.md` |
+| Commands, task files, the five gates in full, routing, OpenRouter, the executor, site knowledge, telemetry | `docs/USAGE.md` |
+| OS domain knowledge fed to the planning model (measured gaps only; the four files `docs/os/README.md` lists, never a glob of `docs/os/`) | `docs/os/README.md` |
 | Model-quality benchmark torra | `scripts/dev/model_bench/README.md` |
 | Agent topic files (targets of the read-first triggers above) | `docs/agents/README.md` |
 | **Invariants (§2), live wires (§5) and open work (§6), with the story behind each** | `HANDOFF.md` §2, §5, §6 |
-| How code here is graded (six dimensions, tiering, floors) | `DEFENSIVE_CODING_STANDARDS.md` |
-| Migrating off Claude Code as operator (what's built, what's scoped but not) | `CLAUDE_MIGRATION_ROADMAP.md` |
-| Plan to an A on every `/grade` domain (findings, owner decisions, phases) | `GRADE_TO_A_PLAN.md` |
+| How code here is graded (six dimensions, tiering, floors) | `docs/agents/DEFENSIVE_CODING_STANDARDS.md` |
+| Plans, one file each with a status header (`tests/test_knowledge_refs.py` checks it) | `docs/plans/` |
+| Migrating off Claude Code as operator (what's built, what's scoped but not) | `docs/plans/CLAUDE_MIGRATION_ROADMAP.md` |
+| Plan to an A on every `/grade` domain (findings, owner decisions, phases) | `docs/plans/GRADE_TO_A_PLAN.md` |
+| Routine-written logs (doc-citation audit, defensive-coding scorecard): append-only, never hand-edited | `docs/reports/` |
 
 ## Domain Invariants — Non-Negotiable
 

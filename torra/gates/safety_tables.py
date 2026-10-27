@@ -307,5 +307,5 @@ BACKSTOP: list[tuple[str, RiskLevel, str]] = [
 ]
 #: Rows that match a bare word anywhere, so a file name or a search term (`cat /var/run/reboot-required`)
 #: trips them; they apply only when resolve() could not parse the line, as the argv rules judge the real
-#: `reboot`, `shutdown`, `systemctl poweroff` and `rm` once it can (GRADE_TO_A_PLAN.md P5.3, HANDOFF.md §2.90).
+#: `reboot`, `shutdown`, `systemctl poweroff` and `rm` once it can (docs/plans/GRADE_TO_A_PLAN.md P5.3, HANDOFF.md §2.90).
 UNPARSED_ONLY: frozenset[str] = frozenset({"host power state", "file deletion"})

@@ -6,7 +6,7 @@ Step lists for the recurring kinds of change.
 
 ### Extending command classification (a new evasion, a new wrapper)
 1. Add the case to `tests/test_gates.py::TestSafety`'s corpus first — this is benchmark-driven
-   work, same discipline as `docs/`: measure the gap before closing it.
+   work, same discipline as `docs/os/`: measure the gap before closing it.
 2. Implement the resolution logic in `torra/gates/safety_resolve.py` (the per-program rules are in `safety_judge.py`).
 3. Confirm every `EVASIONS` case and the `tests/test_known_programs.py` lists still pass: nothing unrecognised runs without a tick, and routine read-only work still does.
 4. Update `HANDOFF.md` §2.1 only if the change affects the `Step.command`/`Step.run` equivalence.
@@ -19,11 +19,11 @@ Step lists for the recurring kinds of change.
 4. Add the test, add the `HANDOFF.md` §2 entry (shape: `LOOP.md` Definition of Done #4), update
    `gates/README.md`.
 
-### Adding OS domain knowledge to `docs/`
+### Adding OS domain knowledge to `docs/os/`
 1. Run or point to a `scripts/dev/model_bench/` benchmark showing the actual gap (wrong, vague,
    or hallucinated) — not a guess.
 2. New theme → new file; don't grow an existing one past its natural topic boundary.
-3. Update `docs/README.md`'s table, including the "Measured gap?" column, in the same change.
+3. Update `docs/os/README.md`'s table, including the "Measured gap?" column, in the same change.
 4. Do not wire it into `torra.agent.SYSTEM_PROMPT` in this same change — that's a separate,
    reviewed change with its own test.
 
@@ -32,7 +32,7 @@ Step lists for the recurring kinds of change.
    is written and when it's picked up.
 2. Fix the cause; write the regression test that would have caught it.
 3. Move the record to where the next agent looks. Open grade findings live in
-   `GRADE_TO_A_PLAN.md` and other open work in `HANDOFF.md` §6; once fixed, shrink that
+   `docs/plans/GRADE_TO_A_PLAN.md` and other open work in `HANDOFF.md` §6; once fixed, shrink that
    entry to its pointer — a doc that never shrinks stops being read. The fixed live wire gets
    a `HANDOFF.md` §5 entry (shape: `LOOP.md` Definition of Done #4), plus a
    `# Live wire: HANDOFF.md §5.N` comment at the code site.

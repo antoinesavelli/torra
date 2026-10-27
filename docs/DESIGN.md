@@ -19,7 +19,7 @@ Not in scope, each with its source:
 - A model with a shell or a tool-call loop (§2 of this page; `HANDOFF.md` §2.2).
 - A version number, tags or a changelog (`docs/agents/LOOP.md`, Definition of Done item 7).
 - Claude Code's ecosystem conveniences (subagents, skills, connectors, scheduling): lowest priority, not built
-  (`CLAUDE_MIGRATION_ROADMAP.md`, bucket 4).
+  (`docs/plans/CLAUDE_MIGRATION_ROADMAP.md`, bucket 4).
 
 ## 2. The principle
 
@@ -52,7 +52,7 @@ Layout table; the contract (entry points, outcomes, stages, exit codes, state fi
 
 | Topic | Owner |
 |---|---|
-| The seven stages and the five gates, as a user meets them | `README.md` |
+| The seven stages and the five gates, as a user meets them | `README.md` (brief), `docs/USAGE.md` (full) |
 | Each invariant with its story and guard test | `HANDOFF.md` §2 |
 | Approaches tried and abandoned | `HANDOFF.md` §3 |
 | Why a decision was made | `docs/DECISIONS.md` |

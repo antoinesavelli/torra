@@ -952,7 +952,7 @@ and updated `popos_probe.py`'s `MODELS` to the four models `ROUTING_RULES`
 actually names: `qwen3:32b`, `qwen3.5:latest`, `qwen3-coder:30b`,
 `devstral:24b`.
 
-**Hypothesis tested:** `docs/graphics.md` documents the `system76-power
+**Hypothesis tested:** `docs/os/graphics.md` documents the `system76-power
 graphics <mode>` command generically; this machine is a desktop tower (RTX
 4090, iGPU present but unbound to any driver — see `bedrock/hardware.md`),
 not the laptop-style hybrid-graphics hardware the command's modes assume. Do
@@ -974,7 +974,7 @@ single bound discrete GPU:
 qwen3:32b and qwen3.5:latest went further, unprompted, and correctly
 predicted the specific desktop scenario in the question would produce either
 an error or a silent no-op, not instability or data loss. No doc added —
-per `docs/README.md`'s own rule, a fact only belongs in `docs/` behind a
+per `docs/os/README.md`'s own rule, a fact only belongs in `docs/os/` behind a
 *measured* gap, and this hypothesis, however plausible, didn't hold up.
 
 **Incidentally reconfirmed the existing `graphics-switching` gap, worse than
@@ -985,7 +985,7 @@ false-positive issues with negation and generic-vs-specific phrasing) found
 only qwen3.5:latest actually named `system76-power`; qwen3-coder:30b invented
 `prime-select` and devstral:24b invented `pop-switch`, both grader false
 positives caught only by reading past the truncated preview. qwen3:32b named
-`prime-select` too (correctly graded MISS this time). `docs/graphics.md`'s
+`prime-select` too (correctly graded MISS this time). `docs/os/graphics.md`'s
 existing correction remains necessary and, if anything, more relevant on the
 current model set than the original 1-of-3 result suggested.
 

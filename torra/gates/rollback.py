@@ -1,7 +1,7 @@
 """ROLLBACK_ON_FAIL, half two: a LIFO undo stack where every undo has to
 prove it worked. The other half, `UndoGenerator` (deriving undos from step
 state), lives in `undo.py` -- split out once this file crossed the 500
-functional LOC modularity cap; see DEFENSIVE_CODING_STANDARDS.md §1.2.
+functional LOC modularity cap; see docs/agents/DEFENSIVE_CODING_STANDARDS.md §1.2.
 
 Depends on: torra.gates.undo (UndoAction).
 """

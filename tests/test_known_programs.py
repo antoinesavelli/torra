@@ -911,7 +911,7 @@ STILL_RUN = [
 ]
 
 
-#: GRADE_TO_A_PLAN.md P1.3 (2026-10-08): each classified SAFE while pointing a trusted name at
+#: docs/plans/GRADE_TO_A_PLAN.md P1.3 (2026-10-08): each classified SAFE while pointing a trusted name at
 #: another program.
 REBINDS_A_NAME = [
     "hash -p /tmp/x/tool ls; ls",
@@ -949,7 +949,7 @@ REBINDS_A_NAME = [
     'echo "${BASH_ENV=/tmp/e}"; export BASH_ENV; bash -c ls',
 ]
 
-#: GRADE_TO_A_PLAN.md P5.2 (2026-10-13): `hostname` was listed read-only, but an operand, `-F` or
+#: docs/plans/GRADE_TO_A_PLAN.md P5.2 (2026-10-13): `hostname` was listed read-only, but an operand, `-F` or
 #: `-b` sets the host name.
 SETS_THE_HOST_NAME = [
     "hostname newbox",
@@ -984,7 +984,7 @@ def test_rebinding_what_a_command_name_runs_asks(command: str) -> None:
 @pytest.mark.parametrize("wrap", [_sh_c, _substituted])
 @pytest.mark.parametrize("payload", ["kill -9 -1", "frobnicate --everything /", "ls"])
 def test_a_line_nested_past_the_unwrap_limit_asks(wrap: Callable[[str], str], payload: str) -> None:
-    """GRADE_TO_A_PLAN.md P1.3: past `max_depth`, resolve() sees nothing, which used to mean SAFE."""
+    """docs/plans/GRADE_TO_A_PLAN.md P1.3: past `max_depth`, resolve() sees nothing, which used to mean SAFE."""
     classifier = SafetyClassifier()
     verdict = classifier.classify(_nested(payload, classifier.max_depth + 1, wrap))
     assert verdict.needs_confirmation, (wrap.__name__, payload, verdict.level, verdict.reasons)
