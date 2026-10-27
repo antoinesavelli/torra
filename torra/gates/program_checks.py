@@ -15,7 +15,7 @@ from .script_rules import awk_program_is_safe, sed_script_is_simple
 
 #: Modules a `python -c` payload may import and still count as pure computation: none of them can
 #: write a file, start a process or reach the network.
-#: `openpyxl` is here because reading spreadsheets is the measured use (HANDOFF.md §2.54, §2.55);
+#: `openpyxl` is here because reading spreadsheets is the measured use (docs/INVARIANTS.md §2.54, §2.55);
 #: its one write path is `.save()`, which is refused below.
 PURE_PYTHON_MODULES = frozenset(
     """

@@ -4,7 +4,7 @@ Depends on: PyYAML (lazily imported in `TaskSpec.load`/`to_yaml`), stdlib `subpr
 `queue` (lazily imported in `shell`/`_shell_streaming`), stdlib `threading` (module-level,
 for the `shell_output_sink` thread-local), `.remote_edit` (lazily imported inside
 `_validate_step`/`to_steps`'s `build()` to avoid a real cycle -- `remote_edit.py` imports
-`TorraError`/`TaskSpecError` from this module at its own top level, see HANDOFF.md §2.53),
+`TorraError`/`TaskSpecError` from this module at its own top level, see docs/INVARIANTS.md §2.53),
 `torra.telemetry.records` (`redact_secrets`, to refuse an id that holds a secret).
 """
 
@@ -82,7 +82,7 @@ class Step:
     #: real content into `touches[0]` (local); push uploads `reads[0]`'s
     #: real local content to this path. Never model-authored ssh/scp text:
     #: for these two kinds, `command`/`run` are torra-constructed from
-    #: this field, not from the plan's own `run` text (HANDOFF.md §2.53) --
+    #: this field, not from the plan's own `run` text (docs/INVARIANTS.md §2.53) --
     #: the one deliberate, narrow exception to this class's own "command is
     #: both what executes and what gets classified" invariant above.
     remote_path: str | None = None
@@ -353,7 +353,7 @@ class TaskSpec:
         `kind="remote_pull"`/`"remote_push"` only, `command`/`run` are
         torra-constructed from `remote_path`/`touches`/`reads` instead of
         the model's own `run` text -- see `Step.remote_path`'s docstring and
-        `HANDOFF.md` §2.53 for why. `None` (no executor configured) means
+        `docs/INVARIANTS.md` §2.53 for why. `None` (no executor configured) means
         those two kinds fail cleanly with a clear error the moment they'd
         run, same as any other step whose precondition isn't met.
         """

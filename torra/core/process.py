@@ -1,7 +1,7 @@
 """How a step's command actually runs: bash in its own process group, with errors that stop it.
 
 Split out of tasks.py when the wrapper, group kill and output cap pushed it past the 500-line cap
-(HANDOFF.md §2.61).
+(docs/INVARIANTS.md §2.61).
 
 Depends on: the standard library only; `tasks.shell()` calls `run_in_group`.
 """
@@ -115,7 +115,7 @@ def shell_syntax_error(command: str, timeout: float = 5.0) -> str | None:
 
 
 #: Variable names `cli` loaded from the repo's `.env` and the operator never exported. Torra
-#: reads them in-process; a step's subprocess does not inherit them (HANDOFF.md §2.68).
+#: reads them in-process; a step's subprocess does not inherit them (docs/INVARIANTS.md §2.68).
 WITHHELD_ENV: set[str] = set()
 
 _OUTPUT_HEAD = 256 * 1024
@@ -229,7 +229,7 @@ def run_in_group(
     # status is only the *last* command's, so `sudo something | sort | head` reports success
     # with empty output when sudo alone fails. See pipefail_wrapped for the rest.
     proc = subprocess.Popen(
-        # Live wire: HANDOFF.md §5.16
+        # Live wire: docs/LIVE_WIRES.md §5.16
         ["/bin/bash", "-c", pipefail_wrapped(command)],
         cwd=cwd,
         env={k: v for k, v in os.environ.items() if k not in WITHHELD_ENV},

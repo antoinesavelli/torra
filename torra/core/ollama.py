@@ -76,7 +76,7 @@ class OllamaClient:
         option still act on the local machine.
 
         `fallback_model` defaults to the smallest model in the current
-        four-model catalog (`HANDOFF.md` §2.9's pruning), not the
+        four-model catalog (`docs/INVARIANTS.md` §2.9's pruning), not the
         cheapest-sounding name in the abstract -- "qwen3:8b" was this
         default until a full-file audit found it: that model was deleted
         along with the rest of the exploratory catalog, so both

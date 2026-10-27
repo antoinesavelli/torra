@@ -42,7 +42,7 @@ class CommandResolver:
         self.env_risks: list[str] = []
         self.unwrap_limit_hit = False
         #: Every shell text resolve() parsed (the line, each `sh -c`/`eval`/`$(...)`/base64 payload) with
-        #: its own `NAME=value` assignments, so classify() checks the redirects of each (HANDOFF.md §2.89).
+        #: its own `NAME=value` assignments, so classify() checks the redirects of each (docs/INVARIANTS.md §2.89).
         self.shell_texts: list[tuple[str, dict[str, str]]] = []
 
     # -- resolution -------------------------------------------------------- #
@@ -230,7 +230,7 @@ class CommandResolver:
             return None
         if require_pipe_to_shell and not re.search(r"\|\s*(sudo\s+)?(ba|z|k|da)?sh\b", command):
             return None
-        # Live wire: HANDOFF.md §5.1
+        # Live wire: docs/LIVE_WIRES.md §5.1
         for blob in re.findall(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{8,}(?![A-Za-z0-9+/=])", command):
             try:
                 decoded = base64.b64decode(blob, validate=True).decode("utf-8", "replace")

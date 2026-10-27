@@ -68,7 +68,7 @@ class Accelerator:
     model_params_b: dict[str, float] = field(default_factory=dict)
     #: What `ollama ps` reports currently GPU-resident, and its size --
     #: `fits()` uses these only when `max_loaded_models == 1` confirms
-    #: loading anything else evicts it first (HANDOFF.md §2.35).
+    #: loading anything else evicts it first (docs/INVARIANTS.md §2.35).
     loaded_model: str = ""
     loaded_model_mb: int = 0
     #: The daemon's own `OLLAMA_MAX_LOADED_MODELS`, read from its real
@@ -93,7 +93,7 @@ class Accelerator:
         live: a small model that happened to load first (because it fit)
         stayed resident and starved every later request of the headroom a
         larger, more capable model needed -- self-reinforcing, and the
-        exact mechanism behind HANDOFF.md §2.34's 84% false-negative rate
+        exact mechanism behind docs/INVARIANTS.md §2.34's 84% false-negative rate
         on ambiguous requests (the model measured better at asking never
         got picked because the router thought it didn't fit).
         """
@@ -192,7 +192,7 @@ def detect_accelerator(
     try:
         listing = execute("ollama ps", None, 10.0)
         for line in listing.splitlines()[1:]:
-            # Live wire: HANDOFF.md §5.15
+            # Live wire: docs/LIVE_WIRES.md §5.15
             # The last-two-tokens trick this used to use only worked for the
             # ollama version it was written against. Found live: current
             # `ollama ps` also has CONTEXT and UNTIL columns after PROCESSOR
@@ -215,7 +215,7 @@ def detect_accelerator(
                 # Confirmed GPU (or partial CPU/GPU offload), but ollama ps
                 # carries no VRAM figures -- fall through to nvidia-smi/rocm
                 # below for those. Name/size are this line's first two
-                # columns -- for fits()'s eviction credit (HANDOFF.md §2.35).
+                # columns -- for fits()'s eviction credit (docs/INVARIANTS.md §2.35).
                 fields = line.split()
                 if fields:
                     loaded_model = fields[0]
@@ -275,7 +275,7 @@ class MachineState:
     #: configured -- see observe_executor()/resolve_executor_config(). None
     #: (the default) means either no such machine is configured or its own
     #: observation failed; either way, no executor block is rendered and
-    #: nothing about local behavior changes (HANDOFF.md §2.52). Never
+    #: nothing about local behavior changes (docs/INVARIANTS.md §2.52). Never
     #: populate this field's own .executor -- render() has no cycle guard.
     executor: MachineState | None = None
     ollama_models: list[str] = field(default_factory=list)
@@ -401,7 +401,7 @@ OLLAMA_MODELS_DIR_PROBE = (
 #: not a guessed default, since Ollama's own unset behavior is a dynamic,
 #: undocumented computation (`Accelerator.fits`'s eviction credit only
 #: ever applies when this comes back exactly "1", confirmed live, never
-#: assumed). See HANDOFF.md §2.35.
+#: assumed). See docs/INVARIANTS.md §2.35.
 OLLAMA_MAX_LOADED_MODELS_PROBE = (
     "pid=$(pgrep -x ollama | head -1); "
     'if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then '
@@ -457,7 +457,7 @@ def _scan_knowledge_topics(root: Path) -> dict[str, str]:
     return headings
 
 
-# Live wire: HANDOFF.md §5.22
+# Live wire: docs/LIVE_WIRES.md §5.22
 def _scan_knowledge_dir(
     path: os.PathLike[str] | str, hostname: str = ""
 ) -> tuple[str, dict[str, str]]:
@@ -581,7 +581,7 @@ def build_ssh_runner(
     raise-on-nonzero/return-stripped-stdout behavior), wrapping each command
     in a non-interactive SSH call to `host` instead of running it locally --
     drop-in for observe_machine()'s/detect_accelerator()'s existing `runner`
-    injection point, never a Step's own execution path (HANDOFF.md §2.52:
+    injection point, never a Step's own execution path (docs/INVARIANTS.md §2.52:
     nothing calls this but Agent's own default observer).
 
     BatchMode=yes plus a closed stdin guarantees ssh can never sit waiting on
@@ -637,7 +637,7 @@ def observe_executor(
     makes "never raises" an absolute guarantee here specifically, not just
     an inherited property. `ollama=None` deliberately: getting executor's
     model list would need a second real OllamaClient pointed at its
-    daemon, out of scope for a first version (HANDOFF.md §2.52)."""
+    daemon, out of scope for a first version (docs/INVARIANTS.md §2.52)."""
     try:
         return observe_machine(runner=runner, extra=extra)
     except Exception as exc:

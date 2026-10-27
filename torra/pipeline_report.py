@@ -63,7 +63,7 @@ def finish(
     # complete but the run is not, so the stage list is left open for
     # execute() to continue and no audit record is written yet.
     result.seconds = time.perf_counter() - started
-    # Live wire: HANDOFF.md §5.12
+    # Live wire: docs/LIVE_WIRES.md §5.12
     if not write_audit:
         result.decisions = decisions.trail()
         return result
@@ -83,10 +83,10 @@ def finish(
     # post-execution summary to the operator reading it.
     if not dry_run and result.plan and result.plan.model and result.results:
         result.summary = summarize(agent, decisions, result)
-    # Live wire: HANDOFF.md §5.23
+    # Live wire: docs/LIVE_WIRES.md §5.23
     result.decisions = decisions.trail()
 
-    # task_id_prefix (session-scoped, see HANDOFF.md §2.23/§2.26)
+    # task_id_prefix (session-scoped, see docs/INVARIANTS.md §2.23/§2.26)
     # applies here too, not just to the plan path's model-visible
     # task_id -- without it, two tabs' first non-plan turn (answer/
     # ask/refuse) both landed on "turn-1", one silently overwriting

@@ -5,7 +5,7 @@ Depends on: nothing. Split out of agent.py, which mixes conversation/repair-loop
 *logic* with prompt *copy* -- two different concerns that don't need to share a
 file, and keeping them together was what pushed agent.py's functional LOC over
 this project's 500-line modularity threshold (a real, measured reason, the same
-one that moved resolve_resume() into core/resume.py -- see HANDOFF.md §2.33).
+one that moved resolve_resume() into core/resume.py -- see docs/INVARIANTS.md §2.33).
 """
 
 from __future__ import annotations

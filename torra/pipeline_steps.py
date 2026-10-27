@@ -191,7 +191,7 @@ class StepRunner:
 
         Drops the resume file only when a rollback was attempted (complete or not): that
         reversed, or tried to reverse, steps the file would vouch for as done, and a retry
-        must not skip steps it can no longer trust are still applied (HANDOFF.md §6.4). A
+        must not skip steps it can no longer trust are still applied (docs/INVARIANTS.md §2.33). A
         block or failure that rolled nothing back keeps it, with its record of what finished."""
         sweep(self.rollback, self.decisions, result, held, self._armed, self.conflicts)
         if result.rollback is not None:

@@ -198,8 +198,8 @@ def test_scan_knowledge_dir_skips_an_unreadable_file_not_the_whole_scan(tmp_path
 
 def test_fallback_model_default_is_actually_pulled() -> None:
     """Found in a full-file audit: the default was "qwen3:8b", deleted from
-    the catalog along with the rest of the exploratory pull (HANDOFF.md
-    §2.9). Both Agent.converse's degraded-status fallback and the "Fall
+    the catalog along with the rest of the exploratory pull
+    (docs/INVARIANTS.md §2.9). Both Agent.converse's degraded-status fallback and the "Fall
     back to {model}" recovery-option text were recommending a model that
     no longer exists. Pin this to the current curated four so a future
     catalog change has to touch this constant deliberately, not by
@@ -234,7 +234,7 @@ class TestOllamaHost:
 
 class TestExecutorObservation:
     """Read-only observation of a second, real machine ("executor") over
-    SSH -- HANDOFF.md §2.52. No test here touches a live network: every
+    SSH -- docs/INVARIANTS.md §2.52. No test here touches a live network: every
     runner is fake, matching the rest of this file's style
     (test_a_failed_probe_does_not_abort_observation,
     test_an_extra_probe_populates_extras_and_a_failure_does_not_abort_the_rest).
@@ -354,8 +354,8 @@ class TestExecutorObservation:
 
 class TestRemoteEditSteps:
     """Pull-edit-push: a `remote_pull`/`remote_push` step's `command`/`run`
-    are torra-authored, never the model's own `run` text -- HANDOFF.md
-    §2.53. No test here touches a live network; `executor_runner` is
+    are torra-authored, never the model's own `run` text --
+    docs/INVARIANTS.md §2.53. No test here touches a live network; `executor_runner` is
     always a fake dict-backed callable."""
 
     def test_to_steps_builds_a_remote_pull_step_that_writes_the_local_destination(
@@ -1107,7 +1107,7 @@ class TestOpenRouterClient:
         )
 
     def test_secrets_are_scrubbed_from_what_leaves_the_machine(self) -> None:
-        """HANDOFF.md §2.68: the full message list goes to a third party, so a key a command
+        """docs/INVARIANTS.md §2.68: the full message list goes to a third party, so a key a command
         printed, or a file held, must not travel with it."""
         sent: list[dict] = []
 
@@ -1647,7 +1647,7 @@ class TestDetectAccelerator:
 
     def test_a_gpu_loaded_model_is_captured_for_fits_eviction_credit(self) -> None:
         """Name and size come off the same ollama ps line already parsed
-        for the CPU/GPU split -- fits() (HANDOFF.md §2.35) needs both to
+        for the CPU/GPU split -- fits() (docs/INVARIANTS.md §2.35) needs both to
         credit VRAM a confirmed single-model daemon would free up."""
         ps = (
             "NAME              ID              SIZE      PROCESSOR    "
@@ -1664,7 +1664,7 @@ class TestDetectAccelerator:
         """0 means unknown, not a guessed default -- Ollama's own
         unset-OLLAMA_MAX_LOADED_MODELS behavior is a dynamic, undocumented
         computation this project has no live daemon to verify a guess
-        against (HANDOFF.md §2.35)."""
+        against (docs/INVARIANTS.md §2.35)."""
         ps = (
             "NAME              ID              SIZE      PROCESSOR    "
             "CONTEXT    UNTIL              \n"
@@ -1713,7 +1713,7 @@ class TestDetectAccelerator:
         assert roomy.fits("qwen3:8b") is True
 
     def test_fits_credits_the_resident_models_vram_when_single_model_confirmed(self) -> None:
-        """HANDOFF.md §2.35: a confirmed-single-model daemon evicts
+        """docs/INVARIANTS.md §2.35: a confirmed-single-model daemon evicts
         whatever's loaded to make room for a different one, so that VRAM
         counts toward a candidate model even though nvidia-smi's raw free
         figure doesn't include it yet."""
@@ -2741,7 +2741,7 @@ class TestBaselineIsPerPlan:
 
 
 class TestShellStopsAtTheFirstRealError:
-    """HANDOFF.md §2.61: the wrapper's error trap makes a step fail where bash would carry on."""
+    """docs/INVARIANTS.md §2.61: the wrapper's error trap makes a step fail where bash would carry on."""
 
     @pytest.mark.parametrize(
         "command",
@@ -2839,7 +2839,7 @@ class TestShellSurvivesBinaryOutput:
 
 
 class TestStepsDoNotInheritSecretsFromTheEnvFile:
-    """HANDOFF.md §2.68: names loaded from the `.env` are withheld from a step's environment."""
+    """docs/INVARIANTS.md §2.68: names loaded from the `.env` are withheld from a step's environment."""
 
     def test_a_withheld_name_is_not_visible_to_a_step_but_an_ordinary_one_is(
         self, monkeypatch: pytest.MonkeyPatch

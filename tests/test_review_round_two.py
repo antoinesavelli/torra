@@ -1,4 +1,4 @@
-"""Fixes from the second independent review (HANDOFF.md §2.74).
+"""Fixes from the second independent review (docs/INVARIANTS.md §2.74).
 
 Depends on: torra.agent (Agent, AgentError), torra.core (TaskSpec, TaskSpecError), torra.gates
 (RiskLevel, SafetyClassifier), torra.telemetry.records (redact_secrets).

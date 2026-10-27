@@ -457,7 +457,7 @@ async def test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs
 async def test_reject_records_the_decision(tmp_path: Path) -> None:
     """Found in a full-file audit: clicking Reject used to bypass the
     pipeline entirely -- no audit record, no telemetry entry, just
-    self.current = None. HANDOFF.md §6.1 lists "how often a human
+    self.current = None. docs/STATUS.md gap 6.1 lists "how often a human
     rejected a plan outright" as something to measure from telemetry;
     the most direct expression of that, the Reject button, couldn't
     produce it."""
@@ -1471,7 +1471,7 @@ async def test_ctrl_t_opens_an_independent_second_tab(tmp_path: Path) -> None:
 async def test_click_inside_the_sidebars_plan_tab_resolves_the_right_session(
     tmp_path: Path,
 ) -> None:
-    """Regression test for HANDOFF.md §2.30: _session_id_of used to stop at
+    """Regression test for docs/INVARIANTS.md §2.30: _session_id_of used to stop at
     the sidebar's own inner TabPane (id="sidebar-plan") before reaching the
     outer session TabPane, silently producing session_id == "sidebar-plan"
     -- never a real key in self.sessions, so every click of Run/Reject/
@@ -1629,7 +1629,7 @@ async def test_selecting_a_session_in_the_sidebar_tab_switches_to_it(tmp_path: P
 
         # Not a bare app.query_one("#sidebar", ...): each session tab
         # composes its own nested sidebar TabbedContent sharing the same
-        # id (HANDOFF.md §2.30's exact ambiguity), and query_one doesn't
+        # id (docs/INVARIANTS.md §2.30's exact ambiguity), and query_one doesn't
         # raise on that -- it silently returns the first breadth-first
         # match, which with two tabs open is the *other* tab's sidebar.
         sidebar = app._tab_pane(app.active_session_id).query_one("#sidebar", TabbedContent)
@@ -1714,7 +1714,7 @@ async def test_selecting_automatic_routing_in_the_sidebar_model_tab_clears_the_o
 @pytest.mark.asyncio
 async def test_ctrl_tab_with_two_open_tabs_switches_the_session_tab(tmp_path: Path) -> None:
     """No test exercised action_next_tab()/action_prev_tab() before this
-    (HANDOFF.md §2.30) -- both now query "#sessions > Tabs" explicitly
+    (docs/INVARIANTS.md §2.30) -- both now query "#sessions > Tabs" explicitly
     rather than a bare Tabs query, since the sidebar's own inner
     TabbedContent composes a second Tabs widget per open session tab, and
     query_one doesn't raise on ambiguity in this Textual version."""
@@ -1761,7 +1761,7 @@ class _FakeBackend:
 async def test_a_new_tab_inherits_the_apps_registered_backends(tmp_path: Path) -> None:
     """Found by design review before shipping: a per-tab Torra that
     doesn't inherit `backends` would silently lose OpenRouter access after
-    the first tab (HANDOFF.md §2.27)."""
+    the first tab (docs/INVARIANTS.md §2.27)."""
     fake = _FakeBackend()
     app = build(
         tmp_path, scripted({"intent": "answer", "message": "ok"}), backends={"openrouter": fake}
@@ -1942,7 +1942,7 @@ async def test_an_unconfigured_openrouter_override_fails_clearly_not_silently(
     used to silently fall through to a real local model with no error at
     all, if "openrouter" wasn't registered as a backend. A real
     OpenRouterClient with no key IS registered (matching build_torra()'s
-    corrected behavior, HANDOFF.md §2.27), so submitting through it must
+    corrected behavior, docs/INVARIANTS.md §2.27), so submitting through it must
     surface OpenRouterClient's own clear error, not a local model's answer."""
     from torra.core import OpenRouterClient
 
@@ -2430,7 +2430,7 @@ async def test_set_busy_false_with_a_message_updates_the_status_line(tmp_path: P
 @pytest.mark.asyncio
 async def test_handle_exception_records_a_crash_and_still_calls_super(tmp_path: Path) -> None:
     """The only hook Textual ever calls for an unhandled TUI exception
-    (HANDOFF.md §2.29) -- must record it AND still leave the app in the
+    (docs/INVARIANTS.md §2.29) -- must record it AND still leave the app in the
     same panicked state Textual's own default produces. run_test()'s own
     teardown re-raises app._exception for pytest's awareness (its own
     documented behavior) -- pytest.raises around the whole block is what

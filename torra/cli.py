@@ -80,8 +80,8 @@ def build_torra(workdir: Path, offline: bool = False) -> Torra:
     without a trace. `OpenRouterClient.chat()` already raises a specific
     "OPENROUTER_API_KEY is not set" error when actually called without one
     -- registering it always is what lets that error fire, instead of the
-    request being silently misrouted before it ever gets there (HANDOFF.md
-    §2.27). Constructing it is free either way: no network call happens
+    request being silently misrouted before it ever gets there
+    (docs/INVARIANTS.md §2.27). Constructing it is free either way: no network call happens
     until `.chat()` is actually invoked, so this is harmless in `offline`
     mode too (`torra run`, which never calls the model at all). This is
     the only place that constructs it: `torra tui` must reach it through
@@ -134,7 +134,7 @@ def print_dependency_warnings(plan: Plan, approvals: dict[str, bool]) -> None:
         print(f"  warning: {warning}")
 
 
-# Live wire: HANDOFF.md §5.24
+# Live wire: docs/LIVE_WIRES.md §5.24
 def approve_at_prompt(plan: Plan) -> dict[str, bool]:
     """Ask on stdin about every step that needs confirmation."""
     approvals: dict[str, bool] = {}
@@ -201,7 +201,7 @@ def cmd_tui(args: argparse.Namespace) -> int:
     # build_torra(), not a bare Torra(workdir=...) -- that used to be
     # `run_tui`'s own default (`torra=None`), a second, independent
     # construction path that skipped both this function's disk-free
-    # precondition and, since HANDOFF.md §2.27, OpenRouter registration
+    # precondition and, since docs/INVARIANTS.md §2.27, OpenRouter registration
     # entirely. `torra tui` is the actual default entry point; it must go
     # through the one place that reads OPENROUTER_API_KEY, not a copy of it.
     run_tui(workdir=workdir, torra=build_torra(workdir))

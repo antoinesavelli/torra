@@ -183,7 +183,7 @@ def test_a_closing_tag_in_command_output_cannot_end_the_data_block_early() -> No
 
 def test_a_declined_round_goes_through_reject_and_stops(tmp_path: Path, make_torra) -> None:
     """D4 (GRADE_TO_A_PLAN P3.4): an approve callback that returns None declines the plan through
-    Torra.reject() (HANDOFF.md §2.10), never execute(), and iterate stops on the rejection."""
+    Torra.reject() (docs/INVARIANTS.md §2.10), never execute(), and iterate stops on the rejection."""
     marker = tmp_path / "should-not-exist"
     h = _no_repairs(
         make_torra(

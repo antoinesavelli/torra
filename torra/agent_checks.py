@@ -54,7 +54,7 @@ class PlanChecks:
         except ReplyError as exc:
             raise AgentError(str(exc)) from exc
 
-    # Live wire: HANDOFF.md §5.9
+    # Live wire: docs/LIVE_WIRES.md §5.9
     def _repair_complaint(self, turn: Turn) -> str:
         """What, if anything, needs fixing before this turn reaches the operator."""
         if turn.intent is Intent.PLAN and turn.spec is not None:
@@ -63,7 +63,7 @@ class PlanChecks:
             return self._answer_dropped_a_task(turn) or self._answer_is_a_placeholder(turn)
         return ""
 
-    # Live wire: HANDOFF.md §5.10
+    # Live wire: docs/LIVE_WIRES.md §5.10
     def _answer_is_a_placeholder(self, turn: Turn) -> str:
         """Complaint when `message` describes looking something up, not the result."""
         message = turn.message.strip()

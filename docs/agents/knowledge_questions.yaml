@@ -37,7 +37,7 @@
     - '\b(there\s+are|are|has|have)\s+(only\s+|just\s+|exactly\s+)?two\s+(terminal\s+)?(states|statuses|outcomes)\b'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
 
 - id: model-never-executes
   question: "Can the planning model run shell commands, call tools or touch the filesystem directly in torra? What does it return, and what decides what happens next?"
@@ -51,7 +51,7 @@
     - '\bmodel\s+(executes|runs|calls|invokes)\s+(the\s+)?(shell|commands?|tools?)\b'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
 
 - id: unapproved-step
   question: "At execute time, a step that needs confirmation is missing from the approvals map. What happens to it, and may a caller default it to approved for convenience?"
@@ -64,7 +64,7 @@
     - '(?<!never\s)(?<!not\s)(?<!n.t\s)\b(treated|counted|considered)\s+as\s+approved\b'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
 
 - id: safe-step-checkbox
   question: "In the TUI, which steps render an approve checkbox, and why would giving every step one make operators less safe?"
@@ -77,7 +77,7 @@
     - '\bonly\s+dangerous\b(?!\W+(and|or|/)\W+critical)'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
 
 - id: telemetry-cannot-break-run
   question: "What happens to a task run when a telemetry or task-logging call itself fails, for example because its directory is unusable?"
@@ -91,7 +91,7 @@
     - '\bthe\s+run\s+(fails|crashes|aborts|is\s+aborted)\b'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
 
 - id: declared-safe-rollback
   question: "A hand-written task file or a model's proposal declares a rollback command with `safe: true`. Can that flag let the command skip the safety classifier, and what is the flag's only possible effect?"
@@ -104,7 +104,7 @@
     - 'safe:\s*true\s+(skips|bypasses|overrides|exempts)'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
 
 - id: execute-replay
   question: "What does Torra.execute do if it is called a second time on a RunResult whose steps already ran for real, and at exactly what moment is the field that records the run set?"
@@ -117,7 +117,7 @@
     - '(?<!never\s)(?<!not\s)(?<!n.t\s)\b(re-?runs?|replays?)\s+(all\s+|every\s+)?(of\s+)?(the\s+)?steps'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
 
 - id: model-info-source
   question: "Where does torra get a model's parameter size and its chat capability, and for which of the two may the model's name ever be used instead?"
@@ -132,7 +132,7 @@
     - '(?<!not\s)(?<!never\s)(?<!n.t\s)\bfrom\s+the\s+(model\s+)?name\s+first'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
     - docs/agents/GUARDRAILS.md
 
 - id: decline-via-reject
@@ -145,7 +145,7 @@
     - 'the\s+UI\s+(can|may)\s+(simply\s+)?(clear|drop|discard)\s+the\s+plan'
   sources:
     - AGENTS.md
-    - HANDOFF.md
+    - docs/INVARIANTS.md
     - docs/agents/GUARDRAILS.md
 
 - id: ollama-systemd-scope

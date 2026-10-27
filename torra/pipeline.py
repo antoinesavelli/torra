@@ -132,7 +132,7 @@ class Torra(StepRunner):
             path_exists=path_exists,
         )
 
-    # Live wire: HANDOFF.md §5.21
+    # Live wire: docs/LIVE_WIRES.md §5.21
     @staticmethod
     def _resolve_knowledge_dir(explicit: str | None) -> str | None:
         """Explicit value (incl. `""` to disable) wins; else `TORRA_KNOWLEDGE_DIR`."""
@@ -410,7 +410,7 @@ class Torra(StepRunner):
         return [sp for sp in plan.steps if sp.approved is False]
 
     def _stage_rollback(self, plan: Plan) -> list[UndoAction]:
-        """Empty the undo stack and return the declared entries, unpushed (HANDOFF.md §2.59)."""
+        """Empty the undo stack and return the declared entries, unpushed (docs/INVARIANTS.md §2.59)."""
         self.rollback.clear()
         self._armed = False
         held = declared_undos(plan.spec, self.safety, self.decisions)

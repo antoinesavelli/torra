@@ -1,6 +1,7 @@
-"""CI guard: agent-facing docs cite only what still exists, HANDOFF.md's growth is capped, and plans open with their status.
+"""CI guard: agent-facing docs cite only what still exists, docs/INVARIANTS.md and docs/LIVE_WIRES.md stay short, and plans open with their status.
 
-Depends on: the root *.md, docs/**/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
+Depends on: docs/INVARIANTS.md, docs/LIVE_WIRES.md, AGENTS.md, docs/agents/*.md, docs/plans/*.md, the
+root *.md, docs/**/*.md, torra/**/*.py and *.md, tests/**/*.py and *.md.
 """
 
 from __future__ import annotations
@@ -10,7 +11,15 @@ from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-_SECTION_REF = re.compile(r"HANDOFF(?:\.md)?`?\s?§\s?(\d+\.\d+)")
+# A citation names its file, then "§N.M" (the file may end a line, with the "§" opening the
+# next, after a "#" or ">" marker); numbers listed straight after ("§2.62, §2.74", "§2.78-2.81",
+# "`§2.1`/`§2.2`", "and §2.3") are each checked against that same file.
+_SECTION_REF = re.compile(
+    r"(INVARIANTS|LIVE_WIRES)(?:\.md)?`?[ \t]*(?:\n[ \t]*(?:[#>][ \t]*)*)?`?§\s?(\d+\.\d+)`?"
+    r"((?:[ \t]*(?:[,/;-]|–|\band\b)[ \t]*`?§?[ \t]*\d+\.\d+`?)*)"
+)
+_TAIL_NUMBER = re.compile(r"\d+\.\d+")
+_REF_FILES = {"INVARIANTS": "docs/INVARIANTS.md", "LIVE_WIRES": "docs/LIVE_WIRES.md"}
 _HEADER = re.compile(r"^#{2,4}\s+(\d+(?:\.\d+)*)\.?\s", re.M)
 # A name may start the next line ("> "-quoted) when `::` ends a wrapped line; a trailing
 # `*` or `...` makes it a prefix wildcard; a `[param]` suffix is ignored.
@@ -21,13 +30,14 @@ _TEST_REF = re.compile(rf"(?<![\w/.-])(?:tests/)?(test_\w+\.py)((?:::{_NAME})+)"
 _JOIN = r"(?:[ \t+,;]|and\b|\n[> \t]*(?=[^\s>])|\([^()]*\))*"
 _CHAINED = re.compile(rf"`?{_JOIN}`((?:test_|Test)\w+)(\*|\.\.\.)?`")
 _DEFINED = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(\w+)", re.M)
-# Caps on HANDOFF.md's growth: a new §2/§5 entry is short and the whole file is bounded.
+# Caps on the two files' growth: a new §2/§5 entry is short and each file is bounded.
 # The last entry per section that is exempt, because it holds history (plan item P2.4, K6).
 _EXEMPT_UP_TO = {"2": 82, "5": 25}
 _NEW_ENTRY_MAX_LINES = 10
-# HANDOFF.md's size after plan item P2.1 plus 5%. Raising it is the owner's call; when it
-# fails, shrink an entry or §6 item the change supersedes.
-_HANDOFF_MAX_BYTES = 313_401
+# Each file's size + 10 % on 2026-10-27 when HANDOFF.md retired; raising either is the owner's
+# call -- when it fails, shrink an entry the change supersedes.
+_INVARIANTS_MAX_BYTES = 120_170
+_LIVE_WIRES_MAX_BYTES = 19_597
 _ENTRY_HEADER = re.compile(r"^#{2,4}\s+([25])\.(\d+)(?:\.\d+)*\.?\s")
 _ANY_HEADER = re.compile(r"^#{1,6}\s")
 _BLANK = re.compile(r"^[>\s]*$")
@@ -44,18 +54,32 @@ def _section_ref_sources() -> list[Path]:
     return sorted(found)
 
 
-def test_every_handoff_section_citation_names_a_real_header() -> None:
-    headers = set(_HEADER.findall((ROOT / "HANDOFF.md").read_text()))
-    assert len(headers) > 50, "HANDOFF.md headers not found: _HEADER likely broke"
+def test_every_invariant_and_live_wire_citation_names_a_real_header() -> None:
+    headers = {
+        name: set(_HEADER.findall((ROOT / rel).read_text())) for name, rel in _REF_FILES.items()
+    }
+    for name, found in headers.items():
+        assert len(found) > (50 if name == "INVARIANTS" else 10), (
+            f"{_REF_FILES[name]} headers not found: _HEADER likely broke"
+        )
     stale, cited = [], 0
     for path in _section_ref_sources():
         text = path.read_text()
         for m in _SECTION_REF.finditer(text):
-            cited += 1
-            if m.group(1) not in headers:
-                stale.append(f"{path.relative_to(ROOT)}:{_line(text, m.start())} -> §{m.group(1)}")
-    assert cited > 100, "no HANDOFF section citations found: _SECTION_REF likely broke"
-    assert not stale, "citations of a HANDOFF.md section with no header:\n" + "\n".join(stale)
+            numbers = [m.group(2), *_TAIL_NUMBER.findall(m.group(3))]
+            cited += len(numbers)
+            stale += [
+                f"{path.relative_to(ROOT)}:{_line(text, m.start())} -> "
+                f"{_REF_FILES[m.group(1)]} §{n}"
+                for n in numbers
+                if n not in headers[m.group(1)]
+            ]
+    assert cited > 100, (
+        "no INVARIANTS/LIVE_WIRES section citations found: _SECTION_REF likely broke"
+    )
+    assert not stale, "citations of a section with no header in the file they name:\n" + "\n".join(
+        stale
+    )
 
 
 def _cited_tests(text: str) -> Iterator[tuple[str, str, str, int]]:
@@ -70,7 +94,8 @@ def _cited_tests(text: str) -> Iterator[tuple[str, str, str, int]]:
 
 def test_every_cited_guard_test_exists() -> None:
     docs = [
-        ROOT / "HANDOFF.md",
+        ROOT / "docs" / "INVARIANTS.md",
+        ROOT / "docs" / "LIVE_WIRES.md",
         ROOT / "AGENTS.md",
         *sorted((ROOT / "docs" / "agents").glob("*.md")),
     ]
@@ -111,31 +136,32 @@ def test_every_path_in_the_agents_md_area_map_exists() -> None:
     assert not stale, "Area Maps table points at missing paths:\n" + "\n".join(stale)
 
 
-def _handoff_entries() -> Iterator[tuple[int, str, str, int, int]]:
-    """Yield (line, header, section, number, non-blank body lines) for each §2.N and §5.N entry.
+def _entries() -> Iterator[tuple[str, int, str, str, int, int]]:
+    """Yield (file, line, header, section, number, non-blank body lines) for each §2.N and §5.N entry.
 
     An entry runs from its header to the next header outside a code fence; the header line
     itself is not counted, and neither is a blank or bare ">" line.
     """
-    lines = (ROOT / "HANDOFF.md").read_text().splitlines()
-    starts, fenced = [], False
-    for i, line in enumerate(lines):
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
-        elif not fenced and _ANY_HEADER.match(line):
-            starts.append(i)
-    for start, end in zip(starts, [*starts[1:], len(lines)], strict=True):
-        if m := _ENTRY_HEADER.match(lines[start]):
-            body = sum(1 for text in lines[start + 1 : end] if not _BLANK.match(text))
-            yield start + 1, lines[start], m.group(1), int(m.group(2)), body
+    for rel in _REF_FILES.values():
+        lines = (ROOT / rel).read_text().splitlines()
+        starts, fenced = [], False
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+            elif not fenced and _ANY_HEADER.match(line):
+                starts.append(i)
+        for start, end in zip(starts, [*starts[1:], len(lines)], strict=True):
+            if m := _ENTRY_HEADER.match(lines[start]):
+                body = sum(1 for text in lines[start + 1 : end] if not _BLANK.match(text))
+                yield rel, start + 1, lines[start], m.group(1), int(m.group(2)), body
 
 
-def test_a_new_handoff_entry_stays_short() -> None:
-    entries = list(_handoff_entries())
-    assert len(entries) > 100, "no §2/§5 entries found in HANDOFF.md: _ENTRY_HEADER likely broke"
+def test_a_new_invariant_or_live_wire_entry_stays_short() -> None:
+    entries = list(_entries())
+    assert len(entries) > 100, "too few §2/§5 entries found: _ENTRY_HEADER likely broke"
     long = [
-        f"HANDOFF.md:{line} -> {header!r} has {body} non-blank lines"
-        for line, header, section, number, body in entries
+        f"{rel}:{line} -> {header!r} has {body} non-blank lines"
+        for rel, line, header, section, number, body in entries
         if number > _EXEMPT_UP_TO[section] and body > _NEW_ENTRY_MAX_LINES
     ]
     assert not long, (
@@ -146,12 +172,19 @@ def test_a_new_handoff_entry_stays_short() -> None:
     )
 
 
-def test_handoff_stays_under_its_size_ceiling() -> None:
-    size = (ROOT / "HANDOFF.md").stat().st_size
-    assert size <= _HANDOFF_MAX_BYTES, (
-        f"HANDOFF.md is {size} bytes, {size - _HANDOFF_MAX_BYTES} over _HANDOFF_MAX_BYTES "
-        f"({_HANDOFF_MAX_BYTES}): shrink an entry or §6 item this change supersedes. Raising "
-        "the ceiling is the owner's call, not the change's."
+def test_invariants_and_live_wires_stay_under_their_size_ceilings() -> None:
+    ceilings = {
+        _REF_FILES["INVARIANTS"]: ("_INVARIANTS_MAX_BYTES", _INVARIANTS_MAX_BYTES),
+        _REF_FILES["LIVE_WIRES"]: ("_LIVE_WIRES_MAX_BYTES", _LIVE_WIRES_MAX_BYTES),
+    }
+    over = []
+    for rel, (const, ceiling) in ceilings.items():
+        size = (ROOT / rel).stat().st_size
+        if size > ceiling:
+            over.append(f"{rel} is {size} bytes, {size - ceiling} over {const} ({ceiling})")
+    assert not over, (
+        "\n".join(over) + "\nShrink an entry this change supersedes. Raising a ceiling is the "
+        "owner's call, not the change's."
     )
 
 

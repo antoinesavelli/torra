@@ -1,4 +1,4 @@
-"""Text nobody at the keyboard wrote must reach the model as data (HANDOFF.md §2.66, §2.73).
+"""Text nobody at the keyboard wrote must reach the model as data (docs/INVARIANTS.md §2.66, §2.73).
 
 Depends on: torra.prompts (untrusted_block), torra.core (ContextCompressor, SessionStore, Step,
 StepResult), torra.agent (Agent), test_agent (build_agent).

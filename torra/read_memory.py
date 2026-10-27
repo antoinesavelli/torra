@@ -9,7 +9,7 @@ agent.py/pipeline.py, which mix conversation/execution *logic* with this one
 self-contained mechanism -- both files crossed this project's 500-line
 modularity threshold once it landed inline (a real, measured reason, the same
 one that moved resolve_resume() into core/resume.py and dependency_warnings
-into its own module -- see HANDOFF.md §2.33/§2.42).
+into its own module -- see docs/INVARIANTS.md §2.33/§2.42).
 """
 
 from __future__ import annotations

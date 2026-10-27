@@ -80,7 +80,7 @@ class SafetyClassifier(CommandResolver, CommandJudge):
         masked = self._mask_quoted(text)
         writes_a_file = False
         # Only an unquoted `>`, `>>`, `>|` or `>&` redirects, but its target is read from the original
-        # text the way bash reads the word: `> "/etc/passwd"` writes /etc/passwd (HANDOFF.md §2.86-§2.88).
+        # text the way bash reads the word: `> "/etc/passwd"` writes /etc/passwd (docs/INVARIANTS.md §2.86-§2.88).
         for redirect in re.finditer(r">[>|&]?", masked):
             op, target = redirect.group(), self._redirect_word(text[redirect.end() :])
             if target is None:

@@ -7,7 +7,7 @@ Owner decisions pending: D8 (section 2)
 Last verified: 61b6886 on 2026-10-21
 
 Every Phase 0 to 4 item below was re-read against the code and
-is done or withdrawn. Still open: P5.1, P5.2 and P5.3 (re-probed in-process, all three reproduce), D8, the Phase 5
+is done or withdrawn. Still open as of 2026-10-27: D8, the Phase 5
 red-team and the P3.3 model-bench scenario. Suite at this commit: 1667 passed.
 
 Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
@@ -55,13 +55,13 @@ scorecard's `--enforce` floors must hold and the suite must stay green.
 | D5 | Stop exporting `.env` into `os.environ`. Read it with `dotenv_values()` and hand the key to `OpenRouterClient` directly. | Yes. | P3.2 |
 | D6 **(done, 2026-10-13)** | Commit the untracked routine logs (`docs/reports/AUDIT_LOG.md`, `docs/reports/DEFENSIVE_SCORECARD_LOG.md`), `opencode.json` and the `.gitignore` edit. Push the 10 local commits so CI runs again. CI last ran on 2026-09-03, green. Done: committed in `2ebb3a2` on 2026-10-04; pushed on 2026-10-13 to the new public repo `antoinesavelli/torra` instead of `paramotrading`; CI green at `2d5f82b`. | Yes. Pushing is outward-facing, so it is the owner's action. | P4.8 |
 | D7 | The TUI is one 1,914-line file. It is peripheral tier and ungraded by the scorecard. | Out of scope for this plan unless the owner wants it. | none |
-| D8 **(open, 2026-10-12)** | Ask for each DANGEROUS/CRITICAL tick at the moment that step runs, after the earlier steps' output is shown, instead of collecting every tick before step 1 (`Torra.execute` → `_apply_approvals`). Needs three answers: what a no does mid-run (stop, with completed steps kept and their undo on the stack, is the recommendation), whether the operator must stay at the terminal for plans with ticks, and whether a crash-resume re-asks. | Wait for real-use evidence. `HANDOFF.md` §2.81 (show what each target is at the tick) is built and covers the cheap half; live, 3 of 6 plans had the find-then-act shape this would serve. | none yet |
+| D8 **(open, 2026-10-12)** | Ask for each DANGEROUS/CRITICAL tick at the moment that step runs, after the earlier steps' output is shown, instead of collecting every tick before step 1 (`Torra.execute` → `_apply_approvals`). Needs three answers: what a no does mid-run (stop, with completed steps kept and their undo on the stack, is the recommendation), whether the operator must stay at the terminal for plans with ticks, and whether a crash-resume re-asks. | Wait for real-use evidence. `docs/INVARIANTS.md` §2.81 (show what each target is at the tick) is built and covers the cheap half; live, 3 of 6 plans had the find-then-act shape this would serve. | none yet |
 
 ## 3. Phases
 
 Each item is one commit. Write the failing test first, then the fix. Then run the suite, `ruff check .`,
 `mypy torra/` and `defensive_coding_report.py --enforce`. Then add the next unused `### 5.N` header to
-`HANDOFF.md` with its `Code:` line and the guarding test, and put `# Live wire: HANDOFF.md §5.N` at the code
+`docs/LIVE_WIRES.md` with its `Code:` line and the guarding test, and put `# Live wire: docs/LIVE_WIRES.md §5.N` at the code
 site. Do one item at a time in `gates/` and `pipeline.py`, because these files collide.
 
 ### Phase 0: mechanical groundwork
@@ -97,8 +97,8 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   - a block before step 2 reverts step 1 only;
   - a blocked dry run runs zero undos;
   - declared entries never run when no real step ran.
-- *Invariant.* Add to `HANDOFF.md` §2: "A rollback only reverses steps that actually ran."
-- *As built.* `HANDOFF.md` §2.59. Beyond the plan: the stack is emptied at the start of each attempt, and on a
+- *Invariant.* Add to `docs/INVARIANTS.md`: "A rollback only reverses steps that actually ran."
+- *As built.* `docs/INVARIANTS.md` §2.59. Beyond the plan: the stack is emptied at the start of each attempt, and on a
   conflict block the undo of every flagged file is dropped (`VerifiedRollback.drop_where`), which also covers a
   human editing a file after torra's own earlier step wrote it. The logic lives in the new
   `torra/pipeline_rollback.py`, because the change pushed `pipeline.py` over the 500-line cap; it is 489 lines now.
@@ -136,21 +136,21 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   4. Interpreter payloads follow D1b.
   5. Before merging, measure the false-positive cost. Replay every command in the 143 audit records under
      `~/.torra/audit/` (and the 262 logged tasks) through old and new classifiers. Report the share that newly
-     needs a tick, and let the owner accept it. `HANDOFF.md` §2.4 exists because over-ticking trains
+     needs a tick, and let the owner accept it. `docs/INVARIANTS.md` §2.4 exists because over-ticking trains
      rubber-stamping.
 - *Proof.* Add every probe above to `EVASIONS`, plus a `test_an_unknown_program_needs_confirmation`. Grow
   `ROUTINE` with the read-only commands from the replay, and keep `test_no_false_positives_on_routine_work`
   green.
-- *As built.* `HANDOFF.md` §2.60, `torra/gates/known_programs.py`, `tests/test_known_programs.py`. Three tiers: read-only SAFE,
+- *As built.* `docs/INVARIANTS.md` §2.60, `torra/gates/known_programs.py`, `tests/test_known_programs.py`. Three tiers: read-only SAFE,
   bounded writers CAUTION, unknown or protected-write DANGEROUS. Replay of 174 real commands: ticks 6 to 11 after adding the five
   measured read-only diagnostics. Interpreter payloads: an AST proof of purity instead of always asking. Also done: the
   `remote_pull` verdict (part of P3.5), resolver fixes for `2>&1`, `do`/`then`, parentheses, heredocs and `eval`. The probes
   went into the new test file rather than `EVASIONS`.
 - *Docs.* `agents/GUARDRAILS.md:15` and `AGENTS.md:134` say "20/20". The corpus has 26 cases, and after this
   it has more. Say "every case in `EVASIONS`" instead of a count.
-- *Invariant.* Add to `HANDOFF.md` §2: "A command torra can't prove read-only needs a tick."
+- *Invariant.* Add to `docs/INVARIANTS.md`: "A command torra can't prove read-only needs a tick."
 
-**P1.3 Three shapes still run an unproven program with no tick.** Ask-first. **DONE 2026-10-09 (`HANDOFF.md` §2.75), found 2026-10-08 at `7b7f10d`.**
+**P1.3 Three shapes still run an unproven program with no tick.** Ask-first. **DONE 2026-10-09 (`docs/INVARIANTS.md` §2.75), found 2026-10-08 at `7b7f10d`.**
 - *Finding.* Probed in-process, then through `torra check`, which printed `ok safe` for each shape:
   1. *Unwrap depth.* `resolve()` returns `[]` past `max_depth` (4) (`torra/gates/safety.py:518-520`), and
      `_unwrap` returns only a `sh -c` payload's commands, never the wrapper itself (`safety.py:554-555`). A
@@ -183,7 +183,7 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
 
 ### Phase 2: reliability and OS-semantics majors
 
-- **P2.1 DONE 2026-10-04 (`HANDOFF.md` §2.61).** **A step timeout kills only bash, and its children keep running.** Nothing in the repo uses
+- **P2.1 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.61).** **A step timeout kills only bash, and its children keep running.** Nothing in the repo uses
   `start_new_session` or `killpg` (`torra/core/tasks.py:522-528`, `:582`). Run steps with
   `start_new_session=True` on both paths. On timeout, send SIGTERM to the group, wait 5 s, then SIGKILL. Treat
   Ctrl-C mid-step the same way: kill the group, mark the step failed with "interrupted by operator", and run
@@ -209,13 +209,13 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
 
   Exit with the first real failing status rather than 1. *Proof:* these eight cases on both execution paths,
   mirroring the SIGPIPE tests (`tests/test_core.py:2130-2168`). Ask-first (D2).
-- **P2.3 DONE 2026-10-04 (`HANDOFF.md` §2.63).** **Service undo is wrong for enable, disable, mask and `--now`.** `SERVICE_PATTERN`
+- **P2.3 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.63).** **Service undo is wrong for enable, disable, mask and `--now`.** `SERVICE_PATTERN`
   (`undo.py:85-87` at `6e6bcdc`; now `gates/service_state.py:14`) reads `systemctl enable --now nginx` as unit `--now`. Enable, disable and mask are "undone"
   by start or stop and verified with `is-active` (`undo.py:454-473`), so the result reads "undone" when the
   enablement never changed back. Parse the resolved argv instead of a regex: skip flags and handle several
   units. Capture both `is-active` and `is-enabled` (masked included), restore each, and verify both.
   *Proof:* tests for `enable --now`, `disable`, `mask`, and a two-unit command. Ask-first.
-- **P2.4 DONE 2026-10-04 (`HANDOFF.md` §2.64, hardened by §2.71 after the independent review).** **Crash resume re-runs the step that was in flight.** A step is recorded only after it finishes
+- **P2.4 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.64, hardened by §2.71 after the independent review).** **Crash resume re-runs the step that was in flight.** A step is recorded only after it finishes
   (`pipeline.py:470`), and resume matches step ids, not commands (`torra/core/resume.py:132-134`). With D3:
   - write `in_progress` before each step (temp file, fsync, `os.replace`);
   - on resume, a step that was in progress but never completed makes the run BLOCKED with "step X was running
@@ -234,13 +234,13 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   builds `Torra` without the verifier `cli.py:91-94` installs. Build the verifier in one factory both use.
 - **P2.7 DONE 2026-10-04 (§2.61).** **Captured output is unbounded** (`tasks.py:523`, `:575-594`). Keep the head and tail of each stream up
   to a cap, with a truncation marker; the live streaming callback is unaffected.
-- **P2.8 DONE 2026-10-04 (`HANDOFF.md` §2.65; both claims confirmed and fixed).** **Minor, verify first:** undo `coverage()` counts a step whose snapshot was skipped (`undo.py:562`).
+- **P2.8 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.65; both claims confirmed and fixed).** **Minor, verify first:** undo `coverage()` counts a step whose snapshot was skipped (`undo.py:562`).
   The remote restore drops a trailing newline but still verifies (`torra/core/machine.py:554`,
   `undo.py:449`).
 
 ### Phase 3: security, privacy and the model loop
 
-- **P3.1 DONE 2026-10-09 (`HANDOFF.md` §2.62, §2.74, §2.76).** **Redact every persisted string.** `TaskLogger.record` scrubs only `request`
+- **P3.1 DONE 2026-10-09 (`docs/INVARIANTS.md` §2.62, §2.74, §2.76).** **Redact every persisted string.** `TaskLogger.record` scrubs only `request`
   (`torra/telemetry/records.py:159`). `abort_reason` carries up to 400 characters of raw stderr
   (`records.py:204`). The patterns (`records.py:24-42`) miss `sk-or-v1-…` keys, and they miss
   `OPENROUTER_API_KEY=…` because `\b` doesn't match after `_`. Apply one scrub to every string field before
@@ -256,10 +256,10 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
     file's name and body unscrubbed. `TaskSpec.validate` now refuses an id `redact_secrets` would change
     (none of 283 logged ids is), without repeating it, and `TaskLogger.record` runs `redact_tree` over the
     whole record. No persisted format changed.
-- **P3.2 DONE 2026-10-04 (`HANDOFF.md` §2.68; names from the file are withheld from steps rather than the file no longer being loaded).** **Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
+- **P3.2 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.68; names from the file are withheld from steps rather than the file no longer being loaded).** **Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.
-- **P3.3 DONE 2026-10-04 (`HANDOFF.md` §2.66; the model-bench injection scenario is not done, it needs a live model).** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
+- **P3.3 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.66; the model-bench injection scenario is not done, it needs a live model).** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
   `system`-role message with an opening `[read path]` header and no end marker (`torra/read_memory.py:74`).
   `iterate` pastes raw verify output into the operator's next request (`torra/iterate.py:124-128`). Changes:
   - move file contents out of the system role and wrap them in
@@ -270,7 +270,7 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   *Proof:* tests on the built message list (role, delimiters, escaping). Add a `scripts/dev/model_bench/`
   scenario with an injected instruction inside a file, reported but not gated in CI. Ask-first: this changes
   what the model sees.
-- **P3.4 DONE 2026-10-09 (`HANDOFF.md` §2.62 item 8, §2.77).** **Plans run without being shown.** `ask` prints the plan but runs SAFE and CAUTION steps with no
+- **P3.4 DONE 2026-10-09 (`docs/INVARIANTS.md` §2.62 item 8, §2.77).** **Plans run without being shown.** `ask` prints the plan but runs SAFE and CAUTION steps with no
   confirm (`cli.py:281-288`). `ask --verify` never prints its fix-round plans and reports only step ids
   (`cli.py:228-250`). Apply D4. `--non-interactive` keeps today's refuse-gated behaviour, and the TUI is
   unchanged since it already needs a Run click per plan.
@@ -291,10 +291,10 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
     `test_remote_pull_into_a_system_path_asks` and
     `test_a_pull_over_an_existing_local_file_is_undone_when_a_later_step_fails` (added 2026-10-09; it fails
     when a pull's `touches` are not snapshotted).
-- **P3.6 DONE 2026-10-04 (`HANDOFF.md` §2.69; stale-after-run rather than a time label).** **Machine state is never refreshed.** It is cached once per agent and nothing passes `refresh=True`
+- **P3.6 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.69; stale-after-run rather than a time label).** **Machine state is never refreshed.** It is cached once per agent and nothing passes `refresh=True`
   (`torra/agent.py:196`, acknowledged in the comment at `:207`). Mark it stale after every `execute()`,
   re-observe on the next turn, and label the block with its observation time.
-- **P3.7 DONE 2026-10-04 (`HANDOFF.md` §2.67); repair-on-malformed-reply DONE 2026-10-11 (§2.78).** **Verify first: model-loop robustness.**
+- **P3.7 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.67); repair-on-malformed-reply DONE 2026-10-11 (§2.78).** **Verify first: model-loop robustness.**
   - A reply that is valid JSON but not an object raises an uncaught `AttributeError` (`agent.py:283`, `:424`).
   - Schema errors get no repair round (`agent.py:391`).
   - A dry-run `iterate` reports "verified: yes" (`iterate.py:112-114`).
@@ -310,7 +310,7 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
 
 - **P4.1 CI gates. WITHDRAWN 2026-10-04.** No format check (see P0.1). An explicit `ruff check .` step would be
   redundant: the scorecard's Lint dimension already runs ruff and `--enforce` fails CI on any issue.
-- **P4.2 DONE 2026-10-04 (`HANDOFF.md` §2.70).** **Lock coverage, then test the assertions.** Measured 2026-10-03 with branch coverage on: 98% overall.
+- **P4.2 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.70).** **Lock coverage, then test the assertions.** Measured 2026-10-03 with branch coverage on: 98% overall.
   `safety.py` 99%, `pipeline.py` 99%, `tasks.py` 100%, `rollback.py` 100%, `undo.py` 95%. Coverage isn't the
   gap. The P1.1 bug lived in fully covered code whose test didn't assert the right thing.
   - Add a CI branch-coverage floor at today's numbers for `gates/`, `pipeline.py` and `core/tasks.py`. Never
@@ -326,7 +326,7 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
 - **P4.6 DONE 2026-10-04.** `AGENTS.md`'s code-conventions block still named `_judge`, `detect` and `execute` as CCN
   exceptions not to split. They were split on 2026-08-11 (`_judge` is CCN 6; `Torra.execute` is 14, one below the
   ceiling, so P1.1 must not add branches to it). `agents/CONVENTIONS.md` carried the same claim and is fixed too.
-- **P4.7 DONE as each fix landed (§2.59 to §2.70).** **HANDOFF.md.** Add the §2 invariants from P1.1, P1.2, P2.4 ("a step in flight at a crash never re-runs
+- **P4.7 DONE as each fix landed (§2.59 to §2.70).** **`docs/INVARIANTS.md`.** Add the invariants from P1.1, P1.2, P2.4 ("a step in flight at a crash never re-runs
   by itself") and P3.3 ("untrusted content never carries instruction authority"), each with its test. Add §5
   entries per fix and update §6.
 - **P4.8 DONE 2026-10-13.** Carry out D6.
@@ -344,7 +344,7 @@ Not in the 2026-10-03 grade. The first real use since 2026-09-18, a replay of th
 
 | Finding | Status | Where |
 |---|---|---|
-| A step with an unknown field ended the run, no repair round | Done (P3.7) | `HANDOFF.md` §2.78 |
+| A step with an unknown field ended the run, no repair round | Done (P3.7) | `docs/INVARIANTS.md` §2.78 |
 | A command bash cannot parse, or a template slot such as `<found-path>`, reached the tick | Done: repaired, then refused | §2.79 |
 | A step needing a tick targeted an invented path; nothing checked | Done: repaired, then warned (advisory) | §2.80 |
 | The tick came with the command line only | Half done: the prompt shows what each path is | §2.81, D8 |
@@ -379,7 +379,7 @@ machine, so the section 1 table is the rubric, same domains, weights and bands; 
 | Security and Privacy | 25% | 60 | 82 | B- | cap lifted: unknown means ask (§2.60, §2.72, §2.75); every persisted string scrubbed (§2.62, §2.74, §2.76); `.env` withheld from steps (§2.68); untrusted text delimited (§2.66, §2.73) | -8 P5.1; -6 P5.2; -4 the blind red-team has not run, so fail-closed is confirmed only by this pass's sample |
 | Domain Correctness (shell/OS semantics) | 15% | 66 | 88 | B+ | process-group timeout and the ERR trap (§2.61), service undo from argv with `is-enabled` (§2.63), resolver fixes for `2>&1`, `do`/`then`, heredocs, `eval`, nesting | -5 P5.1 (bash's variable-assigning builtins not modelled); -4 P5.3 (backstop words matched inside operands); -3 P5.2 (`hostname` operand semantics) |
 | AI and Agentic | 15% | 74 | 87 | B+ | P3.3, P3.6, P3.7; repair rounds that refuse or warn (§2.78-§2.80); the CRITICAL repair narrows only the command (§2.82) | -6 live ambiguity false negatives, fix unconfirmed (`README.md:551-563`); -3 the model-bench injection scenario is not built (P3.3); -2 `Agent.converse` is CCN 20 (`torra/agent.py:311`); -2 the 10-11/12 plan checks have met real models only in plan-only runs (`README.md:13-14`) |
-| Systems and Reliability | 15% | 60 | 92 | A- | cap lifted: a rollback reverses only what ran (§2.59, `tests/test_pipeline.py:1053`, `:1100`); crash resume never re-runs a step in flight (§2.64, §2.71); bounded output, shadow-dir owner, TUI precondition (§2.61, §2.63) | -3 D8; -2 raw-device `dd`/`mkfs` and migrations need a hand-written rollback (`README.md:568-573`); -2 the missing-path check is a heuristic (§6.5); -1 tree watch misses a same-size same-mtime edit |
+| Systems and Reliability | 15% | 60 | 92 | A- | cap lifted: a rollback reverses only what ran (§2.59, `tests/test_pipeline.py:1053`, `:1100`); crash resume never re-runs a step in flight (§2.64, §2.71); bounded output, shadow-dir owner, TUI precondition (§2.61, §2.63) | -3 D8; -2 raw-device `dd`/`mkfs` and migrations need a hand-written rollback (`README.md:568-573`); -2 the missing-path check is a heuristic (`docs/STATUS.md` gap 6.5); -1 tree watch misses a same-size same-mtime edit |
 | Software | 10% | 84 | 88 | B+ | 1651 tests pass, mypy clean on 44 files, ruff 0, scorecard A (GPA 3.83) | -4 `torra/gates/safety.py` is 779 functional LOC, over the 500 cap (Modularity B); -4 P5.4; -2 14 functions nested to depth 3 at CCN 10+; -2 the 1,914-line TUI (D7) |
 | Governance | 5% | 80 | 90 | A- | P4.3 to P4.9 done, D6 pushed, CI on the public repo, invariants each name a guarding test | -4 P5.4 (`AGENTS.md:173` states a CCN fact the scorecard contradicts); -3 Phase 5's red-team is not done; -3 this grade ran without a `/grade` skill, against a hand-applied rubric |
 | **Overall** | | **68 D+** | **87** | **B+** | | weighted sum 86.75 |
@@ -403,7 +403,7 @@ the judge table from `:400`). The unknown-program fallback holds (`frobnicate --
 within the unwrap limit is judged by what it runs.
 
 **P5.1 ~~Bash builtins that assign a variable rebind `PATH` and `BASH_ENV` with no tick.~~ DONE 2026-10-23
-(`HANDOFF.md` §2.83).** Major; ask-first (the classifier), approved by the owner 2026-10-23. The four probes
+(`docs/INVARIANTS.md` §2.83).** Major; ask-first (the classifier), approved by the owner 2026-10-23. The four probes
 ask now, and so do the shapes the fix's own re-read found: subscripts (`declare PATH[0]=/x`), attached
 values (`printf -vPATH`, `read -raPATH`), a nameref with no target yet, a name built by `$`, braces or a
 substitution, `for PATH in /x`, and `${LD_PRELOAD:=/x.so}`. Replaying the 184 distinct logged commands
@@ -425,7 +425,7 @@ moved no verdict.
   first. Harmless neighbours (`read -r line <<< x; echo "$line"`, `printf -v n %s 1`) join `STILL_RUN`
   (`:366`) so routine use stays unticked.
 
-**P5.2 ~~`hostname` is listed read-only but sets the host name.~~ DONE 2026-10-23 (`HANDOFF.md` §2.84).**
+**P5.2 ~~`hostname` is listed read-only but sets the host name.~~ DONE 2026-10-23 (`docs/INVARIANTS.md` §2.84).**
 Major; ask-first (the classifier), approved by the owner 2026-10-23. Judged as proposed below; a redirect
 token counts as an operand there, as for `mount`, so `hostname -I > f` asks too.
 - *What's wrong.* With an operand, `-F`/`--file` or `-b`, `hostname` changes the system's host name. It is
@@ -440,7 +440,7 @@ token counts as an operand there, as for `mount`, so `hostname -I > f` asks too.
   `hostname --file=/x` need a tick; `hostname`, `hostname -I` and `hostname -f` stay SAFE.
 
 **P5.3 ~~Decision on `cat /var/run/reboot-required`: a defect, minor, not acceptable as fail-closed.~~ DONE
-2026-10-25 (`HANDOFF.md` §2.90), owner-approved: the power-state and `rm` rows apply only to an unparsed line;
+2026-10-25 (`docs/INVARIANTS.md` §2.90), owner-approved: the power-state and `rm` rows apply only to an unparsed line;
 the six probes run unticked, the five power commands and `rm` still ask; 183 of 74,712 replayed verdicts
 moved, all down.**
 Ask-first (it loosens a guard, so the owner decides).
@@ -474,8 +474,8 @@ Ask-first (it loosens a guard, so the owner decides).
 - *Regression test.* `defensive_coding_report.py --verbose` lists no decision-path function at CCN 15 or
   more.
 
-**What closes Phase 5.** Fix P5.1 and P5.2, decide P5.3, run the blind red-team, then re-grade. (P5.4 is done.
-The 63-command blind red-team in `HANDOFF.md` §2.72 ran on 2026-10-04, before this grade; the 30-command
+**What closes Phase 5.** P5.1 to P5.3 are done (2026-10-23 to 2026-10-25); what remains is to run the blind red-team, then re-grade. (P5.4 is done.
+The 63-command blind red-team in `docs/INVARIANTS.md` §2.72 ran on 2026-10-04, before this grade; the 30-command
 Phase 5 one has not run.)
 
 ## 4. Projected grades (estimates)

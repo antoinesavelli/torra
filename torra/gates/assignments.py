@@ -2,7 +2,7 @@
 
 `SafetyClassifier` notes each name the way it notes a leading `NAME=value`, so `read PATH <<< /x`,
 `printf -v PATH`, `declare -n P=PATH` or `for PATH in /x` cannot change what a later bare command
-runs without a tick (HANDOFF.md
+runs without a tick (docs/INVARIANTS.md
 §2.75, §2.83). A name the line builds at run time (an expansion, a substitution, a brace list, a
 nameref with no target yet) comes back as UNSEEN, and asks.
 

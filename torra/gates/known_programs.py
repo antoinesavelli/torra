@@ -1,7 +1,7 @@
 """What torra can prove about a program no safety rule flagged: read-only, a bounded writer, or unknown.
 
 `SafetyClassifier._judge` asks `trust()` last. Read-only runs unticked, a bounded writer runs
-flagged CAUTION, and anything unknown needs a tick (HANDOFF.md §2.60). The lists below name what
+flagged CAUTION, and anything unknown needs a tick (docs/INVARIANTS.md §2.60). The lists below name what
 is KNOWN, so a program missing from them fails toward asking, never toward running.
 
 Depends on: torra.gates.program_tables (subcommand sets and per-program checks),

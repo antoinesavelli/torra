@@ -15,7 +15,7 @@ The package. Model proposes, five gates decide, the operator approves.
 | `pipeline_steps.py` | `StepRunner`, the step loop `Torra.execute` drives: arm each step's undos, recheck and conflict guards, run it, sweep rollback on failure, finish a success |
 | `pipeline_types.py` | The data model `Torra` produces: `Stage`, `Outcome`, `StepPlan`, `Plan`, `RunResult` |
 | `pipeline_report.py` | Stage 7, report: the model's summary, the audit file and the telemetry record for one `RunResult` (`Torra._finish` delegates here) |
-| `pipeline_rollback.py` | Rollback bookkeeping for one `execute()`: classify the declared entries, skip undos for files changed outside torra, unwind the stack (`HANDOFF.md` §2.59) |
+| `pipeline_rollback.py` | Rollback bookkeeping for one `execute()`: classify the declared entries, skip undos for files changed outside torra, unwind the stack (`docs/INVARIANTS.md` §2.59) |
 | `iterate.py` | `iterate()`, a bounded edit -> verify -> fix loop -- ordinary `plan()`/`execute()` turns on one conversation, nothing safety-critical touched (`cli.py`'s `torra ask --verify`) |
 | `dependency_warnings.py` | Best-effort, pre-`execute()` check for an approved step depending on a declined one -- never blocks, so it isn't under `gates/` |
 | `path_warnings.py` | Best-effort, pre-`execute()` check for a step that names a local path which is not there -- reads the argv `SafetyClassifier.resolve` produces, never blocks, so it isn't under `gates/` |
@@ -26,7 +26,7 @@ The package. Model proposes, five gates decide, the operator approves.
 | `__init__.py` | Package-level re-exports |
 
 Read `agent.py` and `pipeline.py` after the three subpackages above — see
-[`HANDOFF.md`](../HANDOFF.md) for the full reading order and the invariants
-that must not be broken. [`docs/agents/DEFENSIVE_CODING_STANDARDS.md`](../docs/agents/DEFENSIVE_CODING_STANDARDS.md)
+[`docs/DESIGN.md`](../docs/DESIGN.md) for the full reading order and
+[`docs/INVARIANTS.md`](../docs/INVARIANTS.md) for the invariants that must not be broken. [`docs/agents/DEFENSIVE_CODING_STANDARDS.md`](../docs/agents/DEFENSIVE_CODING_STANDARDS.md)
 covers how code here is written and graded; run
 `python3 scripts/dev/defensive_coding_report.py` for the current scorecard.

@@ -6,13 +6,13 @@ Depends on: torra.core.tasks (TorraError).
 `Torra.execute` writes one before each step starts and after each one ends,
 and deletes it on success or when a rollback ran (see `resolve_resume`'s
 docstring for why). A step still marked in progress means the process died
-mid-step, and the next attempt stops instead of running it again (HANDOFF.md §2.64). `resolve_resume` is what makes
+mid-step, and the next attempt stops instead of running it again (docs/INVARIANTS.md §2.64). `resolve_resume` is what makes
 `load()` more than forensic state: called once per real (non-dry-run)
 `execute()`, before its step loop, to decide which of a plan's steps -- if
-any -- a crash-left resume point vouches for as already done. HANDOFF.md
-§6.4 has the full story of what this replaced (nothing) and what it must
+any -- a crash-left resume point vouches for as already done.
+`docs/INVARIANTS.md §2.33` states what it must
 not do (trust a resume point that doesn't provably describe this exact
-plan).
+plan); the story of what it replaced (nothing) is in `git log -p -- HANDOFF.md` (old §6.4).
 """
 
 from __future__ import annotations

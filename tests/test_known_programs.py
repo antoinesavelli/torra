@@ -1,4 +1,4 @@
-"""Fail-closed classification (HANDOFF.md §2.60): what runs unticked, what is flagged, what asks.
+"""Fail-closed classification (docs/INVARIANTS.md §2.60): what runs unticked, what is flagged, what asks.
 
 Depends on: torra.gates (RiskLevel, SafetyClassifier), torra.gates.known_programs (trust),
 torra.gates.assignments (assigned_names).
@@ -16,7 +16,7 @@ from torra.gates.assignments import UNSEEN, assigned_names
 from torra.gates.known_programs import BOUNDED_WRITE, PROTECTED_WRITE, READ_ONLY, trust
 
 #: Realistic diagnostics. Every one must classify SAFE, or a classifier that fails closed would
-#: bury routine work in ticks and train the operator to approve without reading (HANDOFF.md §2.4).
+#: bury routine work in ticks and train the operator to approve without reading (docs/INVARIANTS.md §2.4).
 READ_ONLY_COMMANDS = [
     "ls -la /etc",
     "cat /proc/meminfo | head -5",

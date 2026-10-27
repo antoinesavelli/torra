@@ -1325,7 +1325,7 @@ def test_executor_config_reaches_the_default_observer_when_configured(
     """Mirrors test_knowledge_dir_reaches_the_default_observer -- confirms
     the executor sub-observation actually happens through Agent's default
     observer closure when configured, and that build_ssh_runner's output
-    is what observe_executor is called with (HANDOFF.md §2.52)."""
+    is what observe_executor is called with (docs/INVARIANTS.md §2.52)."""
     import torra.agent as agent_module
 
     seen: dict[str, object] = {}
@@ -1401,7 +1401,7 @@ def test_agent_observe_caches_the_executor_state_without_refresh() -> None:
 
 def test_system_prompt_tells_the_model_ordinary_steps_never_target_executor() -> None:
     """Rule 11 no longer says "no way to run a command there" outright --
-    remote_pull/remote_push (rule 12, HANDOFF.md §2.53) genuinely can
+    remote_pull/remote_push (rule 12, docs/INVARIANTS.md §2.53) genuinely can
     change a file on executor now. What must still hold: an ordinary step
     never targets executor, and the model must never hand-write an ssh
     step to try."""

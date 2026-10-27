@@ -9,7 +9,7 @@ You never approve a command you have not seen classified: nothing executes
 until every step showing DANGEROUS or CRITICAL has been individually ticked.
 
 Each tab is an independent conversation -- its own Torra/Agent/context,
-its own SessionStore-backed transcript on disk (see HANDOFF.md §2.23 for
+its own SessionStore-backed transcript on disk (see docs/INVARIANTS.md §2.23 for
 why multiple Torra instances sharing a workdir need session-scoped
 undo=/task_id_prefix, the two collisions this design has to avoid).
 """
@@ -78,7 +78,7 @@ STEP_OUTPUT_DISPLAY_CAP = 8000
 #: picker meant for a handful of taps should try to fetch live even if
 #: it did. This is only the models actually confirmed end-to-end with a
 #: real request (a live slug lookup plus a real `torra plan`/`ask`
-#: call, see HANDOFF.md §2.38). Add one here only after doing that, not
+#: call, see docs/INVARIANTS.md §2.38). Add one here only after doing that, not
 #: on a slug guess.
 VERIFIED_OPENROUTER_MODELS: list[str] = [
     "openrouter/x-ai/grok-4.6",
@@ -96,7 +96,7 @@ VERIFIED_OPENROUTER_MODELS: list[str] = [
 #: missing here just shows no blurb rather than a guessed one -- same
 #: discipline as VERIFIED_OPENROUTER_MODELS just above: earn the entry,
 #: don't guess it. Keep in sync with router.py's ROUTING_RULES by hand;
-#: there is no test enforcing the two agree (see HANDOFF.md's "trust-based"
+#: there is no test enforcing the two agree (see docs/agents/CONVENTIONS.md's "trust-based"
 #: source-of-truth entries for the same reasoning applied to READMEs).
 MODEL_DESCRIPTIONS: dict[str, str] = {
     "gpt-oss:20b": "debugging, planning, analysis -- deepest local reasoning "
@@ -315,8 +315,8 @@ class EvidencePane(VerticalScroll):
 
         `escape(...)` before `markup=True`, same as ChatLine/StepCard/
         PlanPane.show -- an exception message inside crash_summary()'s
-        output is arbitrary text and can contain `[`/`]` (HANDOFF.md
-        §2.25's MarkupError lesson applies here too).
+        output is arbitrary text and can contain `[`/`]`
+        (docs/INVARIANTS.md §2.25's MarkupError lesson applies here too).
         """
         await self.remove_children()
         await self.mount(
@@ -632,7 +632,7 @@ class SessionTab:
     model_override: str | None = None
     # Also runtime-only and just as deliberately not persisted: reasoning
     # tokens are a live look at the model thinking, not a durable record --
-    # see HANDOFF.md's note on why this stays out of SessionStore/telemetry.
+    # see docs/INVARIANTS.md §2.31 on why this stays out of SessionStore/telemetry.
     # Rendered in the sidebar's Thinking tab (ThinkingPane), not inline in
     # chat -- a real reasoning chain runs to hundreds of lines.
     reasoning_text: str = ""
@@ -833,7 +833,7 @@ class TorraApp(App[None]):
     #status { dock: bottom; height: 1; background: $panel; padding: 0 1; }
     """
 
-    # Live wire: HANDOFF.md §5.11
+    # Live wire: docs/LIVE_WIRES.md §5.11
     BINDINGS = [
         # Not ctrl+c: Textual's own default for that key is "help_quit",
         # which deliberately does NOT quit -- its docstring says so
@@ -867,7 +867,7 @@ class TorraApp(App[None]):
         # the keypress. F2 sidesteps the whole class of C0-control-code
         # collisions (also see tab/ctrl+i, escape/ctrl+[, newline/ctrl+j
         # in the same KEY_ALIASES table) and isn't claimed by Input's own
-        # BINDINGS the way ctrl+d/ctrl+w already are (HANDOFF.md §2.38).
+        # BINDINGS the way ctrl+d/ctrl+w already are (docs/INVARIANTS.md §2.38).
         ("f2", "choose_model", "Choose model"),
         # Only meaningful while planning (SessionTab.generation's own
         # docstring covers why); the prompt input is disabled the whole
@@ -892,7 +892,7 @@ class TorraApp(App[None]):
     def _handle_exception(self, error: Exception) -> None:
         """The one hook Textual ever calls for an unhandled TUI exception --
         `App.run()` never re-raises past this, confirmed by reading its own
-        source (HANDOFF.md §2.29). A crash reporter that itself fails must
+        source (docs/INVARIANTS.md §2.29). A crash reporter that itself fails must
         never block the app from actually exiting, hence the bare try."""
         try:
             self._crash_reporter.record(error, site="tui")
@@ -921,7 +921,7 @@ class TorraApp(App[None]):
         # A reopened session's Agent starts at turn 0 -- without this, its
         # first few turns would reuse task_id/audit-filename values its
         # earlier life already used, silently overwriting those audit
-        # records (HANDOFF.md §2.26). The *raw* record count, not
+        # records (docs/INVARIANTS.md §2.26). The *raw* record count, not
         # len(context.entries): rehydrate_compressor may have just
         # compressed that down to a handful of summaries, which would
         # under-count and reopen the exact collision this closes.
@@ -937,7 +937,7 @@ class TorraApp(App[None]):
 
         Matches specifically the session-level TabPane (id prefix "tab-"),
         not just "the nearest TabPane" -- the sidebar's own inner
-        TabbedContent (HANDOFF.md §2.30) has its own TabPanes ("sidebar-
+        TabbedContent (docs/INVARIANTS.md §2.30) has its own TabPanes ("sidebar-
         plan"/"sidebar-evidence") nested *inside* every session tab. Found
         live: stopping at the first ancestor TabPane meant a click on Run/
         Reject/Dry-run inside the sidebar's Plan tab resolved
@@ -973,7 +973,7 @@ class TorraApp(App[None]):
         TabbedContent(): yield TabPane(...)` compose syntax calls
         internally, but with no `self.app` dependency, so it works from a
         plain `@staticmethod` invoked before the app is even running
-        (HANDOFF.md §2.30)."""
+        (docs/INVARIANTS.md §2.30)."""
         sidebar = TabbedContent(id="sidebar")
         sidebar.compose_add_child(TabPane("Actions", PlanPane(id="plan"), id="sidebar-plan"))
         sidebar.compose_add_child(
@@ -1501,7 +1501,7 @@ class TorraApp(App[None]):
     @on(Button.Pressed, "#reject")
     def pressed_reject(self, event: Button.Pressed) -> None:
         """Throw the plan away."""
-        # For the audit record and telemetry (HANDOFF.md §6.1's "how often
+        # For the audit record and telemetry (docs/STATUS.md gap 6.1's "how often
         # a human rejected a plan outright") -- Reject used to skip the
         # pipeline entirely, so this specific, most-direct rejection could
         # never be measured.
@@ -1603,9 +1603,9 @@ class TorraApp(App[None]):
     def _build_session_torra(self, base_workdir: Path, session_id: str) -> Torra:
         """A Torra for one tab -- session-scoped `undo=` so its shadow dir
         never collides with another tab sharing the same `base_workdir`
-        (HANDOFF.md §2.23). `backends=self.backends`: without it, every tab
+        (docs/INVARIANTS.md §2.23). `backends=self.backends`: without it, every tab
         after the first would silently lose access to any alt backend
-        (e.g. OpenRouter) the app was started with (HANDOFF.md §2.27)."""
+        (e.g. OpenRouter) the app was started with (docs/INVARIANTS.md §2.27)."""
         return Torra(
             workdir=base_workdir,
             ollama=self.ollama,
@@ -1718,7 +1718,7 @@ class TorraApp(App[None]):
         # next/previous live on the Tabs bar TabbedContent composes
         # internally (ContentTabs), not on TabbedContent itself. Scoped to
         # "#sessions > Tabs" (direct child), not a bare Tabs query -- the
-        # sidebar's own inner TabbedContent (HANDOFF.md §2.30) composes one
+        # sidebar's own inner TabbedContent (docs/INVARIANTS.md §2.30) composes one
         # too, and query_one doesn't raise on ambiguity in this Textual
         # version, it silently returns the first breadth-first match.
         self.query_one("#sessions > Tabs", Tabs).action_next_tab()
@@ -1750,8 +1750,8 @@ class TorraApp(App[None]):
         bare "#sidebar" selector: confirmed live that a bare selector also
         fires (uselessly) on every Plan-tab (re)activation and on initial
         mount, which would need filtering out by hand; this fires exactly
-        once, only when the Evidence tab itself activates (HANDOFF.md
-        §2.30). Unscoped handlers like `_tab_activated` above still see
+        once, only when the Evidence tab itself activates
+        (docs/INVARIANTS.md §2.30). Unscoped handlers like `_tab_activated` above still see
         this same event too -- `@on` selectors don't shadow each other."""
         session_id = self._session_id_of(event.tabbed_content)
         tab = self.sessions.get(session_id)
@@ -1857,7 +1857,7 @@ class TorraApp(App[None]):
         yield point between the check and the flip for a second call to
         land in. `plan_request()` has the same fix for the same reason."""
         tab = self.sessions[session_id]
-        # Live wire: HANDOFF.md §5.14
+        # Live wire: docs/LIVE_WIRES.md §5.14
         if tab.busy:
             return
         self._reset_step_output(session_id)
@@ -1997,7 +1997,7 @@ class TorraApp(App[None]):
         for card in pane.query(StepCard):
             card.add_class("step-card--executed")
 
-    # Live wire: HANDOFF.md §5.13
+    # Live wire: docs/LIVE_WIRES.md §5.13
     def _set_busy(self, session_id: str, busy: bool, message: str) -> None:
         """Toggle one session's busy state and, if it's the active tab, the status line."""
         tab = self.sessions.get(session_id)

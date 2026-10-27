@@ -17,7 +17,7 @@ wrong command runs against a real filesystem, package manager, or init system.
   the evasion case to that test corpus in the same change — an unlisted evasion is
   indistinguishable from "handled" until someone hits it live.
 - **systemd-scope assumptions must be checked against the real unit, not assumed.**
-  The 2026-07-29 full-file audit (MED-2; now `HANDOFF.md` §5.20; the retired
+  The 2026-07-29 full-file audit (MED-2; now `docs/LIVE_WIRES.md` §5.20; the retired
   `AUDIT_FINDINGS.md`, `git log --diff-filter=D -- AUDIT_FINDINGS.md`): service handling
   assumed `--user` scope everywhere; wrong for a system service. On this exact machine,
   `pop-os`'s `ollama.service` itself is a live cautionary example of scope mattering — it
@@ -44,7 +44,7 @@ wrong command runs against a real filesystem, package manager, or init system.
   path that can decline or execute a plan** — TUI, CLI, and direct API use all go through the
   same `Torra.execute`/`Torra.reject` choke point. A new UI affordance or entry point that
   bypasses either is a second, untested code path for the exact thing the gates exist to
-  cover — see HANDOFF.md §2.8/§2.10 for two real bugs of exactly this shape found in a
+  cover — see docs/INVARIANTS.md §2.8/§2.10 for two real bugs of exactly this shape found in a
   full-file audit.
 
 ## When a check fails: fix the CAUSE, not the check
@@ -52,7 +52,9 @@ wrong command runs against a real filesystem, package manager, or init system.
 The rule is AGENT_DOCTRINE.md's. This repo's guards: the test suite, `ruff`/`mypy`, the
 defensive-coding scorecard, the evasion corpus in `test_gates.py::TestSafety`, the clarifier's
 ambiguity corpus. The ❌ path has a named precedent here — tuning the clarifier against its own
-test corpus instead of a fresh one (`HANDOFF.md` §4 calls this out explicitly as a mistake already
-made once). For anything on the safety-critical path (any of the five gates,
+test corpus instead of a fresh one, a mistake already made once. `tests/test_gates.py::TestClarifier`
+carries its own AMBIGUOUS/SPECIFIC corpus (0% false negatives, low false positives): never tune production code
+against that exact corpus; if you use it to diagnose something, write a fresh one afterwards and report that
+number instead. For anything on the safety-critical path (any of the five gates,
 `Step.command`/`Step.run`, `execute`/`reject`), the "is this guard actually wrong" call isn't
 yours to make unilaterally: surface it to the user.

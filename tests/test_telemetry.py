@@ -675,7 +675,7 @@ class TestSummary:
     """summary.health_summary()/crash_summary() -- moved here from cli.py
     so tui.py's sidebar Evidence tab and cli.py's `torra evidence` share
     one implementation instead of tui.py depending on a sibling entry
-    point (HANDOFF.md §2.30)."""
+    point (docs/INVARIANTS.md §2.30)."""
 
     def _record(self, **overrides: object) -> TaskRecord:
         fields: dict[str, object] = {"task_id": "t", "request": "r", "at": 1.0}

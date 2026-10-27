@@ -234,7 +234,7 @@ Commands, task files, the full five gates, hardware-aware routing, OpenRouter, t
 | `torra/cli.py` | entry points |
 | `torra/telemetry/crash.py` | `CrashReporter` -- unhandled exceptions, distinct from ordinary gated-task failures |
 | `scripts/update.sh` | pull latest, reinstall, rerun the tests -- keeping this checkout current on your own machine (there's no server to deploy to) |
-| `scripts/claude_code_hook.py` | a Claude Code `PreToolUse` hook: torra's classifier judges each Bash command Claude runs; CRITICAL asks in Claude Code's prompt, it never answers "allow", and verdicts needing a tick go to `~/.torra/claude_code/verdicts.jsonl` (`HANDOFF.md` §2.85). Wired in `~/.claude/settings.json` as a `Bash` matcher running `.venv/bin/python -I scripts/claude_code_hook.py` by absolute path |
+| `scripts/claude_code_hook.py` | a Claude Code `PreToolUse` hook: torra's classifier judges each Bash command Claude runs; CRITICAL asks in Claude Code's prompt, it never answers "allow", and verdicts needing a tick go to `~/.torra/claude_code/verdicts.jsonl` (`docs/INVARIANTS.md` §2.85). Wired in `~/.claude/settings.json` as a `Bash` matcher running `.venv/bin/python -I scripts/claude_code_hook.py` by absolute path |
 | `tests/` | the test suite, organised by subsystem |
 | `examples/` | runnable task files |
 | `docs/os/` | reference material for the planning model, scoped to measured knowledge gaps — see `docs/os/README.md` |
@@ -244,7 +244,7 @@ Commands, task files, the full five gates, hardware-aware routing, OpenRouter, t
 | `pyproject.toml` · `uv.lock` | package and tool config (ruff, mypy `--strict`, pytest) · locked dependencies |
 | `.githooks/` · `LICENSE` | `pre-commit` refuses credentials and torra's own state files, `pre-push` scans the whole history with gitleaks (enable with `git config core.hooksPath .githooks`) · MIT |
 | `.github/workflows/ci.yml` | ruff, ruff format, mypy, the tests under branch coverage with floors, and the defensive-coding scorecard |
-| `HANDOFF.md` | for whoever or whatever picks this up next -- what changed and why lives in its own §2 entries and in `git log`, not a separate changelog |
+| `docs/INVARIANTS.md` · `docs/LIVE_WIRES.md` | for whoever or whatever picks this up next -- what changed and why lives in each invariant's and live wire's own entry and in `git log`, not a separate changelog |
 | `docs/agents/DEFENSIVE_CODING_STANDARDS.md` | how code here is graded; `scripts/dev/defensive_coding_report.py` computes it |
 | `docs/reports/AUDIT_LOG.md` | weekly append-only log from the `torra-doc-audit` opencode routine (scheduled weekly) — greps doc citations, and a local-model agent judges any that don't resolve real-vs-false-positive. |
 | `docs/reports/DEFENSIVE_SCORECARD_LOG.md` | monthly append-only log from the `torra-defensive-scorecard` opencode routine (scheduled monthly) — runs `scripts/dev/defensive_coding_report.py --enforce`, and only on a real regression has a local-model agent diagnose the likely commit from recent git history. |

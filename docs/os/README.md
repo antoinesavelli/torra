@@ -31,7 +31,7 @@ wiring is built, it names the table's files and never globs `docs/os/`.
 
 Add a fact only when a benchmark run in `scripts/dev/model_bench/` actually
 measured it wrong, vague, or hallucinated — the same discipline
-`HANDOFF.md` §3 applies to the clarifier's vocabulary applies here: a
+`docs/DECISIONS.md` R-2 and R-3 apply to the clarifier's vocabulary applies here: a
 docs file that grows from someone's guess about what might be missing, rather
 than a measured gap, is the same mistake in a new location. Start a new
 themed file rather than growing one past a natural topic boundary; update

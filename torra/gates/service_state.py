@@ -1,7 +1,7 @@
 """Reading and restoring systemd unit state for a step's undo.
 
 Split out of undo.py when the enablement handling pushed it past the 500-line cap
-(HANDOFF.md §2.63).
+(docs/INVARIANTS.md §2.63).
 
 Depends on: the standard library only.
 """
@@ -28,7 +28,7 @@ def service_units(command: str) -> list[str]:
     return units
 
 
-# Live wire: HANDOFF.md §5.20
+# Live wire: docs/LIVE_WIRES.md §5.20
 def systemctl_scope(unit: str) -> str:
     """'user' when systemd's user instance knows this unit, else 'system'.
 

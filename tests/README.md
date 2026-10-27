@@ -23,8 +23,8 @@ or network -- every external dependency is an injected callable (see
 | `test_remote_files.py` | Remote push and pull move exact bytes, name what they touch and judge the real destination |
 | `test_secrets.py` | Which secret-looking strings `redact_secrets` scrubs, and which credential files need a tick to read |
 | `test_instruction_files.py` | `CLAUDE.md` stays a one-line import stub, every read-first trigger target exists and is indexed, `AGENTS.md` stays under its byte budget |
-| `test_knowledge_refs.py` | Agent-facing docs cite only `HANDOFF.md` sections, guard tests and `AGENTS.md` area-map paths that still exist; a new `HANDOFF.md` §2/§5 entry stays at 10 non-blank lines and the file under a byte ceiling |
-| `test_claude_code_hook.py` | The Claude Code PreToolUse hook: CRITICAL asks, a concrete DANGEROUS rule informs, it never answers "allow", the verdict log is scrubbed and capped, and each failure fails the way `HANDOFF.md` §2.85 says |
+| `test_knowledge_refs.py` | Agent-facing docs cite only `docs/INVARIANTS.md` / `docs/LIVE_WIRES.md` sections (each checked in the file it names), guard tests and `AGENTS.md` area-map paths that still exist; a new §2/§5 entry stays at 10 non-blank lines; both files stay under their byte ceilings; every plan opens with its status header |
+| `test_claude_code_hook.py` | The Claude Code PreToolUse hook: CRITICAL asks, a concrete DANGEROUS rule informs, it never answers "allow", the verdict log is scrubbed and capped, and each failure fails the way `docs/INVARIANTS.md` §2.85 says |
 | `test_module_splits.py` | The 2026-10-25 module splits keep every public import path and the classes they were cut from |
 | `test_defensive_coding_report.py` | The scorecard's Testing rule (a re-exported name covers its module, the bare package covers nothing) and its Modularity nesting join (by `def` line, not by name) |
 | `test_knowledge_questions.py` | `docs/agents/knowledge_questions.yaml` is well formed and leaks no answer, each `expected` passes its own regexes, and every `must_contain` fact is still in the docs the question cites |

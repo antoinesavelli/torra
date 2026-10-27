@@ -487,7 +487,7 @@ trail, not just silently upgraded. Re-running the exact `/srv/api`
 reproduction above now shows the command classified CRITICAL, `effective
 safe: False`, and the rollback sweep result `cancelled` rather than
 `undone` — the directory survives. This is now a permanent invariant, not
-just a bug fix: see `HANDOFF.md` §2.7 and
+just a bug fix: see `docs/INVARIANTS.md` §2.7 and
 `tests/test_pipeline.py::test_a_declared_safe_rollback_is_still_classified`.
 
 **The model's own `safe` self-assessment is inconsistent, which is exactly
@@ -522,9 +522,9 @@ summary per turn (message plus a one-line-per-step digest), so context grew
 by roughly 25-30 tokens per turn against a 24,000-token budget with a 90%
 trigger — at that rate it would take several hundred real turns in one
 session to ever engage the compression path tested in `tests/test_gates.py`.
-Not a bug (torra's own `HANDOFF.md` already notes this component "sat
-unused for six phases" until the agent existed), but worth knowing: the
-degradation-ladder logic `HANDOFF.md` §5 flags as a live wire is exercised by
+Not a bug (this component sat
+unused for six phases until the agent existed), but worth knowing: the
+degradation-ladder logic `docs/LIVE_WIRES.md §5.5` flags as a live wire is exercised by
 its unit tests, not by anything resembling a typical real conversation.
 
 ## A false premise was not cross-checked against real observed state
@@ -582,7 +582,7 @@ None of this is a large-enough sample to certify a rate (9 total runs across
 both wordings), and the honest conclusion is that a prompt instruction alone
 does not reliably close this gap at devstral's capability level -- it shifts
 the odds, it doesn't fix the behavior the way the rollback-classification
-bug above was actually fixed. Consistent with `HANDOFF.md` §6.1's own
+bug above was actually fixed. Consistent with `docs/STATUS.md` gap 6.1's own
 framing: model-quality gaps get prompt work and model choice, not more
 gates, and prompt work has a ceiling a local model's own reasoning sets, not
 one more careful wording can push past.
@@ -741,8 +741,8 @@ runs didn't create (a sudo prompt with no TTY, VRAM tight enough that
 nothing in `available` fits, a human clicking a real button twice). The
 lesson isn't "test harder up front" so much as "an interactive tool run by
 an actual operator finds a different class of bug than any battery of
-synthetic requests will" -- consistent with `HANDOFF.md`'s own bias toward
-fixing what's demonstrated over what's merely imaginable.
+synthetic requests will" -- consistent with `docs/agents/PLAYBOOKS.md` "Before adding any feature" (question 3): measure
+what's demonstrated before building for what's merely imaginable.
 
 ## Found live: the operator's own model catalog broke routing outright
 
@@ -829,7 +829,7 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    step loop, not inside it -- so a plan `BLOCKED` by a precondition or
    file-conflict check on step one (before a single command ran) was
    marked "already executed" and could never be retried once the
-   underlying condition was fixed, the exact bug `HANDOFF.md` §2.8 had
+   underlying condition was fixed, the exact bug `docs/INVARIANTS.md` §2.8 had
    already fixed once for `REJECTED` and missed for this path. Moved the
    assignment to immediately before `sp.step.run()`.
 2. **`UndoGenerator`'s package-install undo silently didn't match the
@@ -856,8 +856,8 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    label`/`torra evidence` only ever *read* `tasks.jsonl`; nothing in
    `pipeline.py`, `agent.py`, or `tui.py` ever wrote to it. Both commands
    could only ever report zero tasks, no matter how much torra was
-   actually used -- and this is the file this report's own §6.1 (in
-   `HANDOFF.md`) names as the path to closing the project's only P0 gap.
+   actually used -- and this is the file this report's own gap 6.1 (in
+   `docs/STATUS.md`) names as the path to closing the project's only P0 gap.
    Wired `Torra._finish()` to call `self.telemetry.record(...)` for
    every turn, the same choke point the audit-JSON write already uses.
 6. **`OllamaClient.fallback_model` still defaulted to `"qwen3:8b"`** --
@@ -885,7 +885,7 @@ behavioral fixes and one documentation-honesty fix, in the order found:
    "a crash doesn't mean starting over"; `ResumePoint.load()` has no
    caller anywhere in the codebase, so today it's a write-only
    crash-forensics record, not resumability. Corrected the docstring and
-   recorded the gap in `HANDOFF.md` §6.4 rather than silently building
+   recorded the gap in `docs/INVARIANTS.md §2.33` rather than silently building
    the read side (skipping already-completed steps safely needs real
    design work: verifying the retried plan's step IDs still match the
    saved sequence, deciding whether a skipped step's undos still get
@@ -920,11 +920,12 @@ layout has changed across ROCm versions, and there is no AMD/ROCm
 hardware anywhere in this project's environment to verify a parser
 against -- guessing the format risks silently fabricating a VRAM number,
 which is worse than the current honest "unknown" default. Recorded in
-`HANDOFF.md` §6.5; fix only against real `rocm-smi` output.
+`docs/STATUS.md` gap 6.5; fix only against real `rocm-smi` output.
 
 128 tests pass (was 114 before this loop), ruff and mypy clean throughout.
-Full narrative and code-level rationale for each fix is in `HANDOFF.md`
-§§2.8-2.10 and §6.4-6.5; this section is the index.
+The rule behind each fix is in `docs/INVARIANTS.md`
+§§2.8-2.10 and §2.33 and `docs/STATUS.md` gap 6.5; the full narrative is in `git log -p -- HANDOFF.md`;
+this section is the index.
 
 ## Caveats
 
@@ -937,7 +938,7 @@ Full narrative and code-level rationale for each fix is in `HANDOFF.md`
 - 12 tasks is a real gambit across 8 difficulty tiers, not a large-N
   statistical sample. Good enough to pick a default with reasonable
   confidence; not good enough to certify a false-negative/false-positive rate
-  the way `HANDOFF.md` requires for the Clarifier's own measured numbers
+  the way `docs/USAGE.md` requires for the Clarifier's own measured numbers
   (30-label minimum).
 
 ## 2026-08-12 — `graphics-switching-scope` probe added, no gap found
@@ -1060,7 +1061,7 @@ itself to for a live-traffic decision (`CorpusExporter.MIN_SAMPLE = 30`,
 same discipline) — but the prototype no longer has a known, reproducible
 failure mode blocking it. Next step before considering production wiring:
 either a larger task battery, or actual labeled live traffic once real
-usage accumulates (see `HANDOFF.md` §6.1/§6.2).
+usage accumulates (see `docs/STATUS.md` gaps 6.1/6.2).
 
 ## 2026-08-23 — New task added: `t1-when-did-backup-last-run`
 
@@ -1099,8 +1100,8 @@ concluding anything from one sample per model.
 Motivated by a real request ("when was the last borg backup made") that the
 torra answered by asking a clarifying question, when `/srv/system-library/`
 already documented the exact backup setup on this machine and torra
-had zero code path to it. Built `TORRA_KNOWLEDGE_DIR` (see `HANDOFF.md`
-§5's new "Site-knowledge library" entry) and iterated the instruction text
+had zero code path to it. Built `TORRA_KNOWLEDGE_DIR` (see `docs/LIVE_WIRES.md`
+§5.21's "Site-knowledge library" entry) and iterated the instruction text
 in `MachineState.render()` three times, measuring live each time rather than
 guessing wording would work:
 
@@ -1113,7 +1114,7 @@ guessing wording would work:
 Round 3's wording works, but only for a sufficiently capable model — the
 smallest routed-to model (`qwen3.5:latest`) never reliably used the
 mechanism in this testing, even with the concrete example. Shipping this as
-a capability-dependent mechanism (documented as such in `HANDOFF.md`), not
+a capability-dependent mechanism (documented as such in `docs/LIVE_WIRES.md §5.21`), not
 as a guaranteed behavior across every model in `ROUTING_RULES`. Worth
 revisiting if/when a stronger default model is routed to for this task
 shape, or if `ModelRouter` grows a way to prefer a more capable model when

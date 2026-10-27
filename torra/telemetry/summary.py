@@ -63,7 +63,7 @@ def health_summary(records: list[TaskRecord]) -> str:
 def crash_summary(reporter: CrashReporter) -> str:
     """Unhandled-exception history -- distinct from the outcomes above,
     which are ordinary gated-task failures TaskLogger already records.
-    A crash here means a bug escaped every other guard (HANDOFF.md §2.29)."""
+    A crash here means a bug escaped every other guard (docs/INVARIANTS.md §2.29)."""
     crashes = reporter.read()
     if not crashes:
         return "no crashes recorded"

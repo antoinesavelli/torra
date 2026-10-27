@@ -5,7 +5,7 @@ mixes execute()'s own gate logic with this pre-execute, advisory-only check --
 two different concerns that don't need to share a file, and keeping them
 together was what pushed pipeline.py's functional LOC over this project's
 500-line modularity threshold (the same real reason resolve_resume() moved
-into core/resume.py -- see HANDOFF.md §2.33). Not under torra/gates/:
+into core/resume.py -- see docs/INVARIANTS.md §2.33). Not under torra/gates/:
 unlike the five real gates, this never blocks anything, so filing it
 alongside them would misrepresent what it actually does.
 """
@@ -28,7 +28,7 @@ def dependency_warnings(plan: Plan, approvals: dict[str, bool]) -> list[str]:
     A plain substring check, not a real dependency graph: torra has
     no model of what one step's output means to another, and never will
     without becoming exactly the kind of open-ended "list of things to
-    detect" HANDOFF.md §3 already warns against. This can neither catch
+    detect" docs/DECISIONS.md "Rejected" already warns against. This can neither catch
     every real dependency (a step that reads the file's *contents*, not
     its path, leaves no trace here) nor rule out a coincidental path
     match -- it is a hint to double-check, not a gate, and callers must

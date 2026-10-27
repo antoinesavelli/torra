@@ -278,8 +278,8 @@ class CommandJudge:
         `Document('x.docx') ... doc.save('x.docx')` -- regardless of which
         library is doing it. Matching the repeated literal itself, not a
         per-library method name, is deliberate: enumerating "save" spellings
-        library by library is exactly the open-ended list HANDOFF.md §3
-        already warns is a losing shape. Found via
+        library by library is exactly the open-ended list `docs/DECISIONS.md` R-2/R-3
+        already warn is a losing shape. Found via
         scripts/dev/model_bench/domain_exploration.py's xlsx-edit scenario
         (2026-08-28, devstral:24b): a `python3 -c` step loaded an existing
         spreadsheet and saved back over the same path with no backup or

@@ -78,7 +78,7 @@ class UndoGenerator(RemoteCapture):
         already builds (§2.52). `None` (the default, and what every existing
         caller still gets) means `capture_remote_file` always returns `None`
         -- a `remote_push` step is then honestly "uncovered", never a
-        fabricated undo (`HANDOFF.md` §2.53)."""
+        fabricated undo (`docs/INVARIANTS.md` §2.53)."""
         import tempfile
 
         self.shadow_dir = (
@@ -367,7 +367,7 @@ class UndoGenerator(RemoteCapture):
             # uses, just over the executor runner instead of the local
             # filesystem. None (no executor configured, unreachable, or the
             # snapshot itself failed) means genuinely no undo, not a
-            # skipped entry silently treated as covered (HANDOFF.md §2.53).
+            # skipped entry silently treated as covered (docs/INVARIANTS.md §2.53).
             remote_action = self.capture_remote_file(step.remote_path, step_id)
             if remote_action:
                 actions.append(remote_action)
@@ -425,7 +425,7 @@ class UndoGenerator(RemoteCapture):
             "skipped": list(self.skipped),
         }
 
-    # Live wire: HANDOFF.md §5.19
+    # Live wire: docs/LIVE_WIRES.md §5.19
     def cleanup(self) -> None:
         """Delete shadow copies made so far, after a successful run. The directory is recreated empty
         because one generator serves every `plan()` of the session and the next snapshot needs it."""

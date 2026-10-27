@@ -42,7 +42,7 @@ jobs:
       - name: Coverage floors
         # Measured 2026-10-04: 98% overall and 98% on the safety path. Raise a floor when it
         # is cleared; never lower one to turn a red build green. A bug once lived in fully
-        # covered code (HANDOFF.md §2.59), so this guards against losing tests, not against
+        # covered code (docs/INVARIANTS.md §2.59), so this guards against losing tests, not against
         # weak assertions.
         run: |
           uv run coverage report --fail-under=96

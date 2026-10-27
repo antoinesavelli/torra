@@ -1,10 +1,13 @@
 # torra: status
 
-Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-10-25.
+Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-10-27.
 
 **Phase: built, in use on the owner's workstation, in progress.** 209 commits on `main` since 2026-07-28.
 Moved to the corsu layout and standard on 2026-10-25 (`docs/DECISIONS.md` D-008 to D-013); those commits are
-local and not pushed (the push is the owner's call, Phase C of the migration plan).
+local and not pushed (the push is the owner's call, Phase C of the migration plan). On 2026-10-27 the old doc
+system retired onto that standard (D-014): `HANDOFF.md` is gone, its invariants and live wires are
+`docs/INVARIANTS.md` and `docs/LIVE_WIRES.md`, and the repo root holds only `README.md`, `AGENTS.md`,
+`CLAUDE.md` and `LICENSE`.
 
 ## Where it stands
 
@@ -12,11 +15,11 @@ A program the command classifier does not recognise
 needs a tick. Three shell shapes that still ran such a program with no tick
 (deeply nested `sh -c` or `$(...)`, `hash -p`, and an exported `PATH`,
 `LD_PRELOAD` or `BASH_ENV`) were found on 2026-10-08 and closed on 2026-10-09,
-each with a test (`HANDOFF.md` §2.75). The Phase 5 source read (`docs/plans/GRADE_TO_A_PLAN.md`)
+each with a test (`docs/INVARIANTS.md` §2.75). The Phase 5 source read (`docs/plans/GRADE_TO_A_PLAN.md`)
 found more of that shape (`read PATH`, `printf -v PATH`, namerefs) and `hostname newbox`
-running unticked; closed on 2026-10-23 (§2.83, §2.84). Its blind red-team has not
+running unticked; closed on 2026-10-23 (`docs/INVARIANTS.md` §2.83, §2.84). Its blind red-team has not
 run; until it does, treat the classifier as unfinished.
-The plan checks added on 2026-10-11 and 2026-10-12 (`HANDOFF.md` §2.78-2.81) have
+The plan checks added on 2026-10-11 and 2026-10-12 (`docs/INVARIANTS.md` §2.78-2.81) have
 met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 
 ## Code health
@@ -58,44 +61,150 @@ The six-phase prototype this package was consolidated from (`legacy/`) has
 been removed from the repository. A handful of numbers previously cited here
 — a 5,143x tree-watching speedup, checkpoint-size reduction, bytes-per-logged-task
 — were measured only against that removed code and are no longer independently
-reproducible; see `HANDOFF.md` §4 ("What was here before") for the honest
-accounting. This project's own standard is that an unreproducible citation
+reproducible. This project's own standard is that an unreproducible citation
 isn't one, so those numbers are no longer claimed here at all.
+The clarifier's 0% false-negative figure was likewise measured against a genuinely blind third corpus that was
+removed with `legacy/`; `tests/test_gates.py::TestClarifier` asserts 0% only against its own corpus, so treat the
+blind-corpus claim as historical.
 
-## Known gaps
+## Open gaps
 
-1. **Model judgement is measured now, and the first real finding is still
-   open.** The gates are tested against fixed corpora; tests still use a scripted
-   backend and prove nothing about judgement on their own. But real traffic
-   now flows through telemetry and gets hand-labeled (`torra label`), and
-   that measurement found the model stops and asks for only ~18% of requests
-   a human calls genuinely ambiguous (82% live false-negative rate against a
-   0% synthetic baseline). Whether a routing fix already found along the way
-   closes that gap isn't confirmed yet -- too little traffic has run since.
-   One related failure shape is fixed: a question torra could answer
-   itself with a read-only command (`lsblk`, `systemctl --failed`, ...)
-   used to get deflected back to "please run that yourself" instead of the
-   torra just running it -- live A/B tested against the real model before
-   shipping. See `HANDOFF.md` §6.1 and §2.40.
-2. **Real traffic exists, and it already found two real bugs.** Recorded
-   tasks are hand-labeled (`torra label`), and that
-   loop has already surfaced a pipefail/SIGPIPE bug and a VRAM-routing bug
-   that reading the code alone hadn't caught. See `HANDOFF.md` §6.2.
-3. **Undo coverage ceiling is narrower than it looks.** `dd`/`mkfs` writing
-   to a regular file is already covered automatically, the same as any other
-   command, as long as the file is declared in `touches:`. Only `dd`/`mkfs`
-   against a **raw device** and database migrations need a hand-written
-   `rollback:` entry -- there's no prior on-disk state to snapshot for
-   either. The plan pane names which steps those are. See `HANDOFF.md` §6.3.
+1. **Model judgement on real traffic:** gap 6.1.
+2. **Real traffic and the label-and-measure loop:** gap 6.2.
+3. **Undo coverage ceiling:** gap 6.3.
 4. **Tree watching misses a same-size same-mtime edit.** The declared-path
    SHA256 layer catches it, so `touches:` still matters.
 5. **You tick before the plan's own checks run.** Every tick is collected
    before step 1, so in a "list it, then delete it" plan the listing cannot
    inform the tick. The prompt now says what each target is; asking at the
    moment each step runs is an open decision (`docs/plans/GRADE_TO_A_PLAN.md` D8).
-6. **A read-only probe can need a tick.** `cat /var/run/reboot-required`
-   rates DANGEROUS because the regex backstop matches "reboot" in the file
-   name. It errs toward asking. See `HANDOFF.md` §6.5.
+
+### 6.1 The clarifier misses most genuinely ambiguous requests
+
+Open: on real, hand-labeled traffic the model stops and asks for only 18% of requests a human calls ambiguous
+(82% live false negatives, 39 occurrences) against a 0% synthetic baseline; whether the VRAM-eviction-credit routing
+fix (`docs/INVARIANTS.md §2.35`) closes it is unanswered, because 38 of the 39 were logged before that fix landed
+(2026-08-27 10:30) and one has been recorded since (correctly blocked; n=1 proves nothing).
+
+Why it matters: the gates are tested on fixed corpora and tests use a scripted backend, so only real traffic
+measures model judgement. As of that snapshot (143 recorded tasks, 29 `plan`-intent): the first proposal needed no
+repair in 12 of 29 plan turns, the repair loop rescued 11 of 29, and a human rejected 2 plans outright. Next step:
+more post-fix traffic, `torra label`, then `torra evidence`. If the gap persists the fix is prompt and
+model-judgment work, not more gates, and not a guess at new clarifier anchors (R-2, R-3 in `docs/DECISIONS.md`).
+Two attempts are recorded in `docs/INVARIANTS.md §2.40` (the repair-loop check reverted, R-9; the shipped rule-6
+wording fix, live A/B tested, for a read-only diagnostic such as `lsblk` deflected back to the operator): read them
+before a third.
+
+Pointers: `tests/test_pipeline.py::test_every_finished_turn_is_recorded_to_telemetry`,
+`tests/test_telemetry.py::TestDrift` (`docs/INVARIANTS.md §2.34`); the synthetic-corpus baseline is
+`tests/test_gates.py::TestClarifier::test_zero_false_negatives` and `::test_low_false_positives`.
+
+### 6.2 Keep collecting real traffic after each fix
+
+Open: the label-and-measure loop runs, but each fix needs its own post-fix traffic.
+
+Why it matters: 143 real tasks (about a month, CLI/TUI/OpenRouter), 91 hand-labeled, already found the
+pipefail/SIGPIPE-forgiveness gap (`docs/INVARIANTS.md §2.36`) and the VRAM-eviction-credit routing bug (`§2.35`).
+`drift()` averages fixed and still-broken traffic into one number (gap 6.1) until enough post-fix tasks exist to
+separate them. The 2026-10-11/12 replay and live plan-only runs are under "Where the numbers come from".
+
+### 6.3 Undo has no automatic coverage for raw devices and migrations
+
+Open: `dd`/`mkfs` against a raw device and database migrations need a hand-written `rollback:`.
+
+Why it matters: a regular file written by `dd`/`mkfs` is already covered (`touches:` is snapshotted whichever command
+writes it; verified live, and `SYSTEM_PROMPT` rule 7 now says so). A raw device has no prior on-disk state a userspace
+snapshot could restore, and the plan pane names which steps those are. Migrations are deliberately left to a
+human-reviewed `rollback:` (R-11 in `docs/DECISIONS.md`): this is a boundary, not a TODO.
+
+Pointers: `tests/test_gates.py::TestUndoGeneration::test_dd_against_a_regular_declared_file_is_already_covered`,
+`test_it_invents_nothing_it_cannot_invert`.
+
+### 6.5 Smaller known items
+
+Open, each small.
+
+- **Rename backups.** `harness-pre-torra-rename.bundle` and `dot-harness-pre-torra.tgz` were in `/mnt/data/archive/`;
+  that directory was not found on 2026-10-27, so they may already be gone. Delete only on the owner's say-so.
+- **Corsican spelling.** Have a native speaker confirm the spelling of *torra* (the Genoese coastal watchtower; the
+  meaning is certain, the spelling is not).
+- **Prescreen cost.** Found 2026-10-12, left as is by the owner: the "`request` line is underspecified" prescreen
+  complaint spent 2 of 3 model calls on a correct read-only plan (`ps aux --sort=-%mem`).
+- **Missing-path check is a heuristic** (`docs/INVARIANTS.md §2.80`): it misses paths built at run time and could
+  flag a plan that creates a path in a way it does not recognise (one wasted repair round and a warning).
+- **Blind-corpus clarifier false positive** (`run nvidia-smi and report the free VRAM in MB`): left unfixed
+  deliberately so one unoptimised measurement survives.
+- **ROCm VRAM is never read.** `detect_accelerator()` (`torra/core/machine.py`) detects presence only, so
+  `Accelerator.gpu` is always `False` on ROCm and the router caps at `CPU_PARAM_CEILING_B` (9B). Fix only against
+  real `rocm-smi` output (its columns changed across ROCm versions and no AMD hardware is in the target
+  environment); a guessed parser would report a fabricated VRAM figure.
+- **Undo states, doc vs code (found 2026-10-13, doc or code).** `AGENTS.md` says an undo has three states and
+  `undone` needs the verifier to return True; the code also has `cancelled` and returns `undone` with
+  `verified=None` when no verifier was supplied, which `RollbackReport.ok` counts as success
+  (`torra/gates/rollback.py`). `docs/INVARIANTS.md §2.6` states what the code does.
+- **Model size falls back to a name guess (found 2026-10-13).** `AGENTS.md` says size is never guessed from the
+  name; `ModelRouter._params_b` does when `/api/show` has nothing (chat capability never does).
+  `docs/INVARIANTS.md §2.9` states what the code does.
+- **Shadow copy of a non-regular file (found 2026-10-14, safety path).** `UndoGenerator.capture_file` copies every
+  model-declared `touches` path at plan time, before approval, with no `S_ISREG` check (unlike
+  `ConflictDetector.hash_file`); by reading the code a `touches: /dev/zero` would copy without bound. Not
+  reproduced; `max_shadow_bytes` does not stop it because `st_size` is 0.
+- **`cat /secret.env` is SAFE (found 2026-10-14, security call).** Only a file named exactly `.env` counts as a
+  credential read; re-checked 2026-10-27, still SAFE.
+- **`unzip` false positive (found 2026-10-14).** As a `known_programs` writer, `unzip /home/user/archive.zip -d /tmp`
+  is DANGEROUS because every operand counts as a destination (`docs/INVARIANTS.md §2.54`); re-checked 2026-10-27.
+- **Stale comment.** `torra/gates/router.py:92` says `muse-glimmer:30b` is still pulled; it is not (`ollama list`).
+  Comment only, on the gates path, so left for the owner.
+- **An unusable model reply gets no repair round** (`docs/INVARIANTS.md §2.67`, `§2.73`, `§2.74`, `§2.78`). A
+  task that fails validation gets one (`§2.78`); a reply with no JSON or no task object is reported, not repaired.
+  A feature, not a defect: `agent.py` has no room for it without a split.
+- **A user `trap ... ERR` or `set -e` inside a step defeats the error wrapper** (`docs/INVARIANTS.md §2.61`,
+  `§2.71`, `§2.74`).
+- **`begin_step` swallows a failed save of the resume file** (`docs/INVARIANTS.md §2.71`, `§2.74`;
+  `_save_quietly` in `torra/core/resume.py`), so a crash may leave no in-progress mark. The digest-covers-only-the-
+  command-text part is gap 6.6.
+- **An unredirected `cmd &` holds the output pipes open until the timeout** (`docs/INVARIANTS.md §2.71`, `§2.74`).
+- **Ctrl-C between steps is not caught** (`docs/INVARIANTS.md §2.74`); Ctrl-C inside a step is (`§2.61`).
+- **Redaction is pattern-based** (`docs/INVARIANTS.md §2.74`): a secret in a shape no pattern knows still leaves.
+- **Classifier gaps left open** (`docs/INVARIANTS.md §2.72`):
+  - `pytest` and `pip install` run arbitrary code and stay CAUTION. By design.
+  - A relative path after a `cd` into a non-system directory is not tracked.
+  - Program-specific format strings are not parsed. Re-checked 2026-10-27:
+    `tmux display-message -p '#(touch /tmp/x)'` classifies SAFE although tmux runs the `#(...)` command, so this is
+    a real hole, not only a theoretical one (gates path, the owner's call).
+  - Case and symlink spellings of a protected path rely on `_protected`'s own normalisation.
+- **Heredoc bodies are scanned for redirects** (`docs/INVARIANTS.md §2.87`): an over-tick. Re-checked 2026-10-27:
+  `cat <<EOF` with `echo a > /etc/x` in the body is CRITICAL.
+- **Remote edits** (`docs/INVARIANTS.md §2.73`): `torra check` classifies a remote step's ignored `run` text instead
+  of its real verdict (`cmd_check` in `torra/cli.py` still calls `classify(command)` on it); the pull-edit-push
+  pairing the prompt asks for is not enforced.
+- **`router.available` is not re-read after a step that pulls or removes a model** (`docs/INVARIANTS.md §2.73`;
+  `Agent.observe` refreshes it only on request or when empty).
+- **The tick preview is a snapshot** (`docs/INVARIANTS.md §2.81`): it describes the paths written in the plan, not
+  what an earlier step will find, and is not a live view once first shown.
+- **Model-bench injection scenario** (`docs/INVARIANTS.md §2.66`): not done, needs a live model run; owned by the
+  P3.3 row under Open work.
+
+### 6.6 A stopped run's resume point never expires, and the tick cannot see it (proposal, not built)
+
+Open: a resume file is deleted only by a clean success or an attempted rollback (`docs/INVARIANTS.md §2.64` point 4),
+so a failed or blocked run keeps it forever, and the operator is not told that a step will be skipped.
+
+Why it matters: the digest check keeps a stale file inert unless the new plan is a byte-identical retry
+(`docs/INVARIANTS.md §2.64` point 3; the digest covers only the command text, `§2.71`). Then its completed steps are
+skipped however old the evidence, and `resolve_resume` runs inside `execute()` after the ticks, so neither the CLI nor
+the TUI says so. In a find-then-act plan (gap 5, D8) the skipped step is the check the operator relied on when ticking
+the act. Four stale files had built up between 2026-07-28 and 2026-10-12 (archived and deleted 2026-10-13).
+
+Proposal: (1) `resolve_resume` treats a point whose `at` is older than a set age (24h, matching
+`STALE_SHADOW_SECONDS`) as not matching, logs it and starts fresh; an `in_progress` mark never expires
+(`docs/INVARIANTS.md §2.64` point 2), and no format change is needed because every save writes `at`. (2) Resolve
+at plan time too, read-only, and show "resumes N of M steps: <ids>" on the plan in the CLI and the TUI;
+`execute()`'s own resolution stays the authority. (3) A sweep of expired files wherever the shadow reaper runs, only
+if (1) still leaves clutter that matters.
+
+Ask-first: it is on `Torra.execute`'s path and changes the resume decision. Needs `TestResume` cases (an old point is
+ignored; an old `in_progress` mark still blocks) and a CLI test and a TUI test for the resume line.
 
 ## Open work
 
@@ -103,8 +212,7 @@ One owner per item, as `docs/agents/CONVENTIONS.md` registers it: the table poin
 
 | Where | What |
 |---|---|
-| `docs/plans/GRADE_TO_A_PLAN.md` | Phase 5 findings P5.1 to P5.3, owner decision D8, the blind red-team |
-| `HANDOFF.md` §6 | unfinished work with its story |
+| `docs/plans/GRADE_TO_A_PLAN.md` | owner decision D8, the Phase 5 blind red-team, the P3.3 model-bench scenario |
 | `docs/plans/CLAUDE_MIGRATION_ROADMAP.md` | buckets 2 to 4 of moving the operator role off Claude Code (parked: `docs/DECISIONS.md`) |
 
 ### Planner/verifier prototype (`scripts/dev/model_bench/planner_verifier.py`)

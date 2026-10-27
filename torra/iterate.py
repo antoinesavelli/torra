@@ -16,7 +16,7 @@ from .prompts import untrusted_block
 MAX_FEEDBACK_CHARS = 4000
 
 #: Given a gated plan and its round ("request", "verify" or "fix"), the per-step approvals,
-#: or None to decline the whole plan, which goes through `Torra.reject()` (HANDOFF.md §2.10).
+#: or None to decline the whole plan, which goes through `Torra.reject()` (docs/INVARIANTS.md §2.10).
 Approve = Callable[[Plan, str], dict[str, bool] | None]
 
 

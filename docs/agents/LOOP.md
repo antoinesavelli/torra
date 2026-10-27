@@ -12,7 +12,7 @@ report`): don't hold the code to a lower discipline than the code holds its mode
 OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
 ```
 
-1. **OBSERVE** — Read current state before acting: the relevant `README.md`, `HANDOFF.md` §2
+1. **OBSERVE** — Read current state before acting: the relevant `README.md`, `docs/INVARIANTS.md`
    for any invariant the area touches, and the actual code — never edit from memory of a
    prior session.
 2. **MODEL** — Identify blast radius. Is this on the safety-critical path (gates, the
@@ -31,7 +31,7 @@ OBSERVE → MODEL → DECIDE → ACT → VERIFY → CLOSE
    agent of its own in `opencode.json` (just `instructions` pointing here), so that means the
    global `build`/`quick` agent names, not a Paramo-style named one.
 5. **VERIFY** — Run the relevant tests; never skip. If the change touches classification,
-   routing, or rollback, also re-read the specific `HANDOFF.md` §2 entry it's near and confirm
+   routing, or rollback, also re-read the specific `docs/INVARIANTS.md` entry it's near and confirm
    the invariant the entry describes still holds, not just that tests are green (a test can be
    accidentally weakened in the same change that breaks what it guards).
 6. **CLOSE** — Report what changed and what's next. No trailing narration.
@@ -43,22 +43,22 @@ Not complete until all hold, in the *same* change:
 1. **Tests run and pass.** `uv run pytest -q` — every test must pass and
    the count never drops. A change that adds behavior without adding a test
    for it isn't done; a change that *removes* a test to make the suite pass is very likely
-   deleting the thing HANDOFF.md §2 told you not to delete — stop and re-read that section
+   deleting the thing docs/INVARIANTS.md told you not to delete — stop and re-read that section
    before doing it.
 2. **Per-file docstring current.** One line + a `Depends on:` line for every touched module
    (see `docs/agents/DEFENSIVE_CODING_STANDARDS.md` §1.3). If you changed what a file does or imports, fix it.
 3. **Area map current.** New/moved/renamed file → update that directory's `README.md` in the
    same change. New top-level directory → add a `README.md` and a row to the Area Maps table
    in `AGENTS.md`.
-4. **`HANDOFF.md` §2 current** if the change touches an existing invariant, or adds a new one
+4. **`docs/INVARIANTS.md` current** if the change touches an existing invariant, or adds a new one
    worth the same treatment. A new safety-relevant invariant with no entry here is invisible to
    the next agent who needs it. A § number is never reused or renumbered (code cites them); a
    retired entry stays as a one-line stub. A new §2 or §5 entry takes the next unused number and
    a heading of a few words, then `**Rule:**` (one sentence), `**Why:**` (one or two) and
    `**Guard:**` (test ids); a §5 entry adds its `Code:` line. At most 10 non-blank lines under the
    heading: the story goes in the commit. `tests/test_knowledge_refs.py` checks that cap and a
-   byte ceiling on the file; when one fails, shrink the entry or §6 item the change supersedes.
-   Raising the ceiling is the owner's call.
+   byte ceiling on each of `docs/INVARIANTS.md` and `docs/LIVE_WIRES.md`; when one fails, shrink
+   an entry the change supersedes. Raising a ceiling is the owner's call.
 5. **Lint and types clean.** `uv run ruff check .`, `uv run ruff format --check .` and `uv run mypy`
    (`--strict` on the package) all clean.
 6. **Defensive-coding scorecard held.** `uv run python scripts/dev/defensive_coding_report.py` — no
@@ -69,5 +69,5 @@ Not complete until all hold, in the *same* change:
    no external consumers of the package as an API — `pyproject.toml`'s `version` stays fixed
    at `0.0.0` (present only because PEP 621 requires the field), there is no `torra --version`
    flag, and there are no git tags to keep current. `git log`/GitHub's own commit and compare
-   views are the record of what changed and when; `HANDOFF.md` §2 is the record of why. Don't
+   views are the record of what changed and when; `docs/INVARIANTS.md` is the record of why. Don't
    reintroduce any of this without the user asking for it back explicitly.

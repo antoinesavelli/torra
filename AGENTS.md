@@ -97,7 +97,9 @@ Read the map for the area you're touching before grepping the source tree.
 | OS domain knowledge fed to the planning model (measured gaps only; the four files `docs/os/README.md` lists, never a glob of `docs/os/`) | `docs/os/README.md` |
 | Model-quality benchmark torra | `scripts/dev/model_bench/README.md` |
 | Agent topic files (targets of the read-first triggers above) | `docs/agents/README.md` |
-| **Invariants (§2), live wires (§5) and open work (§6), with the story behind each** | `HANDOFF.md` §2, §5, §6 |
+| **Invariants (§2.N): each rule, why, and its guard test** | `docs/INVARIANTS.md` |
+| **Live wires (§5.N): places where an obvious-looking change is wrong** | `docs/LIVE_WIRES.md` |
+| Approaches tried and rejected (R-N) | `docs/DECISIONS.md` "Rejected" |
 | How code here is graded (six dimensions, tiering, floors) | `docs/agents/DEFENSIVE_CODING_STANDARDS.md` |
 | Plans, one file each with a status header (`tests/test_knowledge_refs.py` checks it) | `docs/plans/` |
 | Migrating off Claude Code as operator (what's built, what's scoped but not) | `docs/plans/CLAUDE_MIGRATION_ROADMAP.md` |
@@ -106,8 +108,8 @@ Read the map for the area you're touching before grepping the source tree.
 
 ## Domain Invariants — Non-Negotiable
 
-Full stories and exact guarding tests are in `HANDOFF.md` §2 — this table is the index, not a
-replacement. If any of these is unclear before you act, read the full entry, then ask.
+Each rule, its why and its exact guarding tests are in `docs/INVARIANTS.md` §2.N (the incident stories are in
+`git log -p -- HANDOFF.md`) — this table is the index, not a replacement. If any of these is unclear before you act, read the full entry, then ask.
 
 | Invariant | Guarded by |
 |---|---|
@@ -150,7 +152,7 @@ collection without the venv.
 **Ask first:** editing `torra/gates/**`, `torra/pipeline.py` or `torra/core/tasks.py` (`.claude/settings.json` asks too) and anything
 between "model proposes" and "shell executes"; the formats of `resume/*.json`, `telemetry/tasks.jsonl` and `audit/*.audit.json`;
 creating a remote or any push; adding or reading a secret; a systemd unit or timer (two timers run torra routines); a paid API or
-other spend; deleting files or branches; raising `HANDOFF.md`'s byte ceiling.
+other spend; deleting files or branches; raising the byte ceiling of `docs/INVARIANTS.md` or `docs/LIVE_WIRES.md`.
 **Never:** sudo; lowering a coverage floor or a scorecard floor to turn a build green; recreating `.venv` (a Claude Code
 `PreToolUse` hook runs `.venv/bin/python -I scripts/claude_code_hook.py` in every session; experiment with
 `UV_PROJECT_ENVIRONMENT=/tmp/<dir>` instead); committing `.env`, credentials or `~/.torra` data.
@@ -158,5 +160,5 @@ other spend; deleting files or branches; raising `HANDOFF.md`'s byte ceiling.
 ## Definition of Done (full text `docs/agents/LOOP.md`)
 
 Tests pass and the count never drops, `ruff check`, `ruff format --check` and `mypy` clean, the defensive-coding scorecard held,
-docs current (the directory `README.md` row, `HANDOFF.md` §2 for an invariant, `docs/STATUS.md`, a `docs/DECISIONS.md` row for
+docs current (the directory `README.md` row, a `docs/INVARIANTS.md` entry for an invariant, `docs/STATUS.md`, a `docs/DECISIONS.md` row for
 a new decision), committed by explicit path.

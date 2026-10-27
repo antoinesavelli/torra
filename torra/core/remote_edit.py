@@ -4,7 +4,7 @@ risk floor `remote_push` gets at gate time. Split out of tasks.py/pipeline.py,
 both of which crossed this project's 500-functional-LOC modularity threshold
 once this landed inline -- the same real, measured reason
 dependency_warnings.py/read_memory.py/resume.py were split out earlier
-(HANDOFF.md §2.53).
+(docs/INVARIANTS.md §2.53).
 
 Depends on: torra.core.tasks (TorraError, TaskSpecError -- reused rather
 than new exception types; `TaskSpec.to_steps`'s `build()` imports this
@@ -65,8 +65,8 @@ def build_remote_pull_action(
     content over `executor_runner` and write it to `touches[0]` -- the
     model's own declared local destination, an ordinary local path any
     later step can then edit with the existing, unchanged pipeline. Never a
-    model-authored ssh command (`Step.remote_path`'s docstring, HANDOFF.md
-    §2.53); `validate_remote_step_fields` already guarantees `touches` is
+    model-authored ssh command (`Step.remote_path`'s docstring,
+    docs/INVARIANTS.md §2.53); `validate_remote_step_fields` already guarantees `touches` is
     non-empty by the time this runs, the check here is defense in depth for
     a `Step` built without going through validation."""
     if not touches:
@@ -141,7 +141,7 @@ def escalate_remote_push(verdict: Any, kind: str) -> None:
     detection safety net around it, and its only undo
     (`UndoGenerator.capture_remote_file`) can silently be absent if the
     pre-push snapshot itself failed -- CRITICAL, not DANGEROUS, so it never
-    blends in with a routine local step (HANDOFF.md §2.53). A no-op for
+    blends in with a routine local step (docs/INVARIANTS.md §2.53). A no-op for
     every other kind. Mutates `verdict` in place, matching the loop it's
     called from in `Torra._gate`."""
     if kind != "remote_push":

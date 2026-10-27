@@ -126,7 +126,7 @@ the package set, `mkdir` gets a removal that refuses to delete a directory
 someone filled. A step's undo is armed just before that step runs, so a stop
 reverses only steps that ran. Before any rollback, torra checks for files
 changed outside it and skips their undo instead of restoring a snapshot over
-the edit (`HANDOFF.md` §2.59, §2.71). After an undo runs, torra checks the
+the edit (`docs/INVARIANTS.md` §2.59, §2.71). After an undo runs, torra checks the
 system and reports one of three states: `undone` (the check passed),
 `unverified` (it ran, but the system is not back), `failed` (it raised).
 
@@ -223,7 +223,7 @@ export TORRA_EXECUTOR_SSH_KEY=~/.ssh/id_ed25519_torra
 
 Same `.env`/shell-export precedence as `OPENROUTER_API_KEY` above. Absent
 `TORRA_EXECUTOR_HOST`, this is entirely off -- no SSH connection is ever
-attempted, and nothing about local-only behavior changes (`HANDOFF.md`
+attempted, and nothing about local-only behavior changes (`docs/INVARIANTS.md`
 §2.52).
 
 **Editing a file there is pull-edit-push, never a raw remote command.** The
@@ -235,7 +235,7 @@ less-guarded machine is always treated as torra's highest risk level,
 unconditionally. Its undo snapshots the file's prior content over SSH
 before the push runs; a failure later in the same run restores that
 snapshot and checks the result, as local file undo does
-(`HANDOFF.md` §2.53).
+(`docs/INVARIANTS.md` §2.53).
 
 ---
 

@@ -1,8 +1,8 @@
 # Plan: torra's docs onto the corsu standard
 
-Status: active
+Status: done
 Owner decisions pending: none
-Last verified: 33a934a on 2026-10-27
+Last verified: a29ec97 on 2026-10-27 (Phase 1 in 630f633; Phase 2 in the commit after a29ec97)
 Owner approved the plan as a whole on 2026-10-26 · Executor: an Opus orchestrator session
 
 ## Goal

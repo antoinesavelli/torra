@@ -1036,7 +1036,7 @@ class TestUndoGeneration:
         assert coverage["uncovered"] == ["dd", "mkfs", "migrate"]
 
     def test_dd_against_a_regular_declared_file_is_already_covered(self, tmp_path: Path) -> None:
-        """HANDOFF.md §6.3: dd/mkfs writing to a regular file, not a raw
+        """docs/STATUS.md gap 6.3: dd/mkfs writing to a regular file, not a raw
         device, need nothing special -- `touches` is the only thing that
         was ever required, the exact same mechanism `cp`/`sed -i`/any other
         file-modifying command already gets. Runs the real command and the
@@ -1227,7 +1227,7 @@ class TestUndoGeneration:
 class TestCaptureRemoteFile:
     """UndoGenerator.capture_remote_file(): the direct remote mirror of
     capture_file, over a fake executor_runner -- no test here touches a
-    live network (HANDOFF.md §2.53)."""
+    live network (docs/INVARIANTS.md §2.53)."""
 
     def test_none_when_no_executor_runner_is_configured(self, tmp_path: Path) -> None:
         generator = UndoGenerator(shadow_dir=tmp_path / "shadow")
@@ -1463,7 +1463,7 @@ class TestUndoGeneratorRealProbesAndFailureEdges:
     def test_copy_uses_reflink_when_the_probe_reports_it_works(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """This filesystem (ext4, per HANDOFF §6.5) doesn't really support
+        """This filesystem (ext4, per docs/DECISIONS.md R-10) doesn't really support
         --reflink=always -- forcing the probe result is what exercises the
         success branch _copy would take on btrfs/xfs without needing one."""
         source = tmp_path / "src.txt"
@@ -1862,7 +1862,7 @@ class TestVerifiedRollback:
 
     def test_rollback_actions_reports_the_command_for_classification(self) -> None:
         """`rollback_actions()` used to return only (description, undo, safe),
-        which is exactly why HANDOFF.md §6.4's gap was possible: nothing
+        which is exactly why docs/INVARIANTS.md §2.7's gap was possible: nothing
         downstream could classify a command it was never given. `command` is
         now part of the tuple so a caller can. This class only tests the raw
         primitive; `Torra.execute` is where the command is actually
@@ -2432,7 +2432,7 @@ class TestHardwareAwareRouting:
 
 
 class TestServiceStateHelpers:
-    """HANDOFF.md §2.63: the verbs that put a unit's enablement and running state back."""
+    """docs/INVARIANTS.md §2.63: the verbs that put a unit's enablement and running state back."""
 
     def test_restore_verbs_cover_each_before_and_now_combination(self) -> None:
         from torra.gates.service_state import restore_verbs

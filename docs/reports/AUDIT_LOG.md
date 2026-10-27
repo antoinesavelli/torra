@@ -2,7 +2,7 @@
 
 **Schedule:** Weekly (opencode routine `torra-doc-audit`)
 **What it checks:** greps every backtick-quoted path-looking citation out of this repo's
-docs (README/AGENTS/CLAUDE/HANDOFF/docs/agents/DEFENSIVE_CODING_STANDARDS/AUDIT_FINDINGS) and
+docs (README/AGENTS/CLAUDE/docs/INVARIANTS/docs/LIVE_WIRES/docs/STATUS/docs/agents/DEFENSIVE_CODING_STANDARDS/AUDIT_FINDINGS) and
 checks it resolves on disk (repo root, the `torra/` package subdir, or the sibling
 `system-library` repo). Unresolved citations that are known false positives (structural rules:
 attached flags, `/slash-commands`, bare `./command` examples, `dir/module.symbol` references whose

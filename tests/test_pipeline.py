@@ -495,7 +495,7 @@ def test_dependency_warnings_module_works_standalone_not_just_via_torra(make_tor
 
 def test_on_output_receives_live_chunks_tagged_with_the_step_id(make_torra, tmp_path: Path) -> None:
     """The mechanism behind the TUI's live step-output view -- see
-    HANDOFF.md's entry on shell_output_sink for why this has to be an
+    docs/INVARIANTS.md §2.32 on shell_output_sink for why this has to be an
     execute()-time callback rather than something baked into the step at
     plan time."""
     torra = make_torra(
@@ -777,7 +777,7 @@ def test_a_declared_safe_rollback_is_still_classified(make_torra, tmp_path: Path
 
     Before this was fixed, the exact command below ran automatically during
     the rollback sweep with zero classification and zero confirmation --
-    see HANDOFF.md §6.4. Now it must be auto-declined (the default
+    see docs/INVARIANTS.md §2.7. Now it must be auto-declined (the default
     confirm_unsafe with nobody wired in to approve it), not silently run.
     """
     target = tmp_path / "should-survive"
@@ -804,7 +804,7 @@ def test_a_declared_safe_rollback_is_still_classified(make_torra, tmp_path: Path
 
 
 class TestResume:
-    """HANDOFF.md §6.4: ResumePoint.load() finally has a caller. A crash
+    """docs/INVARIANTS.md §2.33: ResumePoint.load() finally has a caller. A crash
     mid-task used to mean a retry re-ran every step from scratch, including
     ones that already had real side effects -- these prove a retry now
     skips genuinely-completed steps, and prove the several ways a resume
@@ -1322,7 +1322,7 @@ def test_an_external_edit_stops_the_run(make_torra, tmp_path: Path) -> None:
 def test_a_block_before_any_step_ran_does_not_overwrite_the_external_edit(
     make_torra, tmp_path: Path
 ) -> None:
-    """HANDOFF.md §2.59. Every approved step's undo used to be staged before
+    """docs/INVARIANTS.md §2.59. Every approved step's undo used to be staged before
     step one ran, so a conflict block went through the rollback sweep and
     copied the plan-time snapshot back over the very edit the conflict check
     had just caught. Nothing had run, so nothing may be reversed."""
@@ -1714,7 +1714,7 @@ def test_a_step_with_no_run_action_fails_instead_of_crashing(make_torra) -> None
 def test_a_secret_in_the_request_or_a_steps_output_reaches_no_file_on_disk(
     make_torra, tmp_path: Path
 ) -> None:
-    """HANDOFF.md §2.62, §2.74 (GRADE_TO_A_PLAN P3.1): audit JSON, task log and resume file."""
+    """docs/INVARIANTS.md §2.62, §2.74 (GRADE_TO_A_PLAN P3.1): audit JSON, task log and resume file."""
     fake = "sk-or-v1-" + "f4k3" * 12
     torra = make_torra(
         scripted(
@@ -1753,7 +1753,7 @@ def _holding(files: list[Path], text: str) -> list[str]:
 
 class TestRemotePushEscalation:
     """`_gate()`'s unconditional CRITICAL floor for `remote_push` steps --
-    HANDOFF.md §2.53. No test here touches a live network; the executor
+    docs/INVARIANTS.md §2.53. No test here touches a live network; the executor
     runner is always a fake dict-backed callable."""
 
     def test_remote_push_is_critical_even_though_its_own_text_classifies_safe(
@@ -2233,7 +2233,7 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
 
     Spies on ResumePoint.save to capture the path it was actually given,
     rather than checking the file still exists after execute() returns:
-    HANDOFF.md §6.4's resume fix now deletes the resume file on *any*
+    docs/INVARIANTS.md §2.33's resume fix now deletes the resume file on *any*
     terminal outcome including this test's own induced failure (a rollback
     means the file's "these steps are done" claim is no longer true), so
     post-hoc existence is no longer the right thing to assert on."""
@@ -2273,7 +2273,7 @@ def test_a_malicious_task_id_cannot_write_the_resume_file_outside_the_workdir(
 
 
 def test_safe_filename_leaves_no_path_separator() -> None:
-    """The one helper the audit and resume paths share (HANDOFF.md §2.12)."""
+    """The one helper the audit and resume paths share (docs/INVARIANTS.md §2.12)."""
     assert safe_filename("../../evil-poc") == ".._.._evil-poc"
     assert safe_filename("agent-3_ok.v2") == "agent-3_ok.v2"
 
@@ -2667,7 +2667,7 @@ def test_ctrl_c_during_a_step_is_a_failed_step_and_rolls_back(make_torra, tmp_pa
 
 def test_a_real_run_marks_the_observed_machine_state_stale(make_torra) -> None:
     """The state was observed once per agent and never refreshed, so the next turn reasoned
-    from disk and service facts a step had just changed (HANDOFF.md §2.69)."""
+    from disk and service facts a step had just changed (docs/INVARIANTS.md §2.69)."""
     torra = make_torra(scripted(plan_reply("t", "touch", [{"id": "s", "run": "true"}])))
     planned = torra.plan("touch")
     assert torra.agent.state is not None
@@ -2680,7 +2680,7 @@ def test_a_real_run_marks_the_observed_machine_state_stale(make_torra) -> None:
 
 
 class TestTheSweepNeverOverwritesAnEditItCanSee:
-    """HANDOFF.md §2.71: every way a run stops goes through one conflict check before the sweep."""
+    """docs/INVARIANTS.md §2.71: every way a run stops goes through one conflict check before the sweep."""
 
     def test_a_veto_between_steps_does_not_restore_over_an_edit_made_after_step_one(
         self, make_torra, tmp_path: Path

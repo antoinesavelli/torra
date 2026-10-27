@@ -208,7 +208,7 @@ def test_remember_step_reads_is_a_noop_with_no_plan_at_all() -> None:
 
 
 def test_file_contents_enter_context_as_delimited_data_not_system_text() -> None:
-    """HANDOFF.md §2.66: a file the model read used to arrive as a system-role message with no end
+    """docs/INVARIANTS.md §2.66: a file the model read used to arrive as a system-role message with no end
     marker, the highest authority in the conversation for text nobody at the keyboard wrote."""
     memory = ReadMemory(ContextCompressor(max_tokens=1000))
 

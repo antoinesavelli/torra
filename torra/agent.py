@@ -58,7 +58,7 @@ def _observe_with_executor(
 ) -> MachineState:
     """Today's observe_machine() call, plus the optional executor
     sub-observation attached afterward -- composition, not a change to what
-    observe_machine() itself does (HANDOFF.md §2.52). `executor_config` is
+    observe_machine() itself does (docs/INVARIANTS.md §2.52). `executor_config` is
     None (the common case) whenever TORRA_EXECUTOR_HOST isn't set, and
     then this behaves exactly like the plain observe_machine() call it
     replaces -- no SSH is ever attempted."""
@@ -77,7 +77,7 @@ class Agent(PlanChecks):
     to the model, so a vague request gets one good question instead of a
     guess -- inverting the clarifier's role without changing its logic."""
 
-    # Live wire: HANDOFF.md §5.8
+    # Live wire: docs/LIVE_WIRES.md §5.8
     #: How many times to hand a rejection back to the model before giving up.
     MAX_REPAIRS: int = 2
 

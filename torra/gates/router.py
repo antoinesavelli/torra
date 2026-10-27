@@ -172,7 +172,7 @@ ROUTING_RULES: list[tuple[str, str, str, str]] = [
         "(replaces qwen3:32b, then muse-glimmer:30b; measured "
         "best intent accuracy and speed 2026-08-28)",
     ),
-    # Live wire: HANDOFF.md §5.18
+    # Live wire: docs/LIVE_WIRES.md §5.18
     (
         "quick",
         r"\b(list|show|print|cat|what\s+is|check|status)\b",
@@ -395,7 +395,7 @@ class ModelRouter:
             return candidates[0]
         if self.available:
             pool = [m for m in self.available if self._chat_capable(m)] or list(self.available)
-            # Live wire: HANDOFF.md §5.17
+            # Live wire: docs/LIVE_WIRES.md §5.17
             return min(pool, key=self._params_b)
         return self.default_model
 

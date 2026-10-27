@@ -49,7 +49,7 @@ label and no "GPA"; `--enforce` exits 0 on the current tree.
 
 ### U2: docs and drift log
 Files: `docs/agents/DEFENSIVE_CODING_STANDARDS.md`, `docs/agents/LOOP.md`, `docs/agents/CONVENTIONS.md`,
-`docs/STATUS.md`, `DEFENSIVE_SCORECARD_LOG.md`.
+`docs/STATUS.md`, `docs/reports/DEFENSIVE_SCORECARD_LOG.md`.
 - Every reference to this scorecard's letters or GPA becomes bands / band mean; "drop a letter grade" becomes
   "drop a band". Drift-log past entries untouched; header updated; one dated mapping line added.
 Done: `grep -n "GPA\|letter grade\|\[A\]\|\[B\]" <files>` finds only past drift-log entries.

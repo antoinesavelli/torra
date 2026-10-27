@@ -243,7 +243,7 @@ HEREDOC = re.compile(
     r"(?<!<)<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n(?:.*?\n)?[ \t]*\2[ \t]*(?=\n|$)", re.DOTALL
 )
 
-# Live wire: HANDOFF.md §5.2
+# Live wire: docs/LIVE_WIRES.md §5.2
 #: Flags that consume the *next* token as their own value, per wrapper --
 #: used so _strip doesn't mistake a flag's value for the start of the
 #: wrapped command. Found live: `timeout -s KILL 5 kill -9 1` left "KILL"
@@ -307,5 +307,5 @@ BACKSTOP: list[tuple[str, RiskLevel, str]] = [
 ]
 #: Rows that match a bare word anywhere, so a file name or a search term (`cat /var/run/reboot-required`)
 #: trips them; they apply only when resolve() could not parse the line, as the argv rules judge the real
-#: `reboot`, `shutdown`, `systemctl poweroff` and `rm` once it can (docs/plans/GRADE_TO_A_PLAN.md P5.3, HANDOFF.md §2.90).
+#: `reboot`, `shutdown`, `systemctl poweroff` and `rm` once it can (docs/plans/GRADE_TO_A_PLAN.md P5.3, docs/INVARIANTS.md §2.90).
 UNPARSED_ONLY: frozenset[str] = frozenset({"host power state", "file deletion"})

@@ -86,7 +86,7 @@ def test_build_torra_registers_openrouter_even_without_the_env_var(
     no prefix in Agent.backends, so it silently fell through to
     self.ollama -- which converse()'s degraded-daemon fallback then
     silently swapped for a real local model, with no error at all
-    (HANDOFF.md §2.27). Registering it unconditionally is what lets
+    (docs/INVARIANTS.md §2.27). Registering it unconditionally is what lets
     OpenRouterClient.chat()'s own "OPENROUTER_API_KEY is not set" error
     actually fire, instead of the request being silently misrouted."""
     patch_ollama(monkeypatch, scripted({}))
@@ -1353,7 +1353,7 @@ def test_cmd_tui_builds_the_torra_through_build_torra(tmp_path, monkeypatch) -> 
     """`torra tui` used to build its own bare Torra(), a second,
     independent construction path from build_torra() -- silently skipping
     both the disk-free precondition and OpenRouter registration
-    (HANDOFF.md §2.27). Proven here by checking for the precondition only
+    (docs/INVARIANTS.md §2.27). Proven here by checking for the precondition only
     build_torra() attaches, not by re-asserting build_torra()'s own
     internals."""
     captured: dict[str, object] = {}

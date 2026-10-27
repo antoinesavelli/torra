@@ -41,7 +41,7 @@ class RemoteCapture(ShadowStore):
         permission denied, anything. That makes the calling `remote_push`
         step honestly "uncovered", the same philosophy this class already
         applies to `dd`/`mkfs`/anything it cannot guarantee an inverse for:
-        never a fabricated or best-effort undo (`HANDOFF.md` §2.53)."""
+        never a fabricated or best-effort undo (`docs/INVARIANTS.md` §2.53)."""
         if self._executor_runner is None:
             self.skipped.append(f"{remote_path} (executor): no executor configured")
             return None
