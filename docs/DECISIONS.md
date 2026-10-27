@@ -19,6 +19,7 @@ or a doc); the why is in the source when it is long. Approaches tried and abando
 | D-011 | 2026-10-25 | MIT license; public on `antoinesavelli/torra`, pushed directly to the existing remote | Source: migration plan decisions 7 and 9 | License done; push pending |
 | D-012 | 2026-10-25 | A gitleaks pre-push hook over full history, GitHub secret scanning and push protection; CI runs ruff, ruff format, mypy, pytest plus torra's coverage floors and defensive scorecard | Source: migration plan decision 8 | Hooks and CI done; GitHub settings pending |
 | D-013 | 2026-10-25 | The private `paramotrading/torra` repo is deleted | Stale since 2026-09-05. Source: migration plan decision 12 | Pending (owner, Phase C) |
+| D-015 | 2026-10-27 | The defensive-coding scorecard prints word bands (A = strong, B = ok, C = weak, D = poor, F = failing) and a band mean, not letters and a GPA; thresholds, floors and `--enforce` strictness unchanged | Its A–F was confused with the `/letter-grade` skill's A–F grade. Same spec as Paramo's copy. Source: `docs/plans/2026-10-27-scorecard-word-bands.md` | Done |
 
 The migration plan is `docs/plans/2026-10-25-corsu-migration.md` in the private system-library repo; its decisions
 are the owner's, made in the 2026-10-25 grilling.

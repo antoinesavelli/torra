@@ -28,7 +28,7 @@ Measured 2026-10-25 at commit `57a4f04`, from the repo root with `uv run`.
 | 1921 tests, all passing | `uv run pytest -q` |
 | `ruff check`, `ruff format --check` and `mypy --strict` clean | `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy` |
 | Branch coverage 98% overall (floor 96) and 99% on the safety path (floor 97) | `.github/workflows/ci.yml`'s two `coverage report` lines |
-| Defensive-coding scorecard A (GPA 3.83), with 0 decision-path files over 500 functional LOC | `uv run python scripts/dev/defensive_coding_report.py --verbose --enforce` |
+| Defensive-coding scorecard strong (band mean 3.83), with 0 decision-path files over 500 functional LOC | `uv run python scripts/dev/defensive_coding_report.py --verbose --enforce` |
 
 The tree was formatted on 2026-10-25 (`ruff format`, `*.md` excluded) after five modules that formatting
 would have pushed past 500 functional LOC were split by cohesion with no change to their code:

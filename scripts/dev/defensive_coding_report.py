@@ -20,12 +20,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TORRA_ROOT = REPO_ROOT / "torra"
 TESTS_ROOT = REPO_ROOT / "tests"
 
-#: Last-known-good grades, recorded from the first clean run against this
-#: codebase. A commit that drops any of these, or the overall GPA below
-#: MIN_GPA, fails `--enforce`. Raise a floor when you clear it; never lower
+#: Last-known-good bands, recorded from the first clean run against this
+#: codebase. A commit that drops any of these, or the overall band mean below
+#: MIN_BAND_MEAN, fails `--enforce`. Raise a floor when you clear it; never lower
 #: one to turn a red gate green (see standards doc §2/§6).
 #:
-#: Complexity raised to A: `_judge`, `detect`, `execute`, and every other
+#: Complexity raised to strong: `_judge`, `detect`, `execute`, and every other
 #: CCN>=15 offender were decomposed into focused helpers (each still one
 #: rule/check/phase per function, not a lookup table or a class hierarchy)
 #: on 2026-08-11, so 0 functions now sit at or above the CCN 15 ceiling.
@@ -35,20 +35,21 @@ TESTS_ROOT = REPO_ROOT / "tests"
 #: still has real offenders -- several are legitimate linear fallback
 #: cascades (`detect_accelerator`, `split_segments`) the standards doc's
 #: own §1.1 says not to fragment just to lower a number, so the floor
-#: stays B rather than being pushed to A by fixing those too.
+#: stays ok rather than being pushed to strong by fixing those too.
 ENFORCE_FLOORS: dict[str, str] = {
-    "Complexity": "A",
-    "Documentation": "A",
-    "Typing": "A",
-    "Testing": "A",
-    "Modularity": "B",
-    "Lint": "A",
+    "Complexity": "strong",
+    "Documentation": "strong",
+    "Typing": "strong",
+    "Testing": "strong",
+    "Modularity": "ok",
+    "Lint": "strong",
 }
-MIN_GPA = 3.80
+MIN_BAND_MEAN = 3.80
 
-GRADE_GPA = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
+#: Best to worst; the order drives the overall line's counts.
+BAND_VALUE = {"strong": 4.0, "ok": 3.0, "weak": 2.0, "poor": 1.0, "failing": 0.0}
 
-#: Peripheral files are listed for visibility but excluded from the grade --
+#: Peripheral files are listed for visibility but excluded from the bands --
 #: they are not on the path between "model proposes" and "shell executes".
 PERIPHERAL_SUFFIXES = ("cli.py", "tui.py", "__init__.py")
 
@@ -80,36 +81,36 @@ def functional_loc(path: Path) -> int:
 
 @dataclass
 class DimensionResult:
-    """One graded dimension: its letter, GPA, headline, and worst offenders."""
+    """One scored dimension: its band, headline, and worst offenders."""
 
     name: str
-    grade: str
+    band: str
     headline: str
     offenders: list[str]
 
 
 def band(value: float, thresholds: tuple[float, float, float, float], lower_is_better: bool) -> str:
-    """A/B/C/D/F from a value against four ascending thresholds."""
+    """strong/ok/weak/poor/failing from a value against four ascending thresholds."""
     a, b, c, d = thresholds
     if lower_is_better:
         if value <= a:
-            return "A"
+            return "strong"
         if value <= b:
-            return "B"
+            return "ok"
         if value <= c:
-            return "C"
+            return "weak"
         if value <= d:
-            return "D"
-        return "F"
+            return "poor"
+        return "failing"
     if value >= a:
-        return "A"
+        return "strong"
     if value >= b:
-        return "B"
+        return "ok"
     if value >= c:
-        return "C"
+        return "weak"
     if value >= d:
-        return "D"
-    return "F"
+        return "poor"
+    return "failing"
 
 
 # --------------------------------------------------------------------------- #
@@ -153,11 +154,11 @@ def function_nesting(files: list[Path]) -> dict[str, dict[int, int]]:
     return out
 
 
-def grade_complexity(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
+def score_complexity(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     """% of decision-path functions at/above CCN 15 (hard ceiling, standards §1.1)."""
     decision_files = [f for f in files if tiers[f] != "peripheral"]
     if not decision_files:
-        return DimensionResult("Complexity", "A", "no decision-path files", [])
+        return DimensionResult("Complexity", "strong", "no decision-path files", [])
 
     cc = radon_complexity(decision_files)
     total = over = 0
@@ -175,21 +176,21 @@ def grade_complexity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
                     )
                 )
     pct = (over / total * 100) if total else 0.0
-    grade = band(pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
+    result_band = band(pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
     offenders.sort(reverse=True)
     headline = f"{over} decision-path fn(s) >= CCN 15 ({pct:.1f}%), {total} checked"
-    return DimensionResult("Complexity", grade, headline, [o for _, o in offenders])
+    return DimensionResult("Complexity", result_band, headline, [o for _, o in offenders])
 
 
-def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
+def score_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     """File size (>500 functional LOC) and nested-complexity smells (standards §1.2)."""
     decision_files = [f for f in files if tiers[f] != "peripheral"]
     if not decision_files:
-        return DimensionResult("Modularity", "A", "no decision-path files", [])
+        return DimensionResult("Modularity", "strong", "no decision-path files", [])
 
     oversized = [(functional_loc(f), f) for f in decision_files if functional_loc(f) > 500]
     size_pct = len(oversized) / len(decision_files) * 100
-    size_grade = band(size_pct, (2.0, 5.0, 10.0, 18.0), lower_is_better=True)
+    size_band = band(size_pct, (2.0, 5.0, 10.0, 18.0), lower_is_better=True)
 
     cc = radon_complexity(decision_files)
     nesting = function_nesting(decision_files)
@@ -206,9 +207,9 @@ def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
                     f"{block['name']} (CCN {block['complexity']}, depth {depth})"
                 )
     tangled_pct = (len(tangled) / total_fns * 100) if total_fns else 0.0
-    tangled_grade = band(tangled_pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
+    tangled_band = band(tangled_pct, (1.5, 4.0, 8.0, 15.0), lower_is_better=True)
 
-    grade = min(size_grade, tangled_grade, key=lambda g: GRADE_GPA[g])
+    result_band = min(size_band, tangled_band, key=lambda b: BAND_VALUE[b])
     headline = (
         f"{len(tangled)} fn(s) nested >= depth 3 & CCN >= 10, "
         f"{len(oversized)} decision-path file(s) > 500 LOC"
@@ -216,7 +217,7 @@ def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
     offenders = [
         f"{loc} LOC: {f.relative_to(REPO_ROOT)}" for loc, f in sorted(oversized, reverse=True)
     ] + tangled
-    return DimensionResult("Modularity", grade, headline, offenders)
+    return DimensionResult("Modularity", result_band, headline, offenders)
 
 
 # --------------------------------------------------------------------------- #
@@ -224,11 +225,11 @@ def grade_modularity(files: list[Path], tiers: dict[Path, str]) -> DimensionResu
 # --------------------------------------------------------------------------- #
 
 
-def grade_documentation(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
+def score_documentation(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     """% of decision-path modules carrying a 'Depends on:' line (standards §1.3)."""
     decision_files = [f for f in files if tiers[f] != "peripheral"]
     if not decision_files:
-        return DimensionResult("Documentation", "A", "no decision-path files", [])
+        return DimensionResult("Documentation", "strong", "no decision-path files", [])
 
     missing: list[str] = []
     has_docstring = 0
@@ -242,13 +243,13 @@ def grade_documentation(files: list[Path], tiers: dict[Path, str]) -> DimensionR
 
     covered = len(decision_files) - len(missing)
     pct = covered / len(decision_files) * 100
-    grade = band(pct, (90.0, 75.0, 55.0, 35.0), lower_is_better=False)
+    result_band = band(pct, (90.0, 75.0, 55.0, 35.0), lower_is_better=False)
     headline = (
         f"{covered}/{len(decision_files)} carry 'Depends on:' "
         f"({pct:.0f}%), {has_docstring}/{len(decision_files)} have a "
         "module docstring"
     )
-    return DimensionResult("Documentation", grade, headline, missing)
+    return DimensionResult("Documentation", result_band, headline, missing)
 
 
 # --------------------------------------------------------------------------- #
@@ -256,11 +257,11 @@ def grade_documentation(files: list[Path], tiers: dict[Path, str]) -> DimensionR
 # --------------------------------------------------------------------------- #
 
 
-def grade_typing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
+def score_typing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     """Average % of params and returns annotated (standards §1.4)."""
     decision_files = [f for f in files if tiers[f] != "peripheral"]
     if not decision_files:
-        return DimensionResult("Typing", "A", "no decision-path files", [])
+        return DimensionResult("Typing", "strong", "no decision-path files", [])
 
     params_total = params_typed = returns_total = returns_typed = 0
     offenders: list[str] = []
@@ -293,9 +294,9 @@ def grade_typing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     return_pct = (returns_typed / returns_total * 100) if returns_total else 100.0
     param_pct = (params_typed / params_total * 100) if params_total else 100.0
     avg = (return_pct + param_pct) / 2
-    grade = band(avg, (90.0, 75.0, 60.0, 45.0), lower_is_better=False)
+    result_band = band(avg, (90.0, 75.0, 60.0, 45.0), lower_is_better=False)
     headline = f"returns {return_pct:.0f}%, params {param_pct:.0f}%"
-    return DimensionResult("Typing", grade, headline, offenders)
+    return DimensionResult("Typing", result_band, headline, offenders)
 
 
 # --------------------------------------------------------------------------- #
@@ -342,11 +343,11 @@ def reexported_names(path: Path) -> set[str]:
     }
 
 
-def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
+def score_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
     """% of decision-path modules with at least one test-side import (standards §1.5)."""
     decision_files = [f for f in files if tiers[f] != "peripheral"]
     if not decision_files:
-        return DimensionResult("Testing", "A", "no decision-path files", [])
+        return DimensionResult("Testing", "strong", "no decision-path files", [])
 
     imported = test_imported_modules()
     uncovered: list[str] = []
@@ -359,9 +360,9 @@ def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
 
     covered_count = len(decision_files) - len(uncovered)
     pct = covered_count / len(decision_files) * 100
-    grade = band(pct, (80.0, 65.0, 50.0, 35.0), lower_is_better=False)
+    result_band = band(pct, (80.0, 65.0, 50.0, 35.0), lower_is_better=False)
     headline = f"{covered_count}/{len(decision_files)} import-covered by tests ({pct:.0f}%)"
-    return DimensionResult("Testing", grade, headline, uncovered)
+    return DimensionResult("Testing", result_band, headline, uncovered)
 
 
 # --------------------------------------------------------------------------- #
@@ -369,8 +370,8 @@ def grade_testing(files: list[Path], tiers: dict[Path, str]) -> DimensionResult:
 # --------------------------------------------------------------------------- #
 
 
-def grade_lint(files: list[Path]) -> DimensionResult:
-    """Raw ruff issue count across all graded files (standards §1.6)."""
+def score_lint(files: list[Path]) -> DimensionResult:
+    """Raw ruff issue count across all scored files (standards §1.6)."""
     proc = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "--output-format=json", *[str(f) for f in files]],
         capture_output=True,
@@ -380,13 +381,13 @@ def grade_lint(files: list[Path]) -> DimensionResult:
     if proc.returncode not in (0, 1):
         raise RuntimeError(f"ruff check failed ({proc.returncode}): {proc.stderr.strip()}")
     issues = json.loads(proc.stdout or "[]")
-    grade = band(len(issues), (0, 5, 20, 50), lower_is_better=True)
+    result_band = band(len(issues), (0, 5, 20, 50), lower_is_better=True)
     offenders = [
         f"{Path(i['filename']).relative_to(REPO_ROOT)}:{i['location']['row']} "
         f"{i['code']} {i['message']}"
         for i in issues
     ]
-    return DimensionResult("Lint", grade, f"{len(issues)} ruff issue(s)", offenders)
+    return DimensionResult("Lint", result_band, f"{len(issues)} ruff issue(s)", offenders)
 
 
 # --------------------------------------------------------------------------- #
@@ -396,19 +397,19 @@ def grade_lint(files: list[Path]) -> DimensionResult:
 
 #: Verbose offender lists are capped here, at display time, so headline
 #: counts (over the full set) and the printed list never disagree -- found
-#: live: each grade_*() truncated its own offenders to 10 before this
+#: live: each score_*() truncated its own offenders to 10 before this
 #: existed, so Modularity's headline said "11 fn(s)" while only 10 were
 #: ever listed, with no "+more" to say the list wasn't complete.
 MAX_OFFENDERS_SHOWN = 10
 
 
 def render(
-    results: list[DimensionResult], overall_gpa: float, overall_grade: str, verbose: bool
+    results: list[DimensionResult], band_mean: float, overall_band: str, verbose: bool
 ) -> str:
     """The scorecard table, plus offenders when verbose."""
     lines = ["=" * 68, "DEFENSIVE CODING SCORECARD".center(68), "=" * 68]
     for r in results:
-        lines.append(f"  {r.name:<14} [{r.grade}]  {r.headline}")
+        lines.append(f"  {r.name:<14} {r.band:<8} {r.headline}")
         if verbose:
             shown = r.offenders[:MAX_OFFENDERS_SHOWN]
             lines.extend(f"      - {o}" for o in shown)
@@ -416,19 +417,35 @@ def render(
             if hidden > 0:
                 lines.append(f"      ... (+{hidden} more)")
     lines.append("-" * 68)
+    counts = ", ".join(
+        f"{n} {name}" for name in BAND_VALUE if (n := sum(r.band == name for r in results))
+    )
     lines.append(
-        f"  {'OVERALL':<14} [{overall_grade}]  GPA {overall_gpa:.2f} (decision-path weighted)"
+        f"  {'OVERALL':<14} {overall_band:<8} ({counts})  "
+        f"band mean {band_mean:.2f} (floor {MIN_BAND_MEAN:.2f})"
     )
     lines.append("=" * 68)
     return "\n".join(lines)
 
 
-def gpa_to_grade(gpa: float) -> str:
-    """Nearest letter grade for a GPA value."""
-    for letter, points in sorted(GRADE_GPA.items(), key=lambda kv: -kv[1]):
-        if gpa >= points - 0.5:
-            return letter
-    return "F"
+def nearest_band(mean: float) -> str:
+    """Nearest band for a band-mean value."""
+    for name, points in BAND_VALUE.items():
+        if mean >= points - 0.5:
+            return name
+    return "failing"
+
+
+def enforce_failures(results: list[DimensionResult], band_mean: float) -> list[str]:
+    """Messages for every dimension below its floor band, plus the band mean below its floor."""
+    failures = [
+        f"{r.name}: {r.band} below floor {ENFORCE_FLOORS[r.name]}"
+        for r in results
+        if BAND_VALUE[r.band] < BAND_VALUE[ENFORCE_FLOORS[r.name]]
+    ]
+    if band_mean < MIN_BAND_MEAN:
+        failures.append(f"band mean {band_mean:.2f} below floor {MIN_BAND_MEAN:.2f}")
+    return failures
 
 
 def main() -> int:
@@ -437,12 +454,12 @@ def main() -> int:
     parser.add_argument(
         "--area",
         default="torra",
-        help="Subpackage to grade, relative to the repo root (default: torra, the whole package)",
+        help="Subpackage to score, relative to the repo root (default: torra, the whole package)",
     )
     parser.add_argument(
         "--enforce",
         action="store_true",
-        help="Exit non-zero if any dimension or the overall GPA drops below its recorded floor",
+        help="Exit non-zero if any dimension or the band mean drops below its recorded floor",
     )
     parser.add_argument(
         "--verbose", action="store_true", help="List the worst offenders per dimension"
@@ -457,28 +474,22 @@ def main() -> int:
     tiers = {f: tier_of(f) for f in files}
 
     results = [
-        grade_complexity(files, tiers),
-        grade_documentation(files, tiers),
-        grade_typing(files, tiers),
-        grade_testing(files, tiers),
-        grade_modularity(files, tiers),
-        grade_lint(files),
+        score_complexity(files, tiers),
+        score_documentation(files, tiers),
+        score_typing(files, tiers),
+        score_testing(files, tiers),
+        score_modularity(files, tiers),
+        score_lint(files),
     ]
-    overall_gpa = sum(GRADE_GPA[r.grade] for r in results) / len(results)
-    overall_grade = gpa_to_grade(overall_gpa)
+    band_mean = sum(BAND_VALUE[r.band] for r in results) / len(results)
+    overall_band = nearest_band(band_mean)
 
-    print(render(results, overall_gpa, overall_grade, args.verbose))
+    print(render(results, band_mean, overall_band, args.verbose))
 
     if not args.enforce:
         return 0
 
-    failures = [
-        f"{r.name}: {r.grade} below floor {ENFORCE_FLOORS[r.name]}"
-        for r in results
-        if GRADE_GPA[r.grade] < GRADE_GPA[ENFORCE_FLOORS[r.name]]
-    ]
-    if overall_gpa < MIN_GPA:
-        failures.append(f"overall GPA {overall_gpa:.2f} below floor {MIN_GPA:.2f}")
+    failures = enforce_failures(results, band_mean)
     if failures:
         print("\nENFORCE FAILED:", file=sys.stderr)
         for f in failures:

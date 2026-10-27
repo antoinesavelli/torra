@@ -1,14 +1,14 @@
 # Defensive Coding Standards — a portable playbook
 
 This document is a handoff from a sibling project (Paramo, a Python trading system) that
-was brought from an ungraded state to a measured **Overall A, GPA 3.83** and has held that
-line under continuous development since. It is not a style guide — it is the architecture
+was brought from an ungraded state to a measured **overall strong, band mean 3.83** and has
+held that line under continuous development since. It is not a style guide — it is the architecture
 that makes a codebase *stout*: hard to silently regress, cheap to navigate, and safe for an
 agent with no memory of the codebase to work in without an experienced human re-reviewing
 every line. The goal here is to bring that same defensive posture to this torra project.
 
 The core idea: **quality is not a vibe, it's a number, and the number is enforced.** Every
-dimension below is measured by a script, given a letter grade, rolled into one GPA, and
+dimension below is measured by a script, given a band, rolled into one band mean, and
 gated in CI so a regression fails the build instead of surviving code review by accident.
 
 ---
@@ -29,7 +29,7 @@ Fix: **tier every file by actual blast radius** before grading anything.
 | **peripheral** | one-shot scripts, CLI/TUI glue, dashboards — not on the safety-relevant path | Listed for visibility, but **excluded from the grade** |
 
 Classify with a simple prefix/suffix rule and encode it once in the scoring script. This one
-design choice is what lets the rest of this document hold a *consistent* A instead of
+design choice is what lets the rest of this document hold a *consistent* strong instead of
 oscillating with every new script.
 
 **Implemented for this torra** in `scripts/dev/defensive_coding_report.py::tier_of`: a file
@@ -43,10 +43,13 @@ named files are **peripheral**.
 
 ## 1. The six graded dimensions
 
-Each dimension below is graded independently (A–F, mapped to a 4.0–0.0 GPA), then averaged
-into one **Overall GPA** — the single number that tells you at a glance whether a change made
+Each dimension below is graded independently into one of five bands (strong, ok, weak, poor,
+failing, worth 4, 3, 2, 1, 0), then averaged into one **band mean** —
+the single number that tells you at a glance whether a change made
 things worse. Thresholds are Paramo's actual, battle-tested numbers; treat them as a strong
 starting point, not gospel — tune once, then don't touch them except to raise the bar.
+The scorecard deliberately uses words, not letters, so it is not confused
+with the `/letter-grade` skill's A–F grade.
 
 ### 1.1 Complexity (cyclomatic complexity / McCabe, via `radon cc`)
 
@@ -58,7 +61,7 @@ starting point, not gospel — tune once, then don't touch them except to raise 
   dispatch table, or a ternary-heavy config builder can legitimately score 12–14 and be more
   readable *un-split* than split. Don't fragment code just to lower a number.
 - Grade = % of decision-path functions at/above the CCN ceiling, banded at 1.5% / 4% / 8% / 15%
-  (A/B/C/D; above 15% is F).
+  (strong/ok/weak/poor; above 15% is failing).
 
 ### 1.2 Modularity — two independent smells, not one
 
@@ -186,14 +189,14 @@ happening under deadline pressure. The shape that worked:
 $ python scripts/dev/defensive_coding_report.py
 
 ╔══ DEFENSIVE CODING SCORECARD ══════════════════════════════════╗
-  Complexity      [A]  3 decision-path fns ≥ CCN 15 (0.3%), worst 17
-  Documentation   [A]  100% carry 'Depends on', 100% have a module docstring
-  Typing          [A]  returns 96%, params 95%
-  Testing         [A]  97% modules import-covered by tests, 3,437 test fns
-  Modularity      [B]  4 fns nested ≥ depth 3 & CCN ≥ 10, 6 decision-path files > 500 LOC
-  Lint            [A]  0 ruff issue(s)
+  Complexity      strong   3 decision-path fns ≥ CCN 15 (0.3%), worst 17
+  Documentation   strong   100% carry 'Depends on', 100% have a module docstring
+  Typing          strong   returns 96%, params 95%
+  Testing         strong   97% modules import-covered by tests, 3,437 test fns
+  Modularity      ok       4 fns nested ≥ depth 3 & CCN ≥ 10, 6 decision-path files > 500 LOC
+  Lint            strong   0 ruff issue(s)
   ──────────────────────────────────────────────────────────────
-  OVERALL         [A]  GPA 3.83  (decision-path weighted)
+  OVERALL         strong   (5 strong, 1 ok)  band mean 3.83  (decision-path weighted)
 ╚════════════════════════════════════════════════════════════════╝
 ```
 
@@ -207,20 +210,20 @@ Implementation notes that matter more than they look like they should:
   N offenders per dimension.
 - Support scoping to a subpackage (`--area torra/gates`) so a reviewer of one PR isn't
   wading through repo-wide output.
-- **CI enforcement**: encode last-known-good grades as floors and fail the build if a new
+- **CI enforcement**: encode last-known-good bands as floors and fail the build if a new
   commit drops below them.
 
   ```python
   ENFORCE_FLOORS = {
-      "Complexity": "A", "Documentation": "A", "Typing": "A",
-      "Testing": "A", "Modularity": "B", "Lint": "A",
+      "Complexity": "strong", "Documentation": "strong", "Typing": "strong",
+      "Testing": "strong", "Modularity": "ok", "Lint": "strong",
   }
-  MIN_GPA = 3.80  # set just under your actual baseline GPA
+  MIN_BAND_MEAN = 3.80  # set just under your actual baseline band mean
   ```
 
   Run with `--enforce` in CI: exit non-zero if any graded dimension falls below its floor, or
-  overall GPA drops below the minimum. This is what turns "no dimension may drop a letter
-  grade" from a wish into a build failure.
+  overall band mean drops below the minimum. This is what turns "no dimension may drop a
+  band" from a wish into a build failure.
 
 - **Raise floors when you improve; never lower one to turn a red gate green.** If a gate is
   genuinely wrong (flagging something correct), fix the gate's *logic*, and say so explicitly
@@ -234,16 +237,16 @@ The example above is Paramo's. This is `torra/`'s, measured with
 `core.py`/`telemetry.py` → package split (§1.2.1) and the docstring/typing pass:
 
 ```
-Complexity      [B]  7 decision-path fn(s) >= CCN 15 (2.7%), 257 checked
-Documentation   [A]  17/17 carry 'Depends on:' (100%), 17/17 have a module docstring
-Typing          [A]  returns 100%, params 100%
-Testing         [A]  14/17 import-covered by tests (82%)
-Modularity      [C]  12 fn(s) nested >= depth 3 & CCN >= 10, 0 decision-path file(s) > 500 LOC
-Lint            [A]  0 ruff issue(s)
-OVERALL         [A]  GPA 3.50 (decision-path weighted)
+Complexity     ok       7 decision-path fn(s) >= CCN 15 (2.7%), 257 checked
+Documentation  strong   17/17 carry 'Depends on:' (100%), 17/17 have a module docstring
+Typing         strong   returns 100%, params 100%
+Testing        strong   14/17 import-covered by tests (82%)
+Modularity     weak     12 fn(s) nested >= depth 3 & CCN >= 10, 0 decision-path file(s) > 500 LOC
+Lint           strong   0 ruff issue(s)
+OVERALL        strong   (4 strong, 1 ok, 1 weak)  band mean 3.50  (decision-path weighted)
 ```
 
-`ENFORCE_FLOORS` in the script is set to this run, **not** an all-`A` aspiration, because the
+`ENFORCE_FLOORS` in the script is set to this run, **not** an all-`strong` aspiration, because the
 Complexity and Modularity offenders are exactly the case §1.1 warns against reflexively
 splitting: `SafetyClassifier._judge` (CCN 46, one flat `if` per shell program it recognizes),
 `Clarifier.detect` (CCN 26, one flat `if` per ambiguity check), and `Torra.execute` (CCN 29,
@@ -260,14 +263,14 @@ offenders in the codebase at the time (`SafetyClassifier._judge` included) were 
 into focused per-rule/per-check/per-phase helpers -- `_judge` now dispatches through a small
 table of `(predicate, handler)` pairs where each handler still holds exactly one program's own
 logic, not a table encoding risk levels or a class per program; `detect` and `execute` were
-split the same way. `ENFORCE_FLOORS` now requires Complexity **A** (0 functions >= CCN 15) and
+split the same way. `ENFORCE_FLOORS` now requires Complexity **strong** (0 functions >= CCN 15) and
 the file-size half of Modularity is also clean (`gates/rollback.py` split into `rollback.py` +
-`undo.py`, both under 500 LOC). Modularity's floor stays **B**: its separate nested-complexity
+`undo.py`, both under 500 LOC). Modularity's floor stays **ok**: its separate nested-complexity
 signal (depth >= 3 AND CCN >= 10) still has real offenders, several of them legitimate linear
 fallback cascades (`detect_accelerator`, `split_segments`) that are exactly the case this
 section already argued shouldn't be fragmented. The lesson from the original baseline --
 measure before assuming a number is fixable without a real structural change -- held: it took
-an explicit decision to accept that cost, not a quick refactor, to move Complexity to A.
+an explicit decision to accept that cost, not a quick refactor, to move Complexity to strong.
 
 Beyond the generic six dimensions, every real system has a handful of rules that are worth
 more than all the others combined — the ones where a violation doesn't just look bad, it
@@ -370,12 +373,12 @@ A change is not finished until **all** of the following hold, checked in the *sa
 3. Any area map (`README.md`) touched by the change (new/moved/renamed file) is updated.
 4. Any single-owner status fact the change alters is updated at its one canonical location.
 5. `ruff check` clean on touched files.
-6. The defensive-coding scorecard held — no dimension dropped a letter grade; if one did, fix
+6. The defensive-coding scorecard held — no dimension dropped a band; if one did, fix
    the regression in the same change (see §2's extraction pattern for Modularity specifically).
 
 Treat this exactly like Paramo's own recent history: a real feature addition (a new sizing
 mode + a full-universe data seam) pushed one file 6 lines over the 500-LOC modularity cap,
-which alone dropped the overall GPA from 3.83 to 3.67 and the letter grade from A to B→C.
+which alone dropped Modularity from ok to weak and the band mean from 3.83 to 3.67.
 The fix was a 15-minute extraction of two standalone helper functions into a new collaborator
 module — done in the same commit, verified back to baseline before merging. That's the loop
 this whole document describes: a regression is caught by a number, not a feeling, and fixed
@@ -398,7 +401,7 @@ pip install ruff mypy pytest pytest-cov radon coverage
    those habits are established.
 3. Tier your files (§0) before you grade anything — this is the step people skip and then
    wonder why the grade feels unfair.
-4. Run the script once, record the resulting grades as your `ENFORCE_FLOORS` baseline, wire
+4. Run the script once, record the resulting bands as your `ENFORCE_FLOORS` baseline, wire
    `--enforce` into CI.
 5. Write the area-map `README.md` files (§4) for existing top-level packages — retrofitting
    this is cheap and immediately pays for itself on the next context-constrained agent session.
@@ -413,7 +416,7 @@ All six steps above are complete for `torra/`:
    `mypy torra/` are both clean.
 2. `scripts/dev/defensive_coding_report.py` implements all six dimensions, not just three.
 3. Tiering is implemented in `tier_of()` in that script; see §0's "Implemented for this torra".
-4. `ENFORCE_FLOORS`/`MIN_GPA` in that script are the real baseline from §2.1, and
+4. `ENFORCE_FLOORS`/`MIN_BAND_MEAN` in that script are the real baseline from §2.1, and
    `.github/workflows/ci.yml` runs `pytest`, `mypy`, and the scorecard with `--enforce` on every
    push and pull request.
 5. Every package (`torra/`, `torra/gates/`, `torra/core/`, `torra/telemetry/`) plus

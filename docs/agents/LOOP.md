@@ -62,7 +62,7 @@ Not complete until all hold, in the *same* change:
 5. **Lint and types clean.** `uv run ruff check .`, `uv run ruff format --check .` and `uv run mypy`
    (`--strict` on the package) all clean.
 6. **Defensive-coding scorecard held.** `uv run python scripts/dev/defensive_coding_report.py` — no
-   graded dimension drops a letter grade from the current baseline in `docs/agents/DEFENSIVE_CODING_STANDARDS.md`
+   graded dimension drops a band from the current baseline in `docs/agents/DEFENSIVE_CODING_STANDARDS.md`
    §2.1 (`ENFORCE_FLOORS` in the script is the enforced version of that baseline). If one drops,
    fix the regression in the same change — see that doc §2's extraction pattern for Modularity.
 7. **No version bumps, tags, or a `CHANGELOG.md` entry.** This is a solo, private tool with

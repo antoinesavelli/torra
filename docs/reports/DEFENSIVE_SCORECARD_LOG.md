@@ -3,12 +3,14 @@
 **Schedule:** Monthly (opencode routine `torra-defensive-scorecard`)
 **What it checks:** runs `scripts/dev/defensive_coding_report.py --enforce` — the script's own
 authoritative regression gate (fails if any dimension drops below its recorded last-known-good
-grade, or overall GPA falls below `MIN_GPA`; see `docs/agents/DEFENSIVE_CODING_STANDARDS.md`). No LLM
+band, or the overall band mean falls below `MIN_BAND_MEAN`; see `docs/agents/DEFENSIVE_CODING_STANDARDS.md`). No LLM
 judgment decides *whether* there was a regression — only *why*: when `--enforce` fails, an
 opencode agent correlates the failure with recent commit history to point at a likely cause. A
 clean `--enforce` run appends a bare pass entry with the scorecard attached, no agent turn.
 **Append-only, newest run last** (a mechanical post-step does the actual write —
 `torra-defensive-scorecard.post.sh` — never the agent itself).
+
+**2026-10-27:** the scorecard now prints word bands instead of letters: A = strong, B = ok, C = weak, D = poor, F = failing; "GPA" is now "band mean" (same 4–0 values, same floor 3.80). Entries before this date keep the old letters and "GPA".
 
 ---
 
