@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fucone reader for bench.py: exits non-zero unless $FUCONE_RUN_DIR/results.json is a complete battery.
+"""pastore reader for bench.py: exits non-zero unless $PASTORE_RUN_DIR/results.json is a complete battery.
 
 Depends on: tasks.py (TASKS) and the stdlib; reads only, never contacts Ollama.
 """
@@ -28,9 +28,9 @@ def problem(rows: object) -> str:
 
 
 def main() -> int:
-    run_dir = os.environ.get("FUCONE_RUN_DIR")
+    run_dir = os.environ.get("PASTORE_RUN_DIR")
     if not run_dir:
-        print("FUCONE_RUN_DIR is not set", file=sys.stderr)
+        print("PASTORE_RUN_DIR is not set", file=sys.stderr)
         return 1
     path = Path(run_dir) / "results.json"
     try:

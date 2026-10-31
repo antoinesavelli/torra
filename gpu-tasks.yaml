@@ -1,4 +1,4 @@
-# Jobs fucone may run here; one is run only once listed in fucone's policy.yaml.
+# Jobs pastore may run here; one is run only once listed in pastore's policy.yaml.
 version: 1
 tasks:
   - id: model-bench
@@ -10,4 +10,5 @@ tasks:
     timeout: 2h
     resumable: true
     ollama_env: TORRA_OLLAMA_HOST
+    model_env: TORRA_BENCH_MODEL
     reader: {run: [.venv/bin/python, scripts/dev/model_bench/read_results.py]}

@@ -1,4 +1,4 @@
-"""scripts/dev/model_bench as a fucone job: endpoint from TORRA_OLLAMA_HOST, an Ollama outage aborts, results go to FUCONE_RUN_DIR."""
+"""scripts/dev/model_bench as a pastore job: endpoint from TORRA_OLLAMA_HOST, model from TORRA_BENCH_MODEL, an Ollama outage aborts, results go to PASTORE_RUN_DIR."""
 
 from __future__ import annotations
 
@@ -97,12 +97,12 @@ def test_grade_task_records_a_bad_answer_as_data() -> None:
     assert not result.ok and result.error == "AgentError: bad"
 
 
-def test_results_go_to_fucone_run_dir_when_set(
+def test_results_go_to_pastore_run_dir_when_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     default = tmp_path / "repo" / "results.json"
     monkeypatch.setattr(bench, "RESULTS_PATH", default)
-    monkeypatch.setenv("FUCONE_RUN_DIR", str(tmp_path))
+    monkeypatch.setenv("PASTORE_RUN_DIR", str(tmp_path))
     assert bench.write_results([{"a": 1}]) == tmp_path / "results.json"
     assert json.loads((tmp_path / "results.json").read_text()) == [{"a": 1}]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["results.json"]
@@ -113,8 +113,59 @@ def test_results_go_to_the_tracked_file_when_unset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(bench, "RESULTS_PATH", tmp_path / "results.json")
-    monkeypatch.delenv("FUCONE_RUN_DIR", raising=False)
+    monkeypatch.delenv("PASTORE_RUN_DIR", raising=False)
     assert bench.write_results([]) == tmp_path / "results.json"
+
+
+def test_fucone_run_dir_alone_no_longer_redirects_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    default = tmp_path / "repo" / "results.json"
+    default.parent.mkdir()
+    monkeypatch.setattr(bench, "RESULTS_PATH", default)
+    monkeypatch.delenv("PASTORE_RUN_DIR", raising=False)
+    monkeypatch.setenv("FUCONE_RUN_DIR", str(tmp_path / "run"))
+    assert bench.write_results([]) == default
+    assert not (tmp_path / "run").exists()
+
+
+@pytest.fixture
+def ran_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The models bench.main() runs; run_model is stubbed and results go to a tmp path."""
+    ran: list[str] = []
+    monkeypatch.setattr(bench, "run_model", lambda model: ran.append(model) or [])
+    monkeypatch.setattr(bench, "RESULTS_PATH", tmp_path / "results.json")
+    monkeypatch.delenv("PASTORE_RUN_DIR", raising=False)
+    monkeypatch.delenv("TORRA_BENCH_MODEL", raising=False)
+    monkeypatch.setattr(sys, "argv", ["bench.py"])
+    return ran
+
+
+def test_main_runs_only_the_model_named_by_torra_bench_model(
+    ran_models: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TORRA_BENCH_MODEL", " devstral:24b ")
+    assert bench.main() == 0
+    assert ran_models == ["devstral:24b"]
+
+
+def test_main_argv_wins_over_torra_bench_model(
+    ran_models: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TORRA_BENCH_MODEL", "devstral:24b")
+    monkeypatch.setattr(sys, "argv", ["bench.py", "qwen3:32b", "gpt-oss:20b"])
+    assert bench.main() == 0
+    assert ran_models == ["qwen3:32b", "gpt-oss:20b"]
+
+
+@pytest.mark.parametrize("value", [None, "", "  "])
+def test_main_runs_the_default_models_without_a_pinned_model(
+    ran_models: list[str], monkeypatch: pytest.MonkeyPatch, value: str | None
+) -> None:
+    if value is not None:
+        monkeypatch.setenv("TORRA_BENCH_MODEL", value)
+    assert bench.main() == 0
+    assert ran_models == bench.MODELS
 
 
 def rows(models: list[str]) -> list[dict[str, object]]:
@@ -137,7 +188,21 @@ def test_reader_refuses_an_unusable_result(bad: object) -> None:
 def test_reader_exits_non_zero_without_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("FUCONE_RUN_DIR", str(tmp_path))
+    monkeypatch.setenv("PASTORE_RUN_DIR", str(tmp_path))
     assert read_results.main() == 1
     (tmp_path / "results.json").write_text(json.dumps(rows(["a"])))
     assert read_results.main() == 0
+
+
+def test_reader_refuses_an_empty_run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "results.json").write_text(json.dumps(rows(["a"])))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PASTORE_RUN_DIR", "")
+    assert read_results.main() == 1
+
+
+def test_reader_ignores_fucone_run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "results.json").write_text(json.dumps(rows(["a"])))
+    monkeypatch.delenv("PASTORE_RUN_DIR", raising=False)
+    monkeypatch.setenv("FUCONE_RUN_DIR", str(tmp_path))
+    assert read_results.main() == 1

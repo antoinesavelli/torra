@@ -7,8 +7,8 @@ Benchmarks local Ollama models as torra's planner, using the real
 | File | Holds |
 |---|---|
 | `tasks.py` | The graduated difficulty test battery (13 tasks, tiers 1-8) with an explicit correctness rubric per task |
-| `bench.py` | Runs the battery against one or more models, grading via the real gates; `python3 bench.py qwen3:32b devstral:24b qwen3.5:latest`. An Ollama outage (HTTP 5xx, refused, timeout) aborts it non-zero with nothing written; with `FUCONE_RUN_DIR` set, `results.json` goes there instead. fucone job `torra/model-bench` (`gpu-tasks.yaml` at the repo root) |
-| `read_results.py` | fucone's reader for that job: exits non-zero unless `$FUCONE_RUN_DIR/results.json` holds every task for every model |
+| `bench.py` | Runs the battery against one or more models, grading via the real gates; `python3 bench.py qwen3:32b devstral:24b qwen3.5:latest`. An Ollama outage (HTTP 5xx, refused, timeout) aborts it non-zero with nothing written; with `PASTORE_RUN_DIR` set, `results.json` goes there instead. With no model on the command line it runs the one named by `TORRA_BENCH_MODEL`, else the default list. pastore job `torra/model-bench` (`gpu-tasks.yaml` at the repo root) |
+| `read_results.py` | pastore's reader for that job: exits non-zero unless `$PASTORE_RUN_DIR/results.json` holds every task for every model |
 | `planner_verifier.py` | Prototype: a second model reviews the planner's plan alongside the deterministic gates (default: `qwen3.5:9b` plans, `devstral:24b` verifies). The verifier returns structured findings; code decides the veto. `--control`, `--fixed`/`--fixed-only`, `--self-check`; `--planner-host`/`--verifier-host` for another machine |
 | `fixed_plans.py` | Hand-written good and bad plans for calibrating the verifier independent of any planner (`planner_verifier.py --fixed-only`) |
 | `popos_probe.py` | Probes Pop!_OS/System76-specific factual knowledge, to decide whether reference docs are worth adding |

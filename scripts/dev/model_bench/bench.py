@@ -4,8 +4,9 @@
 Depends on: torra.agent (Agent, Intent), torra.core (OllamaClient, observe_machine),
 torra.gates (SafetyClassifier, Clarifier, RiskLevel). Talks to a locally running
 `ollama serve` over HTTP. A custom transport wraps every call to capture latency and
-token counts without touching torra code. Reads TORRA_OLLAMA_HOST and FUCONE_RUN_DIR;
-an Ollama outage aborts the run non-zero with no results written.
+token counts without touching torra code. Reads TORRA_OLLAMA_HOST, TORRA_BENCH_MODEL (the one
+model to run when no model is given on the command line) and PASTORE_RUN_DIR; an Ollama
+outage aborts the run non-zero with no results written.
 """
 
 from __future__ import annotations
@@ -111,8 +112,8 @@ def is_infra_error(exc: BaseException | None) -> bool:
 
 
 def write_results(data: object) -> Path:
-    """Write JSON via temp file + os.replace into FUCONE_RUN_DIR when set, else RESULTS_PATH."""
-    run_dir = os.environ.get("FUCONE_RUN_DIR")
+    """Write JSON via temp file + os.replace into PASTORE_RUN_DIR when set, else RESULTS_PATH."""
+    run_dir = os.environ.get("PASTORE_RUN_DIR")
     path = Path(run_dir) / RESULTS_PATH.name if run_dir else RESULTS_PATH
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
@@ -295,7 +296,8 @@ def summarize(all_results: list[TaskResult]) -> None:
 
 
 def main() -> int:
-    models = sys.argv[1:] or MODELS
+    pinned = os.environ.get("TORRA_BENCH_MODEL", "").strip()
+    models = sys.argv[1:] or ([pinned] if pinned else MODELS)
     all_results: list[TaskResult] = []
     for model in models:
         all_results.extend(run_model(model))
