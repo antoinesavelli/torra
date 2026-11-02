@@ -9,7 +9,7 @@ Owner approved the plan as a whole on 2026-10-26 · Executor: an Opus orchestrat
 
 torra keeps two doc systems at once: the corsu standard (`README.md`, `AGENTS.md`, `docs/DESIGN.md`,
 `docs/DECISIONS.md`, `docs/STATUS.md`, `docs/agents/`, per
-`/mnt/ParamoStorage/system-library/docs/agents/NEW_REPO.md`) and the older system it was meant to replace: a
+`docs/agents/NEW_REPO.md` in the private system-library) and the older system it was meant to replace: a
 305 KB append-only `HANDOFF.md` plus ten other markdown files at the repo root. Done means the root holds only
 `README.md`, `AGENTS.md`, `CLAUDE.md` and `LICENSE`. Every fact then has one owner under `docs/`, `HANDOFF.md`
 is gone, and no guard is weaker than it is today.
@@ -51,7 +51,7 @@ docs/
    citation checks re-point to the new files. Raising those ceilings becomes the ask-first item in `AGENTS.md`.
    The test count must not drop.
 7. **`TODO.md`** folds into `docs/STATUS.md` (open work) and is deleted.
-8. **`AIGP_STUDY_GUIDE.md`** leaves the repo for `/mnt/ParamoStorage/career/AIGP_STUDY_GUIDE.md`, because it
+8. **`AIGP_STUDY_GUIDE.md`** leaves the repo for the owner's private notes, because it
    is exam prep, not torra documentation. Its one reference in the repo is removed.
 9. **Plans keep their filenames** under `docs/plans/`. No renaming to dated names.
 10. **`README.md`** keeps what it is, install, a short interface tour, the five gates in brief and the area
@@ -64,7 +64,7 @@ docs/
   a peer session). Before moving any of them, ask the owner to commit or OK them. Never stage hunks you didn't
   write.
 - **Routine config.** The opencode routines `torra-doc-audit` and `torra-defensive-scorecard` append to the
-  root log paths. The paths live in `/mnt/ParamoStorage/system-library/machines/workstation/opencode/opencode.json`
+  root log paths. The paths live in the private `opencode.json` in system-library
   and `~/.config/opencode/opencode.json`, plus any prompt file they point to (grep both trees). Changing those
   is outside this repo and runs on timers: ask before editing.
 - **Comment-only edits under the guarded paths.** Comments in `torra/gates/**`, `torra/pipeline.py` and
