@@ -29,9 +29,10 @@ session) → MODEL blast radius (reversible? safety-, P&L- or boot-critical? ask
 (one-sentence plan) → ACT (smallest change) → VERIFY (run the checks; re-confirm against the real
 state, never a tool's own printed summary) → CLOSE (what changed, what's next).
 
-**Minimal code.** Write the fewest lines that fully achieve the goal: reuse before writing, no
-speculative flags or abstractions, delete what the change makes dead — never by dropping boundary
-validation, types, the test that pins the behavior, or invariant checks.
+**Parsimonious code.** Prefer deleting to adding: if removing dead, deprecated, stale or duplicate
+code meets the goal, do that. Else write the fewest lines that do: reuse first, no speculative flags
+or abstractions. Delete only what you've proven unused, tests green before and after (doctrine
+*Removing code safely*) — never boundary validation, types, the pinning test, or invariant checks.
 
 **Fix the cause, not the check.** Never narrow a guard's scope, add an exemption, or soften a
 failing check to make it pass. A guard that is genuinely wrong (a false positive) may be fixed —
