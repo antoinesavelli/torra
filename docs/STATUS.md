@@ -17,8 +17,9 @@ needs a tick. Three shell shapes that still ran such a program with no tick
 `LD_PRELOAD` or `BASH_ENV`) were found on 2026-10-08 and closed on 2026-10-09,
 each with a test (`docs/INVARIANTS.md` §2.75). The Phase 5 source read (`docs/plans/GRADE_TO_A_PLAN.md`)
 found more of that shape (`read PATH`, `printf -v PATH`, namerefs) and `hostname newbox`
-running unticked; closed on 2026-10-23 (`docs/INVARIANTS.md` §2.83, §2.84). Its blind red-team has not
-run; until it does, treat the classifier as unfinished.
+running unticked; closed on 2026-10-23 (`docs/INVARIANTS.md` §2.83, §2.84). Its blind red-team ran on
+2026-11-17: 30 commands written by a model that read no repo code, all 30 need a tick
+(14 CRITICAL, 16 DANGEROUS, `docs/plans/GRADE_TO_A_PLAN.md` Phase 5). The re-grade is still to run.
 The plan checks added on 2026-10-11 and 2026-10-12 (`docs/INVARIANTS.md` §2.78-2.81) have
 met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 
