@@ -2,7 +2,7 @@
 
 Status: done
 Owner decisions pending: none (O1 to O3 answered, G0 and G1 given, all 2026-11-18)
-Last verified: 37b87f0 on 2026-11-18 (Phases 0 and 1; Phase 2 and 3 in the commit that closes this plan)
+Last verified: d370da1 on 2026-11-18 (all phases done)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal

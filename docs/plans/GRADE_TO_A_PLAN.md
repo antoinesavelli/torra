@@ -524,7 +524,7 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
 
 **P5.5 Write and run options of listed programs pass unticked.** Major; fixed 2026-11-18 by
 `docs/plans/P5_5_OPTION_ALLOWLIST_PLAN.md` (an allow list per listed program, `docs/INVARIANTS.md` §2.93): commits `f1614be`
-(Phase 0, the must-ask corpus), `37b87f0` (Phase 1) and Phase 2 (commit pending). Every command in the P5.5 finding (the P5.5 rows in `ASKS`, `tests/test_known_programs.py`) now asks; the
+(Phase 0, the must-ask corpus), `37b87f0` (Phase 1) and `d370da1` (Phase 2). Every command in the P5.5 finding (the P5.5 rows in `ASKS`, `tests/test_known_programs.py`) now asks; the
 scores above wait for the next independent re-grade.
 
 **What closes Phase 5 now.** P5.5 fixed (above); post-fix live traffic for the clarifier
