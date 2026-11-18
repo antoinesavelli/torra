@@ -24,8 +24,8 @@ and the fix is structural: the next unlisted option asks instead of running.
   `program_tables.py:112`), `_positive` and `_listing_only` (allow lists, `system_checks.py:93`, `:155`). All three
   read `_short()`, which splits **every** letter of a cluster, so an attached value (`-n50`, `-o/x`) gets read as
   flags. That is why an allowlist cannot simply reuse `_short()`: it would ask on `journalctl -n50`.
-- `_curl` exempts `-o /dev/null` by deleting every `-o`/`--output` once the separate-token ones all name
-  `/dev/null`, so `-o /dev/null --output=F` passes (`program_checks.py:212-220`). `-w` is never read.
+- `_curl` never reads `-w` (`program_checks.py:212-220`), and `-w '%output{F}'` writes F (confirmed on curl
+  8.5.0). `-o /dev/null --output=F` also reads SAFE but is harmless: curl rejects `--output=F` (`b9939bd`).
 - `_awk` denies `fiEl` and four exact long names; mawk's `-W` and gawk's `-o -p -d` and their long forms are not
   known (`:206`). `_sed_scripts` takes an exact `--expression=` only (`:191`).
 - `SUBCOMMANDS` judges only the subcommand, never the options around it: `pip list --log=F` is SAFE.
@@ -102,7 +102,7 @@ and the program-level summary go into docs.
   `_listing_only`. Check: the U0 cases for those programs pass, and the whole suite except the U4 cases stays
   green.
 - **U4 curl, tar, sed, awk** (Sonnet, after U2, parallel with U3). `program_checks.py` only. The four judges move to
-  `options.parse`. curl: every `-o` spelling must name `/dev/null` for the exemption, and a `-w`/`--write-out`
+  `options.parse`. curl: the `-o /dev/null` exemption is kept as is, and a `-w`/`--write-out`
   value containing `%output{` asks. tar: `--index-file` and every unlisted long form ask. awk: `-W`, gawk's
   `-o -p -d` and their long forms ask, with long names matched under the prefix rule. sed: every `-e`/`--expression`
   spelling feeds the script check. Delete `_avoiding`, `_hits` and `_CURL_LONG_WRITES`/`_TAR_UNSAFE_LONG` once
