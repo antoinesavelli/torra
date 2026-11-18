@@ -22,7 +22,8 @@ from .program_basics import (
     _subcommand,
     reads_credentials,
 )
-from .program_checks import _operands, _tar_paths
+from .program_checks import _operands
+from .program_options import _tar_paths
 from .program_tables import PREDICATES, SUBCOMMANDS
 
 __all__ = [

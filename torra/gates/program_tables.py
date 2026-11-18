@@ -8,19 +8,41 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from .program_basics import BOUNDED_WRITE, READ_ONLY
-from .program_checks import (
-    _avoiding,
-    _awk,
-    _curl,
-    _git,
-    _only_version,
-    _operands,
-    _python,
-    _sed,
-    _short,
-    _tar,
+from .option_specs import (
+    DATE,
+    DMESG,
+    DMIDECODE,
+    ETHTOOL,
+    FILE,
+    HASH,
+    HDPARM,
+    HOSTNAME,
+    JOURNALCTL,
+    MOKUTIL,
+    RG,
+    SDIFF,
+    SENSORS,
+    SMARTCTL,
+    SORT,
+    SS,
+    SSH_KEYGEN,
+    SWAPON,
+    SYSTEMD_RESOLVE,
+    TREE,
+    XRANDR,
+    date_prints,
+    ethtool_reads,
+    lists_swap,
+    no_operands,
+    nvidia_smi,
+    prints_fingerprint,
+    smartctl_logs,
+    tree_no_dash_operand,
 )
+from .options import allowing
+from .program_basics import BOUNDED_WRITE, READ_ONLY
+from .program_checks import _git, _only_version, _operands, _python, _short
+from .program_options import _awk, _curl, _sed, _tar
 from .system_checks import (
     _command,
     _crontab,
@@ -28,10 +50,8 @@ from .system_checks import (
     _dpkg,
     _ip,
     _iptables,
-    _listing_only,
     _nmcli,
     _pactl,
-    _positive,
     _printenv,
     _rsync_checked,
     _ruff,
@@ -42,17 +62,6 @@ from .system_checks import (
 
 _FIND_WRITES = frozenset(
     {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"}
-)
-
-_NVIDIA_WRITES = frozenset(
-    """
--pm -e -p -c -r -pl -ac -rac -acp -lgc -rgc -lmc -rmc -mig -dm -fdm
-""".split()
-)
-
-_HOSTNAME_SHOWS = frozenset(
-    "--alias --domain --fqdn --long --all-fqdns --ip-address --all-ip-addresses "
-    "--short --yp --nis --help --version".split()
 )
 
 
@@ -110,44 +119,14 @@ SUBCOMMANDS: dict[str, tuple[frozenset[str], ...]] = {
 }
 
 PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
-    "sort": _avoiding("o", ("--output",)),
-    "date": _avoiding("s", ("--set",)),
-    "dmesg": _avoiding("cCDEn", ("--clear", "--read-clear", "--console")),
-    "journalctl": _avoiding(
-        "",
-        (
-            "--vacuum",
-            "--rotate",
-            "--flush",
-            "--sync",
-            "--relinquish-var",
-            "--smart-relinquish-var",
-            "--setup-keys",
-            "--update-catalog",
-        ),
-    ),
-    "dmidecode": _avoiding("", ("--dump-file",)),
-    "ss": _avoiding("K", ("--kill",)),
-    "nvidia-smi": _avoiding(
-        "",
-        (
-            "--persistence-mode",
-            "--ecc-config",
-            "--reset-ecc-errors",
-            "--compute-mode",
-            "--gpu-reset",
-            "--power-limit",
-            "--applications-clocks",
-            "--lock-gpu-clocks",
-            "--lock-memory-clocks",
-            "--multi-instance-gpu",
-        ),
-        _NVIDIA_WRITES,
-    ),
-    "smartctl": _avoiding(
-        "sStXCeo",
-        ("--smart", "--test", "--abort", "--captive", "--saveauto", "--offlineauto", "--set"),
-    ),
+    "sort": allowing(SORT),
+    "date": allowing(DATE, date_prints),
+    "dmesg": allowing(DMESG),
+    "journalctl": allowing(JOURNALCTL),
+    "dmidecode": allowing(DMIDECODE),
+    "ss": allowing(SS),
+    "nvidia-smi": nvidia_smi,
+    "smartctl": allowing(SMARTCTL, smartctl_logs),
     "kill": lambda argv: (
         READ_ONLY if {"-l", "-L", "--list", "--table"} & set(argv[1:]) else BOUNDED_WRITE
     ),
@@ -165,12 +144,12 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "rsync": _rsync_checked,
     "git": _git,
     "su": _su,
-    "tree": _avoiding("o", ("--output",)),
-    "sdiff": _avoiding("o", ("--output",)),
-    "sensors": _avoiding("s"),
-    "file": _avoiding("C", ("--compile",)),
-    "hash": _avoiding("p"),  # `hash -p PROG ls` makes a later `ls` run PROG
-    "rg": _avoiding("", ("--pre", "--hostname-bin")),
+    "tree": allowing(TREE, tree_no_dash_operand),
+    "sdiff": allowing(SDIFF),
+    "sensors": allowing(SENSORS),
+    "file": allowing(FILE),
+    "hash": allowing(HASH),  # `hash -p PROG ls` makes a later `ls` run PROG
+    "rg": allowing(RG),
     "xxd": lambda argv: None if len(_operands(argv)) > 1 or "r" in _short(argv) else READ_ONLY,
     "crontab": _crontab,
     "dpkg": _dpkg,
@@ -190,26 +169,19 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "pactl": _pactl,
     "nmcli": _nmcli,
     "aplay": lambda argv: READ_ONLY if {"-l", "-L"} & set(argv[1:]) else None,
-    "ssh-keygen": _positive("lfEvB", needs="l"),
-    "swapon": _listing_only(
-        "s", frozenset({"--show", "--summary", "--noheadings", "--raw", "--bytes"})
-    ),
-    "ethtool": _avoiding("sEfACGKLNWtp"),
-    "hdparm": _positive("IitTv"),
-    "xrandr": _positive(
-        "q", frozenset({"--query", "--listmonitors", "--listproviders", "--prop", "--verbose"})
-    ),
-    "systemd-resolve": _positive("", frozenset({"--status", "--statistics"})),
+    "ssh-keygen": allowing(SSH_KEYGEN, prints_fingerprint),
+    "swapon": allowing(SWAPON, lists_swap),
+    "ethtool": allowing(ETHTOOL, ethtool_reads),
+    "hdparm": allowing(HDPARM),
+    "xrandr": allowing(XRANDR),
+    "systemd-resolve": allowing(SYSTEMD_RESOLVE),
     "arecord": lambda argv: READ_ONLY if {"-l", "-L"} & set(argv[1:]) else None,
     "fdisk": _disk_listing,
     "sfdisk": _disk_listing,
     "parted": _disk_listing,
     "sgdisk": _disk_listing,
     "printenv": _printenv,
-    # An operand, `-F` or `-b` sets the host name; display flags only print it.
-    "hostname": lambda argv: (
-        None if _operands(argv) else _positive("adfAiIsyhV", _HOSTNAME_SHOWS)(argv)
-    ),
+    "hostname": allowing(HOSTNAME, no_operands),  # an operand, `-F` or `-b` sets the host name
     "ruff": _ruff,
     "torra": _torra,
     "gcc": _only_version,
@@ -219,22 +191,5 @@ PREDICATES: dict[str, Callable[[Sequence[str]], str | None]] = {
     "rustc": _only_version,
     "cargo": _only_version,
     "java": _only_version,
-    "mokutil": _positive(
-        "",
-        frozenset(
-            {
-                "--sb-state",
-                "--list-enrolled",
-                "--list-new",
-                "--list-delete",
-                "--db",
-                "--dbx",
-                "--kek",
-                "--pk",
-                "--mokx",
-                "--help",
-                "--version",
-            }
-        ),
-    ),
+    "mokutil": allowing(MOKUTIL),
 }

@@ -1,17 +1,17 @@
-"""Per-program argv checks, part one: the flag helpers and `python -c`, `sed`, `awk`, `curl`, `tar`, `rsync`, `git`.
+"""Per-program argv checks, part one: the flag helpers and `python -c`, `rsync`, `git`.
 
-Depends on: torra.gates.program_basics (trust levels, `reads_credentials`, `_subcommand`),
-torra.gates.script_rules (sed and awk programs).
+`sed`, `awk`, `curl` and `tar` (and `tar`'s write paths) are judged in `program_options`.
+
+Depends on: torra.gates.program_basics (trust levels, `reads_credentials`, `_subcommand`).
 """
 
 from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 from .program_basics import BOUNDED_WRITE, READ_ONLY, _subcommand, reads_credentials
-from .script_rules import awk_program_is_safe, sed_script_is_simple
 
 #: Modules a `python -c` payload may import and still count as pure computation: none of them can
 #: write a file, start a process or reach the network.
@@ -40,37 +40,6 @@ methodcaller
 )
 OPEN_KEYWORDS = frozenset({"mode", "encoding", "errors", "newline"})
 
-_CURL_LONG_WRITES = (
-    "--output",
-    "--remote-name",
-    "--upload-file",
-    "--data",
-    "--form",
-    "--json",
-    "--config",
-    "--post",
-    "--create-dirs",
-    "--trace",
-    "--dump-header",
-    "--cookie-jar",
-    "--stderr",
-    "--libcurl",
-    "--etag-save",
-    "--hsts",
-    "--alt-svc",
-    "--next",
-)
-_TAR_UNSAFE_LONG = (
-    "--checkpoint-action",
-    "--to-command",
-    "--use-compress-program",
-    "--rsh-command",
-    "--info-script",
-    "--new-volume-script",
-    "--remove-files",
-    "--absolute-names",
-)
-
 
 def _short(argv: Sequence[str]) -> set[str]:
     """Letters of every single-dash flag cluster (`-sSL` gives s, S, L)."""
@@ -89,22 +58,6 @@ def _operands(argv: Sequence[str]) -> list[str]:
 def _hits(flag: str, denied: Sequence[str]) -> bool:
     """Whether a `--long` flag is one of `denied` or an abbreviation of one (`--out` for `--output`)."""
     return any(flag.startswith(d) or (len(flag) >= 4 and d.startswith(flag)) for d in denied)
-
-
-def _avoiding(
-    short: str = "", long: tuple[str, ...] = (), tokens: frozenset[str] = frozenset()
-) -> Callable[[Sequence[str]], str | None]:
-    """Read-only unless a flag from the given short letters, long prefixes or exact tokens shows."""
-
-    def judge(argv: Sequence[str]) -> str | None:
-        bad = (
-            _short(argv) & set(short)
-            or any(_hits(f, long) for f in _long(argv))
-            or tokens & set(argv[1:])
-        )
-        return None if bad else READ_ONLY
-
-    return judge
 
 
 def _opens_for_reading(call: ast.Call) -> bool:
@@ -176,105 +129,6 @@ def _only_version(argv: Sequence[str]) -> str | None:
         if list(argv[1:]) in (["--version"], ["-v"], ["-V"], ["-version"], ["version"])
         else None
     )
-
-
-def _sed(argv: Sequence[str]) -> str | None:
-    """Read-only only when every script is one `sed_script_is_simple` accepts."""
-    if "f" in _short(argv) or any(_hits(f, ("--file",)) for f in _long(argv)):
-        return None  # a script file: unknown content
-    if "i" in _short(argv) or any(_hits(f, ("--in-place",)) for f in _long(argv)):
-        return BOUNDED_WRITE
-    scripts = _sed_scripts(argv)
-    return READ_ONLY if scripts and all(sed_script_is_simple(x) for x in scripts) else None
-
-
-def _sed_scripts(argv: Sequence[str]) -> list[str]:
-    """The scripts on a sed command line: every `-e` value, else the first operand."""
-    scripts, operands, tokens = [], [], iter(argv[1:])
-    for tok in tokens:
-        if tok == "--expression" or (
-            tok.startswith("-") and not tok.startswith("--") and tok.endswith("e")
-        ):
-            scripts.append(next(tokens, ""))
-        elif tok.startswith("--expression="):
-            scripts.append(tok.split("=", 1)[1])
-        elif not tok.startswith("-"):
-            operands.append(tok)
-    return scripts or operands[:1]
-
-
-def _awk(argv: Sequence[str]) -> str | None:
-    if _short(argv) & set("fiEl") or _long(argv) & {"--file", "--include", "--load", "--exec"}:
-        return None
-    return READ_ONLY if all(awk_program_is_safe(o) for o in _operands(argv)) else None
-
-
-def _curl(argv: Sequence[str]) -> str | None:
-    short, long = _short(argv), _long(argv)
-    outputs = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-o", "--output")]
-    if outputs and all(o == "/dev/null" for o in outputs):
-        short, long = short - {"o"}, long - {"--output"}
-    if short & set("oOTdFKDc:") or any(_hits(f, _CURL_LONG_WRITES) for f in long):
-        return None
-    return READ_ONLY if all(m.upper() in ("GET", "HEAD") for m in _curl_methods(argv)) else None
-
-
-def _curl_methods(argv: Sequence[str]) -> list[str]:
-    """Every method given with `-X` or `--request` (also abbreviated, `--req`)."""
-    return [
-        argv[i + 1]
-        for i, a in enumerate(argv[:-1])
-        if a == "-X" or (a.startswith("--") and len(a) >= 5 and "--request".startswith(a))
-    ]
-
-
-def _tar_modes(argv: Sequence[str]) -> set[str]:
-    modes = _short(argv) | (set(argv[1]) if len(argv) > 1 and argv[1][:1] != "-" else set())
-    names = {
-        "--create": "c",
-        "--extract": "x",
-        "--get": "x",
-        "--list": "t",
-        "--delete": "d",
-        "--append": "r",
-        "--update": "u",
-        "--concatenate": "A",
-        "--diff": "d",
-    }
-    return modes | {names[f] for f in _long(argv) if f in names}
-
-
-def _tar(argv: Sequence[str]) -> str | None:
-    modes = _tar_modes(argv)
-    if modes & set("drAuIFP") or any(_hits(f, _TAR_UNSAFE_LONG) for f in _long(argv)):
-        return None
-    if modes & set("cx"):
-        return BOUNDED_WRITE
-    return READ_ONLY if "t" in modes else None
-
-
-def _tar_long_or_attached(tok: str, following: list[str]) -> list[str]:
-    """A path given as `--file=x`, `--file x`, or attached (`-C/etc`)."""
-    if tok[:2] in ("-C", "-f") and len(tok) > 2 and tok[2] in "/~.":
-        return [tok[2:]]
-    if tok in ("--directory", "--file"):
-        return following
-    return [tok.split("=", 1)[1]] if tok.startswith(("--directory=", "--file=")) else []
-
-
-def _tar_paths(argv: Sequence[str]) -> list[str]:
-    """Where tar writes: its archive (`-f`, when creating) and its `-C` directory."""
-    toks, paths = list(argv[1:]), []
-    for i, tok in enumerate(toks):
-        cluster = (
-            tok
-            if i == 0 and not tok.startswith("-")
-            else (tok[1:] if tok.startswith("-") and not tok.startswith("--") else "")
-        )
-        if i + 1 < len(toks) and ("C" in cluster or "f" in cluster):
-            paths.append(toks[i + 1])
-        paths += _tar_long_or_attached(tok, toks[i + 1 : i + 2])
-    return paths
 
 
 #: `host:path`, `user@host:path` and `rsync://host/...`: an operand that leaves this machine.

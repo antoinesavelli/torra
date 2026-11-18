@@ -141,6 +141,44 @@ READ_ONLY_COMMANDS = [
     "ruff check --no-fix . && ruff format --check .",
     "torra check task.yaml",
     "torra check -v examples/task.yaml",
+    # P5.5 Phase 1: routine forms each allow list must keep SAFE.
+    "curl -sS -L -H 'A: b' https://example.com",
+    "curl -m5 -sSLI https://example.com",
+    "curl --request HEAD https://example.com",
+    "tar tzf a.tgz",
+    "tar -tvf a.tar",
+    "tar --list --file=a.tar",
+    "awk -F ':' -v x=1 '{print $1, x}' f",
+    "awk -Ft '{print $1}' f",
+    "awk -F'size = ' '{print $2}' f",
+    "awk -W interactive '{print}' f",
+    "sed -nE 's/a/b/p' f",
+    "sed --expression='s/a/b/' f",
+    "sed -s -n '$p' a b",
+    "date -Is",
+    "date -d '-10 minutes' '+%F'",
+    "sort -k2,2n -t: f",
+    "sort --key=2 --field-separator=: f",
+    "journalctl -b -1",
+    "journalctl --since '-15 min' -o cat",
+    "ss -tlnpH",
+    "nvidia-smi --query-gpu=name,memory.used --format=csv,noheader 2>&1",
+    "nvidia-smi -q -d MEMORY",
+    "nvidia-smi dmon -s puc -d 1",
+    "nvidia-smi topo -m",
+    "file --mime-type x",
+    "rg -A25 foo",
+    "rg -d 2 foo",
+    "ethtool -w eth0",
+    "ethtool --json -S eth0",
+    "ssh-keygen -lf key.pub",
+    "swapon --show=NAME,SIZE --noheadings",
+    "swapon --show 2>&1",
+    "hostname -I 2>/dev/null",
+    "ruff check --no-fix --select E,F .",
+    "tree -L 2 -a",
+    "smartctl --identify",
+    "sdiff -s -w 160 a b",
 ]
 
 #: Known writers with a bounded effect: they run, flagged CAUTION.
@@ -172,6 +210,11 @@ BOUNDED_WRITE_COMMANDS = [
     "XY=/tmp; X=/etc; echo x > $XY/p",
     "echo x >$<b",
     "pytest tests/ -q",  # flagged CAUTION, never unticked-silent: not a read-only form
+    # P5.5 Phase 1: tar create/extract and sed -i stay bounded writes.
+    "tar czf /tmp/o.tgz dir",
+    "tar xf a.tar -C /tmp/d --strip-components=1",
+    "sed -i.bak 's/a/b/' f",
+    "sed --in-place=.bak 's/a/b/' f",
 ]
 
 #: Writing to a system path needs a tick even for a known writer.
@@ -282,212 +325,136 @@ ASKS = [
     "torra --workdir /tmp check t.yaml",
     "torra check --workdir /tmp t.yaml",
     # P5.5 (docs/plans/P5_5_OPTION_ALLOWLIST_PLAN.md): a listed program's write/run options must
-    # ask; each case flips to a pass when the fix lands.
-    pytest.param(
-        "curl -sS https://example.com -o /dev/null -w '%output{>>/home/u/.bashrc}x'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "tar -tf a.tar --index-file=/home/u/.bashrc",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "awk -W exec /tmp/evil.awk", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "gawk -o/home/u/.bashrc 'BEGIN{}'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "gawk -p/home/u/.bashrc 'BEGIN{}'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "gawk -d/home/u/.bashrc 'BEGIN{}'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "gawk --profile=/home/u/.bashrc 'BEGIN{}'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "gawk --pretty-print=/home/u/.bashrc 'BEGIN{}'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "gawk --dump-variables=/home/u/.bashrc 'BEGIN{}'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "gawk --fil=/tmp/evil.awk", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "gawk --inc=/tmp/evil.awk 'BEGIN{}'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "gawk --ex=/tmp/evil.awk", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --change eth0 speed 100",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --change-eeprom eth0 magic 0x1 offset 0 value 1",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --flash eth0 fw.bin", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --pause eth0 autoneg off",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --coalesce eth0 rx-usecs 10",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-ring eth0 rx 512",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --features eth0 tso off",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --offload eth0 tso off",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-channels eth0 combined 2",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --config-nfc eth0 rx-flow-hash tcp4 sdfn",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --config-ntuple eth0 flow-type tcp4 action -1",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-dump eth0 flag 1",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --test eth0 offline", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --identify eth0 5", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --negotiate eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --set-rxfh-indir eth0 equal 2",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --rxfh eth0 equal 2", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --per-queue eth0 queue_mask 0x1 --coalesce rx-usecs 10",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --reset eth0 all", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --set-eee eth0 eee off",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-priv-flags eth0 flag on",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-fec eth0 encoding off",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-tunable eth0 rx-copybreak 256",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-phy-tunable eth0 downshift on",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-module eth0 power-mode-policy high",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --cable-test eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --cable-test-tdr eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool --set-plca-cfg eth0 enable on",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-mm eth0 tx-enabled on",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --set-pse eth0 podl-pse-admin-control enable",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
+    # ask; its options are judged by an allow list (torra/gates/options.py).
+    "curl -sS https://example.com -o /dev/null -w '%output{>>/home/u/.bashrc}x'",
+    "tar -tf a.tar --index-file=/home/u/.bashrc",
+    "awk -W exec /tmp/evil.awk",
+    "gawk -o/home/u/.bashrc 'BEGIN{}'",
+    "gawk -p/home/u/.bashrc 'BEGIN{}'",
+    "gawk -d/home/u/.bashrc 'BEGIN{}'",
+    "gawk --profile=/home/u/.bashrc 'BEGIN{}'",
+    "gawk --pretty-print=/home/u/.bashrc 'BEGIN{}'",
+    "gawk --dump-variables=/home/u/.bashrc 'BEGIN{}'",
+    "gawk --fil=/tmp/evil.awk",
+    "gawk --inc=/tmp/evil.awk 'BEGIN{}'",
+    "gawk --ex=/tmp/evil.awk",
+    "ethtool --change eth0 speed 100",
+    "ethtool --change-eeprom eth0 magic 0x1 offset 0 value 1",
+    "ethtool --flash eth0 fw.bin",
+    "ethtool --pause eth0 autoneg off",
+    "ethtool --coalesce eth0 rx-usecs 10",
+    "ethtool --set-ring eth0 rx 512",
+    "ethtool --features eth0 tso off",
+    "ethtool --offload eth0 tso off",
+    "ethtool --set-channels eth0 combined 2",
+    "ethtool --config-nfc eth0 rx-flow-hash tcp4 sdfn",
+    "ethtool --config-ntuple eth0 flow-type tcp4 action -1",
+    "ethtool --set-dump eth0 flag 1",
+    "ethtool --test eth0 offline",
+    "ethtool --identify eth0 5",
+    "ethtool --negotiate eth0",
+    "ethtool --set-rxfh-indir eth0 equal 2",
+    "ethtool --rxfh eth0 equal 2",
+    "ethtool --per-queue eth0 queue_mask 0x1 --coalesce rx-usecs 10",
+    "ethtool --reset eth0 all",
+    "ethtool --set-eee eth0 eee off",
+    "ethtool --set-priv-flags eth0 flag on",
+    "ethtool --set-fec eth0 encoding off",
+    "ethtool --set-tunable eth0 rx-copybreak 256",
+    "ethtool --set-phy-tunable eth0 downshift on",
+    "ethtool --set-module eth0 power-mode-policy high",
+    "ethtool --cable-test eth0",
+    "ethtool --cable-test-tdr eth0",
+    "ethtool --set-plca-cfg eth0 enable on",
+    "ethtool --set-mm eth0 tx-enabled on",
+    "ethtool --set-pse eth0 podl-pse-admin-control enable",
     pytest.param(
         "pip list --log=/home/u/.bashrc", marks=pytest.mark.xfail(strict=True, reason="Phase 2")
     ),
-    pytest.param(
-        "sed --e='1w /home/u/.bashrc' p",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "sudo curl -s -o /dev/null -w '%output{/etc/fstab}x' https://example.com",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "sudo tar -tf a.tar --index-file=/etc/fstab",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "sudo ethtool --flash eth0 fw.bin",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool -w eth0 data /home/u/.bashrc",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool --get-dump eth0 data /home/u/.bashrc",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param("ethtool -r eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")),
-    pytest.param(
-        "ethtool -X eth0 equal 2", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
-    ),
-    pytest.param(
-        "ethtool -U eth0 flow-type tcp4 action 1",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "ethtool -Q eth0 queue_mask 0x1 --coalesce rx-usecs 10",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param(
-        "curl -sS https://example.com -o /dev/null --write-out '%output{>>/home/u/.bashrc}x'",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
-    pytest.param("gawk -p 'BEGIN{}'", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")),
-    pytest.param(
-        "env ethtool --flash eth0 fw.bin",
-        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
-    ),
+    "sed --e='1w /home/u/.bashrc' p",
+    "sudo curl -s -o /dev/null -w '%output{/etc/fstab}x' https://example.com",
+    "sudo tar -tf a.tar --index-file=/etc/fstab",
+    "sudo ethtool --flash eth0 fw.bin",
+    "ethtool -w eth0 data /home/u/.bashrc",
+    "ethtool --get-dump eth0 data /home/u/.bashrc",
+    "ethtool -r eth0",
+    "ethtool -X eth0 equal 2",
+    "ethtool -U eth0 flow-type tcp4 action 1",
+    "ethtool -Q eth0 queue_mask 0x1 --coalesce rx-usecs 10",
+    "curl -sS https://example.com -o /dev/null --write-out '%output{>>/home/u/.bashrc}x'",
+    "gawk -p 'BEGIN{}'",
+    "env ethtool --flash eth0 fw.bin",
+    # P5.5 Phase 1: spellings the builders and verifiers tried against the allow lists.
+    "curl -sS https://example.com -o /dev/null -w'%output{/tmp/x}'",
+    "curl -sS https://example.com -o /dev/null --write-out=%output{/tmp/x}",
+    "curl -sS https://example.com -o /dev/null -o /tmp/x",
+    "curl -sS https://example.com -o/tmp/x",
+    "curl -sS https://example.com --out /dev/null",
+    "curl -H @/home/u/hdr.txt https://example.com",
+    "curl -sS https://example.com -w @fmt",
+    "tar tf a.tar --index-file=/home/u/.bashrc",
+    "tar tfI a.tar cmd",
+    "tar -tf a.tar --index=/tmp/x",
+    "tar -tf a.tar --use-comp=cmd",
+    "tar -tPf a.tar",
+    "tar -xf a.tar --one-top-level=/home/u/.ssh",
+    "tar xfC a.tar /home/u/.ssh",
+    "tar -xC/home/u/.ssh -f a.tar",
+    "awk -Wexec /tmp/evil.awk",
+    "awk -W e /tmp/evil.awk",
+    "gawk -o 'BEGIN{}'",
+    "gawk --pre=/tmp/x 'BEGIN{}'",
+    "gawk -e 'BEGIN{system(\"x\")}'",
+    "awk -vx=1 -f p.awk",
+    "sed --expr='1w /home/u/.bashrc' p",
+    "sed -ne '1w /tmp/x' p",
+    "sed -n -e p -e 'w /tmp/x' f",
+    "sed -nf s.sed f",
+    "sed -i '1e touch pwned' f",
+    "sed -i -e 'w /home/u/.bashrc' f",
+    "TAR_OPTIONS=--to-command=sh tar -tf a.tar",
+    "POSIXLY_CORRECT=1 sed '1e cmd' f -e p",
+    "SSLKEYLOGFILE=/home/u/.bashrc curl -s https://example.com",
+    "CURL_HOME=/tmp/x curl -s https://example.com",
+    "TAPE=/home/u/.bashrc tar -c docs",
+    "date 0101120000",
+    "date --set=12:00",
+    "sort -ro out f",
+    "sort --compress-program=sh f",
+    "sort -T /tmp f",
+    "dmesg --clear",
+    "dmesg --console-level=1",
+    "journalctl --cursor-file=/tmp/x",
+    "journalctl --vacuum-time=1d",
+    "dmidecode --dump-bin /tmp/x",
+    "ss --kill",
+    "ss -D /tmp/x",
+    "nvidia-smi -i 0 -pm 1",
+    "nvidia-smi --filename=out.txt",
+    "nvidia-smi dmon -f /tmp/x",
+    "nvidia-smi topo -mp",
+    "smartctl -jt short /dev/sda",
+    "smartctl --test=long /dev/sda",
+    "smartctl -l scterc,70,70 /dev/sda",
+    "tree -Lo 1 out.txt",
+    "tree --output=f",
+    "tree -P -- -o out",
+    "tree --charset -- -o out",
+    "sdiff --diff-program=sh a b",
+    "file -Cm x",
+    "rg --pre=cat x",
+    "ethtool eth0 speed 10",
+    "ethtool -d eth0 file /tmp/f",
+    "swapon --raw '2>' /dev/sda2",
+    "env swapon --raw '2>' /dev/sda2",
+    "swapon -p 1 --show",
+    "hdparm -W0 /dev/sda",
+    "xrandr --query --output x --off",
+    "hostname -F f",
+    "hostname -s '>' newname",
+    "ruff check --no-fix --fix",
+    "ruff check --no-fix --config x.toml",
+    "ruff format --diff -o x",
 ]
 
 #: The worst of them are CRITICAL, not just gated.

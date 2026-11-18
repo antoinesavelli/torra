@@ -1,8 +1,8 @@
 # Plan: P5.5, a listed program's options are allowed, not denied
 
 Status: active
-Owner decisions pending: none (O1 to O3 answered 2026-11-18, each the recommended option); G0's yes to edit `torra/gates/**` is still to come
-Last verified: 9c3d823 on 2026-11-18 (Phase 0 done)
+Owner decisions pending: G1 (Phase 2 go-ahead; O1 to O3 answered and G0 given 2026-11-18)
+Last verified: f1614be on 2026-11-18 (Phases 0 and 1 done)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal
@@ -40,8 +40,8 @@ Answered by the owner on 2026-11-18: O1 allow list, O2 flag judges first, O3 no 
 
 **O1. Allow list, or patch the listed holes.** *Recommended: allow list.* Each listed program gets a spec of its
 known read-only options (short letters, marked if they take a value, and long names with their argument kind),
-parsed the way getopt parses them: clusters, attached values, `--name=value`, `--`, and a long abbreviation
-accepted only when it is a unique prefix of a known name. Any option outside the spec asks. This replaces
+parsed the way getopt parses them: clusters, attached values, `--name=value`, `--`, and full long names
+only (amended in Phase 1 from "a unique prefix"; see its result). Any option outside the spec asks. This replaces
 `_avoiding`, `_positive` and `_listing_only` with one judge, so it deletes code too. Patching only the evidence
 commands is smaller but is the open-ended detect-list shape `docs/DECISIONS.md` rejects (R-2, R-3, R-11): the
 next red-team finds the next option.
@@ -109,7 +109,7 @@ minus signs makes `ast.parse` in `_pure_python` (`program_checks.py:146`) raise 
   values in order plus the operands, or None on any unknown, ambiguous or malformed option. A factory
   `allowing(spec, value_ok=None, needs=None)` returns READ_ONLY or None, with `value_ok` a per-option value check
   (a module function, not a closure, per the CCN gotcha). Tests cover clusters, attached values (`-n50`),
-  `--x=v`, `--x v`, the unique-prefix rule, an ambiguous prefix, `--` and optional arguments (`gawk -p`,
+  `--x=v`, `--x v`, an abbreviation refused, `--` and optional arguments (`gawk -p`,
   `--profile[=F]`). Check: `uv run pytest tests/test_options.py -q`, `uv run mypy`.
 - **U3 table judges** (Sonnet, after U2). `program_tables.py` and `system_checks.py` only. Convert every
   `_avoiding`, `_positive` and `_listing_only` entry to an `allowing` spec of that program's read-only options
@@ -119,7 +119,7 @@ minus signs makes `ast.parse` in `_pure_python` (`program_checks.py:146`) raise 
 - **U4 curl, tar, sed, awk** (Sonnet, after U2, parallel with U3). `program_checks.py` only. The four judges move to
   `options.parse`. curl: the `-o /dev/null` exemption is kept as is, and a `-w`/`--write-out`
   value containing `%output{` asks. tar: `--index-file` and every unlisted long form ask. awk: `-W`, gawk's
-  `-o -p -d` and their long forms ask, with long names matched under the prefix rule. sed: every `-e`/`--expression`
+  `-o -p -d` and their long forms ask, with long names matched in full only. sed: every `-e`/`--expression`
   spelling feeds the script check. Delete `_avoiding`, `_hits` and `_CURL_LONG_WRITES`/`_TAR_UNSAFE_LONG` once
   nothing imports them. Check: every U0 case passes except the Phase 2 xfail; `defensive_coding_report.py
   --enforce` holds.
@@ -129,6 +129,39 @@ spellings the unit did not list, `sudo` and `env` wrappers, quoting, and attache
 
 **Integration (orchestrator):** full Definition of Done, then the replay against the baseline. Each move goes
 through O3; widening a spec goes back to the unit's builder.
+
+**Phase 1 result (done 2026-11-18).** U2 `torra/gates/options.py` (68 tests); U3 the 23 deny-list and letter-set
+judges as specs in `torra/gates/option_specs.py`; U4 curl, tar, sed and awk in `torra/gates/program_options.py`.
+`_avoiding`, `_positive`, `_listing_only`, `_CURL_LONG_WRITES` and `_TAR_UNSAFE_LONG` are deleted. All 55 Phase 1
+xfails pass, the corpus gained 111 cases, and the suite is 2225 passed and 1 xfailed (Phase 2). Each unit was broken by its
+verifier first, then fixed:
+- *Long names match in full only* (O1 said "unique prefix"). The real program matches its whole option table
+  first, so a prefix of a spec name can be the full name of an option the spec omits: `curl --output F` was
+  accepted as the allowed `--output-dir`. Abbreviations now ask; real traffic has none.
+- tree is not getopt (a value letter takes the next word and the cluster goes on: `tree -Lo 1 F` writes F) and its
+  value options swallow `--`; smartctl's short `-j` takes no value (`-jt short` hid a self-test); a quoted `'2>'`
+  operand hid the next word from swapon's operand check. All three were SAFE in the first build and now ask.
+- Found in passing and fixed: tar `-C` attached, clustered or old-style and `--one-top-level=` now reach the
+  system-path check; `sed -i` with an `e`/`w`/`r` script asks; `RISKY_ENV` gains `TAR_OPTIONS`, `TAPE`,
+  `POSIXLY_CORRECT`, `SSLKEYLOGFILE`, `CURL_HOME`; `dmidecode --dump-bin` (the old list named a nonexistent
+  `--dump-file`) and `date MMDDhhmm` (sets the clock) now ask.
+
+Replay against the baseline, 138,841 commands present in both runs: 95 moved. SAFE to asking: 1, a `journalctl`
+call with systemctl-only options (`--list-units --state=failed`) that journalctl rejects. Asking to SAFE: 78, all
+read-only forms the old letter sets misread (`date -Is` 67, `hostname -I 2>/dev/null` 5, attached `awk -F` 3,
+`swapon --show 2>&1`, `journalctl` 2). CAUTION to asking: 12, ten `sed -i` scripts `sed_script_is_simple` cannot
+prove (`a`/`i` text, `{}` blocks, `r FILE`) and two `date >> file`. DANGEROUS to CAUTION: 4, `tar xf ARCHIVE -C
+/tmp/...` no longer counts the archive it reads as a write target. O3 holds.
+
+Open, for the owner (all pre-existing, none made worse here):
+- argv keeps unquoted redirect words, and shlex has lost the quoting, so an operand check cannot tell `date >> f`
+  from `date '>>' f`; the fix belongs in the resolver (drop real redirects from argv).
+- an unresolved `$VAR`/`$(...)` word in argv can expand to an option (`curl ${O:--o} F URL` writes F).
+- `awk_program_is_safe` misses a redirect after a regex holding `;` (`print $0 ~ /;/ > "F"`) and gawk `@include`.
+- `sed -i` with `a`/`i`/`c` text now asks (10 real commands); widening `script_rules` would free them.
+- `HOME=`/`XDG_CONFIG_HOME=` choose curl's `.curlrc`; chained relative tar `-C` (`-C /tmp -C ../etc`); curl to
+  non-HTTP schemes and local data in a URL; `RIPGREP_CONFIG_PATH`, `SYSTEMD_PAGER`.
+- the `python -c` `MemoryError` noted under Phase 0.
 
 **Gate G1 (owner):** the replay's moves are seen; a yes for Phase 2.
 

@@ -9,8 +9,11 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 |---|---|
 | `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and `trust()`, which looks a program up in the tables and decides which. Anything absent asks (`docs/INVARIANTS.md` §2.60); it re-exports the trust levels, `reads_credentials`, `PREDICATES` and `SUBCOMMANDS` |
 | `program_tables.py` | `SUBCOMMANDS` and `PREDICATES`: per-program subcommand sets and the check each program gets |
-| `program_checks.py` | The flag helpers and the per-program checks for `python -c`, `sed`, `awk`, `curl`, `tar`, `rsync` and `git` |
+| `program_checks.py` | The flag helpers and the per-program checks for `python -c`, `rsync` and `git` |
+| `program_options.py` | The `curl`, `tar`, `sed` and `awk`/`gawk`/`mawk` judges: each an `OptionSpec` of the program's non-writing options (from its own `--help` or man page) on `options.parse`, plus the value checks (`curl -o`, `-w`, `-H`, `-X`; sed and awk program text) |
 | `system_checks.py` | The per-program checks for network, packages, firewall, kernel, disks and the other system tools |
+| `options.py` | `parse` and `OptionSpec`: a command line split into options and operands the way GNU getopt_long splits it (clusters, attached and separate values, full long names only, `--`), and `allowing`, the judge that is READ_ONLY only when every option is in the program's spec |
+| `option_specs.py` | The `OptionSpec` of each listed read-only program (`sort`, `date`, `journalctl`, `ss`, `nvidia-smi`, `ethtool`, `rg`, `ruff` and the rest of the old deny-list set), each cited to the man page or `--help` it was written from, plus the few module-level extra checks (`date` operands, `ethtool` `file`/`data` keywords, `nvidia-smi` operands) |
 | `program_basics.py` | The trust levels, `reads_credentials` (which file names hold secrets) and the subcommand finder |
 | `safety.py` | SAFETY_FIRST: `SafetyClassifier` resolves what a command will actually run, then classifies it; it composes the four files below and re-exports `RiskLevel`, `ResolvedCommand` and `Verdict` |
 | `safety_resolve.py` | `CommandResolver`: quotes, `VAR=value`, wrappers, `sh -c`, `$(...)` and base64 resolved to concrete argv lists |

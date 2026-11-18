@@ -1,14 +1,16 @@
 """Per-program argv checks, part two: network, packages, firewall, kernel, disks and other system tools.
 
 Depends on: torra.gates.program_basics (trust levels), torra.gates.program_checks (the flag helpers,
-`_rsync`).
+`_rsync`), torra.gates.options and torra.gates.option_specs (the `ruff` judges).
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
+from .option_specs import RUFF_CHECK, RUFF_FORMAT, ruff_checks_only, ruff_no_fix
+from .options import allowing
 from .program_basics import BOUNDED_WRITE, READ_ONLY
 from .program_checks import _hits, _long, _operands, _rsync, _short
 
@@ -90,39 +92,13 @@ def _sysctl(argv: Sequence[str]) -> str | None:
     return None if writing else READ_ONLY
 
 
-def _positive(
-    allowed_short: str = "", allowed_long: frozenset[str] = frozenset(), needs: str = ""
-) -> Callable[[Sequence[str]], str | None]:
-    """Read-only only when every flag is on the allowed list (and one named flag is present)."""
-
-    def judge(argv: Sequence[str]) -> str | None:
-        short, long = _short(argv), _long(argv)
-        if short - set(allowed_short) or long - allowed_long:
-            return None
-        return READ_ONLY if not needs or needs in short or needs in long else None
-
-    return judge
-
-
 _NMCLI_WRITES = frozenset(
     "up down add modify delete edit clone import reload connect disconnect "
     "set on off hotspot".split()
 )
 
-#: Flags that only choose what `ruff` looks at or how it prints. Anything else (`--fix`, `--watch`,
-#: `--add-noqa`, `--output-file`, `--cache-dir`, `--config`, `--extension`) is not on the list.
-_RUFF_CHECK_FLAGS = frozenset(
-    """
---no-fix --statistics --exit-zero --no-cache --quiet --verbose --silent --isolated --preview --output-format
---select --ignore --extend-select --target-version
-""".split()
-)
-_RUFF_FORMAT_FLAGS = frozenset(
-    """
---check --diff --no-cache --quiet --verbose --silent --isolated --preview --exit-non-zero-on-format
---line-length --target-version
-""".split()
-)
+_RUFF_CHECK = allowing(RUFF_CHECK, ruff_no_fix)
+_RUFF_FORMAT = allowing(RUFF_FORMAT, ruff_checks_only)
 
 
 def _ruff(argv: Sequence[str]) -> str | None:
@@ -130,11 +106,9 @@ def _ruff(argv: Sequence[str]) -> str | None:
 
     `ruff check` without `--no-fix` writes fixes when the project config sets `fix = true`."""
     rest = ["ruff", *argv[2:]]
-    if argv[1:2] == ["check"] and "--no-fix" in _long(rest):
-        return _positive("qsnv", _RUFF_CHECK_FLAGS)(rest)
-    if argv[1:2] == ["format"] and {"--check", "--diff"} & _long(rest):
-        return _positive("qsnv", _RUFF_FORMAT_FLAGS)(rest)
-    return None
+    if argv[1:2] == ["check"]:
+        return _RUFF_CHECK(rest)
+    return _RUFF_FORMAT(rest) if argv[1:2] == ["format"] else None
 
 
 def _torra(argv: Sequence[str]) -> str | None:
@@ -150,24 +124,6 @@ def _torra(argv: Sequence[str]) -> str | None:
 def _nmcli(argv: Sequence[str]) -> str | None:
     words = set(argv[1:])
     return READ_ONLY if words & {"show", "status", "list"} and not words & _NMCLI_WRITES else None
-
-
-def _listing_only(
-    allowed_short: str, allowed_long: frozenset[str]
-) -> Callable[[Sequence[str]], str | None]:
-    """Read-only when it has no operands, at least one flag, and only the listed flags."""
-
-    def judge(argv: Sequence[str]) -> str | None:
-        flags = [a for a in argv[1:] if a.startswith("-")]
-        ok = (
-            flags
-            and not _operands(argv)
-            and not _short(argv) - set(allowed_short)
-            and not _long(argv) - allowed_long
-        )
-        return READ_ONLY if ok else None
-
-    return judge
 
 
 def _disk_listing(argv: Sequence[str]) -> str | None:

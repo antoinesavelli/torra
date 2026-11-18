@@ -18,6 +18,7 @@ or network -- every external dependency is an injected callable (see
 | `test_telemetry.py` | `CorpusExporter.drift()` and `LoopholeAudit.audit()` at the unit level, plus secret redaction (`TaskLogger.scrub()`/`Label.why`) |
 | `test_iterate.py` | `iterate()`'s bounded edit, verify, fix loop: stop conditions, round count, dry-run behaviour |
 | `test_read_memory.py` | A completed read-only step's output entering the model's context, tagged by path, and the model dropping a path again |
+| `test_options.py` | `torra.gates.options`: getopt-style parsing (clusters, attached/separate/optional values, abbreviations refused, `--`, operands anywhere), spec self-consistency and the `allowing` judge |
 | `test_known_programs.py` | Fail-closed classification: the read-only, bounded-write, protected-write, asks and CRITICAL command lists, plus `trust()` and the resolver fixes |
 | `test_untrusted.py` | Data blocks that cannot be closed or forged, summaries, machine state and old transcripts at the right authority |
 | `test_remote_files.py` | Remote push and pull move exact bytes, name what they touch and judge the real destination |

@@ -143,12 +143,16 @@ CONTROL_PREFIXES: frozenset[str] = frozenset(
 )
 STRUCTURE_ONLY: frozenset[str] = frozenset({"for", "done", "fi", "in", "}", ")"})
 
-#: Assignments whose value changes what a later command runs (a search path, a pager, a git helper).
+#: Assignments whose value changes what a later command runs (a search path, a pager, a git helper)
+#: or how it reads its options: TAR_OPTIONS adds tar options, POSIXLY_CORRECT stops option
+#: permutation, SSLKEYLOGFILE makes curl write a file, CURL_HOME picks the .curlrc it reads, TAPE
+#: names tar's archive.
 RISKY_ENV: frozenset[str] = frozenset(
     """
 PATH LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT BASH_ENV ENV PAGER MANPAGER EDITOR VISUAL BROWSER SHELL
 IFS PYTHONPATH PYTHONSTARTUP PYTHONHOME PERL5OPT PERL5LIB RUBYOPT NODE_OPTIONS SSH_ASKPASS
 LESSOPEN LESSCLOSE PIP_INDEX_URL PIP_EXTRA_INDEX_URL PIP_FIND_LINKS PIP_CONFIG_FILE
+TAR_OPTIONS TAPE POSIXLY_CORRECT SSLKEYLOGFILE CURL_HOME
 """.split()
 )
 #: Programs that report only names, sizes and existence, never a file's contents: pointing them at a
