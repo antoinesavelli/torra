@@ -528,8 +528,8 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
   value are missed, so a listed program writes a file or runs an unread program with no tick. Under `sudo`
   the backstop gives CAUTION, still no tick, and the system-path check never sees these targets.
 - *Evidence.* SAFE: `curl -sS URL -o /dev/null -w '%output{>>/home/u/.bashrc}x'` (curl 8.5.0 here writes
-  the file, confirmed) and `curl -o /dev/null --output=/home/u/.bashrc URL` (the `/dev/null` exemption,
-  `program_checks.py:212-220`, strips every `--output=`); `tar -tf a.tar --index-file=/home/u/.bashrc`
+  the file, confirmed; `-w` is never read, `program_checks.py:212-220`; `-o /dev/null --output=F` is also
+  SAFE but harmless, curl 8.5.0 rejects `--output=F` as unknown); `tar -tf a.tar --index-file=/home/u/.bashrc`
   (`_TAR_UNSAFE_LONG`, `:63`); `awk -W exec /tmp/evil.awk` (this box's `awk` is mawk and runs it, confirmed),
   `gawk -o/home/u/.bashrc 'BEGIN{}'`, `-p`, `-d`, `--profile=`, `--pretty-print=`, `--dump-variables=`,
   and `--fil=`/`--inc=`/`--ex=` (`_awk` matches exact long names, `:206`); every long form of `ethtool`'s
@@ -540,9 +540,8 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
   `sudo ethtool --flash eth0 fw.bin`.
 - *Proposed fix.* Judge each listed program's options from a table of its value-taking flags (short and
   long, with getopt abbreviation), and ask on any option not known to be read-only rather than read-only
-  unless denied. Treat a curl `-w` value containing `%output{` as a write, drop the `/dev/null` exemption
-  unless every output spelling names `/dev/null`, and add `--index-file`, `-W`, gawk's `-o -p -d` and long
-  forms, and `pip --log`.
+  unless denied. Treat a curl `-w` value containing `%output{` as a write, and add `--index-file`, `-W`,
+  gawk's `-o -p -d` and long forms, and `pip --log`.
 - *Regression test.* Every command above joins the must-ask lists in `tests/test_known_programs.py`, failing
   first; `curl -s -o /dev/null -w '%{http_code}' URL`, `tar -tf a.tar`, `awk '{print $1}' f`, `ethtool eth0`
   and `pip list` stay SAFE. Replay the logged commands and report what moved.
