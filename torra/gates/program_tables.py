@@ -1,7 +1,8 @@
 """The tables `known_programs.trust()` looks programs up in: subcommand sets and per-program checks.
 
 Depends on: torra.gates.program_checks and torra.gates.system_checks (the checks),
-torra.gates.program_basics (trust levels). Data only, no logic.
+torra.gates.subcommand_specs (the options around a subcommand), torra.gates.program_basics
+(trust levels). Data only, no logic.
 """
 
 from __future__ import annotations
@@ -39,10 +40,41 @@ from .option_specs import (
     smartctl_logs,
     tree_no_dash_operand,
 )
-from .options import allowing
+from .options import OptionSpec, allowing
 from .program_basics import BOUNDED_WRITE, READ_ONLY
 from .program_checks import _git, _only_version, _operands, _python, _short
 from .program_options import _awk, _curl, _sed, _tar
+from .subcommand_specs import (
+    AMIXER,
+    APT,
+    APT_GET,
+    BLUETOOTHCTL,
+    BORG,
+    FLATPAK,
+    GO,
+    GSETTINGS,
+    HOSTNAMECTL,
+    LEAD_ANY,
+    LEAD_FLAGS,
+    LEAD_NONE,
+    LOCALECTL,
+    LOGINCTL,
+    NETWORKCTL,
+    NFT,
+    OLLAMA,
+    PIP,
+    RESOLVECTL,
+    RFKILL,
+    SNAP,
+    SYSTEMCTL,
+    SYSTEMD_ANALYZE,
+    TIMEDATECTL,
+    TMUX,
+    UFW,
+    WPCTL,
+    ZFS,
+    ZPOOL,
+)
 from .system_checks import (
     _command,
     _crontab,
@@ -65,56 +97,68 @@ _FIND_WRITES = frozenset(
 )
 
 
-def _sub(read: str, write: str = "", value_flags: str = "") -> tuple[frozenset[str], ...]:
-    """Subcommand tables: read-only names, bounded-write names, flags that take a value.
+#: Read-only subcommand names, bounded-write subcommand names, the program's options, and how it
+#: finds its subcommand (`LEAD_*`).
+SubcommandRow = tuple[frozenset[str], frozenset[str], OptionSpec, str]
+
+
+def _sub(read: str, spec: OptionSpec, write: str = "", lead: str = LEAD_ANY) -> SubcommandRow:
+    """Subcommand tables: read-only names, bounded-write names, the program's `OptionSpec`.
     A lone `-` in `read` means the program with no subcommand at all is read-only too."""
-    return frozenset(read.split()), frozenset(write.split()), frozenset(value_flags.split())
+    return frozenset(read.split()), frozenset(write.split()), spec, lead
 
 
-SUBCOMMANDS: dict[str, tuple[frozenset[str], ...]] = {
+SUBCOMMANDS: dict[str, SubcommandRow] = {
     "systemctl": _sub(
         "- status is-active is-enabled is-failed show list-units list-unit-files list-timers "
         "list-sockets list-dependencies list-jobs list-machines cat get-default help",
+        SYSTEMCTL,
         "reload reload-or-restart try-restart reset-failed daemon-reexec",
-        "-H -M -t --type -p --property -n --lines -o --output -s --signal -a --state",
     ),
-    "apt": _sub("list search show policy depends rdepends showpkg madison changelog -"),
-    "apt-get": _sub("-"),
-    "snap": _sub("list info find version services changes connections interfaces -"),
-    "flatpak": _sub("list info search remote-ls -"),
-    "pip": _sub("list show freeze check inspect -", "install"),
-    "pip3": _sub("list show freeze check inspect -", "install"),
+    "apt": _sub("list search show policy depends rdepends showpkg madison changelog -", APT),
+    "apt-get": _sub("-", APT_GET),
+    "snap": _sub(
+        "list info find version services changes connections interfaces -", SNAP, lead=LEAD_FLAGS
+    ),
+    "flatpak": _sub("list info search remote-ls -", FLATPAK, lead=LEAD_FLAGS),
+    "pip": _sub("list show freeze check inspect -", PIP, "install"),
+    "pip3": _sub("list show freeze check inspect -", PIP, "install"),
     "loginctl": _sub(
         "- list-sessions list-users list-seats show-session show-user show-seat "
-        "session-status user-status seat-status status"
+        "session-status user-status seat-status status",
+        LOGINCTL,
     ),
-    "timedatectl": _sub("- status show list-timezones show-timesync timesync-status"),
-    "localectl": _sub("- status list-locales list-keymaps"),
-    "hostnamectl": _sub("- status"),
-    "networkctl": _sub("- list status lldp"),
-    "resolvectl": _sub("- status query statistics"),
-    "ufw": _sub("status show version"),
-    "nft": _sub("list"),
-    "zpool": _sub("status list get history iostat version"),
-    "zfs": _sub("list get"),
-    "rfkill": _sub("list"),
-    "go": _sub("version"),
-    "wpctl": _sub("status inspect get-volume"),
+    "timedatectl": _sub("- status show list-timezones show-timesync timesync-status", TIMEDATECTL),
+    "localectl": _sub("- status list-locales list-keymaps", LOCALECTL),
+    "hostnamectl": _sub("- status", HOSTNAMECTL),
+    "networkctl": _sub("- list status lldp", NETWORKCTL),
+    "resolvectl": _sub("- status query statistics", RESOLVECTL),
+    "ufw": _sub("status show version", UFW, lead=LEAD_FLAGS),
+    "nft": _sub("list", NFT),
+    "zpool": _sub("status list get history iostat version", ZPOOL, lead=LEAD_FLAGS),
+    "zfs": _sub("list get", ZFS, lead=LEAD_FLAGS),
+    "rfkill": _sub("list", RFKILL),
+    "go": _sub("version", GO, lead=LEAD_FLAGS),
+    "wpctl": _sub("status inspect get-volume", WPCTL),
     "gsettings": _sub(
-        "get list-keys list-schemas list-recursively range describe list-children writable"
+        "get list-keys list-schemas list-recursively range describe list-children writable",
+        GSETTINGS,
     ),
-    "ollama": _sub("- list ps show help"),
-    "borg": _sub("list info version"),
-    "amixer": _sub("- get sget scontents controls scontrols info"),
-    "bluetoothctl": _sub("show devices info paired-devices list version"),
+    "ollama": _sub("- list ps show help", OLLAMA, lead=LEAD_NONE),
+    "borg": _sub("list info version", BORG),
+    "amixer": _sub("- get sget scontents controls scontrols info", AMIXER),
+    "bluetoothctl": _sub("show devices info paired-devices list version", BLUETOOTHCTL),
     "systemd-analyze": _sub(
         "- blame critical-chain time verify security calendar timespan "
-        "cat-config unit-paths plot dot"
+        "cat-config unit-paths plot dot",
+        SYSTEMD_ANALYZE,
     ),
     "tmux": _sub(
         "ls list-sessions list-windows list-panes list-clients list-commands "
         "show-options show-environment show-messages has-session capture-pane "
-        "display-message"
+        "display-message",
+        TMUX,
+        lead=LEAD_FLAGS,
     ),
 }
 

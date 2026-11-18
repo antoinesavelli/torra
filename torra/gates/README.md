@@ -8,7 +8,8 @@ gate's own two halves -- and `__init__.py` re-exports every public name, so
 | File | Holds |
 |---|---|
 | `known_programs.py` | What torra can vouch for: read-only programs, bounded writers, and `trust()`, which looks a program up in the tables and decides which. Anything absent asks (`docs/INVARIANTS.md` §2.60); it re-exports the trust levels, `reads_credentials`, `PREDICATES` and `SUBCOMMANDS` |
-| `program_tables.py` | `SUBCOMMANDS` and `PREDICATES`: per-program subcommand sets and the check each program gets |
+| `program_tables.py` | `SUBCOMMANDS` and `PREDICATES`: per-program subcommand sets (read, bounded write, option spec) and the check each program gets |
+| `subcommand_specs.py` | The `OptionSpec` of each `SUBCOMMANDS` program (`systemctl`, `pip`, `apt`, `borg`, `tmux` and the rest): its global options plus those its read subcommands accept, each cited to the `--help` or man page it was written from. `known_programs` calls a subcommand read-only only when the whole command line parses under the spec (`--log`, `--rsh`, `-f`, `-o` and the other writing or running options are left off) |
 | `program_checks.py` | The flag helpers and the per-program checks for `python -c`, `rsync` and `git` |
 | `program_options.py` | The `curl`, `tar`, `sed` and `awk`/`gawk`/`mawk` judges: each an `OptionSpec` of the program's non-writing options (from its own `--help` or man page) on `options.parse`, plus the value checks (`curl -o`, `-w`, `-H`, `-X`; sed and awk program text) |
 | `system_checks.py` | The per-program checks for network, packages, firewall, kernel, disks and the other system tools |

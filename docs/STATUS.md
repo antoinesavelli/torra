@@ -1,6 +1,6 @@
 # torra: status
 
-Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-10-27.
+Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-11-18.
 
 **Phase: built, in use on the owner's workstation, in progress.** 209 commits on `main` since 2026-07-28.
 Moved to the corsu layout and standard on 2026-10-25 (`docs/DECISIONS.md` D-008 to D-013); those commits are
@@ -19,7 +19,7 @@ each with a test (`docs/INVARIANTS.md` §2.75). The Phase 5 source read (`docs/p
 found more of that shape (`read PATH`, `printf -v PATH`, namerefs) and `hostname newbox`
 running unticked; closed on 2026-10-23 (`docs/INVARIANTS.md` §2.83, §2.84). Its blind red-team ran on
 2026-11-17: 30 commands written by a model that read no repo code, all 30 need a tick
-(14 CRITICAL, 16 DANGEROUS, `docs/plans/GRADE_TO_A_PLAN.md` Phase 5). The re-grade ran on 2026-11-18 at `386f2b8`: A- (90, up from B+ 87), exit not met; one new major (P5.5, write and run options of listed programs such as `curl -w '%output{...}'`, `awk -W exec` and `tar --index-file` run unticked).
+(14 CRITICAL, 16 DANGEROUS, `docs/plans/GRADE_TO_A_PLAN.md` Phase 5). The re-grade ran on 2026-11-18 at `386f2b8`: A- (90, up from B+ 87), exit not met; one new major (P5.5, write and run options of listed programs such as `curl -w '%output{...}'`, `awk -W exec` and `tar --index-file` ran unticked). P5.5 is fixed (`docs/INVARIANTS.md` §2.93, `docs/plans/P5_5_OPTION_ALLOWLIST_PLAN.md`) and awaits the next re-grade.
 The plan checks added on 2026-10-11 and 2026-10-12 (`docs/INVARIANTS.md` §2.78-2.81) have
 met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 
@@ -173,6 +173,17 @@ Open, each small.
   - Program-specific format strings are not parsed in general. tmux's `#(...)` is closed (`docs/INVARIANTS.md
     §2.92`, 2026-10-27); `#{E:...}`/`#{T:...}`, which re-expand an option or a pane title as a format, stay SAFE.
   - Case and symlink spellings of a protected path rely on `_protected`'s own normalisation.
+- **Option-judge gaps left open** (`docs/INVARIANTS.md` §2.93; found in P5.5, all but the `sed -i` item pre-existing):
+  - argv keeps an unquoted redirect word and loses its quoting, so `date >> f` and `date '>>' f` look alike; the fix
+    belongs in the resolver.
+  - An unresolved `$VAR` or `$(...)` word in argv can expand to an option (`curl ${O:--o} F URL` writes `F`).
+  - `awk_program_is_safe` misses a redirect after a regex holding `;` and gawk `@include`.
+  - An over-tick P5.5 introduced: `sed -i` with `a`/`i` text or `{}` blocks went from CAUTION to asking (10 real
+    commands, a few with `r FILE`, which asks by design); widening `script_rules` would free the rest.
+  - `HOME=` and `XDG_CONFIG_HOME=` choose curl's `.curlrc`; chained relative tar `-C`; curl to non-HTTP schemes and local data in a URL;
+    `RIPGREP_CONFIG_PATH` and `SYSTEMD_PAGER` are not in `RISKY_ENV`.
+  - `python3 -c` with a payload of about 7,000 chained unary minus signs raises `MemoryError` in `_pure_python`
+    (`program_checks.py`); only `SyntaxError` and `ValueError` are caught.
 - **Heredoc bodies are scanned for redirects** (`docs/INVARIANTS.md §2.87`): an over-tick. Re-checked 2026-10-27:
   `cat <<EOF` with `echo a > /etc/x` in the body is CRITICAL.
 - **Remote edits** (`docs/INVARIANTS.md §2.73`): `torra check` classifies a remote step's ignored `run` text instead
@@ -212,7 +223,7 @@ One owner per item, as `docs/agents/CONVENTIONS.md` registers it: the table poin
 
 | Where | What |
 |---|---|
-| `docs/plans/GRADE_TO_A_PLAN.md` | owner decision D8, the Phase 5 blind red-team, the P3.3 model-bench scenario |
+| `docs/plans/GRADE_TO_A_PLAN.md` | owner decision D8, the P3.3 model-bench scenario (the Phase 5 blind red-team ran 2026-11-17: 30 of 30 asked) |
 | `docs/plans/CLAUDE_MIGRATION_ROADMAP.md` | buckets 2 to 4 of moving the operator role off Claude Code (parked: `docs/DECISIONS.md`) |
 
 ### Planner/verifier prototype (`scripts/dev/model_bench/planner_verifier.py`)

@@ -7,7 +7,7 @@ Owner decisions pending: D8 (section 2)
 Last verified: 61b6886 on 2026-10-21
 
 Every Phase 0 to 4 item below was re-read against the code and
-is done or withdrawn. Still open as of 2026-11-18: D8, P5.5 and the P3.3 model-bench scenario
+is done or withdrawn. Still open as of 2026-11-18: D8 and the P3.3 model-bench scenario; P5.5 is fixed and awaits the next re-grade
 (the red-team ran on 2026-11-17; the re-grade on 2026-11-18 gave A-, exit not met). Suite at this commit: 1667 passed.
 
 Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
@@ -510,7 +510,7 @@ directory (`curl -w '%output{...}'` against `file:///dev/null`, `awk -W exec` on
 
 Exit criteria:
 - every domain at 93 or more: **no**, only Software is;
-- no open critical or major finding: **no**, P5.5 is major (no critical found);
+- no open critical or major finding: **no** at the re-grade (P5.5 was major, no critical found); P5.5 is now fixed, awaiting re-grade;
 - `--enforce` green and the full suite passing: **yes**, at `386f2b8`: 1970 passed, `ruff check` 0 issues,
   `ruff format --check` 97 files clean, `mypy` clean on 60 files, scorecard strong (band mean 3.83, floor
   3.80), exit 0;
@@ -522,31 +522,12 @@ Exit criteria:
 sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `systemctl` value flags,
 `iptables`, `sysctl`, `crontab`, disk tools and the interpreters all ask. One major finding:
 
-**P5.5 Write and run options of listed programs pass unticked.** Major; ask-first (the classifier).
-- *What's wrong.* A judge marks a program read-only unless a flag from its short-letter set or exact long
-  list shows. Long forms, abbreviations getopt accepts, and options that take a file name inside another
-  value are missed, so a listed program writes a file or runs an unread program with no tick. Under `sudo`
-  the backstop gives CAUTION, still no tick, and the system-path check never sees these targets.
-- *Evidence.* SAFE: `curl -sS URL -o /dev/null -w '%output{>>/home/u/.bashrc}x'` (curl 8.5.0 here writes
-  the file, confirmed; `-w` is never read, `program_checks.py:212-220`; `-o /dev/null --output=F` is also
-  SAFE but harmless, curl 8.5.0 rejects `--output=F` as unknown); `tar -tf a.tar --index-file=/home/u/.bashrc`
-  (`_TAR_UNSAFE_LONG`, `:63`); `awk -W exec /tmp/evil.awk` (this box's `awk` is mawk and runs it, confirmed),
-  `gawk -o/home/u/.bashrc 'BEGIN{}'`, `-p`, `-d`, `--profile=`, `--pretty-print=`, `--dump-variables=`,
-  and `--fil=`/`--inc=`/`--ex=` (`_awk` matches exact long names, `:206`); every long form of `ethtool`'s
-  denied letters, `--flash`, `--reset`, `--change`, `--features` (`program_tables.py:197`); `pip list
-  --log=/home/u/.bashrc` (`:76`); `sed --e='1w /home/u/.bashrc' p` (`_sed_scripts` reads only an exact
-  `--expression=`, `program_checks.py:199`; needs an input file named like a sed command). CAUTION:
-  `sudo curl -s -o /dev/null -w '%output{/etc/fstab}x' URL`, `sudo tar -tf a.tar --index-file=/etc/fstab`,
-  `sudo ethtool --flash eth0 fw.bin`.
-- *Proposed fix.* Judge each listed program's options from a table of its value-taking flags (short and
-  long, with getopt abbreviation), and ask on any option not known to be read-only rather than read-only
-  unless denied. Treat a curl `-w` value containing `%output{` as a write, and add `--index-file`, `-W`,
-  gawk's `-o -p -d` and long forms, and `pip --log`.
-- *Regression test.* Every command above joins the must-ask lists in `tests/test_known_programs.py`, failing
-  first; `curl -s -o /dev/null -w '%{http_code}' URL`, `tar -tf a.tar`, `awk '{print $1}' f`, `ethtool eth0`
-  and `pip list` stay SAFE. Replay the logged commands and report what moved.
+**P5.5 Write and run options of listed programs pass unticked.** Major; fixed 2026-11-18 by
+`docs/plans/P5_5_OPTION_ALLOWLIST_PLAN.md` (an allow list per listed program, `docs/INVARIANTS.md` §2.93): commits `f1614be`
+(Phase 0, the must-ask corpus), `37b87f0` (Phase 1) and Phase 2 (commit pending). Every command in the P5.5 finding (the P5.5 rows in `ASKS`, `tests/test_known_programs.py`) now asks; the
+scores above wait for the next independent re-grade.
 
-**What closes Phase 5 now.** P5.5 fixed with the owner's go-ahead; post-fix live traffic for the clarifier
+**What closes Phase 5 now.** P5.5 fixed (above); post-fix live traffic for the clarifier
 (gap 6.1) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
 plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
 

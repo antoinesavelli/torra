@@ -1,8 +1,8 @@
 # Plan: P5.5, a listed program's options are allowed, not denied
 
-Status: active
-Owner decisions pending: G1 (Phase 2 go-ahead; O1 to O3 answered and G0 given 2026-11-18)
-Last verified: f1614be on 2026-11-18 (Phases 0 and 1 done)
+Status: done
+Owner decisions pending: none (O1 to O3 answered, G0 and G1 given, all 2026-11-18)
+Last verified: 37b87f0 on 2026-11-18 (Phases 0 and 1; Phase 2 and 3 in the commit that closes this plan)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal
@@ -76,7 +76,7 @@ and the program-level summary go into docs.
 ### Phase 0: corpus and baseline (no gate code touched)
 
 - **U0 corpus** (Sonnet). `tests/test_known_programs.py` only. Add every P5.5 evidence command (the list under
-  "Evidence" in the plan's P5.5 entry, including the three `sudo` ones) to `ASKS`, and `curl -s -o /dev/null -w
+  "Evidence" in the plan's P5.5 entry (since shrunk to a pointer; the cases are the P5.5 rows in `ASKS`), including the three `sudo` ones) to `ASKS`, and `curl -s -o /dev/null -w
   '%{http_code}' URL`, `tar -tf a.tar`, `awk '{print $1}' f`, `ethtool eth0`, `pip list` and `journalctl -n50 -u x
   --no-pager` to `READ_ONLY_COMMANDS`. Leave the `pip list --log=F` case marked `xfail(strict=True)` with reason
   "Phase 2"; every other new must-ask case fails today and the rest of the suite stays green. Check:
@@ -171,6 +171,24 @@ Open, for the owner (all pre-existing, none made worse here):
   its global and read-subcommand options; an unknown option asks. Spec sizes come from the replay's real usage.
   The U0 `pip --log` xfail now passes and becomes a plain case. Same verification and replay.
 
+**Phase 2 result (done 2026-11-18, G1 given the same day).** Each `SUBCOMMANDS` row is `(read, write, OptionSpec,
+lead)`, specs in `torra/gates/subcommand_specs.py`. A read subcommand is READ_ONLY only when the whole line
+parses; a write subcommand is BOUNDED_WRITE only when every option before it is on the spec. The verifier broke it
+three times, each fixed with its cases in `ASKS`:
+- programs that take the first non-dash word as the command whatever a global option expects (flatpak; ollama's
+  cobra lets an unknown flag eat the next word): `flatpak --arch uninstall list --all` was SAFE. A `lead` mode now
+  allows only plain flags before the subcommand (flatpak, snap, gsettings, ufw, zpool, zfs, tmux, go), or none
+  (ollama).
+- nft joins its words and splits on `;` or a newline anywhere (`nft list tables ';flush' ruleset`); tmux chains on
+  a word ending in `;`. A word holding `;`, or a newline with text around it, asks for every subcommand program.
+- an off-spec value option before a write subcommand hid it (`systemctl --message reload poweroff` was CAUTION,
+  pre-existing); a lone `-` operand, which apt, flatpak and ollama skip, read as "no subcommand" (`ollama - rm x`
+  was SAFE in the first fix).
+Suite 2388 passed, 0 xfailed. Replay against Phase 1, 139,271 commands: one move, SAFE to asking, `pip list
+--python /bin/true` (pip runs that interpreter). Against the baseline: 96 moves, the Phase 1 set plus that one. Left
+open: `python3 -m pip list --log F` goes through the `python` judge, not this table; `tmux capture-pane -S` and
+`gsettings --schemadir` now ask (no traffic).
+
 ### Phase 3: records
 
 - **U6 docs** (Sonnet). Add a `docs/INVARIANTS.md` entry for the new invariant ("a listed program's options are
@@ -180,7 +198,9 @@ Open, for the owner (all pre-existing, none made worse here):
   and `safety_judge.py` hold rules, but per-program flags now live in `options.py`). Check:
   `uv run pytest tests/test_knowledge_refs.py -q`.
 
-Then this plan's status becomes done; the next independent re-grade is Phase 5's.
+**Phase 3 result (done 2026-11-18).** `docs/INVARIANTS.md` §2.93, `docs/DECISIONS.md` D-016, the P5.5 pointer in
+`GRADE_TO_A_PLAN.md`, `docs/STATUS.md` (P5.5 fixed, the open items above as gaps), `PLAYBOOKS.md` and the
+`torra/gates/README.md` rows. The next independent re-grade is Phase 5's.
 
 ## 7. Risks
 

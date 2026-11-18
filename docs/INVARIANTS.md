@@ -1222,7 +1222,7 @@ model fields that crashed the loop.
 **Rule:**
 - A depth-limit hit in `resolve()` (`max_depth` 4) sets `unwrap_limit_hit`, and `_context_findings` makes
   the line DANGEROUS.
-- `hash` is judged by `trust()` (`_avoiding("p")`), not listed read-only.
+- `hash` is judged by `trust()` (`allowing(HASH)`; `-p` is off the spec), not listed read-only.
 - `export`, `declare`, `typeset`, `local` and `readonly` arguments (`NAME=`, `NAME+=`) go through
   `_note_assignment`, so `RISKY_ENV` sees an exported search path (every other way bash assigns: §2.83).
 - A new way for the line to hide what runs belongs in a test that builds it (`_nested`), not only a fixed
@@ -1489,3 +1489,16 @@ cannot see (`EXPANSION`: a `$var`, a `$(...)`, a backtick), so a read-only subco
 `display-message` text), so `tmux display-message -p '#(touch /tmp/x)'` ran a command at SAFE (STATUS gap 6.5).
 **Guarded by:** `tests/test_known_programs.py::test_a_tmux_format_that_runs_a_command_asks`, the tmux rows in `READ_ONLY_COMMANDS`
 **Fix:** `_judge_tmux` in `torra/gates/safety_judge.py`
+
+### 2.93 A listed program's options are allowed by spec; an option not on the spec asks
+
+**Rule:** A program judged by an `OptionSpec` (every `PREDICATES` judge built on `options.allowing`, curl, tar, sed, awk, every
+`SUBCOMMANDS` entry) is READ_ONLY only when `torra/gates/options.py::parse` reads every option around its operands
+against that spec (`option_specs.py`, `program_options.py`, `subcommand_specs.py`); an unknown, abbreviated or
+malformed option, a value that names a write, or a word ending in `;` around a subcommand (tmux reads it as a
+command separator) asks. Long names match in full only. `READ_ONLY_PROGRAMS` stay argument-blind (checked
+2026-10-13); the other `PREDICATES` keep their own checks.
+**Why:** A deny list is the open-ended shape of R-2/R-3/R-11: `curl -w '%output{F}'`, `awk -W exec`, `pip list
+--log=F` wrote or ran with no tick. Prefix matching was rejected in Phase 1: the real program matches its whole option table first, so a
+prefix rule read `curl --output F` as the allowed `--output-dir`.
+**Guarded by:** `tests/test_options.py::test_an_exact_name_matches_and_an_abbreviation_is_refused`, `tests/test_options.py::test_a_full_name_missing_from_the_spec_is_not_read_as_a_longer_spec_name`, the P5.5 rows in `ASKS` and `READ_ONLY_COMMANDS` (`tests/test_known_programs.py::test_anything_unrecognised_or_not_provably_harmless_asks`, `tests/test_known_programs.py::test_read_only_diagnostics_run_without_a_tick`)
