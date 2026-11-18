@@ -7,8 +7,8 @@ Owner decisions pending: D8 (section 2)
 Last verified: 61b6886 on 2026-10-21
 
 Every Phase 0 to 4 item below was re-read against the code and
-is done or withdrawn. Still open as of 2026-11-17: D8, the Phase 5
-re-grade and the P3.3 model-bench scenario (the red-team ran on 2026-11-17). Suite at this commit: 1667 passed.
+is done or withdrawn. Still open as of 2026-11-18: D8, P5.5 and the P3.3 model-bench scenario
+(the red-team ran on 2026-11-17; the re-grade on 2026-11-18 gave A-, exit not met). Suite at this commit: 1667 passed.
 
 Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
 construction, `Torra.execute`, persisted-state formats), so each one needs the owner's go-ahead before its
@@ -488,6 +488,68 @@ Ask-first (it loosens a guard, so the owner decides).
 **What closes Phase 5.** P5.1 to P5.3 are done (2026-10-23 to 2026-10-25); the blind red-team ran on 2026-11-17 with no miss; what remains is the re-grade. (P5.4 is done.
 The 63-command blind red-team in `docs/INVARIANTS.md` §2.72 ran on 2026-10-04, before this grade; the 30-command
 Phase 5 one ran on 2026-11-17.)
+
+#### Result, 2026-11-18: A- (90), exit not met
+
+Graded commit `386f2b80f574976b9be015fca41e579e32331a45`, checked out in a detached worktree. Done by a session
+that wrote none of the fixes. Still no `/grade` skill, so the section 1 table is the rubric, same domains,
+weights and bands, applied by hand in delta mode against the 2026-10-13 result. Every `file:line` is at
+`386f2b8`. Probes were classified in-process; nothing ran except two harmless confirmations inside a scratch
+directory (`curl -w '%output{...}'` against `file:///dev/null`, `awk -W exec` on a print-only program).
+
+| Domain | Weight | 10-13 | Now | Letter | Moved since 2026-10-13 | Deductions |
+|---|---|---|---|---|---|---|
+| Purpose Fidelity | 15% | 86 | 89 | B+ | P5.1 to P5.3 closed (§2.83, §2.84, §2.90) | -4 P5.5 (read-only promise still leaks); -4 clarifier asks on 18% of human-called-ambiguous requests, no post-fix traffic (`docs/STATUS.md:83-101`); -2 D8; -1 a stale resume point silently skips a ticked plan's step (`docs/STATUS.md:188-207`) |
+| Security and Privacy | 25% | 82 | 89 | B+ | P5.1, P5.2 closed; blind red-team 30 of 30 | -8 P5.5; -2 credential reads go by file name only (`torra/gates/program_basics.py:71`): `grep -r . ~/.ssh` and `cat proj/secrets.env` are SAFE; -1 the red-team corpus named sensitive paths openly (easier than a source read) |
+| Domain Correctness (shell/OS semantics) | 15% | 88 | 92 | A- | P5.1 to P5.3 closed; tmux `#(...)` (§2.92) | -7 P5.5: per-program judges approximate getopt with letter sets and exact long names; -1 relative paths after `cd` and tmux `#{E:}` untracked (`docs/STATUS.md` 6.5) |
+| AI and Agentic | 15% | 87 | 89 | B+ | `Agent.converse` CCN 20 to 13 (P5.4) | -6 live ambiguity false negatives, fix unconfirmed; -3 P3.3 model-bench injection scenario not built; -2 the §2.78-2.81 plan checks met real models only in plan-only runs (`docs/STATUS.md:23-24`) |
+| Systems and Reliability | 15% | 92 | 87 | B+ | no regression; the drop is items the 10-13 table did not deduct | -3 D8; -2 gap 6.6 (resume point never expires, unseen at tick time); -2 raw-device `dd`/`mkfs` and migrations need a hand-written rollback; -2 `capture_file` copies a model-declared `touches` path at plan time, before approval, with no regular-file check (`torra/gates/undo.py:207-224`): `shutil` refuses a FIFO (probed) but not a character device such as `/dev/zero`, which `max_shadow_bytes` misses (`st_size` 0); -2 missing-path check is a heuristic; -1 tree watch misses a same-size same-mtime edit; -1 Ctrl-C between steps and a swallowed resume-file save (`docs/STATUS.md` 6.5) |
+| Software | 10% | 88 | 95 | A | modules split by cohesion, 0 decision-path files over 500 LOC, 0 at CCN 15+; 1970 tests | -2 14 functions nested to depth 3 at CCN 10+ (scorecard Modularity "ok"); -2 `torra/tui.py` grew to 2,074 lines (D7); -1 4 of 54 modules not import-covered by tests |
+| Governance | 5% | 90 | 92 | A- | P5.4 done, red-team run and recorded, doc system moved to `docs/` (D-014) | -3 no `/grade` skill, hand-applied rubric; -2 head 13 commits ahead of `origin/main`, including a gates fix (`fd63e1e`) CI has not seen; -1 two `AGENTS.md` invariant rows overstate the code (`AGENTS.md:122` three undo states, the code has `cancelled` and `undone` with `verified=None`; `AGENTS.md:125` size never guessed from the name, `ModelRouter._params_b` falls back to it), recorded in `docs/STATUS.md` 6.5 but not corrected; -1 `docs/STATUS.md` says last updated 2026-10-27 and measures 1921 tests at `57a4f04` (`:3`, `:28`) |
+| **Overall** | | **87 B+** | **90** | **A-** | | weighted sum 89.9 |
+
+Exit criteria:
+- every domain at 93 or more: **no**, only Software is;
+- no open critical or major finding: **no**, P5.5 is major (no critical found);
+- `--enforce` green and the full suite passing: **yes**, at `386f2b8`: 1970 passed, `ruff check` 0 issues,
+  `ruff format --check` 97 files clean, `mypy` clean on 60 files, scorecard strong (band mean 3.83, floor
+  3.80), exit 0;
+- CI green on the pushed head: **not shown**. `386f2b8` is not pushed; `origin/main` is `a711931`, green in
+  run 41464472726 (2026-11-02). The 13 unpushed commits include `fd63e1e` (gates) and `a29ec97` (scorecard).
+
+**Source-reading pass: the per-program judges**, the part the 10-13 pass left uncovered
+(`torra/gates/program_checks.py`, `torra/gates/program_tables.py:113-240`), about 230 probes. The fallback,
+sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `systemctl` value flags,
+`iptables`, `sysctl`, `crontab`, disk tools and the interpreters all ask. One major finding:
+
+**P5.5 Write and run options of listed programs pass unticked.** Major; ask-first (the classifier).
+- *What's wrong.* A judge marks a program read-only unless a flag from its short-letter set or exact long
+  list shows. Long forms, abbreviations getopt accepts, and options that take a file name inside another
+  value are missed, so a listed program writes a file or runs an unread program with no tick. Under `sudo`
+  the backstop gives CAUTION, still no tick, and the system-path check never sees these targets.
+- *Evidence.* SAFE: `curl -sS URL -o /dev/null -w '%output{>>/home/u/.bashrc}x'` (curl 8.5.0 here writes
+  the file, confirmed) and `curl -o /dev/null --output=/home/u/.bashrc URL` (the `/dev/null` exemption,
+  `program_checks.py:212-220`, strips every `--output=`); `tar -tf a.tar --index-file=/home/u/.bashrc`
+  (`_TAR_UNSAFE_LONG`, `:63`); `awk -W exec /tmp/evil.awk` (this box's `awk` is mawk and runs it, confirmed),
+  `gawk -o/home/u/.bashrc 'BEGIN{}'`, `-p`, `-d`, `--profile=`, `--pretty-print=`, `--dump-variables=`,
+  and `--fil=`/`--inc=`/`--ex=` (`_awk` matches exact long names, `:206`); every long form of `ethtool`'s
+  denied letters, `--flash`, `--reset`, `--change`, `--features` (`program_tables.py:197`); `pip list
+  --log=/home/u/.bashrc` (`:76`); `sed --e='1w /home/u/.bashrc' p` (`_sed_scripts` reads only an exact
+  `--expression=`, `program_checks.py:199`; needs an input file named like a sed command). CAUTION:
+  `sudo curl -s -o /dev/null -w '%output{/etc/fstab}x' URL`, `sudo tar -tf a.tar --index-file=/etc/fstab`,
+  `sudo ethtool --flash eth0 fw.bin`.
+- *Proposed fix.* Judge each listed program's options from a table of its value-taking flags (short and
+  long, with getopt abbreviation), and ask on any option not known to be read-only rather than read-only
+  unless denied. Treat a curl `-w` value containing `%output{` as a write, drop the `/dev/null` exemption
+  unless every output spelling names `/dev/null`, and add `--index-file`, `-W`, gawk's `-o -p -d` and long
+  forms, and `pip --log`.
+- *Regression test.* Every command above joins the must-ask lists in `tests/test_known_programs.py`, failing
+  first; `curl -s -o /dev/null -w '%{http_code}' URL`, `tar -tf a.tar`, `awk '{print $1}' f`, `ethtool eth0`
+  and `pip list` stay SAFE. Replay the logged commands and report what moved.
+
+**What closes Phase 5 now.** P5.5 fixed with the owner's go-ahead; post-fix live traffic for the clarifier
+(gap 6.1) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
+plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
 
 ## 4. Projected grades (estimates)
 

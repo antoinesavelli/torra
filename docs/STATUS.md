@@ -19,7 +19,7 @@ each with a test (`docs/INVARIANTS.md` §2.75). The Phase 5 source read (`docs/p
 found more of that shape (`read PATH`, `printf -v PATH`, namerefs) and `hostname newbox`
 running unticked; closed on 2026-10-23 (`docs/INVARIANTS.md` §2.83, §2.84). Its blind red-team ran on
 2026-11-17: 30 commands written by a model that read no repo code, all 30 need a tick
-(14 CRITICAL, 16 DANGEROUS, `docs/plans/GRADE_TO_A_PLAN.md` Phase 5). The re-grade is still to run.
+(14 CRITICAL, 16 DANGEROUS, `docs/plans/GRADE_TO_A_PLAN.md` Phase 5). The re-grade ran on 2026-11-18 at `386f2b8`: A- (90, up from B+ 87), exit not met; one new major (P5.5, write and run options of listed programs such as `curl -w '%output{...}'`, `awk -W exec` and `tar --index-file` run unticked).
 The plan checks added on 2026-10-11 and 2026-10-12 (`docs/INVARIANTS.md` §2.78-2.81) have
 met real models only in plan-only runs. All of it was pushed on 2026-10-13.
 
