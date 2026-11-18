@@ -81,6 +81,11 @@ READ_ONLY_COMMANDS = [
     "snap list",
     "flatpak list",
     "pip list",
+    "curl -s -o /dev/null -w '%{http_code}' https://example.com",
+    "tar -tf a.tar",
+    "awk '{print $1}' f",
+    "ethtool eth0",
+    "journalctl -n50 -u x --no-pager",
     "ollama list",
     "ollama ps",
     "find /var/log -name '*.log' -mtime -1",
@@ -276,6 +281,213 @@ ASKS = [
     "torra check a.yaml b.yaml",
     "torra --workdir /tmp check t.yaml",
     "torra check --workdir /tmp t.yaml",
+    # P5.5 (docs/plans/P5_5_OPTION_ALLOWLIST_PLAN.md): a listed program's write/run options must
+    # ask; each case flips to a pass when the fix lands.
+    pytest.param(
+        "curl -sS https://example.com -o /dev/null -w '%output{>>/home/u/.bashrc}x'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "tar -tf a.tar --index-file=/home/u/.bashrc",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "awk -W exec /tmp/evil.awk", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "gawk -o/home/u/.bashrc 'BEGIN{}'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "gawk -p/home/u/.bashrc 'BEGIN{}'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "gawk -d/home/u/.bashrc 'BEGIN{}'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "gawk --profile=/home/u/.bashrc 'BEGIN{}'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "gawk --pretty-print=/home/u/.bashrc 'BEGIN{}'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "gawk --dump-variables=/home/u/.bashrc 'BEGIN{}'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "gawk --fil=/tmp/evil.awk", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "gawk --inc=/tmp/evil.awk 'BEGIN{}'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "gawk --ex=/tmp/evil.awk", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --change eth0 speed 100",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --change-eeprom eth0 magic 0x1 offset 0 value 1",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --flash eth0 fw.bin", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --pause eth0 autoneg off",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --coalesce eth0 rx-usecs 10",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-ring eth0 rx 512",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --features eth0 tso off",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --offload eth0 tso off",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-channels eth0 combined 2",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --config-nfc eth0 rx-flow-hash tcp4 sdfn",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --config-ntuple eth0 flow-type tcp4 action -1",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-dump eth0 flag 1",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --test eth0 offline", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --identify eth0 5", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --negotiate eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --set-rxfh-indir eth0 equal 2",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --rxfh eth0 equal 2", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --per-queue eth0 queue_mask 0x1 --coalesce rx-usecs 10",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --reset eth0 all", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --set-eee eth0 eee off",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-priv-flags eth0 flag on",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-fec eth0 encoding off",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-tunable eth0 rx-copybreak 256",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-phy-tunable eth0 downshift on",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-module eth0 power-mode-policy high",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --cable-test eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --cable-test-tdr eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool --set-plca-cfg eth0 enable on",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-mm eth0 tx-enabled on",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --set-pse eth0 podl-pse-admin-control enable",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "pip list --log=/home/u/.bashrc", marks=pytest.mark.xfail(strict=True, reason="Phase 2")
+    ),
+    pytest.param(
+        "sed --e='1w /home/u/.bashrc' p",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "sudo curl -s -o /dev/null -w '%output{/etc/fstab}x' https://example.com",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "sudo tar -tf a.tar --index-file=/etc/fstab",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "sudo ethtool --flash eth0 fw.bin",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool -w eth0 data /home/u/.bashrc",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool --get-dump eth0 data /home/u/.bashrc",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param("ethtool -r eth0", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")),
+    pytest.param(
+        "ethtool -X eth0 equal 2", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")
+    ),
+    pytest.param(
+        "ethtool -U eth0 flow-type tcp4 action 1",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "ethtool -Q eth0 queue_mask 0x1 --coalesce rx-usecs 10",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param(
+        "curl -sS https://example.com -o /dev/null --write-out '%output{>>/home/u/.bashrc}x'",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
+    pytest.param("gawk -p 'BEGIN{}'", marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1")),
+    pytest.param(
+        "env ethtool --flash eth0 fw.bin",
+        marks=pytest.mark.xfail(strict=True, reason="P5.5 Phase 1"),
+    ),
 ]
 
 #: The worst of them are CRITICAL, not just gated.

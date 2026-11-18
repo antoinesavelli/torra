@@ -2,7 +2,7 @@
 
 Status: active
 Owner decisions pending: none (O1 to O3 answered 2026-11-18, each the recommended option); G0's yes to edit `torra/gates/**` is still to come
-Last verified: 6adef17 on 2026-11-18
+Last verified: 9c3d823 on 2026-11-18 (Phase 0 done)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal
@@ -64,8 +64,9 @@ covers Phase 2. Never: soften a test in the must-ask lists, lower a coverage or 
 
 ## 5. Measurement: the replay
 
-Every Bash command in the Claude Code transcripts (`~/.claude/projects/*/*.jsonl`) plus every `proposed_steps`
-command in `~/.torra/telemetry/tasks.jsonl`, deduplicated, classified at the base commit and again after each
+Every Bash command in the Claude Code transcripts (`~/.claude/projects/**/*.jsonl`, subagents included) plus every
+step command torra planned (`plan.steps[].step.command` in `~/.torra/audit/*.audit.json`; `tasks.jsonl` holds only a
+step count), deduplicated, classified at the base commit and again after each
 phase. Report: counts per level, and every command whose level changed, grouped by program. Commands are
 classified in-process only; nothing runs. Output stays in the scratchpad (it may hold private paths); only counts
 and the program-level summary go into docs.
@@ -82,8 +83,22 @@ and the program-level summary go into docs.
   `uv run pytest tests/test_known_programs.py -q` shows exactly the new must-ask cases failing.
 - **U1 replay tool** (Sonnet, parallel with U0). `scripts/dev/replay_verdicts.py` plus
   `tests/test_replay_verdicts.py`. The tool takes `--out FILE` (JSONL of command and level) and `--diff A B`.
-  It reads transcripts and telemetry through injected paths, so the test uses fixtures, never `~`. Check: its test
+  It reads transcripts and audit files through injected paths, so the test uses fixtures, never `~`. Check: its test
   passes, and a baseline run at `6adef17` lands in the scratchpad with its counts reported.
+
+**Phase 0 result (done 2026-11-18).** U0: 56 must-ask cases in `ASKS`, all `xfail(strict=True)`, 55 with reason
+"P5.5 Phase 1" and `pip list --log=F` with "Phase 2"; beyond the evidence the verifier added `ethtool -w`/`--get-dump
+eth0 data F` (writes F), the short `-r -X -U -Q` forms, curl `--write-out`, bare `gawk -p` and `env ethtool --flash`.
+Five read-only cases added (`pip list` was already there). U1: `scripts/dev/replay_verdicts.py` (16 tests); one
+classifier exception is recorded as level `error` instead of ending the run, warnings are ignored so `-W error`
+cannot move a verdict, and `--diff` groups each move under every plain program name it resolved to. Suite 1970
+passed before, 1991 passed and 56 xfailed after. Baseline at `9c3d823`: 138,841 distinct commands
+(transcripts 138,661, audit 180, 95 malformed lines skipped), safe 79,188, caution 4,383, dangerous 53,516,
+critical 1,754; two runs at one commit are byte-identical. Notes for later units: U3's ethtool spec cannot allow
+`-w` outright, because `data FILE` is an operand (check the operands, or let bare `ethtool -w eth0` ask and
+explain the move under O3). Found in passing, outside P5.5: `python3 -c` with a payload of about 7,000 chained unary
+minus signs makes `ast.parse` in `_pure_python` (`program_checks.py:146`) raise `MemoryError`, which only
+`SyntaxError`/`ValueError` are caught for; a gate fix, ask-first.
 
 **Gate G0 (owner):** the baseline counts seen, then a yes to edit `torra/gates/**` (O1 to O3 are answered).
 
