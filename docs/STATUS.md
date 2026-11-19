@@ -1,6 +1,6 @@
 # torra: status
 
-Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-11-18.
+Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-11-19.
 
 **Phase: built, in use on the owner's workstation, in progress.** 209 commits on `main` since 2026-07-28.
 Moved to the corsu layout and standard on 2026-10-25 (`docs/DECISIONS.md` D-008 to D-013); those commits are
@@ -70,7 +70,7 @@ blind-corpus claim as historical.
 
 ## Open gaps
 
-1. **Model judgement on real traffic:** gap 6.1.
+1. **Model judgement on real traffic:** gap 6.1 is closed on a blind corpus; real post-fix traffic is still thin (gap 6.2).
 2. **Real traffic and the label-and-measure loop:** gap 6.2.
 3. **Undo coverage ceiling:** gap 6.3.
 4. **Tree watching misses a same-size same-mtime edit.** The declared-path
@@ -80,21 +80,31 @@ blind-corpus claim as historical.
    inform the tick. The prompt now says what each target is; asking at the
    moment each step runs is an open decision (`docs/plans/GRADE_TO_A_PLAN.md` D8).
 
-### 6.1 The clarifier misses most genuinely ambiguous requests
+### 6.1 Does the model ask when a request is ambiguous (closed on a blind corpus, 2026-11-19)
 
-Open: on real, hand-labeled traffic the model stops and asks for only 18% of requests a human calls ambiguous
-(82% live false negatives, 39 occurrences) against a 0% synthetic baseline; whether the VRAM-eviction-credit routing
-fix (`docs/INVARIANTS.md §2.35`) closes it is unanswered, because 38 of the 39 were logged before that fix landed
-(2026-08-27 10:30) and one has been recorded since (correctly blocked; n=1 proves nothing).
+Closed by measurement, not by a change: after the VRAM-eviction-credit routing fix (`docs/INVARIANTS.md §2.35`,
+2026-08-27 10:30) the live model asks on 92.5% of ambiguous requests. Before it, it asked on 16%.
 
-Why it matters: the gates are tested on fixed corpora and tests use a scripted backend, so only real traffic
-measures model judgement. As of that snapshot (143 recorded tasks, 29 `plan`-intent): the first proposal needed no
-repair in 12 of 29 plan turns, the repair loop rescued 11 of 29, and a human rejected 2 plans outright. Next step:
-more post-fix traffic, `torra label`, then `torra evidence`. If the gap persists the fix is prompt and
-model-judgment work, not more gates, and not a guess at new clarifier anchors (R-2, R-3 in `docs/DECISIONS.md`).
-Two attempts are recorded in `docs/INVARIANTS.md §2.40` (the repair-loop check reverted, R-9; the shipped rule-6
-wording fix, live A/B tested, for a read-only diagnostic such as `lsblk` deflected back to the operator): read them
-before a third.
+| Traffic | False negatives (asked too little) | False positives (asked needlessly) |
+|---|---|---|
+| Owner-labeled, before the fix | 32/38 = 84% (Wilson 95% 70-93%) | 15/74 = 20% |
+| Blind corpus, after the fix (2026-11-19, `a5ab709`) | 7/93 = 7.5% (3.7-14.7%) | 0/81 = 0% (0-4.5%) |
+| Owner-labeled, after the fix | 2/5 (too few to read) | 0/19 |
+
+The old "82%, 39 occurrences" was 32/39: the 38 pre-fix occurrences plus the one post-fix ask. The corpus, its
+blind second labeling (kappa 0.77, only agreed items run, `TestClarifier` paraphrases dropped), the method and the
+per-item results are in `docs/plans/P5_6_1_CLARIFIER_LIVE_PLAN.md`: 31 ambiguous and 28 specific requests for this
+box, three plan-only runs each through the live gateway, the pre-registered bar (at most 20% false negatives) met.
+The misses are 4 items: "purge the journal" (0 of 3 asked), "make the ollama service start at boot with the larger
+model loaded" (1 of 3), "the disk is full" and "reinstall the nvidia stuff" (2 of 3 each); 27 of 31 asked every time.
+Of 93 ambiguous turns, 90 were routed by the ambiguous rule and 85 of those asked; 2 of the 3 that took the default
+rule did not.
+
+Limits: the corpus is synthetic, written to look like the owner's requests, and its specific half is mostly easy
+read-only requests; real traffic is still the stronger test (gap 6.2). `torra evidence` still prints one blended
+rate over all labeled traffic (30% false negatives over 136 occurrences on 2026-11-19), which mixes pre-fix and
+post-fix turns; split by time as the plan does. If false negatives come back, the fix is prompt and model-judgment
+work, not more gates and not new clarifier anchors (R-2, R-3, R-9 in `docs/DECISIONS.md`; `docs/INVARIANTS.md §2.40`).
 
 Pointers: `tests/test_pipeline.py::test_every_finished_turn_is_recorded_to_telemetry`,
 `tests/test_telemetry.py::TestDrift` (`docs/INVARIANTS.md §2.34`); the synthetic-corpus baseline is
@@ -106,8 +116,8 @@ Open: the label-and-measure loop runs, but each fix needs its own post-fix traff
 
 Why it matters: 143 real tasks (about a month, CLI/TUI/OpenRouter), 91 hand-labeled, already found the
 pipefail/SIGPIPE-forgiveness gap (`docs/INVARIANTS.md §2.36`) and the VRAM-eviction-credit routing bug (`§2.35`).
-`drift()` averages fixed and still-broken traffic into one number (gap 6.1) until enough post-fix tasks exist to
-separate them. The 2026-10-11/12 replay and live plan-only runs are under "Where the numbers come from".
+`drift()` averages fixed and still-broken traffic into one number until enough post-fix tasks exist to separate
+them (gap 6.1 splits by time). The 2026-10-11/12 replay and live plan-only runs are under "Where the numbers come from".
 
 ### 6.3 Undo has no automatic coverage for raw devices and migrations
 
@@ -125,6 +135,15 @@ Pointers: `tests/test_gates.py::TestUndoGeneration::test_dd_against_a_regular_de
 
 Open, each small.
 
+- **`torra plan` never records a turn that ends in a plan (found 2026-11-19).** `Torra.plan` finishes an
+  awaiting-approval plan through `_finish(write_audit=False)`, which returns before the telemetry write, and `cmd_plan`
+  exits without `reject()`. Only ask, answer and refuse turns reach `tasks.jsonl`, so a false-negative count driven by
+  `torra plan` reads 0%. Gap 6.1's run used plan then `reject()` instead (`docs/plans/P5_6_1_CLARIFIER_LIVE_PLAN.md`).
+  The fix touches `cli.py` and the report stage: the owner's call.
+- **Plan-time undo capture crashes `plan()` on an unreadable path (found 2026-11-19, safety path).** For "pull the
+  ollama model llama3.2:3b" the model declared a `touches:` path under `/root/.ollama/models` (3 of 3 runs);
+  `UndoGenerator.capture_file`'s `target.exists()` raised `PermissionError`, uncaught through `Torra._gate`, so the
+  turn died with a traceback and left no telemetry. Same function as the non-regular-file item below.
 - **Rename backups.** `harness-pre-torra-rename.bundle` and `dot-harness-pre-torra.tgz` were in `/mnt/data/archive/`;
   that directory was not found on 2026-10-27, so they may already be gone. Delete only on the owner's say-so.
 - **Corsican spelling.** Have a native speaker confirm the spelling of *torra* (the Genoese coastal watchtower; the
