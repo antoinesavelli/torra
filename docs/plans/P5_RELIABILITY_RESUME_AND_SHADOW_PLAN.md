@@ -38,7 +38,9 @@ Phase 5): gap 6.6 (a resume point never expires and the operator cannot see it a
   FILE_ABSENT path.
 - **Residual (accepted):** a regular file swapped for a device between `stat()` and the copy. Closing it means
   copying from a checked fd, which the `cp --reflink` path cannot do; the path is the model's, the swap needs a
-  concurrent local writer.
+  concurrent local writer. Worst case: a file swapped for `/dev/zero` is read by `copy2` without bound, filling the
+  shadow dir's disk. Under reflink, `cp --reflink=always` refuses the device at once (measured, coreutils 9.4: "failed
+  to clone"; its 60s timeout would cap it otherwise) and `_copy` falls back to that same `copy2`.
 
 ## 3. Ask-first boundaries
 
@@ -66,7 +68,8 @@ U1 runs beside U2; U3 waits for U2 (both edit `tests/test_pipeline.py`). Full De
 | U2 | Sonnet | fresh Opus: FAIL (huge-int `at` raised in `execute()`, NaN never expired, a mark naming no plan step was exempt), fixed, re-verified PASS | `3d81c60`; D1 revised |
 | U3 | Sonnet | fresh Opus: PASS | next commit; the verifier found a FIFO resume file now hung `plan()`, so `ResumePoint.load` refuses a non-regular file (orchestrator, with a test) |
 | U4 | orchestrator | `tests/test_knowledge_refs.py` | next commit |
-| U5 `exists()` crash (owner's yes 2026-11-19, after a live crash) | orchestrator | full Definition of Done | `capture_file` records a skip when `exists()` raises; LIVE_WIRES §5.26 |
+| U5 `exists()` crash (owner's yes 2026-11-19, after a live crash) | orchestrator | fresh Opus: FAIL (the raise moved to the conflict check in `execute()`) | `8b719ed`: `capture_file` records a skip when `exists()` raises |
+| U6 the same raise in `execute()` | orchestrator | full Definition of Done | `ConflictDetector` reports an unstattable path `unreadable`, so the run blocks and sweeps; LIVE_WIRES §5.26 |
 
 Left open (`docs/STATUS.md` §6.5, §6.6): `at` re-stamped on every save; the preview is a snapshot, and a dry run
 still shows "will stop"; a dangling symlink

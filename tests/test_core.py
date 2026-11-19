@@ -1869,6 +1869,23 @@ class TestConflictDetection:
         assert len(found) == 1
         assert found[0].kind is ConflictKind.UNREADABLE
 
+    def test_a_declared_path_that_cannot_be_statted_is_unreadable_not_raised(
+        self, tmp_path
+    ) -> None:
+        """exists() raises under a chmod-0 parent; that must report, not escape execute()."""
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        detector = ConflictDetector()
+        detector.baseline([str(locked / "blob")])
+        locked.chmod(0o000)
+        try:
+            found = detector._detect_declared()
+        finally:
+            locked.chmod(0o700)
+
+        assert [c.kind for c in found] == [ConflictKind.UNREADABLE]
+        assert "PermissionError" in found[0].detail
+
     def test_a_declared_path_content_change_is_reported(self, tmp_path) -> None:
         target = tmp_path / "app.conf"
         target.write_text("original", encoding="utf-8")

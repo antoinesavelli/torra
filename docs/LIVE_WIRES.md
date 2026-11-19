@@ -270,15 +270,15 @@ multiline) after `password=`/`token:` etc., and be the one shared redaction used
 keeps labels from drifting a second copy of the patterns.
 **Guarded by:** `tests/test_telemetry.py::TestRedaction` (4 cases)
 
-### 5.26 `capture_file` stats a `touches` path and refuses anything that is not a regular file.
+### 5.26 `capture_file` and the conflict check refuse a `touches` path that is not a statable regular file.
 
-**Rule:** `UndoGenerator.capture_file` (`torra/gates/undo.py`) checks `S_ISREG` on `stat()` before `_copy` or
-`digest`; a device, FIFO, socket or directory, or a symlink to one, is skipped with its kind and the step stays
-uncovered. Never replace the check with an open-then-fstat: opening a FIFO blocks. An `exists()` that raises (an
-unsearchable parent) is a skip too, never "absent" and never an exception out of `plan()` (crashed live 2026-11-19).
-**Why:** it runs at plan time, before approval, on a path the model declared. `shutil.copy2` refuses a FIFO but
-reads `/dev/zero` without end, and `max_shadow_bytes` never fires because its `st_size` is 0.
-**Code:** `UndoGenerator.capture_file`, `_file_kind`
+**Rule:** `UndoGenerator.capture_file` checks `S_ISREG` on `stat()` before `_copy` or `digest`: a device, FIFO,
+socket or directory, or a symlink to one, is skipped with its kind (never open-then-fstat: opening a FIFO blocks),
+and so is a path whose `exists()` raises. `ConflictDetector` reports that path `unreadable`, so `execute()` blocks.
+**Why:** both run on a model-declared path. `copy2` reads `/dev/zero` without end (its `st_size` is 0). A path torra
+cannot stat is unknowable, not unchanged: blocking names it and sweeps; the raise (live 2026-11-19) skipped the sweep.
+**Code:** `UndoGenerator.capture_file`, `_file_kind`, `ConflictDetector._detect_declared`, `ConflictDetector._classify`
 **Guarded by:** `tests/test_gates.py::TestUndoGeneration` (`test_a_fifo_is_skipped_without_opening_it`,
 `test_a_symlink_to_a_device_is_skipped`, `test_a_path_under_an_unsearchable_directory_is_skipped_not_raised`),
-`tests/test_pipeline.py::test_a_touches_path_torra_cannot_stat_does_not_crash_plan`
+`tests/test_pipeline.py::test_a_touches_path_torra_cannot_stat_blocks_execute_instead_of_raising`,
+`tests/test_pipeline.py::test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps`

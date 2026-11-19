@@ -146,9 +146,9 @@ Open, each small.
 - **Model size falls back to a name guess (found 2026-10-13).** `AGENTS.md` says size is never guessed from the
   name; `ModelRouter._params_b` does when `/api/show` has nothing (chat capability never does).
   `docs/INVARIANTS.md §2.9` states what the code does.
-- **Shadow copy of a non-regular file, and a `touches` path torra cannot stat:** closed 2026-11-19
-  (`docs/LIVE_WIRES.md` §5.26). Found while closing it, still open: a dangling symlink or a loop is snapshotted as
-  absent, so its undo deletes the link; `remote_edit` reads a `remote_push` step's `reads` file with no regular-file
+- **Shadow copy of a non-regular file, and a `touches` path torra cannot stat (undo and conflict check):** closed
+  2026-11-19 (`docs/LIVE_WIRES.md` §5.26). Found while closing it, still open: a dangling symlink or a loop is
+  snapshotted as absent, so its undo deletes the link and verifies as "undone" (`not target.exists()` is then true); `remote_edit` reads a `remote_push` step's `reads` file with no regular-file
   or size check (after approval).
 - **`cat /secret.env` is SAFE (found 2026-10-14, security call).** Only a file named exactly `.env` counts as a
   credential read; re-checked 2026-10-27, still SAFE.
@@ -202,7 +202,8 @@ A point more than 24h from now is ignored, and the plan says what a resume will 
 (`docs/INVARIANTS.md §2.64`, `docs/DECISIONS.md` D-017). Left open: every save re-stamps `at`, so a task that fails
 at least once a day keeps trusting its first day's completed steps (a first-written time is a new field, a format
 change); expired files are not swept (each is inert, and the next run of its task id overwrites it); the plan's
-line is a snapshot, so a file left between plan and Run, or a clock skew at the 24h edge, is not announced.
+line is a snapshot, so a file left between plan and Run, or a clock skew at the 24h edge, is not announced; and a
+dry run shows the line though a dry run ignores the resume point (it neither skips nor stops).
 
 ## Open work
 

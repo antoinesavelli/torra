@@ -272,7 +272,16 @@ class ConflictDetector:
         out: list[Conflict] = []
         for path, before in self.hashes.items():
             p = Path(path)
-            exists = p.exists()
+            try:
+                exists = p.exists()
+            except OSError as exc:
+                # Live wire: docs/LIVE_WIRES.md §5.26 -- a path torra cannot stat is unknowable, not unchanged.
+                out.append(
+                    Conflict(
+                        path, ConflictKind.UNREADABLE, before, None, f"cannot stat it: {exc!r}"
+                    )
+                )
+                continue
             after = self.hash_file(path) if exists else None
             if before is None and after is not None:
                 out.append(
@@ -331,7 +340,10 @@ class ConflictDetector:
         """Turn one event path into a Conflict, or None when it is not one."""
         target = Path(path)
         known = path in self.fingerprints
-        exists = target.exists()
+        try:
+            exists = target.exists()
+        except OSError as exc:
+            return Conflict(path, ConflictKind.UNREADABLE, None, None, f"cannot stat it: {exc!r}")
         if not known and exists:
             return Conflict(
                 path,

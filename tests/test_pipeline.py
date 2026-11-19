@@ -139,6 +139,81 @@ def test_a_touches_path_torra_cannot_stat_does_not_crash_plan(make_torra, tmp_pa
         locked.chmod(0o700)
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_touches_path_torra_cannot_stat_blocks_execute_instead_of_raising(
+    make_torra, tmp_path: Path, dry_run: bool
+) -> None:
+    """Verifier repro on 8b719ed: plan() survived, then the conflict check's exists() raised out of
+    execute(). Unknowable is not unchanged: the run stops before step 1 and says which path."""
+    marker = tmp_path / "marker"
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    blob = locked / "blob"
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "mark then remove",
+                    [
+                        {"id": "mark", "run": f"touch {marker}", "touches": [str(marker)]},
+                        {"id": "rm", "run": f"rm -f {blob}", "touches": [str(blob)]},
+                    ],
+                )
+            )
+        )
+        planned = torra.plan("mark then remove")
+        assert planned.plan is not None
+        approvals = {sp.step.step_id: True for sp in planned.plan.steps}
+        done = torra.execute(planned, approvals, dry_run=dry_run)
+        assert done.outcome is Outcome.BLOCKED
+        assert f"{blob}=unreadable" in done.abort_reason
+        assert not marker.exists()
+    finally:
+        locked.chmod(0o700)
+
+
+def test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps(
+    make_torra, tmp_path: Path
+) -> None:
+    """The same raise between steps skipped _sweep_rollback; now the run blocks and sweeps step 1."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    blob = locked / "blob"
+    conf = tmp_path / "app.conf"
+    conf.write_text("before\n", encoding="utf-8")
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "edit then lock",
+                [
+                    {
+                        "id": "edit",
+                        "run": f"sh -c 'echo after > {conf} && chmod 0 {locked}'",
+                        "touches": [str(conf)],
+                    },
+                    {"id": "rm", "run": f"rm -f {blob}", "touches": [str(blob)]},
+                ],
+            )
+        )
+    )
+    try:
+        planned = torra.plan("edit then lock")
+        assert planned.plan is not None
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        assert done.outcome is Outcome.BLOCKED
+        assert f"{blob}=unreadable" in done.abort_reason
+        assert conf.read_text(encoding="utf-8") == "before\n"
+    finally:
+        locked.chmod(0o700)
+
+
 def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: `torra.telemetry.records.TaskLogger`
     had a working `record()` and no caller anywhere in pipeline.py,
