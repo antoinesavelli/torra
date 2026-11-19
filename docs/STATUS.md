@@ -148,7 +148,9 @@ Open, each small.
   `docs/INVARIANTS.md §2.9` states what the code does.
 - **Shadow copy of a non-regular file, and a glob or unstattable `touches` path (undo and conflict check):** closed
   2026-11-19, watch roots too (`docs/LIVE_WIRES.md` §5.26, `docs/DECISIONS.md` D-018). Still open: a `$VAR` or `{a,b}`
-  in `touches` is taken literally; a dangling symlink or a loop is snapshotted as absent, so its undo deletes the link and verifies as
+  in `touches` is taken literally; a file inside a subdirectory of a watch root that is chmod-0'd and restored reads
+  as `created` (inotify `_classify`, and `_reconcile` once `refresh` dropped its fingerprint), outside the §5.26 matrix;
+  a dangling symlink or a loop is snapshotted as absent, so its undo deletes the link and verifies as
   "undone" (`not target.exists()` is then true); `remote_edit` reads a `remote_push` step's `reads` file with no
   regular-file or size check (after approval).
 - **`cat /secret.env` is SAFE (found 2026-10-14, security call).** Only a file named exactly `.env` counts as a

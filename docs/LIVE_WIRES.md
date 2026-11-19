@@ -270,15 +270,15 @@ multiline) after `password=`/`token:` etc., and be the one shared redaction used
 keeps labels from drifting a second copy of the patterns.
 **Guarded by:** `tests/test_telemetry.py::TestRedaction` (4 cases)
 
-### 5.26 A `touches` path or watch root torra cannot snapshot or check is warned about, never silently "unchanged".
+### 5.26 A declared path or watch root is CHECKED or UNCHECKED; torra's own unstattable is skipped, not a conflict.
 
-**Rule:** a glob is `*?[` AND no file of that literal name; it gets no undo, but its literal name is still compared, so
-a real `app[1].conf` appearing blocks. `capture_file` also skips an unstattable or non-`S_ISREG` path (never open then
-fstat: a FIFO blocks). An unstattable path or root at baseline is `unchecked` (plan warning, Run log, no block: D-018);
-one that turns unstattable later is `unreadable` and blocks, checked on the inotify path too, except a path torra's own
-step made so (`refresh`), skipped only while it stays unstattable. Never let any of these raise.
-**Why:** `touches` is never shell-expanded, so a glob's undo deleted nothing and verified "undone"; an `exists()`
-that raised crashed `plan()` and skipped the sweep (live 2026-11-19).
-**Code:** `UndoGenerator.capture_file`, `ConflictDetector.baseline`/`_detect_declared`/`_detect_tree`/`refresh`, `Torra._gate`
-**Guarded by:** `tests/test_pipeline.py` (`test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`,
-`test_an_absent_glob_named_path_created_from_outside_blocks`, `test_a_watch_root_torra_cannot_stat_warns_at_plan_and_runs`)
+**Rule:** `ConflictDetector`: a stat that raises at baseline makes it UNCHECKED (plan warning, Run log, never compared,
+D-018); else CHECKED with a prior hash (None if absent). At detect a CHECKED one whose stat raises is `unreadable`,
+unless torra's own step did it (`refresh` keeps the prior hash and skips it only while it stays so). A glob is an
+ordinary path here (its literal name is compared); it matters only to undo: `capture_file` skips a glob (`*?[`, no
+literal file), an unstattable path, a non-`S_ISREG` one (never open-then-fstat: a FIFO blocks). Never let these raise.
+**Why:** a glob's undo deleted nothing and verified "undone"; a raising `exists()` crashed `plan()` (live 2026-11-19);
+four patched rounds each opened a new case, so one model is pinned by a matrix.
+**Code:** `ConflictDetector.baseline`/`_detect_declared`/`_detect_tree`/`_reconcile`/`refresh`, `capture_file`, `Torra._gate`
+**Guarded by:** `tests/test_core.py::test_declared_path_and_watch_root_matrix`, `tests/test_pipeline.py`
+(`test_a_step_locking_its_own_glob_dir_keeps_the_declared_rollback`, `test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`)

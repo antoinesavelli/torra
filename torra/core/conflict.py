@@ -18,19 +18,6 @@ from typing import Any
 __all__ = ["ConflictKind", "Conflict", "ConflictDetector"]
 
 
-def _unexpanded_glob(path: str) -> bool:
-    """Glob characters and no file of that literal name: `touches` is never shell-expanded."""
-    if not any(c in path for c in "*?["):
-        return False
-    try:
-        os.lstat(path)
-    except (FileNotFoundError, NotADirectoryError):
-        return True
-    except OSError:
-        return False  # unstattable, not a glob: handled as such
-    return False
-
-
 def _stat_error(path: Path) -> str | None:
     """Why torra cannot stat `path` (an unsearchable parent), or None when it can."""
     try:
@@ -121,12 +108,12 @@ class ConflictDetector:
         self.reconcile_every = max(1, int(reconcile_every))
         self.use_inotify = bool(use_inotify)
 
+        # Live wire: docs/LIVE_WIRES.md §5.26 -- each declared path and watch root is CHECKED (a
+        # prior hash, None when absent) or UNCHECKED (its stat raised at baseline; never compared).
         self.hashes: dict[str, str | None] = {}
-        #: Declared paths and watch roots torra could not check at baseline -> why; the plan warns
-        #: about each, the Run logs it. A glob among them still has its literal name compared.
+        #: UNCHECKED paths and roots -> why; the plan warns about each, the Run logs it.
         self.unchecked: dict[str, str] = {}
-        self._globs: set[str] = set()
-        #: Declared paths torra's own step made unstattable: skipped only while they stay so.
+        #: CHECKED ones torra's own step made unstattable: prior hash kept, skipped while they stay so.
         self._own_unstattable: set[str] = set()
         self.fingerprints: dict[str, tuple[int, int]] = {}
         self.errors: list[str] = []
@@ -183,17 +170,12 @@ class ConflictDetector:
         self.close()
         self.hashes = {}
         self.unchecked = {}
-        self._globs = set()
         self._own_unstattable = set()
         self._watch_paths = {}
         for path in paths:
             key = str(Path(path))
             self.hashes[key] = self.hash_file(key)
-            # Live wire: docs/LIVE_WIRES.md §5.26
-            if _unexpanded_glob(key):
-                self.unchecked[key] = "a glob, which torra does not expand; no undo"
-                self._globs.add(key)
-            elif why := _stat_error(Path(key)):
+            if why := _stat_error(Path(key)):
                 self.unchecked[key] = f"cannot stat it ({why}); no undo"
         self.roots = [Path(r) for r in roots] if roots is not None else list(self._default_roots)
         self.fingerprints = {}
@@ -316,20 +298,18 @@ class ConflictDetector:
         out: list[Conflict] = []
         for path, before in self.hashes.items():
             p = Path(path)
-            if path in self.unchecked and path not in self._globs:
-                continue  # unstattable at plan time: warned, never compared (D-018)
             try:
                 exists = p.exists()
             except OSError as exc:
-                if path in self._own_unstattable:
-                    continue  # torra's own step did it; compared again once it can be stat'ed
-                # Checkable at baseline, not now: a change after the plan, so it blocks (LIVE_WIRES §5.26).
-                out.append(
-                    Conflict(
-                        path, ConflictKind.UNREADABLE, before, None, f"cannot stat it: {exc!r}"
+                if path not in self.unchecked and path not in self._own_unstattable:
+                    out.append(
+                        Conflict(
+                            path, ConflictKind.UNREADABLE, before, None, f"cannot stat it: {exc!r}"
+                        )
                     )
-                )
                 continue
+            if path in self.unchecked:
+                continue  # no baseline to compare with (D-018)
             after = self.hash_file(path) if exists else None
             if before is None and after is not None:
                 out.append(
@@ -361,7 +341,9 @@ class ConflictDetector:
         lost = [
             Conflict(str(root), ConflictKind.UNREADABLE, None, None, f"watch root: {why}")
             for root in self.roots
-            if str(root) not in self.unchecked and (why := _stat_error(root))
+            if str(root) not in self.unchecked
+            and str(root) not in self._own_unstattable
+            and (why := _stat_error(root))
         ]
         if lost:
             return lost
@@ -438,24 +420,32 @@ class ConflictDetector:
         self._since_walk = 0
         conflicts: list[Conflict] = []
         current: dict[str, tuple[int, int]] = {}
+        # An unchecked root, or one torra's own step made unstattable, is neither walked nor
+        # compared; any other lost root was already caught in _detect_tree.
+        skipped = [str(r) for r in self.roots if str(r) in self.unchecked or _stat_error(r)]
         for root in self.roots:
-            if str(root) not in self.unchecked:  # a lost root was caught in _detect_tree
+            if str(root) not in skipped:
                 current.update(self._walk(root))
+        baseline = {
+            path: fp
+            for path, fp in self.fingerprints.items()
+            if not any(path == s or path.startswith(s + os.sep) for s in skipped)
+        }
 
-        for path in current.keys() - self.fingerprints.keys():
+        for path in current.keys() - baseline.keys():
             conflicts.append(
                 Conflict(
                     path, ConflictKind.CREATED, None, self.hash_file(path), "appeared in the tree"
                 )
             )
-        for path in self.fingerprints.keys() - current.keys():
+        for path in baseline.keys() - current.keys():
             conflicts.append(
                 Conflict(
                     path, ConflictKind.DELETED, self.hashes.get(path), None, "removed from the tree"
                 )
             )
-        for path in self.fingerprints.keys() & current.keys():
-            if self.fingerprints[path] == current[path]:
+        for path in baseline.keys() & current.keys():
+            if baseline[path] == current[path]:
                 continue
             before = self.hashes.get(path, "<not hashed at baseline>")
             after = self.hash_file(path)
@@ -491,23 +481,29 @@ class ConflictDetector:
         fresh baseline every single step, regardless of what changed.
         """
         newly_unchecked: list[str] = []
+        roots = {str(r) for r in self.roots}
         for path in paths:
             key = str(Path(path))
+            self._known.pop(key, None)
+            if _stat_error(Path(key)):
+                # torra's own step did it: keep the prior hash, skip it while it stays so (§5.26).
+                if key not in self.unchecked and key not in self._own_unstattable:
+                    self._own_unstattable.add(key)
+                    newly_unchecked.append(key)
+                self.fingerprints.pop(key, None)
+                continue
+            self._own_unstattable.discard(key)
+            if key in roots:
+                if self.unchecked.pop(key, None) is not None:
+                    self.fingerprints.update(self._walk(Path(key)))  # its first baseline
+                continue
+            self.unchecked.pop(key, None)  # the hash below is a real baseline now
             self.hashes[key] = self.hash_file(key)
             try:
                 st = Path(key).stat(follow_symlinks=False)
                 self.fingerprints[key] = (st.st_size, st.st_mtime_ns)
             except OSError:
                 self.fingerprints.pop(key, None)
-            self._known.pop(key, None)
-            # torra's own step made it unstattable: not an outside change (LIVE_WIRES §5.26).
-            if _stat_error(Path(key)) is None:
-                self._own_unstattable.discard(key)
-                if key not in self._globs:
-                    self.unchecked.pop(key, None)  # the hash above is a real baseline now
-            elif key not in self.unchecked and key not in self._own_unstattable:
-                self._own_unstattable.add(key)
-                newly_unchecked.append(key)
         return newly_unchecked
 
     def close(self) -> None:

@@ -28,11 +28,11 @@ from .service_state import (
 from .undo_remote import RemoteCapture
 from .undo_types import Snapshot, SnapshotKind, UndoAction
 
-__all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
+__all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator", "unexpanded_glob"]
 
 
-def _unexpanded_glob(target: Path) -> bool:
-    """Glob characters and no file of that literal name (`ConflictDetector` has the twin)."""
+def unexpanded_glob(target: os.PathLike[str] | str) -> bool:
+    """Glob characters and no file of that literal name: `touches` is never shell-expanded."""
     if not any(c in str(target) for c in "*?["):
         return False
     try:
@@ -215,7 +215,7 @@ class UndoGenerator(RemoteCapture):
 
         # Live wire: docs/LIVE_WIRES.md §5.26 -- touches is never shell-expanded, so an undo of a glob
         # naming no file deletes nothing and still verifies as undone. A real `app[1].conf` is a file.
-        if _unexpanded_glob(target):
+        if unexpanded_glob(target):
             self.skipped.append(
                 f"{target} is a glob; torra does not expand it, so no undo generated"
             )

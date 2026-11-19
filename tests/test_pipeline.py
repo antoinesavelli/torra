@@ -242,10 +242,11 @@ def test_a_glob_touches_path_is_uncovered_warned_and_runs(make_torra, tmp_path: 
     assert planned.plan is not None
     assert planned.plan.coverage["uncovered"] == ["m"]
     assert any(pattern in w and "glob" in w for w in planned.plan.warnings), planned.plan.warnings
+    assert not any("cannot be checked" in w for w in planned.plan.warnings)
     done = torra.execute(planned, {"m": True})
     assert done.outcome is Outcome.COMPLETED, done.abort_reason
     assert marker.exists()
-    assert _unchecked_note(torra, pattern)
+    assert not _unchecked_note(torra, pattern)  # its literal name is checked
 
 
 def test_a_real_file_named_with_glob_characters_still_blocks_on_an_outside_edit(
@@ -283,7 +284,8 @@ def test_an_absent_glob_named_path_created_from_outside_blocks(make_torra, tmp_p
 def test_a_step_that_makes_its_own_touches_path_unstattable_does_not_block_the_next(
     make_torra, tmp_path: Path
 ) -> None:
-    """torra's own change is not an outside one: refresh() moves the path to unchecked, logged."""
+    """torra's own change is not an outside one: refresh() skips the path while it stays
+    unstattable, and the Run logs it."""
     locked = tmp_path / "locked"
     locked.mkdir()
     blob = locked / "blob"
@@ -339,6 +341,44 @@ def test_a_watch_root_torra_cannot_stat_warns_at_plan_and_runs(make_torra, tmp_p
         assert marker.exists()
     finally:
         locked.chmod(0o700)
+
+
+@pytest.mark.parametrize("second", ["true", "exit 1"])
+def test_a_step_locking_its_own_glob_dir_keeps_the_declared_rollback(
+    make_torra, tmp_path: Path, second: str
+) -> None:
+    """Fourth verify of fe1bcde: torra's own `chmod 0 D` read as an outside change, which blocked
+    the run and dropped the declared rollback. It completes; a later failure still runs it."""
+    d = tmp_path / "D"
+    d.mkdir()
+    pattern = str(d / "*.conf")
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "lock D",
+                [
+                    {"id": "lock", "run": f"chmod 0 {d}", "touches": [pattern]},
+                    {"id": "next", "run": second, "touches": [pattern]},
+                ],
+                rollback=[{"run": f"chmod 700 {d}", "description": "unlock D", "safe": True}],
+            )
+        )
+    )
+    try:
+        planned = torra.plan("lock D")
+        assert planned.plan is not None
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
+        if os.geteuid() == 0:
+            pytest.skip("running as root: a chmod-0 directory stays searchable")
+        assert [r.step_id for r in done.results] == ["lock", "next"], done.abort_reason
+        if second == "true":
+            assert done.outcome is Outcome.COMPLETED
+        else:
+            assert done.outcome is Outcome.FAILED
+            assert os.access(d, os.X_OK), "the declared rollback did not run"
+    finally:
+        d.chmod(0o700)
 
 
 def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:

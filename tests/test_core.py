@@ -1886,15 +1886,19 @@ class TestConflictDetection:
         assert [c.kind for c in found] == [ConflictKind.UNREADABLE]
         assert "PermissionError" in found[0].detail
 
-    def test_a_declared_glob_is_unchecked_not_unchanged(self, tmp_path) -> None:
-        """The literal glob never exists, so before == after == None read as unchanged."""
+    def test_a_declared_glob_is_an_ordinary_path_compared_by_its_literal_name(
+        self, tmp_path
+    ) -> None:
+        """Glob or not is an undo concern; here only the literal name exists or not."""
         (tmp_path / "a.log").write_text("x", encoding="utf-8")
-        pattern = str(tmp_path / "*.log")
+        pattern = tmp_path / "*.log"
         detector = ConflictDetector()
-        detector.baseline([pattern])
-        assert "glob" in detector.unchecked[pattern]
+        detector.baseline([str(pattern)])
+        assert detector.unchecked == {}
         (tmp_path / "a.log").write_text("changed", encoding="utf-8")
         assert detector._detect_declared() == []
+        pattern.write_text("a file literally named *.log", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.CREATED]
 
     def test_a_declared_path_unstattable_at_baseline_is_unchecked(self, tmp_path) -> None:
         """Owner, 2026-11-19: warn at plan, let it run; never a raise, never "unchanged"."""
@@ -2375,6 +2379,83 @@ class TestConflictDetection:
         assert stats["fast_checks"] == 3
         assert stats["full_walks"] == 1
         assert stats["errors"] == ["oops"]
+
+
+_M, _C, _D, _U = (
+    ConflictKind.MODIFIED,
+    ConflictKind.CREATED,
+    ConflictKind.DELETED,
+    ConflictKind.UNREADABLE,
+)
+_KINDS = ("plain", "real_bracket", "absent_bracket", "glob", "root")
+#: event -> {path kind: the one conflict kind expected, or None for none}; a kind left out does
+#: not apply (an absent file cannot be modified). "own" means torra's step did it and refresh() ran.
+_MATRIX: dict[str, dict[str, ConflictKind | None]] = {
+    "unchanged": dict.fromkeys(_KINDS),
+    "outside_modify": {"plain": _M, "real_bracket": _M, "glob": None, "root": _M},
+    "outside_create": {"absent_bracket": _C, "glob": None, "root": _C},
+    "outside_delete": {"plain": _D, "real_bracket": _D, "glob": None, "root": _D},
+    "outside_unstattable": dict.fromkeys(_KINDS, _U),
+    "own_unstattable": dict.fromkeys(_KINDS),
+    "own_unstattable_then_restored": dict.fromkeys(_KINDS),
+    "own_unstattable_restored_outside_delete": {
+        "plain": _D,
+        "real_bracket": _D,
+        "glob": None,
+        "root": _D,
+    },
+}
+
+
+@pytest.mark.parametrize(
+    ("event", "kind"), [(e, k) for e, row in _MATRIX.items() for k in row], ids=str
+)
+def test_declared_path_and_watch_root_matrix(tmp_path: Path, event: str, kind: str) -> None:
+    """One model (LIVE_WIRES §5.26): a path or root is CHECKED (a prior hash, None if absent) or
+    UNCHECKED; torra's own step making it unstattable keeps the prior hash and skips it only while
+    it stays so. A glob is an ordinary path here: its matches are invisible, its literal name not."""
+    if "unstattable" in event and os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    d = tmp_path / "d"
+    d.mkdir()
+    if kind == "root":
+        root = d / "root"
+        root.mkdir()
+        real = root / "f"
+        real.write_text("v1", encoding="utf-8")
+        declared, new = str(root), root / "new"
+        detector = ConflictDetector(use_inotify=False)
+        detector.baseline([], roots=[root])
+    else:
+        name = {"plain": "app.conf", "glob": "*.conf"}.get(kind, "app[1].conf")
+        declared = str(d / name)
+        real = d / "a.conf" if kind == "glob" else d / name
+        if kind != "absent_bracket":
+            real.write_text("v1", encoding="utf-8")
+        new = d / "b.conf" if kind == "glob" else real
+        detector = ConflictDetector()
+        detector.baseline([declared])
+    try:
+        if event == "outside_modify":
+            real.write_text("v2, longer", encoding="utf-8")
+        elif event == "outside_create":
+            new.write_text("x", encoding="utf-8")
+        elif event == "outside_delete":
+            real.unlink()
+        elif event == "outside_unstattable":
+            d.chmod(0)
+        elif event.startswith("own_unstattable"):
+            d.chmod(0)
+            assert detector.refresh([declared]) == [declared]
+            if event != "own_unstattable":
+                d.chmod(0o700)
+            if event.endswith("outside_delete"):
+                real.unlink()
+        found = detector.detect()
+    finally:
+        d.chmod(0o700)
+    expected = _MATRIX[event][kind]
+    assert [c.kind for c in found] == ([] if expected is None else [expected]), found
 
 
 class TestConflictDetectorRealInotify:

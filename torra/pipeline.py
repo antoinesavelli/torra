@@ -51,6 +51,7 @@ from .gates import (
     UndoGenerator,
     VerifiedRollback,
 )
+from .gates.undo import unexpanded_glob
 from .pipeline_report import finish, safe_filename
 from .pipeline_rollback import declared_undos
 from .pipeline_steps import StepRunner
@@ -282,6 +283,12 @@ class Torra(StepRunner):
         # proposal; removed in a full-file audit.
         tracked = sorted({t for s in steps for t in s.touches})
         self.conflicts.baseline(tracked, roots=spec.watch_roots or None)
+        # Live wire: docs/LIVE_WIRES.md §5.26
+        plan.warnings.extend(
+            f"{path} is a glob, which torra does not expand, so it has no undo"
+            for path in tracked
+            if unexpanded_glob(path)
+        )
         plan.warnings.extend(
             f"{path} cannot be checked for outside changes: {why}"
             for path, why in self.conflicts.unchecked.items()
