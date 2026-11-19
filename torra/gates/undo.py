@@ -200,6 +200,13 @@ class UndoGenerator(RemoteCapture):
         """Snapshot one file and build its restore action."""
         target = Path(path)
 
+        # Live wire: docs/LIVE_WIRES.md §5.26 -- touches is never shell-expanded, so a glob's literal
+        # path is always absent, and an undo of it deletes nothing and still verifies as undone.
+        if any(c in str(target) for c in "*?["):
+            self.skipped.append(
+                f"{target} is a glob; torra does not expand it, so no undo generated"
+            )
+            return None
         try:
             absent = not target.exists()
         except OSError as exc:

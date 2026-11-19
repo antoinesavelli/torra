@@ -1886,6 +1886,15 @@ class TestConflictDetection:
         assert [c.kind for c in found] == [ConflictKind.UNREADABLE]
         assert "PermissionError" in found[0].detail
 
+    def test_a_declared_glob_is_unreadable_not_unchanged(self, tmp_path) -> None:
+        """The literal glob never exists, so before and after were both None: silently unchanged."""
+        (tmp_path / "a.log").write_text("x", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.baseline([str(tmp_path / "*.log")])
+        found = detector._detect_declared()
+        assert [c.kind for c in found] == [ConflictKind.UNREADABLE]
+        assert "glob" in found[0].detail
+
     def test_a_declared_path_content_change_is_reported(self, tmp_path) -> None:
         target = tmp_path / "app.conf"
         target.write_text("original", encoding="utf-8")

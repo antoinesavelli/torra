@@ -272,13 +272,13 @@ keeps labels from drifting a second copy of the patterns.
 
 ### 5.26 `capture_file` and the conflict check refuse a `touches` path that is not a statable regular file.
 
-**Rule:** `UndoGenerator.capture_file` checks `S_ISREG` on `stat()` before `_copy` or `digest`: a device, FIFO,
-socket or directory, or a symlink to one, is skipped with its kind (never open-then-fstat: opening a FIFO blocks),
-and so is a path whose `exists()` raises. `ConflictDetector` reports that path `unreadable`, so `execute()` blocks.
-**Why:** both run on a model-declared path. `copy2` reads `/dev/zero` without end (its `st_size` is 0). A path torra
-cannot stat is unknowable, not unchanged: blocking names it and sweeps; the raise (live 2026-11-19) skipped the sweep.
+**Rule:** `UndoGenerator.capture_file` skips (the step stays uncovered) a `touches` path that is a glob, whose `exists()`
+raises, or whose `stat()` is not `S_ISREG` (device, FIFO, socket, directory, or a symlink to one); never open-then-fstat,
+opening a FIFO blocks. `ConflictDetector` reports a glob or unstattable path `unreadable`, so `execute()` blocks.
+**Why:** both run on a model-declared path that is never shell-expanded. `copy2` reads `/dev/zero` without end; a glob's
+literal path is always absent, so its undo deleted nothing and verified "undone". Unknowable is not unchanged.
 **Code:** `UndoGenerator.capture_file`, `_file_kind`, `ConflictDetector._detect_declared`, `ConflictDetector._classify`
 **Guarded by:** `tests/test_gates.py::TestUndoGeneration` (`test_a_fifo_is_skipped_without_opening_it`,
-`test_a_symlink_to_a_device_is_skipped`, `test_a_path_under_an_unsearchable_directory_is_skipped_not_raised`),
+`test_a_path_under_an_unsearchable_directory_is_skipped_not_raised`, `test_a_glob_touches_path_is_skipped_never_a_fake_undo`),
 `tests/test_pipeline.py::test_a_touches_path_torra_cannot_stat_blocks_execute_instead_of_raising`,
-`tests/test_pipeline.py::test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps`
+`tests/test_pipeline.py::test_a_glob_touches_path_is_uncovered_and_blocks_execute`

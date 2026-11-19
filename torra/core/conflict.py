@@ -272,6 +272,14 @@ class ConflictDetector:
         out: list[Conflict] = []
         for path, before in self.hashes.items():
             p = Path(path)
+            if any(c in path for c in "*?["):
+                # The literal glob never exists, so before == after == None would read as unchanged.
+                out.append(
+                    Conflict(
+                        path, ConflictKind.UNREADABLE, before, None, "a glob: torra cannot check it"
+                    )
+                )
+                continue
             try:
                 exists = p.exists()
             except OSError as exc:

@@ -214,6 +214,28 @@ def test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps(
         locked.chmod(0o700)
 
 
+def test_a_glob_touches_path_is_uncovered_and_blocks_execute(make_torra, tmp_path: Path) -> None:
+    """A glob in touches got an undo that deleted nothing and reported "undone"; now it is uncovered
+    at plan time and the conflict check, which cannot watch it, stops the run before it."""
+    log = tmp_path / "a.log"
+    log.write_text("keep\n", encoding="utf-8")
+    pattern = str(tmp_path / "*.log")
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t", "clear logs", [{"id": "rm", "run": f"rm -f {pattern}", "touches": [pattern]}]
+            )
+        )
+    )
+    planned = torra.plan("clear logs")
+    assert planned.plan is not None
+    assert planned.plan.coverage["uncovered"] == ["rm"]
+    done = torra.execute(planned, {"rm": True})
+    assert done.outcome is Outcome.BLOCKED
+    assert f"{pattern}=unreadable" in done.abort_reason
+    assert log.exists()
+
+
 def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: `torra.telemetry.records.TaskLogger`
     had a working `record()` and no caller anywhere in pipeline.py,

@@ -69,7 +69,8 @@ U1 runs beside U2; U3 waits for U2 (both edit `tests/test_pipeline.py`). Full De
 | U3 | Sonnet | fresh Opus: PASS | next commit; the verifier found a FIFO resume file now hung `plan()`, so `ResumePoint.load` refuses a non-regular file (orchestrator, with a test) |
 | U4 | orchestrator | `tests/test_knowledge_refs.py` | next commit |
 | U5 `exists()` crash (owner's yes 2026-11-19, after a live crash) | orchestrator | fresh Opus: FAIL (the raise moved to the conflict check in `execute()`) | `8b719ed`: `capture_file` records a skip when `exists()` raises |
-| U6 the same raise in `execute()` | orchestrator | full Definition of Done | `ConflictDetector` reports an unstattable path `unreadable`, so the run blocks and sweeps; LIVE_WIRES §5.26 |
+| U6 the same raise in `execute()` | orchestrator | full Definition of Done | `24cd268`: `ConflictDetector` reports an unstattable path `unreadable`, so the run blocks and sweeps |
+| U7 a glob in `touches` (owner's yes 2026-11-19) | orchestrator | full Definition of Done | `capture_file` skips it; the conflict check reports it `unreadable`, so the run blocks; LIVE_WIRES §5.26 |
 
 Left open (`docs/STATUS.md` §6.5, §6.6): `at` re-stamped on every save; the preview is a snapshot, and a dry run
 still shows "will stop"; a dangling symlink

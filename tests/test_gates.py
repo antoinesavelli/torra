@@ -1173,6 +1173,20 @@ class TestUndoGeneration:
         finally:
             locked.chmod(0o700)
 
+    @pytest.mark.parametrize("pattern", ["*.log", "app.lo?", "app[12].log"])
+    def test_a_glob_touches_path_is_skipped_never_a_fake_undo(
+        self, tmp_path: Path, pattern: str
+    ) -> None:
+        """touches is never shell-expanded: the literal glob does not exist, so it was snapshotted as
+        absent, its undo unlinked nothing and verified as undone."""
+        (tmp_path / "app1.log").write_text("keep\n", encoding="utf-8")
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        step = Step("rm", touches=[str(tmp_path / pattern)])
+        assert generator.for_step(step) == []
+        assert generator.snapshots == []
+        assert any("glob" in s for s in generator.skipped), generator.skipped
+        assert generator.coverage([step])["uncovered"] == ["rm"]
+
     def test_a_step_touching_a_device_is_uncovered_with_the_reason(self, tmp_path: Path) -> None:
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
         step = Step("dev", touches=["/dev/null"])
