@@ -7,7 +7,7 @@ Owner decisions pending: D8 (section 2)
 Last verified: 61b6886 on 2026-10-21
 
 Every Phase 0 to 4 item below was re-read against the code and
-is done or withdrawn. Still open as of 2026-11-18: D8 and the P3.3 model-bench scenario; P5.5 is fixed and awaits the next re-grade
+is done or withdrawn. Still open as of 2026-11-19: D8 (the P3.3 model-bench scenario ran 2026-11-19); P5.5 is fixed and awaits the next re-grade
 (the red-team ran on 2026-11-17; the re-grade on 2026-11-18 gave A-, exit not met). Suite at this commit: 1667 passed.
 
 Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
@@ -259,7 +259,9 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
 - **P3.2 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.68; names from the file are withheld from steps rather than the file no longer being loaded).** **Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.
-- **P3.3 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.66; the model-bench injection scenario is not done, it needs a live model).** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
+- **P3.3 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.66); the model-bench injection scenario built and run 2026-11-19
+  (`docs/plans/P3_3_INJECTION_BENCH_PLAN.md`, `scripts/dev/model_bench/REPORT.md`): site knowledge obeyed in 7 of 9
+  runs, every obeyed command still ticked.** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
   `system`-role message with an opening `[read path]` header and no end marker (`torra/read_memory.py:74`).
   `iterate` pastes raw verify output into the operator's next request (`torra/iterate.py:124-128`). Changes:
   - move file contents out of the system role and wrap them in
