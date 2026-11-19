@@ -72,7 +72,8 @@ U1 runs beside U2; U3 waits for U2 (both edit `tests/test_pipeline.py`). Full De
 | U6 the same raise in `execute()` | orchestrator | full Definition of Done | `24cd268`: `ConflictDetector` reports an unstattable path `unreadable`, so the run blocks and sweeps |
 | U7 a glob in `touches` (owner's yes 2026-11-19) | orchestrator | full Definition of Done | `4b5d4a8`: `capture_file` skips it; the conflict check reported it `unreadable`, so the run blocked |
 | U8 warn, don't block (owner's choice 2026-11-19, D-018) | orchestrator | re-verify: FAIL (a real `[`-named file lost its check and undo; watch roots; `refresh`) | `aef8f6c`: a glob or unstattable `touches` path is in `ConflictDetector.unchecked`: plan warning, Run log, no block; a later change still blocks |
-| U9 re-verify of U8 | orchestrator | full Definition of Done | a glob needs no literal file (`app[1].conf` keeps its undo and check); an unstattable watch root is unchecked at baseline, `unreadable` later; `refresh` moves a path torra's own step made unstattable to unchecked; LIVE_WIRES §5.26 |
+| U9 re-verify of U8 | orchestrator | re-verify: FAIL (an absent `app[1].conf` created from outside went unseen; a `refresh`-unchecked path stayed so; a lost root waited for the walk) | `1c7ab1a`: a glob needs no literal file (a present `app[1].conf` keeps its undo and check); an unstattable watch root is unchecked at baseline, `unreadable` later; `refresh` moves a path torra's own step made unstattable to unchecked; LIVE_WIRES §5.26 |
+| U10 re-verify of U9 | orchestrator | full Definition of Done | a glob's literal name is still compared (created blocks); a `refresh`-unchecked path is skipped only while unstattable; a lost watch root blocks on the inotify path; D-018 and LIVE_WIRES §5.26 match |
 
 Left open (`docs/STATUS.md` §6.5, §6.6): `at` re-stamped on every save; the preview is a snapshot, and a dry run
 still shows "will stop"; a dangling symlink

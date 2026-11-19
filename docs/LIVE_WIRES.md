@@ -272,13 +272,13 @@ keeps labels from drifting a second copy of the patterns.
 
 ### 5.26 A `touches` path or watch root torra cannot snapshot or check is warned about, never silently "unchanged".
 
-**Rule:** a glob means glob characters AND no file of that literal name (`lstat` raises FileNotFoundError); a real
-`app[1].conf` is a file. `capture_file` skips a glob, a path whose `exists()` raises, or a non-`S_ISREG` one (never
-open-then-fstat: a FIFO blocks). `ConflictDetector.baseline` puts a glob, an unstattable path or watch root in
-`unchecked`: the plan warns, the Run logs it and goes on (D-018). Checkable at baseline and unstattable later is
-`unreadable` and blocks, unless torra's own step did it (`refresh` moves it to `unchecked`); never let it raise.
+**Rule:** a glob is `*?[` AND no file of that literal name; it gets no undo, but its literal name is still compared, so
+a real `app[1].conf` appearing blocks. `capture_file` also skips an unstattable or non-`S_ISREG` path (never open then
+fstat: a FIFO blocks). An unstattable path or root at baseline is `unchecked` (plan warning, Run log, no block: D-018);
+one that turns unstattable later is `unreadable` and blocks, checked on the inotify path too, except a path torra's own
+step made so (`refresh`), skipped only while it stays unstattable. Never let any of these raise.
 **Why:** `touches` is never shell-expanded, so a glob's undo deleted nothing and verified "undone"; an `exists()`
 that raised crashed `plan()` and skipped the sweep (live 2026-11-19).
-**Code:** `UndoGenerator.capture_file`, `ConflictDetector.baseline`/`_reconcile`/`refresh`, `Torra._gate`, `_run_steps`
+**Code:** `UndoGenerator.capture_file`, `ConflictDetector.baseline`/`_detect_declared`/`_detect_tree`/`refresh`, `Torra._gate`
 **Guarded by:** `tests/test_pipeline.py` (`test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`,
-`test_a_real_file_named_with_glob_characters_still_blocks_on_an_outside_edit`, `test_a_watch_root_torra_cannot_stat_warns_at_plan_and_runs`)
+`test_an_absent_glob_named_path_created_from_outside_blocks`, `test_a_watch_root_torra_cannot_stat_warns_at_plan_and_runs`)

@@ -1961,8 +1961,53 @@ class TestConflictDetection:
             found = detector._detect_declared()
         finally:
             locked.chmod(0o700)
-        assert blob in detector.unchecked
         assert found == []
+        # Re-verify of 1c7ab1a: once it can be stat'ed again it is compared again.
+        Path(blob).write_text("written from outside", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.CREATED]
+
+    def test_refresh_of_a_statable_path_restores_its_check(self, tmp_path) -> None:
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        blob = locked / "blob"
+        detector = ConflictDetector()
+        detector.baseline([str(blob)])
+        locked.chmod(0o000)
+        try:
+            detector.refresh([str(blob)])
+        finally:
+            locked.chmod(0o700)
+        blob.write_text("torra's own", encoding="utf-8")
+        assert detector.refresh([str(blob)]) == []
+        assert detector._detect_declared() == []
+        blob.write_text("outside", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.MODIFIED]
+
+    def test_a_declared_glob_named_file_created_after_baseline_is_reported(self, tmp_path) -> None:
+        literal = tmp_path / "app[1].conf"
+        detector = ConflictDetector()
+        detector.baseline([str(literal)])
+        literal.write_text("from outside", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.CREATED]
+
+    def test_a_watch_root_lost_is_caught_on_the_inotify_fast_path(self, tmp_path) -> None:
+        pytest.importorskip("inotify_simple")
+        locked = tmp_path / "locked"
+        (locked / "root").mkdir(parents=True)
+        detector = ConflictDetector(use_inotify=True)
+        detector.baseline([], roots=[locked / "root"])
+        if detector._inotify is None:
+            pytest.skip("inotify unavailable here")
+        locked.chmod(0o000)
+        try:
+            found = detector.detect()
+        finally:
+            locked.chmod(0o700)
+            detector.close()
+        assert detector.full_walks == 0
+        assert [(c.path, c.kind) for c in found] == [
+            (str(locked / "root"), ConflictKind.UNREADABLE)
+        ]
 
     def test_a_declared_path_content_change_is_reported(self, tmp_path) -> None:
         target = tmp_path / "app.conf"

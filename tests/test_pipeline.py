@@ -267,6 +267,19 @@ def test_a_real_file_named_with_glob_characters_still_blocks_on_an_outside_edit(
     assert f"{conf}=modified" in done.abort_reason
 
 
+def test_an_absent_glob_named_path_created_from_outside_blocks(make_torra, tmp_path: Path) -> None:
+    """Re-verify of 1c7ab1a: an absent `app[1].conf` was unchecked, so its creation went unseen."""
+    conf = tmp_path / "app[1].conf"
+    torra = make_torra(
+        scripted(plan_reply("t", "edit", [{"id": "e", "run": "true", "touches": [str(conf)]}]))
+    )
+    planned = torra.plan("edit")
+    conf.write_text("from outside", encoding="utf-8")
+    done = torra.execute(planned, {})
+    assert done.outcome is Outcome.BLOCKED
+    assert f"{conf}=created" in done.abort_reason
+
+
 def test_a_step_that_makes_its_own_touches_path_unstattable_does_not_block_the_next(
     make_torra, tmp_path: Path
 ) -> None:

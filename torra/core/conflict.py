@@ -122,9 +122,12 @@ class ConflictDetector:
         self.use_inotify = bool(use_inotify)
 
         self.hashes: dict[str, str | None] = {}
-        #: Declared paths torra could not check at baseline (a glob, or a failed stat) -> why. Never
-        #: compared, never "unchanged": the plan warns about each, and the Run records it.
+        #: Declared paths and watch roots torra could not check at baseline -> why; the plan warns
+        #: about each, the Run logs it. A glob among them still has its literal name compared.
         self.unchecked: dict[str, str] = {}
+        self._globs: set[str] = set()
+        #: Declared paths torra's own step made unstattable: skipped only while they stay so.
+        self._own_unstattable: set[str] = set()
         self.fingerprints: dict[str, tuple[int, int]] = {}
         self.errors: list[str] = []
         self.fast_checks: int = 0
@@ -180,6 +183,8 @@ class ConflictDetector:
         self.close()
         self.hashes = {}
         self.unchecked = {}
+        self._globs = set()
+        self._own_unstattable = set()
         self._watch_paths = {}
         for path in paths:
             key = str(Path(path))
@@ -187,6 +192,7 @@ class ConflictDetector:
             # Live wire: docs/LIVE_WIRES.md §5.26
             if _unexpanded_glob(key):
                 self.unchecked[key] = "a glob, which torra does not expand; no undo"
+                self._globs.add(key)
             elif why := _stat_error(Path(key)):
                 self.unchecked[key] = f"cannot stat it ({why}); no undo"
         self.roots = [Path(r) for r in roots] if roots is not None else list(self._default_roots)
@@ -310,11 +316,13 @@ class ConflictDetector:
         out: list[Conflict] = []
         for path, before in self.hashes.items():
             p = Path(path)
-            if path in self.unchecked:
-                continue
+            if path in self.unchecked and path not in self._globs:
+                continue  # unstattable at plan time: warned, never compared (D-018)
             try:
                 exists = p.exists()
             except OSError as exc:
+                if path in self._own_unstattable:
+                    continue  # torra's own step did it; compared again once it can be stat'ed
                 # Checkable at baseline, not now: a change after the plan, so it blocks (LIVE_WIRES §5.26).
                 out.append(
                     Conflict(
@@ -349,6 +357,14 @@ class ConflictDetector:
 
     def _detect_tree(self) -> list[Conflict]:
         """Event fast path, with a full walk on schedule."""
+        # A lost watch root blocks on the event path too, not only on every Nth walk (LIVE_WIRES §5.26).
+        lost = [
+            Conflict(str(root), ConflictKind.UNREADABLE, None, None, f"watch root: {why}")
+            for root in self.roots
+            if str(root) not in self.unchecked and (why := _stat_error(root))
+        ]
+        if lost:
+            return lost
         # Live wire: docs/LIVE_WIRES.md §5.3
         if not self.use_inotify or not self._inotify or self._since_walk >= self.reconcile_every:
             return self._reconcile()
@@ -423,15 +439,8 @@ class ConflictDetector:
         conflicts: list[Conflict] = []
         current: dict[str, tuple[int, int]] = {}
         for root in self.roots:
-            if str(root) in self.unchecked:
-                continue
-            if why := _stat_error(root):
-                # Checkable at baseline, not now: a change after the plan (LIVE_WIRES §5.26).
-                conflicts.append(
-                    Conflict(str(root), ConflictKind.UNREADABLE, None, None, f"watch root: {why}")
-                )
-                continue
-            current.update(self._walk(root))
+            if str(root) not in self.unchecked:  # a lost root was caught in _detect_tree
+                current.update(self._walk(root))
 
         for path in current.keys() - self.fingerprints.keys():
             conflicts.append(
@@ -492,8 +501,12 @@ class ConflictDetector:
                 self.fingerprints.pop(key, None)
             self._known.pop(key, None)
             # torra's own step made it unstattable: not an outside change (LIVE_WIRES §5.26).
-            if key not in self.unchecked and (why := _stat_error(Path(key))):
-                self.unchecked[key] = f"its own step made it unstattable ({why})"
+            if _stat_error(Path(key)) is None:
+                self._own_unstattable.discard(key)
+                if key not in self._globs:
+                    self.unchecked.pop(key, None)  # the hash above is a real baseline now
+            elif key not in self.unchecked and key not in self._own_unstattable:
+                self._own_unstattable.add(key)
                 newly_unchecked.append(key)
         return newly_unchecked
 
