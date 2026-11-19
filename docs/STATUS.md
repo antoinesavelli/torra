@@ -148,7 +148,7 @@ Open, each small.
   `docs/INVARIANTS.md §2.9` states what the code does.
 - **Shadow copy of a non-regular file:** closed 2026-11-19 (`docs/LIVE_WIRES.md` §5.26). Found while closing it,
   still open: `capture_file`'s `target.exists()` lets a `PermissionError` out of `Torra.plan` when a `touches`
-  path's parent is not searchable; a dangling symlink or a loop is snapshotted as absent, so its undo deletes the
+  path's parent is not searchable (crashed a live turn 2026-11-19: `touches` `/root/.ollama/models/*`); a dangling symlink or a loop is snapshotted as absent, so its undo deletes the
   link; `remote_edit` reads a `remote_push` step's `reads` file with no regular-file or size check (after approval).
 - **`cat /secret.env` is SAFE (found 2026-10-14, security call).** Only a file named exactly `.env` counts as a
   credential read; re-checked 2026-10-27, still SAFE.
