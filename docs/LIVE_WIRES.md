@@ -269,3 +269,14 @@ multiline) after `password=`/`token:` etc., and be the one shared redaction used
 `LabelStore.label()`'s free-text `why` went to disk unredacted; extracting a module-level `redact_secrets()`
 keeps labels from drifting a second copy of the patterns.
 **Guarded by:** `tests/test_telemetry.py::TestRedaction` (4 cases)
+
+### 5.26 `capture_file` stats a `touches` path and refuses anything that is not a regular file.
+
+**Rule:** `UndoGenerator.capture_file` (`torra/gates/undo.py`) checks `S_ISREG` on `stat()` before `_copy` or
+`digest`; a device, FIFO, socket or directory, or a symlink to one, is skipped with its kind and the step stays
+uncovered. Never replace the check with an open-then-fstat: opening a FIFO blocks.
+**Why:** it runs at plan time, before approval, on a path the model declared. `shutil.copy2` refuses a FIFO but
+reads `/dev/zero` without end, and `max_shadow_bytes` never fires because its `st_size` is 0.
+**Code:** `UndoGenerator.capture_file`, `_file_kind`
+**Guarded by:** `tests/test_gates.py::TestUndoGeneration` (`test_a_character_device_is_skipped_and_never_read`,
+`test_a_fifo_is_skipped_without_opening_it`, `test_a_symlink_to_a_device_is_skipped`)

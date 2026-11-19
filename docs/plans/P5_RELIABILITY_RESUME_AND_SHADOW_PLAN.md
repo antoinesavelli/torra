@@ -1,8 +1,8 @@
 # Plan: P5 Systems and Reliability, resume expiry and the shadow-copy regular-file check
 
-Status: active
+Status: done
 Owner decisions pending: none (owner's yes of 2026-11-19 covers these two fixes)
-Last verified: a5ab709 on 2026-11-19 (plan written, no unit built yet)
+Last verified: 3d81c60 on 2026-11-19 (U1 and U2 committed; U3, the load fix and U4 in the next commit)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal
@@ -14,11 +14,14 @@ Phase 5): gap 6.6 (a resume point never expires and the operator cannot see it a
 ## 2. Decisions
 
 - **D1, 24h expiry.** `resolve_resume` ignores a point whose `at` is more than `RESUME_MAX_AGE_SECONDS`
-  (24 * 3600, the value of `ShadowStore.STALE_SHADOW_SECONDS` in `torra/gates/undo_shadow.py`) old, notes why and starts fresh. A point with an
-  `in_progress` mark never expires (§2.64 point 2): a step whose effect is unknown stays unknown however old. Age
-  is `now - at` with an injectable `now`; a future `at` (clock moved back) is not expired. `at` joins
-  `_well_typed` (a number, not a bool), so a wrong-typed `at` is a corrupt file and starts fresh instead of
-  raising inside `execute()`. No format change: every save already writes `at`.
+  (24 * 3600, the value of `ShadowStore.STALE_SHADOW_SECONDS` in `torra/gates/undo_shadow.py`) from `now`, in
+  either direction (a far-future `at` is a jumped clock or garbage), notes why and starts fresh. A point whose
+  `in_progress` mark names a step of this plan never expires (§2.64 point 2): that step's effect stays unknown
+  however old. A mark naming a step the plan lacks does expire, since it would not block (U2 verify finding).
+  `now` is injectable. `at` joins `_well_typed` (a finite number, not a bool), so a wrong-typed, NaN, infinite or
+  too-large `at` is a corrupt file and starts fresh instead of raising inside `execute()`. No format change:
+  every save already writes `at`. Residual: every save re-stamps `at`, so a task that fails daily keeps its
+  first day's completed steps; a first-written time would be a new field (format change, owner's call).
 - **D2, no sweep.** An expired file is inert and the next run of the same task id overwrites it (`begin_step`).
   Files of task ids never re-run stay, a few hundred bytes each; the shadow reaper is not taught about them.
 - **D3, plan-time preview.** `Torra._gate` runs the same `resolve_resume` read-only (it only loads) and appends
@@ -57,4 +60,13 @@ U1 runs beside U2; U3 waits for U2 (both edit `tests/test_pipeline.py`). Full De
 
 ## 5. Record
 
-(filled as units land)
+| Unit | Built by | Verified by | Result |
+|---|---|---|---|
+| U1 | Sonnet | fresh Opus: PASS | `e566993`; the orchestrator added `digest` to the test's never-read patch |
+| U2 | Sonnet | fresh Opus: FAIL (huge-int `at` raised in `execute()`, NaN never expired, a mark naming no plan step was exempt), fixed, re-verified PASS | `3d81c60`; D1 revised |
+| U3 | Sonnet | fresh Opus: PASS | next commit; the verifier found a FIFO resume file now hung `plan()`, so `ResumePoint.load` refuses a non-regular file (orchestrator, with a test) |
+| U4 | orchestrator | `tests/test_knowledge_refs.py` | next commit |
+
+Left open (`docs/STATUS.md` §6.5, §6.6): `at` re-stamped on every save; the preview is a snapshot, and a dry run
+still shows "will stop"; `capture_file`'s `exists()` lets a `PermissionError` out of `plan()`; a dangling symlink
+is snapshotted as absent; `remote_edit` reads a `reads` file unchecked after approval.

@@ -1,6 +1,6 @@
 # torra: status
 
-Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-11-18.
+Single owner of dynamic status. Edit in place; nothing else restates it. Last updated 2026-11-19.
 
 **Phase: built, in use on the owner's workstation, in progress.** 209 commits on `main` since 2026-07-28.
 Moved to the corsu layout and standard on 2026-10-25 (`docs/DECISIONS.md` D-008 to D-013); those commits are
@@ -146,10 +146,10 @@ Open, each small.
 - **Model size falls back to a name guess (found 2026-10-13).** `AGENTS.md` says size is never guessed from the
   name; `ModelRouter._params_b` does when `/api/show` has nothing (chat capability never does).
   `docs/INVARIANTS.md §2.9` states what the code does.
-- **Shadow copy of a non-regular file (found 2026-10-14, safety path).** `UndoGenerator.capture_file` copies every
-  model-declared `touches` path at plan time, before approval, with no `S_ISREG` check (unlike
-  `ConflictDetector.hash_file`); by reading the code a `touches: /dev/zero` would copy without bound. Not
-  reproduced; `max_shadow_bytes` does not stop it because `st_size` is 0.
+- **Shadow copy of a non-regular file:** closed 2026-11-19 (`docs/LIVE_WIRES.md` §5.26). Found while closing it,
+  still open: `capture_file`'s `target.exists()` lets a `PermissionError` out of `Torra.plan` when a `touches`
+  path's parent is not searchable; a dangling symlink or a loop is snapshotted as absent, so its undo deletes the
+  link; `remote_edit` reads a `remote_push` step's `reads` file with no regular-file or size check (after approval).
 - **`cat /secret.env` is SAFE (found 2026-10-14, security call).** Only a file named exactly `.env` counts as a
   credential read; re-checked 2026-10-27, still SAFE.
 - **`unzip` false positive (found 2026-10-14).** As a `known_programs` writer, `unzip /home/user/archive.zip -d /tmp`
@@ -163,7 +163,7 @@ Open, each small.
   `§2.71`, `§2.74`).
 - **`begin_step` swallows a failed save of the resume file** (`docs/INVARIANTS.md §2.71`, `§2.74`;
   `_save_quietly` in `torra/core/resume.py`), so a crash may leave no in-progress mark. The digest-covers-only-the-
-  command-text part is gap 6.6.
+  command-text part stays open (`docs/INVARIANTS.md §2.64`).
 - **An unredirected `cmd &` holds the output pipes open until the timeout** (`docs/INVARIANTS.md §2.71`, `§2.74`).
 - **Ctrl-C between steps is not caught** (`docs/INVARIANTS.md §2.74`); Ctrl-C inside a step is (`§2.61`).
 - **Redaction is pattern-based** (`docs/INVARIANTS.md §2.74`): a secret in a shape no pattern knows still leaves.
@@ -196,26 +196,13 @@ Open, each small.
 - **Model-bench injection scenario** (`docs/INVARIANTS.md §2.66`): not done, needs a live model run; owned by the
   P3.3 row under Open work.
 
-### 6.6 A stopped run's resume point never expires, and the tick cannot see it (proposal, not built)
+### 6.6 A stopped run's resume point: closed 2026-11-19
 
-Open: a resume file is deleted only by a clean success or an attempted rollback (`docs/INVARIANTS.md §2.64` point 4),
-so a failed or blocked run keeps it forever, and the operator is not told that a step will be skipped.
-
-Why it matters: the digest check keeps a stale file inert unless the new plan is a byte-identical retry
-(`docs/INVARIANTS.md §2.64` point 3; the digest covers only the command text, `§2.71`). Then its completed steps are
-skipped however old the evidence, and `resolve_resume` runs inside `execute()` after the ticks, so neither the CLI nor
-the TUI says so. In a find-then-act plan (gap 5, D8) the skipped step is the check the operator relied on when ticking
-the act. Four stale files had built up between 2026-07-28 and 2026-10-12 (archived and deleted 2026-10-13).
-
-Proposal: (1) `resolve_resume` treats a point whose `at` is older than a set age (24h, matching
-`STALE_SHADOW_SECONDS`) as not matching, logs it and starts fresh; an `in_progress` mark never expires
-(`docs/INVARIANTS.md §2.64` point 2), and no format change is needed because every save writes `at`. (2) Resolve
-at plan time too, read-only, and show "resumes N of M steps: <ids>" on the plan in the CLI and the TUI;
-`execute()`'s own resolution stays the authority. (3) A sweep of expired files wherever the shadow reaper runs, only
-if (1) still leaves clutter that matters.
-
-Ask-first: it is on `Torra.execute`'s path and changes the resume decision. Needs `TestResume` cases (an old point is
-ignored; an old `in_progress` mark still blocks) and a CLI test and a TUI test for the resume line.
+A point more than 24h from now is ignored, and the plan says what a resume will skip or stop on
+(`docs/INVARIANTS.md §2.64`, `docs/DECISIONS.md` D-017). Left open: every save re-stamps `at`, so a task that fails
+at least once a day keeps trusting its first day's completed steps (a first-written time is a new field, a format
+change); expired files are not swept (each is inert, and the next run of its task id overwrites it); the plan's
+line is a snapshot, so a file left between plan and Run, or a clock skew at the 24h edge, is not announced.
 
 ## Open work
 
