@@ -9,6 +9,7 @@ zero downstream readers today.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -44,6 +45,17 @@ def test_a_corrupt_file_raises_rather_than_returning_garbage(tmp_path: Path) -> 
     target.write_text("{not valid json", encoding="utf-8")
 
     with pytest.raises(TorraError, match="corrupt resume point"):
+        ResumePoint.load(target)
+
+
+def test_a_resume_file_that_is_not_a_regular_file_is_corrupt_and_never_opened(
+    tmp_path: Path,
+) -> None:
+    """A FIFO would block read_text forever, and the plan-time preview reads this file too."""
+    target = tmp_path / "fifo.json"
+    os.mkfifo(target)
+
+    with pytest.raises(TorraError, match="not a regular file"):
         ResumePoint.load(target)
 
 

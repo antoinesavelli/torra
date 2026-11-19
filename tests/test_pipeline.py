@@ -9,6 +9,7 @@ that is never called shows up as a failure rather than as six phases of work.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -938,6 +939,71 @@ class TestResume:
         assert not done.exists()
         assert ResumePoint.load(resume_path) is not None, "the record of what finished is kept"
 
+    @staticmethod
+    def _age(resume_path: Path, seconds: float) -> None:
+        """Rewrite a saved resume point's `at` into the past (save() always stamps now)."""
+        body = json.loads(resume_path.read_text(encoding="utf-8"))
+        body["at"] = time.time() - seconds
+        resume_path.write_text(json.dumps(body), encoding="utf-8")
+
+    def test_an_old_resume_point_is_ignored_and_its_steps_run_again(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        """A failed run's point outlives its evidence: past 24h the "completed" step is not trusted."""
+        counter = tmp_path / "counter"
+        torra = make_torra(
+            scripted(
+                plan_reply("t", "one step", [{"id": "first", "run": f"printf x >> {counter}"}])
+            )
+        )
+        planned = torra.plan("one step")
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=1,
+            digests={"first": command_digest(f"printf x >> {counter}")},
+        ).save(resume_path)
+        counter.write_text("x", encoding="utf-8")  # the earlier attempt's real effect
+        self._age(resume_path, 25 * 3600)
+
+        result = torra.execute(planned, {})
+
+        assert result.outcome is Outcome.COMPLETED
+        assert counter.read_text(encoding="utf-8") == "xx", "the step must really run again"
+        assert not result.results[0].output.startswith("[resumed]")
+        assert any(d["decision"] == "resume point ignored" for d in result.decisions)
+
+    def test_an_old_resume_point_with_a_step_in_flight_still_blocks(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        done = tmp_path / "done"
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "two steps",
+                    [{"id": "first", "run": "true"}, {"id": "second", "run": f"touch {done}"}],
+                )
+            )
+        )
+        planned = torra.plan("two steps")
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=2,
+            in_progress="second",
+            digests={"first": command_digest("true")},
+        ).save(resume_path)
+        self._age(resume_path, 30 * 24 * 3600)
+
+        result = torra.execute(planned, {})
+
+        assert result.outcome is Outcome.BLOCKED
+        assert "was running when torra stopped" in result.abort_reason
+        assert not done.exists()
+
     def test_the_resume_file_marks_a_step_in_flight_while_it_runs(
         self, make_torra, tmp_path: Path
     ) -> None:
@@ -1086,6 +1152,89 @@ class TestResume:
         torra.execute(planned, {})
 
         assert not self._resume_path(tmp_path, "t").exists()
+
+
+class TestResumePreview:
+    """docs/plans/P5_RELIABILITY_RESUME_AND_SHADOW_PLAN.md D3: the plan itself says, before the
+    operator ticks anything, that a step will be skipped as already done or that the run will
+    stop on a step an earlier attempt left in flight. `execute()` stays the authority."""
+
+    TWO = [{"id": "first", "run": "true"}, {"id": "second", "run": "true"}]
+
+    def _planned(self, make_torra, tmp_path: Path, point: ResumePoint | None):
+        torra = make_torra(scripted(plan_reply("t", "two steps", self.TWO)))
+        path = TestResume._resume_path(tmp_path, "t")
+        if point is not None:
+            point.save(path)  # saved before torra.plan(): the preview reads it at gate time
+        return torra, path, torra.plan("two steps")
+
+    @staticmethod
+    def _point(**extra) -> ResumePoint:
+        return ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=2,
+            digests={"first": command_digest("true")},
+            **extra,
+        )
+
+    def test_a_matching_point_adds_one_resumes_warning(self, make_torra, tmp_path: Path) -> None:
+        _, path, planned = self._planned(make_torra, tmp_path, self._point())
+        assert planned.plan is not None
+        warnings = [w for w in planned.plan.warnings if w.startswith("resumes ")]
+        assert len(warnings) == 1
+        assert warnings[0].startswith("resumes 1 of 2 steps: first ")
+        assert f"delete {path} to run them again" in warnings[0]
+        assert not any("this run will stop" in w for w in planned.plan.warnings)
+
+    def test_a_step_left_in_flight_adds_a_will_stop_warning(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        _, path, planned = self._planned(make_torra, tmp_path, self._point(in_progress="second"))
+        assert planned.plan is not None
+        stops = [w for w in planned.plan.warnings if w.startswith("this run will stop: ")]
+        assert len(stops) == 1
+        assert "'second'" in stops[0] and str(path) in stops[0]
+        assert not any(w.startswith("resumes ") for w in planned.plan.warnings)
+
+    def test_an_expired_point_and_an_absent_one_add_no_resume_warning(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        torra = make_torra(scripted(plan_reply("t", "two steps", self.TWO)))
+        path = TestResume._resume_path(tmp_path, "t")
+        self._point().save(path)
+        TestResume._age(path, 25 * 3600)
+        expired = torra.plan("two steps")
+        path.unlink()
+        absent = torra.plan("two steps")
+        for planned in (expired, absent):
+            assert planned.plan is not None
+            assert not any(
+                w.startswith(("resumes ", "this run will stop")) for w in planned.plan.warnings
+            )
+
+    def test_planning_never_touches_the_resume_file(self, make_torra, tmp_path: Path) -> None:
+        torra, path, _ = self._planned(make_torra, tmp_path, self._point(in_progress="second"))
+        before = (path.read_bytes(), path.stat().st_mtime_ns)
+        torra.plan("two steps")
+        assert (path.read_bytes(), path.stat().st_mtime_ns) == before
+
+    def test_execute_after_the_preview_still_skips_and_blocks_as_before(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        torra, _, planned = self._planned(make_torra, tmp_path, self._point())
+        result = torra.execute(planned, {})
+        assert result.outcome is Outcome.COMPLETED
+        assert result.results[0].output.startswith("[resumed]")
+        assert not result.results[1].output.startswith("[resumed]")
+
+    def test_execute_after_the_preview_still_blocks_on_a_step_in_flight(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        torra, _, planned = self._planned(make_torra, tmp_path, self._point(in_progress="second"))
+        blocked = torra.execute(planned, {})
+        assert blocked.outcome is Outcome.BLOCKED
+        assert "was running when torra stopped" in blocked.abort_reason
 
 
 def test_execute_twice_on_the_same_result_does_not_replay_it(make_torra, tmp_path: Path) -> None:

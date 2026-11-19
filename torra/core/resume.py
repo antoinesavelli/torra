@@ -21,6 +21,7 @@ import hashlib
 import json
 import math
 import os
+import stat
 import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -102,6 +103,8 @@ class ResumePoint:
         except OSError:
             return None  # a name too long for the filesystem: there is nothing to resume from
         try:
+            if not stat.S_ISREG(target.stat().st_mode):
+                raise ValueError("not a regular file")  # a FIFO would block the read
             point = cls(**json.loads(target.read_text(encoding="utf-8")))
             if not point._well_typed():
                 raise TypeError("a field has the wrong type")

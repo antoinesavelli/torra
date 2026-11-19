@@ -269,6 +269,25 @@ def test_print_plan_shows_a_steps_description(
     assert "confirms free space before the larger copy" in capsys.readouterr().out
 
 
+def test_print_plan_shows_the_resume_preview_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D3: a plan whose earlier attempt finished a step says so, before anything is ticked."""
+    from torra.core.resume import ResumePoint, command_digest
+
+    steps = [{"id": "first", "run": "true"}, {"id": "second", "run": "true"}]
+    spec = TaskSpec.validate({"task_id": "t", "request": "two", "steps": steps}, source="test")
+    torra = Torra(workdir=tmp_path / "wd", ollama=OllamaClient(transport=lambda p, pay, t: {}))
+    ResumePoint(
+        task_id="t", completed=["first"], total=2, digests={"first": command_digest("true")}
+    ).save(tmp_path / "wd" / "resume" / "t.json")
+    plan = torra._gate(spec)
+
+    cli.print_plan(plan)
+
+    assert "warning: resumes 1 of 2 steps: first" in capsys.readouterr().out
+
+
 def test_print_plan_does_not_repeat_the_command_as_a_description(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
