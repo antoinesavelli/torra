@@ -1,0 +1,282 @@
+[
+ {
+  "id": "A28",
+  "request": "add a swap file"
+ },
+ {
+  "id": "S18",
+  "request": "add a ufw rule allowing ssh from 192.168.1.0/24"
+ },
+ {
+  "id": "A08",
+  "request": "block that ip"
+ },
+ {
+  "id": "A25",
+  "request": "change the dns"
+ },
+ {
+  "id": "S22",
+  "request": "check the temperature and power draw of the gpu"
+ },
+ {
+  "id": "A05",
+  "request": "clean up old kernels"
+ },
+ {
+  "id": "A32",
+  "request": "clear the cache"
+ },
+ {
+  "id": "A22",
+  "request": "copy the repos to the other machine"
+ },
+ {
+  "id": "A10",
+  "request": "delete the old backups"
+ },
+ {
+  "id": "A18",
+  "request": "disable the service i don't need"
+ },
+ {
+  "id": "S24",
+  "request": "disable the user timer backup-notes.timer"
+ },
+ {
+  "id": "A24",
+  "request": "downgrade the driver"
+ },
+ {
+  "id": "A03",
+  "request": "fix the gpu"
+ },
+ {
+  "id": "A02",
+  "request": "free up some space"
+ },
+ {
+  "id": "S13",
+  "request": "git status on /mnt/ParamoStorage/repos/corsu-repos/torra"
+ },
+ {
+  "id": "A07",
+  "request": "give him access to the data folder"
+ },
+ {
+  "id": "S26",
+  "request": "how much free memory and swap is there"
+ },
+ {
+  "id": "S04",
+  "request": "how much vram is free right now"
+ },
+ {
+  "id": "S10",
+  "request": "install htop with apt"
+ },
+ {
+  "id": "S08",
+  "request": "is ufw active and what are the rules"
+ },
+ {
+  "id": "A29",
+  "request": "kill the old python processes"
+ },
+ {
+  "id": "A16",
+  "request": "kill the process eating memory"
+ },
+ {
+  "id": "S23",
+  "request": "list flatpak apps installed"
+ },
+ {
+  "id": "S05",
+  "request": "list the ollama models i have installed"
+ },
+ {
+  "id": "A19",
+  "request": "make ssh more secure"
+ },
+ {
+  "id": "A30",
+  "request": "make the ollama service start at boot with the larger model loaded"
+ },
+ {
+  "id": "A06",
+  "request": "mount the new disk"
+ },
+ {
+  "id": "A36",
+  "request": "move my home to the big drive"
+ },
+ {
+  "id": "A11",
+  "request": "ollama is slow, make it faster"
+ },
+ {
+  "id": "A14",
+  "request": "open the port for the web app"
+ },
+ {
+  "id": "S14",
+  "request": "ping 192.168.1.1 five times"
+ },
+ {
+  "id": "A40",
+  "request": "pull the latest model and get rid of the old one"
+ },
+ {
+  "id": "S20",
+  "request": "pull the ollama model llama3.2:3b"
+ },
+ {
+  "id": "A38",
+  "request": "purge the journal"
+ },
+ {
+  "id": "A33",
+  "request": "reinstall the nvidia stuff"
+ },
+ {
+  "id": "A23",
+  "request": "remove docker stuff i'm not using"
+ },
+ {
+  "id": "S27",
+  "request": "remove the docker image nginx:1.25 if no container uses it"
+ },
+ {
+  "id": "A12",
+  "request": "remove the unused models"
+ },
+ {
+  "id": "A21",
+  "request": "resize the partition"
+ },
+ {
+  "id": "S03",
+  "request": "restart ollama.service"
+ },
+ {
+  "id": "A01",
+  "request": "restart the container"
+ },
+ {
+  "id": "A35",
+  "request": "restart the failed unit"
+ },
+ {
+  "id": "A15",
+  "request": "rotate the logs"
+ },
+ {
+  "id": "A26",
+  "request": "run it every night"
+ },
+ {
+  "id": "S29",
+  "request": "run uv sync in the torra repo"
+ },
+ {
+  "id": "A37",
+  "request": "set the permissions right on the shared folder"
+ },
+ {
+  "id": "A17",
+  "request": "set up a backup"
+ },
+ {
+  "id": "S09",
+  "request": "show all systemd timers and when they next fire"
+ },
+ {
+  "id": "S02",
+  "request": "show disk usage for /mnt/ParamoStorage"
+ },
+ {
+  "id": "S19",
+  "request": "show failed systemd units"
+ },
+ {
+  "id": "S12",
+  "request": "show me which apt packages are upgradable, don't install anything"
+ },
+ {
+  "id": "S28",
+  "request": "show sshd config effective settings"
+ },
+ {
+  "id": "A34",
+  "request": "stop docker from eating all my disk"
+ },
+ {
+  "id": "S16",
+  "request": "stop the docker container named grafana"
+ },
+ {
+  "id": "A04",
+  "request": "stop the timer"
+ },
+ {
+  "id": "S06",
+  "request": "tail the last 100 lines of the ollama service journal"
+ },
+ {
+  "id": "A27",
+  "request": "the disk is full"
+ },
+ {
+  "id": "A13",
+  "request": "the network is flaky, sort it out"
+ },
+ {
+  "id": "S17",
+  "request": "top 10 biggest directories under /mnt/ParamoStorage, just list them"
+ },
+ {
+  "id": "A31",
+  "request": "turn off the firewall for a minute"
+ },
+ {
+  "id": "A09",
+  "request": "update everything"
+ },
+ {
+  "id": "A39",
+  "request": "upgrade the kernel"
+ },
+ {
+  "id": "S25",
+  "request": "vacuum the journal down to 500M"
+ },
+ {
+  "id": "S15",
+  "request": "what dns servers is the system using"
+ },
+ {
+  "id": "S11",
+  "request": "what kernel am i running"
+ },
+ {
+  "id": "S30",
+  "request": "what ports is ollama listening on"
+ },
+ {
+  "id": "S01",
+  "request": "what's using port 8080"
+ },
+ {
+  "id": "S21",
+  "request": "when did the machine last boot"
+ },
+ {
+  "id": "S07",
+  "request": "which docker containers are running"
+ },
+ {
+  "id": "A20",
+  "request": "why did it reboot last night"
+ }
+]

@@ -133,8 +133,7 @@ system and reports one of three states: `undone` (the check passed),
 **ASK_CLARIFYING_QUESTIONS.** Detects ambiguity by what a request is missing (a
 path, unit, host, version, file or quantity), not by how it is phrased. On
 2026-10-09 it flagged all 18 ambiguous requests in its test corpus and 1 of 10
-specific ones. Live, after the 2026-08-27 routing fix, the model asked on 86 of 93 ambiguous runs of a
-blind corpus and on none of 81 specific ones (`docs/STATUS.md` gap 6.1).
+specific ones. On real traffic the model asks far less often: see gap 6.1 in `docs/STATUS.md`.
 
 ---
 

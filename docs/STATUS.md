@@ -70,7 +70,7 @@ blind-corpus claim as historical.
 
 ## Open gaps
 
-1. **Model judgement on real traffic:** gap 6.1 is closed on a blind corpus; real post-fix traffic is still thin (gap 6.2).
+1. **Model judgement on real traffic:** gap 6.1 (open; a synthetic corpus measured on 2026-11-19 does not close it).
 2. **Real traffic and the label-and-measure loop:** gap 6.2.
 3. **Undo coverage ceiling:** gap 6.3.
 4. **Tree watching misses a same-size same-mtime edit.** The declared-path
@@ -80,31 +80,41 @@ blind-corpus claim as historical.
    inform the tick. The prompt now says what each target is; asking at the
    moment each step runs is an open decision (`docs/plans/GRADE_TO_A_PLAN.md` D8).
 
-### 6.1 Does the model ask when a request is ambiguous (closed on a blind corpus, 2026-11-19)
+### 6.1 The clarifier misses most genuinely ambiguous requests
 
-Closed by measurement, not by a change: after the VRAM-eviction-credit routing fix (`docs/INVARIANTS.md §2.35`,
-2026-08-27 10:30) the live model asks on 92.5% of ambiguous requests. Before it, it asked on 16%.
+Open. On owner-labeled traffic before the VRAM-eviction-credit routing fix (`docs/INVARIANTS.md §2.35`, 2026-08-27
+10:30) the model asked on 6 of 38 ambiguous occurrences (84% false negatives, Wilson 95% 70-93%); the old "82%, 39
+occurrences" was those 38 plus one post-fix ask. Real post-fix traffic is still 5 ambiguous occurrences, 2 missed
+(both diagnostic questions, 2026-08-27 18:24-18:26, `devstral:24b` via the ambiguous rule): too few to read. Phase 5
+closes this gap on post-fix live traffic (`docs/plans/GRADE_TO_A_PLAN.md`), and that is not met.
 
-| Traffic | False negatives (asked too little) | False positives (asked needlessly) |
-|---|---|---|
-| Owner-labeled, before the fix | 32/38 = 84% (Wilson 95% 70-93%) | 15/74 = 20% |
-| Blind corpus, after the fix (2026-11-19, `a5ab709`) | 7/93 = 7.5% (3.7-14.7%) | 0/81 = 0% (0-4.5%) |
-| Owner-labeled, after the fix | 2/5 (too few to read) | 0/19 |
+A synthetic corpus measured on 2026-11-19 does not close it (`docs/plans/P5_6_1_CLARIFIER_LIVE_PLAN.md`; data and
+scripts in `scripts/dev/clarifier_corpus/`): 31 ambiguous and 28 specific requests, three plan-only runs each through
+the live gateway. False negatives 7 of 93 turns (3.7-14.7%, an interval that treats the three repeats as independent);
+by item, 4 of 31 missed at least once (5.1-28.9%), and the misses cluster on those 4. False positives 0 of 81 turns,
+0 of 27 items. The two populations differ, so these numbers are not comparable with the 84%. The pre-fix misses
+were mostly open diagnostic questions and follow-ups ("storage issues on paramostorage" 13 times, "give me a summary
+of storage" 3, "proceed" 3, "why error", "reprint in gb"); the corpus's ambiguous half is mostly terse action
+commands. Nothing tested the routing fix itself: there is no run on pre-fix code or with the fix reverted. The blind
+second labels agree on 62 of 70 (kappa 0.77), likely inflated because the blind file kept the A/S id prefixes.
 
-The old "82%, 39 occurrences" was 32/39: the 38 pre-fix occurrences plus the one post-fix ask. The corpus, its
-blind second labeling (kappa 0.77, only agreed items run, `TestClarifier` paraphrases dropped), the method and the
-per-item results are in `docs/plans/P5_6_1_CLARIFIER_LIVE_PLAN.md`: 31 ambiguous and 28 specific requests for this
-box, three plan-only runs each through the live gateway, the pre-registered bar (at most 20% false negatives) met.
-The misses are 4 items: "purge the journal" (0 of 3 asked), "make the ollama service start at boot with the larger
-model loaded" (1 of 3), "the disk is full" and "reinstall the nvidia stuff" (2 of 3 each); 27 of 31 asked every time.
-Of 93 ambiguous turns, 90 were routed by the ambiguous rule and 85 of those asked; 2 of the 3 that took the default
-rule did not.
+What the misses would have done (plan only, nothing ran): "purge the journal" planned `journalctl --vacuum-size=0`
+on all 3 runs (after copying the journal aside), a step torra has no undo for; run 1 showed "undo: 100% coverage" with the undo "delete /var/log/journal/*".
+"reinstall the nvidia stuff" run 3 planned ticked purges of `'^nvidia-.*'` and `'^cuda-.*'`, then
+`apt-get install -y nvidia-driver-535` and `cuda` rated caution (no tick), then a reboot; the undo lines for the
+purges, the installs and the reboot are not inverses. "make the ollama service start at boot with the larger model
+loaded" planned a `sed` edit of the unit's `ExecStart` with a model the request never named. "the disk is full" run 2
+answered with disk usage, read-only.
 
-Limits: the corpus is synthetic, written to look like the owner's requests, and its specific half is mostly easy
-read-only requests; real traffic is still the stronger test (gap 6.2). `torra evidence` still prints one blended
-rate over all labeled traffic (30% false negatives over 136 occurrences on 2026-11-19), which mixes pre-fix and
-post-fix turns; split by time as the plan does. If false negatives come back, the fix is prompt and model-judgment
-work, not more gates and not new clarifier anchors (R-2, R-3, R-9 in `docs/DECISIONS.md`; `docs/INVARIANTS.md §2.40`).
+The run left 174 synthetic turns (78 shown as `rejected`) and 58 labels by `claude-p5-6.1` in
+`~/.torra/telemetry`. `torra evidence`'s blended rate on 2026-11-19 (30% false negatives over 136 occurrences) is
+93 synthetic occurrences plus 43 owner-labeled ones, not a pre-fix and post-fix mix. Labels are keyed by request
+text, so they would also label the owner's own future request if it matched one word for word. The run also wrote 50 audit
+files to `~/.torra/audit` and 179 empty or near-empty `torra-shadow-<pid>` folders; one audit file it overwrote,
+`turn-1.audit.json` from 2026-10-12, is gone (6.5). Whether to remove
+them, and whether a corpus may close this gap, are the owner's calls. If false negatives persist on real traffic,
+the fix is prompt and model-judgment work, not more gates and not new clarifier anchors (R-2, R-3, R-9 in
+`docs/DECISIONS.md`; `docs/INVARIANTS.md §2.40`).
 
 Pointers: `tests/test_pipeline.py::test_every_finished_turn_is_recorded_to_telemetry`,
 `tests/test_telemetry.py::TestDrift` (`docs/INVARIANTS.md §2.34`); the synthetic-corpus baseline is
@@ -117,7 +127,7 @@ Open: the label-and-measure loop runs, but each fix needs its own post-fix traff
 Why it matters: 143 real tasks (about a month, CLI/TUI/OpenRouter), 91 hand-labeled, already found the
 pipefail/SIGPIPE-forgiveness gap (`docs/INVARIANTS.md §2.36`) and the VRAM-eviction-credit routing bug (`§2.35`).
 `drift()` averages fixed and still-broken traffic into one number until enough post-fix tasks exist to separate
-them (gap 6.1 splits by time). The 2026-10-11/12 replay and live plan-only runs are under "Where the numbers come from".
+them. The 2026-10-11/12 replay and live plan-only runs are under "Where the numbers come from".
 
 ### 6.3 Undo has no automatic coverage for raw devices and migrations
 
@@ -140,6 +150,9 @@ Open, each small.
   exits without `reject()`. Only ask, answer and refuse turns reach `tasks.jsonl`, so a false-negative count driven by
   `torra plan` reads 0%. Gap 6.1's run used plan then `reject()` instead (`docs/plans/P5_6_1_CLARIFIER_LIVE_PLAN.md`).
   The fix touches `cli.py` and the report stage: the owner's call.
+- **CLI audit files overwrite each other across runs (found 2026-11-19).** Each `torra` process starts its turn
+  counter at 1 with no session prefix, so the first ask, answer or refuse turn of every `torra ask`/`plan` writes
+  `~/.torra/audit/turn-1.audit.json` over the last one (`pipeline_report.finish`, `Agent.task_id_prefix`).
 - **Plan-time undo capture crashes `plan()` on an unreadable path (found 2026-11-19, safety path).** For "pull the
   ollama model llama3.2:3b" the model declared a `touches:` path under `/root/.ollama/models` (3 of 3 runs);
   `UndoGenerator.capture_file`'s `target.exists()` raised `PermissionError`, uncaught through `Torra._gate`, so the

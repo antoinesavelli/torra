@@ -1,0 +1,495 @@
+[
+ {
+  "id": "A01",
+  "request": "restart the container",
+  "label": "ambiguous",
+  "why": "Several containers run; which one is not named.",
+  "agreed": true
+ },
+ {
+  "id": "A02",
+  "request": "free up some space",
+  "label": "ambiguous",
+  "why": "No target disk, amount, or what may be deleted.",
+  "agreed": false,
+  "dropped": "close paraphrase of TestClarifier"
+ },
+ {
+  "id": "A03",
+  "request": "fix the gpu",
+  "label": "ambiguous",
+  "why": "Unknown symptom and unclear what fixed means.",
+  "agreed": true
+ },
+ {
+  "id": "A04",
+  "request": "stop the timer",
+  "label": "ambiguous",
+  "why": "Multiple timers exist and system versus user scope is unknown.",
+  "agreed": true
+ },
+ {
+  "id": "A05",
+  "request": "clean up old kernels",
+  "label": "ambiguous",
+  "why": "How many to keep is unspecified and removing the wrong one risks boot.",
+  "agreed": false
+ },
+ {
+  "id": "A06",
+  "request": "mount the new disk",
+  "label": "ambiguous",
+  "why": "Which device, which mount point, and whether to format are all missing.",
+  "agreed": true
+ },
+ {
+  "id": "A07",
+  "request": "give him access to the data folder",
+  "label": "ambiguous",
+  "why": "Unknown user, unknown folder, and read or write level unspecified.",
+  "agreed": true
+ },
+ {
+  "id": "A08",
+  "request": "block that ip",
+  "label": "ambiguous",
+  "why": "No IP given, and unclear whether inbound only or all traffic.",
+  "agreed": true
+ },
+ {
+  "id": "A09",
+  "request": "update everything",
+  "label": "ambiguous",
+  "why": "apt, flatpak, pip, docker images and models are all plausible scopes.",
+  "agreed": false
+ },
+ {
+  "id": "A10",
+  "request": "delete the old backups",
+  "label": "ambiguous",
+  "why": "Location and the cutoff for old are missing.",
+  "agreed": true
+ },
+ {
+  "id": "A11",
+  "request": "ollama is slow, make it faster",
+  "label": "ambiguous",
+  "why": "Slow how, for which model; the goal is unclear and the fixes differ widely.",
+  "agreed": true
+ },
+ {
+  "id": "A12",
+  "request": "remove the unused models",
+  "label": "ambiguous",
+  "why": "Which models count as unused is undefined and deletion is costly to redo.",
+  "agreed": true
+ },
+ {
+  "id": "A13",
+  "request": "the network is flaky, sort it out",
+  "label": "ambiguous",
+  "why": "Wired or wifi, LAN or internet, and what sort out means are unclear.",
+  "agreed": true
+ },
+ {
+  "id": "A14",
+  "request": "open the port for the web app",
+  "label": "ambiguous",
+  "why": "Which port, which app, and whether LAN only or public are unknown.",
+  "agreed": true
+ },
+ {
+  "id": "A15",
+  "request": "rotate the logs",
+  "label": "ambiguous",
+  "why": "Which logs and what retention policy are not given.",
+  "agreed": false
+ },
+ {
+  "id": "A16",
+  "request": "kill the process eating memory",
+  "label": "ambiguous",
+  "why": "Several candidates may exist and killing the wrong one loses work.",
+  "agreed": false
+ },
+ {
+  "id": "A17",
+  "request": "set up a backup",
+  "label": "ambiguous",
+  "why": "Source, destination, tool and schedule are all missing.",
+  "agreed": true
+ },
+ {
+  "id": "A18",
+  "request": "disable the service i don't need",
+  "label": "ambiguous",
+  "why": "The service is not named and need is unknowable from the request.",
+  "agreed": true
+ },
+ {
+  "id": "A19",
+  "request": "make ssh more secure",
+  "label": "ambiguous",
+  "why": "Open-ended goal with many different hardening actions, some risking lockout.",
+  "agreed": true
+ },
+ {
+  "id": "A20",
+  "request": "why did it reboot last night",
+  "label": "ambiguous",
+  "why": "Unclear whether to investigate only or also change something; no time given.",
+  "agreed": false
+ },
+ {
+  "id": "A21",
+  "request": "resize the partition",
+  "label": "ambiguous",
+  "why": "Which partition, grow or shrink, and to what size are missing.",
+  "agreed": true
+ },
+ {
+  "id": "A22",
+  "request": "copy the repos to the other machine",
+  "label": "ambiguous",
+  "why": "Which repos, which destination path, and whether to delete extras are unknown.",
+  "agreed": true
+ },
+ {
+  "id": "A23",
+  "request": "remove docker stuff i'm not using",
+  "label": "ambiguous",
+  "why": "Images, volumes, networks or stopped containers; volumes could hold data.",
+  "agreed": true
+ },
+ {
+  "id": "A24",
+  "request": "downgrade the driver",
+  "label": "ambiguous",
+  "why": "Which driver and to which version are not given.",
+  "agreed": true
+ },
+ {
+  "id": "A25",
+  "request": "change the dns",
+  "label": "ambiguous",
+  "why": "New server not given and unclear whether system-wide or per-connection.",
+  "agreed": true
+ },
+ {
+  "id": "A26",
+  "request": "run it every night",
+  "label": "ambiguous",
+  "why": "No referent for it and no time of day.",
+  "agreed": true
+ },
+ {
+  "id": "A27",
+  "request": "the disk is full",
+  "label": "ambiguous",
+  "why": "Which disk, and whether to diagnose or delete is unclear.",
+  "agreed": true
+ },
+ {
+  "id": "A28",
+  "request": "add a swap file",
+  "label": "ambiguous",
+  "why": "Size and location are not given and the machine has multiple disks.",
+  "agreed": true
+ },
+ {
+  "id": "A29",
+  "request": "kill the old python processes",
+  "label": "ambiguous",
+  "why": "Old is undefined and many python processes may be legitimate, such as the dev tools.",
+  "agreed": true
+ },
+ {
+  "id": "A30",
+  "request": "make the ollama service start at boot with the larger model loaded",
+  "label": "ambiguous",
+  "why": "Which larger model, relative to what, is unclear; also whether to preload.",
+  "agreed": true
+ },
+ {
+  "id": "A31",
+  "request": "turn off the firewall for a minute",
+  "label": "ambiguous",
+  "why": "Unclear which firewall layer or whether to re-enable, and how long a minute means for the revert.",
+  "agreed": false
+ },
+ {
+  "id": "A32",
+  "request": "clear the cache",
+  "label": "ambiguous",
+  "why": "apt, pip, uv, flatpak, browser, or GPU shader cache are all plausible.",
+  "agreed": true
+ },
+ {
+  "id": "A33",
+  "request": "reinstall the nvidia stuff",
+  "label": "ambiguous",
+  "why": "Driver, CUDA toolkit or container toolkit; also which version, and reboot risk.",
+  "agreed": true
+ },
+ {
+  "id": "A34",
+  "request": "stop docker from eating all my disk",
+  "label": "ambiguous",
+  "why": "Goal unclear: prune, move the data root, or limit logs; materially different actions.",
+  "agreed": true
+ },
+ {
+  "id": "A35",
+  "request": "restart the failed unit",
+  "label": "ambiguous",
+  "why": "Several units may be failed and scope system versus user is unknown.",
+  "agreed": false
+ },
+ {
+  "id": "A36",
+  "request": "move my home to the big drive",
+  "label": "ambiguous",
+  "why": "Which drive, whether symlink or bind mount or fstab change, and risk to the login session are open.",
+  "agreed": true
+ },
+ {
+  "id": "A37",
+  "request": "set the permissions right on the shared folder",
+  "label": "ambiguous",
+  "why": "Which folder and what right means for owner, group and mode.",
+  "agreed": true
+ },
+ {
+  "id": "A38",
+  "request": "purge the journal",
+  "label": "ambiguous",
+  "why": "How much to keep, by size or age, is not specified.",
+  "agreed": true
+ },
+ {
+  "id": "A39",
+  "request": "upgrade the kernel",
+  "label": "ambiguous",
+  "why": "Which kernel version or track, and whether to reboot after, are open.",
+  "agreed": false
+ },
+ {
+  "id": "A40",
+  "request": "pull the latest model and get rid of the old one",
+  "label": "ambiguous",
+  "why": "Which model family and which old copy are not identified.",
+  "agreed": true
+ },
+ {
+  "id": "S01",
+  "request": "what's using port 8080",
+  "label": "specific",
+  "why": "Read-only lookup of the listener on a named port.",
+  "agreed": true
+ },
+ {
+  "id": "S02",
+  "request": "show disk usage for /mnt/ParamoStorage",
+  "label": "specific",
+  "why": "Read-only df on a named mount.",
+  "agreed": true
+ },
+ {
+  "id": "S03",
+  "request": "restart ollama.service",
+  "label": "specific",
+  "why": "Named system unit with an obvious action.",
+  "agreed": false,
+  "dropped": "close paraphrase of TestClarifier"
+ },
+ {
+  "id": "S04",
+  "request": "how much vram is free right now",
+  "label": "specific",
+  "why": "Read-only nvidia-smi query.",
+  "agreed": false,
+  "dropped": "close paraphrase of TestClarifier"
+ },
+ {
+  "id": "S05",
+  "request": "list the ollama models i have installed",
+  "label": "specific",
+  "why": "Read-only ollama list.",
+  "agreed": true
+ },
+ {
+  "id": "S06",
+  "request": "tail the last 100 lines of the ollama service journal",
+  "label": "specific",
+  "why": "Named unit and quantity given, read-only.",
+  "agreed": true
+ },
+ {
+  "id": "S07",
+  "request": "which docker containers are running",
+  "label": "specific",
+  "why": "Read-only docker ps.",
+  "agreed": true
+ },
+ {
+  "id": "S08",
+  "request": "is ufw active and what are the rules",
+  "label": "specific",
+  "why": "Read-only ufw status verbose.",
+  "agreed": true
+ },
+ {
+  "id": "S09",
+  "request": "show all systemd timers and when they next fire",
+  "label": "specific",
+  "why": "Read-only list-timers, system and user.",
+  "agreed": true
+ },
+ {
+  "id": "S10",
+  "request": "install htop with apt",
+  "label": "specific",
+  "why": "Named package and manager.",
+  "agreed": true
+ },
+ {
+  "id": "S11",
+  "request": "what kernel am i running",
+  "label": "specific",
+  "why": "Read-only uname -r.",
+  "agreed": true
+ },
+ {
+  "id": "S12",
+  "request": "show me which apt packages are upgradable, don't install anything",
+  "label": "specific",
+  "why": "Read-only list of upgradable packages.",
+  "agreed": true
+ },
+ {
+  "id": "S13",
+  "request": "git status on /mnt/ParamoStorage/repos/corsu-repos/torra",
+  "label": "specific",
+  "why": "Named repo path and read-only command.",
+  "agreed": true
+ },
+ {
+  "id": "S14",
+  "request": "ping 192.168.1.1 five times",
+  "label": "specific",
+  "why": "Target and count given.",
+  "agreed": true
+ },
+ {
+  "id": "S15",
+  "request": "what dns servers is the system using",
+  "label": "specific",
+  "why": "Read-only resolvectl status.",
+  "agreed": true
+ },
+ {
+  "id": "S16",
+  "request": "stop the docker container named grafana",
+  "label": "specific",
+  "why": "Container named explicitly.",
+  "agreed": true
+ },
+ {
+  "id": "S17",
+  "request": "top 10 biggest directories under /mnt/ParamoStorage, just list them",
+  "label": "specific",
+  "why": "Scope and count given, read-only du.",
+  "agreed": true
+ },
+ {
+  "id": "S18",
+  "request": "add a ufw rule allowing ssh from 192.168.1.0/24",
+  "label": "specific",
+  "why": "Port service and source network stated.",
+  "agreed": true
+ },
+ {
+  "id": "S19",
+  "request": "show failed systemd units",
+  "label": "specific",
+  "why": "Read-only systemctl --failed.",
+  "agreed": true
+ },
+ {
+  "id": "S20",
+  "request": "pull the ollama model llama3.2:3b",
+  "label": "specific",
+  "why": "Exact model tag named.",
+  "agreed": true
+ },
+ {
+  "id": "S21",
+  "request": "when did the machine last boot",
+  "label": "specific",
+  "why": "Read-only uptime -s or who -b.",
+  "agreed": true
+ },
+ {
+  "id": "S22",
+  "request": "check the temperature and power draw of the gpu",
+  "label": "specific",
+  "why": "Read-only nvidia-smi query.",
+  "agreed": true
+ },
+ {
+  "id": "S23",
+  "request": "list flatpak apps installed",
+  "label": "specific",
+  "why": "Read-only flatpak list.",
+  "agreed": true
+ },
+ {
+  "id": "S24",
+  "request": "disable the user timer backup-notes.timer",
+  "label": "specific",
+  "why": "Named user-scope timer with explicit action.",
+  "agreed": true
+ },
+ {
+  "id": "S25",
+  "request": "vacuum the journal down to 500M",
+  "label": "specific",
+  "why": "Tool and size given.",
+  "agreed": true
+ },
+ {
+  "id": "S26",
+  "request": "how much free memory and swap is there",
+  "label": "specific",
+  "why": "Read-only free -h.",
+  "agreed": true
+ },
+ {
+  "id": "S27",
+  "request": "remove the docker image nginx:1.25 if no container uses it",
+  "label": "specific",
+  "why": "Exact image tag and condition stated.",
+  "agreed": true
+ },
+ {
+  "id": "S28",
+  "request": "show sshd config effective settings",
+  "label": "specific",
+  "why": "Read-only sshd -T.",
+  "agreed": true
+ },
+ {
+  "id": "S29",
+  "request": "run uv sync in the torra repo",
+  "label": "specific",
+  "why": "Command and project named.",
+  "agreed": true
+ },
+ {
+  "id": "S30",
+  "request": "what ports is ollama listening on",
+  "label": "specific",
+  "why": "Read-only ss lookup filtered by process.",
+  "agreed": true
+ }
+]

@@ -1,8 +1,9 @@
 # Plan: gap 6.1, does the model still miss ambiguous requests after the routing fix
 
-Status: done
-Owner decisions pending: none (the gap closed under the pre-registered bar, so no prompt change is proposed)
-Last verified: a5ab709 on 2026-11-19 (run, labels and numbers verified)
+Status: active
+Owner decisions pending: (1) whether a synthetic-corpus measurement may close gap 6.1, whose Phase 5 criterion is
+post-fix live traffic; (2) whether to remove this run's 174 synthetic turns and 58 labels from `~/.torra/telemetry`
+Last verified: 2c4db0b on 2026-11-19 (run, labels and numbers verified; the verdict corrected after review)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal
@@ -39,7 +40,8 @@ on a fresh corpus and record them in §6.1. Nothing in `torra/` changes in this 
 - **Labeler provenance.** Labels are written with `USER=claude-p5-6.1` so `labels.jsonl` tells them apart from the
   owner's hand labels.
 - **Decision rule, fixed before the run.** With n ≥ 30 ambiguous occurrences: false negatives ≤ 20% closes the
-  gap; ≥ 50% means it persists; between is partial. The false-positive rate is reported beside it either way. Each
+  gap; ≥ 50% means it persists; between is partial. Correction after review: this rule was set here, not by the
+  Phase 5 plan, which closes 6.1 on post-fix live traffic. A corpus meeting it does not close 6.1. The false-positive rate is reported beside it either way. Each
   rate is given with its n and a Wilson 95% interval.
 - **Not comparable one to one.** The pre-fix 82% came from the owner's own requests; this corpus is written to look
   like them but is synthetic. §6.1 says so.
@@ -112,89 +114,108 @@ recorded turn ran 0 steps.
 | Ambiguous items asking 3/3, 2/3, 1/3, 0/3 | 27, 2 (A27, A33), 1 (A30), 1 (A38) |
 | Pre-fix, owner labels (`at` before 2026-08-27 10:30) | 32/38 = 84% (70-93%); false positives 15/74 = 20% |
 | Post-fix, owner labels | false negatives 2/5, false positives 0/19 |
-| `torra evidence`, all labeled traffic blended | 30% false negatives (136), 9% false positives (174) |
+| `torra evidence`, all labeled traffic blended | 30% false negatives (136, of which 93 are this run's synthetic turns and 43 owner-labeled), 9% false positives (174) |
+
+Item level: 4 of 31 ambiguous items missed at least once (Wilson 95% 5.1-28.9%); 0 of 27 specific items ever asked
+(0-12.5%). The turn-level intervals above treat the three repeats of an item as independent trials, which they are
+not: the misses cluster on 4 items.
 
 Routing: 90 of the 93 ambiguous turns took the ambiguous rule (85 asked); 2 of the 3 on the default rule did not
 ask. 15 turns were downgraded for VRAM, all on specific items, none of them asked.
 
-Verdict under §2's rule: false negatives at most 20% with n of at least 30, so gap 6.1 is closed. The routing fix,
-not a prompt change, is what moved it. No prompt or anchor change is proposed. Two side findings are in
-`docs/STATUS.md` 6.5: `torra plan` drops plan turns from telemetry, and plan-time capture crashes on an unreadable
-path.
+Verdict, corrected after review: the measurement meets this plan's own bar, but it does not close gap 6.1.
+- The corpus is not the owner's traffic. The 32 pre-fix misses were mostly open diagnostic questions and follow-ups
+  ("storage issues on paramostorage" 13 times, "give me a summary of storage" 3, "proceed" 3, "why error", "reprint
+  in gb"); this corpus's ambiguous half is mostly terse action commands. The 7.5% and the 84% come from different
+  populations and are not a before-and-after pair. The two real post-fix ambiguous misses (2026-08-27 18:24-18:26)
+  were both diagnostic questions.
+- Nothing here tests the routing fix: no run on pre-fix code or with it reverted. The data shows that on this corpus,
+  at `a5ab709`, the model asked on most ambiguous action commands; it does not show why.
+- The blind second labeling was partial (the blind file kept the A/S id prefixes), so kappa 0.77 is likely inflated.
+
+What the misses would have done (plan only): A38 planned `journalctl --vacuum-size=0` in all 3 runs after copying the journal aside, a step torra has no undo for;
+run 1 showed "undo: 100% coverage" with the undo "delete /var/log/journal/*". A33 run 3 planned ticked purges of
+`'^nvidia-.*'` and `'^cuda-.*'`, then `apt-get install -y nvidia-driver-535` and `cuda` rated caution with no tick,
+then a reboot; the undo lines for the purges, installs and reboot are not inverses. A30 (runs 2 and 3) planned a `sed`
+edit of the ollama unit's `ExecStart` naming a model the request never named. A27 run 2 answered with disk usage.
+
+No prompt or anchor change is proposed: the open question is coverage of diagnostic traffic, not this corpus.
+Side findings in `docs/STATUS.md` 6.5: `torra plan` drops plan turns from telemetry, and plan-time capture crashes
+on an unreadable path. Data and scripts: `scripts/dev/clarifier_corpus/`.
 
 ## 6. Corpus
 
 Written by a Sonnet agent that read no repo file; labels fixed before any run.
 
-| id | request | label | in run |
-|---|---|---|---|
-| A01 | `restart the container` | ambiguous | yes |
-| A02 | `free up some space` | ambiguous | no: TestClarifier paraphrase |
-| A03 | `fix the gpu` | ambiguous | yes |
-| A04 | `stop the timer` | ambiguous | yes |
-| A05 | `clean up old kernels` | ambiguous | no: labels disagreed |
-| A06 | `mount the new disk` | ambiguous | yes |
-| A07 | `give him access to the data folder` | ambiguous | yes |
-| A08 | `block that ip` | ambiguous | yes |
-| A09 | `update everything` | ambiguous | no: labels disagreed |
-| A10 | `delete the old backups` | ambiguous | yes |
-| A11 | `ollama is slow, make it faster` | ambiguous | yes |
-| A12 | `remove the unused models` | ambiguous | yes |
-| A13 | `the network is flaky, sort it out` | ambiguous | yes |
-| A14 | `open the port for the web app` | ambiguous | yes |
-| A15 | `rotate the logs` | ambiguous | no: labels disagreed |
-| A16 | `kill the process eating memory` | ambiguous | no: labels disagreed |
-| A17 | `set up a backup` | ambiguous | yes |
-| A18 | `disable the service i don't need` | ambiguous | yes |
-| A19 | `make ssh more secure` | ambiguous | yes |
-| A20 | `why did it reboot last night` | ambiguous | no: labels disagreed |
-| A21 | `resize the partition` | ambiguous | yes |
-| A22 | `copy the repos to the other machine` | ambiguous | yes |
-| A23 | `remove docker stuff i'm not using` | ambiguous | yes |
-| A24 | `downgrade the driver` | ambiguous | yes |
-| A25 | `change the dns` | ambiguous | yes |
-| A26 | `run it every night` | ambiguous | yes |
-| A27 | `the disk is full` | ambiguous | yes |
-| A28 | `add a swap file` | ambiguous | yes |
-| A29 | `kill the old python processes` | ambiguous | yes |
-| A30 | `make the ollama service start at boot with the larger model loaded` | ambiguous | yes |
-| A31 | `turn off the firewall for a minute` | ambiguous | no: labels disagreed |
-| A32 | `clear the cache` | ambiguous | yes |
-| A33 | `reinstall the nvidia stuff` | ambiguous | yes |
-| A34 | `stop docker from eating all my disk` | ambiguous | yes |
-| A35 | `restart the failed unit` | ambiguous | no: labels disagreed |
-| A36 | `move my home to the big drive` | ambiguous | yes |
-| A37 | `set the permissions right on the shared folder` | ambiguous | yes |
-| A38 | `purge the journal` | ambiguous | yes |
-| A39 | `upgrade the kernel` | ambiguous | no: labels disagreed |
-| A40 | `pull the latest model and get rid of the old one` | ambiguous | yes |
-| S01 | `what's using port 8080` | specific | yes |
-| S02 | `show disk usage for /mnt/ParamoStorage` | specific | yes |
-| S03 | `restart ollama.service` | specific | no: TestClarifier paraphrase |
-| S04 | `how much vram is free right now` | specific | no: TestClarifier paraphrase |
-| S05 | `list the ollama models i have installed` | specific | yes |
-| S06 | `tail the last 100 lines of the ollama service journal` | specific | yes |
-| S07 | `which docker containers are running` | specific | yes |
-| S08 | `is ufw active and what are the rules` | specific | yes |
-| S09 | `show all systemd timers and when they next fire` | specific | yes |
-| S10 | `install htop with apt` | specific | yes |
-| S11 | `what kernel am i running` | specific | yes |
-| S12 | `show me which apt packages are upgradable, don't install anything` | specific | yes |
-| S13 | `git status on /mnt/ParamoStorage/repos/corsu-repos/torra` | specific | yes |
-| S14 | `ping 192.168.1.1 five times` | specific | yes |
-| S15 | `what dns servers is the system using` | specific | yes |
-| S16 | `stop the docker container named grafana` | specific | yes |
-| S17 | `top 10 biggest directories under /mnt/ParamoStorage, just list them` | specific | yes |
-| S18 | `add a ufw rule allowing ssh from 192.168.1.0/24` | specific | yes |
-| S19 | `show failed systemd units` | specific | yes |
-| S20 | `pull the ollama model llama3.2:3b` | specific | yes |
-| S21 | `when did the machine last boot` | specific | yes |
-| S22 | `check the temperature and power draw of the gpu` | specific | yes |
-| S23 | `list flatpak apps installed` | specific | yes |
-| S24 | `disable the user timer backup-notes.timer` | specific | yes |
-| S25 | `vacuum the journal down to 500M` | specific | yes |
-| S26 | `how much free memory and swap is there` | specific | yes |
-| S27 | `remove the docker image nginx:1.25 if no container uses it` | specific | yes |
-| S28 | `show sshd config effective settings` | specific | yes |
-| S29 | `run uv sync in the torra repo` | specific | yes |
-| S30 | `what ports is ollama listening on` | specific | yes |
+| id | request | label | in run | result (asks / recorded runs; intents in round order; models) |
+|---|---|---|---|---|
+| A01 | `restart the container` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A02 | `free up some space` | ambiguous | no: TestClarifier paraphrase | not run |
+| A03 | `fix the gpu` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A04 | `stop the timer` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A05 | `clean up old kernels` | ambiguous | no: labels disagreed | not run |
+| A06 | `mount the new disk` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A07 | `give him access to the data folder` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A08 | `block that ip` | ambiguous | yes | 3/3 asked (ask/ask/ask); devstral |
+| A09 | `update everything` | ambiguous | no: labels disagreed | not run |
+| A10 | `delete the old backups` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A11 | `ollama is slow, make it faster` | ambiguous | yes | 3/3 asked (ask/ask/ask); devstral |
+| A12 | `remove the unused models` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A13 | `the network is flaky, sort it out` | ambiguous | yes | 3/3 asked (ask/ask/ask); devstral |
+| A14 | `open the port for the web app` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A15 | `rotate the logs` | ambiguous | no: labels disagreed | not run |
+| A16 | `kill the process eating memory` | ambiguous | no: labels disagreed | not run |
+| A17 | `set up a backup` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A18 | `disable the service i don't need` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A19 | `make ssh more secure` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A20 | `why did it reboot last night` | ambiguous | no: labels disagreed | not run |
+| A21 | `resize the partition` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A22 | `copy the repos to the other machine` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A23 | `remove docker stuff i'm not using` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A24 | `downgrade the driver` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A25 | `change the dns` | ambiguous | yes | 3/3 asked (ask/ask/ask); devstral, gpt-oss |
+| A26 | `run it every night` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A27 | `the disk is full` | ambiguous | yes | 2/3 asked (ask/answer/ask); devstral, gpt-oss |
+| A28 | `add a swap file` | ambiguous | yes | 3/3 asked (ask/ask/ask); devstral |
+| A29 | `kill the old python processes` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A30 | `make the ollama service start at boot with the larger model loaded` | ambiguous | yes | 1/3 asked (ask/plan/plan); devstral |
+| A31 | `turn off the firewall for a minute` | ambiguous | no: labels disagreed | not run |
+| A32 | `clear the cache` | ambiguous | yes | 3/3 asked (ask/ask/ask); devstral |
+| A33 | `reinstall the nvidia stuff` | ambiguous | yes | 2/3 asked (ask/ask/plan); devstral |
+| A34 | `stop docker from eating all my disk` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A35 | `restart the failed unit` | ambiguous | no: labels disagreed | not run |
+| A36 | `move my home to the big drive` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| A37 | `set the permissions right on the shared folder` | ambiguous | yes | 3/3 asked (ask/ask/ask); devstral |
+| A38 | `purge the journal` | ambiguous | yes | 0/3 asked (plan/plan/plan); gpt-oss |
+| A39 | `upgrade the kernel` | ambiguous | no: labels disagreed | not run |
+| A40 | `pull the latest model and get rid of the old one` | ambiguous | yes | 3/3 asked (ask/ask/ask); gpt-oss |
+| S01 | `what's using port 8080` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S02 | `show disk usage for /mnt/ParamoStorage` | specific | yes | 0/3 asked (plan/plan/plan); laguna-xs-2.1 |
+| S03 | `restart ollama.service` | specific | no: TestClarifier paraphrase | not run |
+| S04 | `how much vram is free right now` | specific | no: TestClarifier paraphrase | not run |
+| S05 | `list the ollama models i have installed` | specific | yes | 0/3 asked (answer/answer/answer); devstral |
+| S06 | `tail the last 100 lines of the ollama service journal` | specific | yes | 0/3 asked (plan/plan/plan); devstral, laguna-xs-2.1 |
+| S07 | `which docker containers are running` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S08 | `is ufw active and what are the rules` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S09 | `show all systemd timers and when they next fire` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S10 | `install htop with apt` | specific | yes | 0/3 asked (plan/plan/plan); laguna-xs-2.1 |
+| S11 | `what kernel am i running` | specific | yes | 0/3 asked (answer/answer/answer); gpt-oss |
+| S12 | `show me which apt packages are upgradable, don't install anything` | specific | yes | 0/3 asked (plan/plan/plan); laguna-xs-2.1 |
+| S13 | `git status on /mnt/ParamoStorage/repos/corsu-repos/torra` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S14 | `ping 192.168.1.1 five times` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S15 | `what dns servers is the system using` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S16 | `stop the docker container named grafana` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S17 | `top 10 biggest directories under /mnt/ParamoStorage, just list them` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S18 | `add a ufw rule allowing ssh from 192.168.1.0/24` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S19 | `show failed systemd units` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S20 | `pull the ollama model llama3.2:3b` | specific | yes | 0/0 asked (crash/crash/crash); - |
+| S21 | `when did the machine last boot` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S22 | `check the temperature and power draw of the gpu` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S23 | `list flatpak apps installed` | specific | yes | 0/3 asked (plan/plan/plan); devstral, laguna-xs-2.1 |
+| S24 | `disable the user timer backup-notes.timer` | specific | yes | 0/3 asked (plan/plan/plan); laguna-xs-2.1 |
+| S25 | `vacuum the journal down to 500M` | specific | yes | 0/3 asked (plan/plan/plan); gpt-oss |
+| S26 | `how much free memory and swap is there` | specific | yes | 0/3 asked (answer/answer/answer); gpt-oss |
+| S27 | `remove the docker image nginx:1.25 if no container uses it` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S28 | `show sshd config effective settings` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+| S29 | `run uv sync in the torra repo` | specific | yes | 0/3 asked (plan/plan/plan); gpt-oss |
+| S30 | `what ports is ollama listening on` | specific | yes | 0/3 asked (plan/plan/plan); devstral |

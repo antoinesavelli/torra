@@ -1,0 +1,37 @@
+(request lines removed: the entries quoting request text were deleted before publishing; only aggregate lines remain)
+tasks recorded : 443
+  planned      : 201
+  asked        : 125
+  answered     : 108
+  refused      : 1
+  completed    : 74
+  repairs      : 218
+
+outcomes:
+  needs_answer     : 125
+  answered         : 108
+  rejected         : 83
+  completed        : 74
+  failed           : 45
+  backend_down     : 4
+  blocked          : 3
+  refused          : 1
+backend: 420 local, 16 openrouter
+mean turn time: 11.66s over 443 timed task(s)
+rollback: 1 ran, 0 fully verified
+
+labeled traffic: 149 (53 ambiguous, 96 specific)
+  real occurrences checked: 136 ambiguous, 174 specific
+  live false negative rate : 30%  (synthetic baseline 0%)
+  live false positive rate : 9%  (synthetic baseline 10%)
+  verdict: DRIFT: live false negatives 30% against a synthetic baseline of 0%. The synthetic corpus is measuring the wrong thing; retune against live labels.
+  MISSED (ambiguous, waved through):
+  INTERRUPTED (specific, actually stopped and asked):
+
+anchored-but-goalless: 4 of 102 passed request(s)
+  verdict: 4 goalless request(s), 4% of those that passed, with no elevated failure rate. The loophole is real but not yet costly; keep measuring.
+  examples:
+
+unlabeled (127), most frequent first:
+
+no crashes recorded

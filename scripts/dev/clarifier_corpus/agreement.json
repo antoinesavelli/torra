@@ -1,0 +1,422 @@
+[
+ {
+  "id": "A01",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A02",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A03",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A04",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A05",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A06",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A07",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A08",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A09",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A10",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A11",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A12",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A13",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A14",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A15",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A16",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A17",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A18",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A19",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A20",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A21",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A22",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A23",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A24",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A25",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A26",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A27",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A28",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A29",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A30",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A31",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A32",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A33",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A34",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A35",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A36",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A37",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A38",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "A39",
+  "author": "ambiguous",
+  "verifier": "specific",
+  "agreed": false
+ },
+ {
+  "id": "A40",
+  "author": "ambiguous",
+  "verifier": "ambiguous",
+  "agreed": true
+ },
+ {
+  "id": "S01",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S02",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S03",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S04",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S05",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S06",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S07",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S08",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S09",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S10",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S11",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S12",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S13",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S14",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S15",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S16",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S17",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S18",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S19",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S20",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S21",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S22",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S23",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S24",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S25",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S26",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S27",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S28",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S29",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ },
+ {
+  "id": "S30",
+  "author": "specific",
+  "verifier": "specific",
+  "agreed": true
+ }
+]

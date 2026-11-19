@@ -1,0 +1,352 @@
+[
+ {
+  "id": "A28",
+  "label": "ambiguous",
+  "why": "size (and location) of the swap file missing; quantity is the operator's choice"
+ },
+ {
+  "id": "S18",
+  "label": "specific",
+  "why": "rule, port and source all given"
+ },
+ {
+  "id": "A08",
+  "label": "ambiguous",
+  "why": "'that ip' has no referent"
+ },
+ {
+  "id": "A25",
+  "label": "ambiguous",
+  "why": "change it to what, and on which connection: target value missing"
+ },
+ {
+  "id": "S22",
+  "label": "specific",
+  "why": "read-only nvidia-smi query"
+ },
+ {
+  "id": "A05",
+  "label": "specific",
+  "why": "standard meaning: apt autoremove --purge of non-current kernels; kernelstub keeps current+previous"
+ },
+ {
+  "id": "A32",
+  "label": "ambiguous",
+  "why": "which cache (apt, pip/uv, ~/.cache, page cache, docker build cache): several referents"
+ },
+ {
+  "id": "A22",
+  "label": "ambiguous",
+  "why": "destination path and method (rsync mirror vs git push/clone, overwrite?) unspecified"
+ },
+ {
+  "id": "A10",
+  "label": "ambiguous",
+  "why": "which backups, how old counts as old; destructive"
+ },
+ {
+  "id": "A18",
+  "label": "ambiguous",
+  "why": "which service is the operator's judgement, not observable"
+ },
+ {
+  "id": "S24",
+  "label": "specific",
+  "why": "named user timer"
+ },
+ {
+  "id": "A24",
+  "label": "ambiguous",
+  "why": "to which version"
+ },
+ {
+  "id": "A03",
+  "label": "ambiguous",
+  "why": "symptom/goal missing; 'fix' implies a change with unknown target"
+ },
+ {
+  "id": "A02",
+  "label": "ambiguous",
+  "why": "where, how much, what is acceptable to delete"
+ },
+ {
+  "id": "S13",
+  "label": "specific",
+  "why": "path given, read-only"
+ },
+ {
+  "id": "A07",
+  "label": "ambiguous",
+  "why": "who 'him' is, and what access level"
+ },
+ {
+  "id": "S26",
+  "label": "specific",
+  "why": "read-only free -h"
+ },
+ {
+  "id": "S04",
+  "label": "specific",
+  "why": "read-only nvidia-smi"
+ },
+ {
+  "id": "S10",
+  "label": "specific",
+  "why": "package and manager named"
+ },
+ {
+  "id": "S08",
+  "label": "specific",
+  "why": "read-only ufw status verbose"
+ },
+ {
+  "id": "A29",
+  "label": "ambiguous",
+  "why": "'old' undefined; several python processes, operator's intent decides which"
+ },
+ {
+  "id": "A16",
+  "label": "specific",
+  "why": "one read-only look (top RSS) settles the referent; kill is gated by approval"
+ },
+ {
+  "id": "S23",
+  "label": "specific",
+  "why": "read-only flatpak list"
+ },
+ {
+  "id": "S05",
+  "label": "specific",
+  "why": "read-only ollama list"
+ },
+ {
+  "id": "A19",
+  "label": "ambiguous",
+  "why": "many options (disable password auth, root login, port, keys) some can lock the operator out; goal scope missing"
+ },
+ {
+  "id": "A30",
+  "label": "ambiguous",
+  "why": "'the larger model' relative to what; preload mechanism and keep-alive choices"
+ },
+ {
+  "id": "A06",
+  "label": "ambiguous",
+  "why": "mount point, persistence (fstab) and whether to format unspecified"
+ },
+ {
+  "id": "A36",
+  "label": "ambiguous",
+  "why": "which drive, method (rsync+fstab vs symlink), destructive and login-critical"
+ },
+ {
+  "id": "A11",
+  "label": "ambiguous",
+  "why": "no measured symptom; many possible changes (model, quantization, num_ctx, GPU offload)"
+ },
+ {
+  "id": "A14",
+  "label": "ambiguous",
+  "why": "which web app/port, and from where (LAN or any)"
+ },
+ {
+  "id": "S14",
+  "label": "specific",
+  "why": "fully given"
+ },
+ {
+  "id": "A40",
+  "label": "ambiguous",
+  "why": "which model is 'the' model"
+ },
+ {
+  "id": "S20",
+  "label": "specific",
+  "why": "model tag given"
+ },
+ {
+  "id": "A38",
+  "label": "ambiguous",
+  "why": "how much to keep (all vs vacuum to size/time); destroying all logs is a materially different act"
+ },
+ {
+  "id": "A33",
+  "label": "ambiguous",
+  "why": "which packages and driver version; boot-critical"
+ },
+ {
+  "id": "A23",
+  "label": "ambiguous",
+  "why": "scope of prune: stopped containers, dangling vs all images, volumes (data loss)"
+ },
+ {
+  "id": "S27",
+  "label": "specific",
+  "why": "image named with condition"
+ },
+ {
+  "id": "A12",
+  "label": "ambiguous",
+  "why": "'unused' undefined for ollama models; operator's intent"
+ },
+ {
+  "id": "A21",
+  "label": "ambiguous",
+  "why": "which partition, new size"
+ },
+ {
+  "id": "S03",
+  "label": "specific",
+  "why": "unit named"
+ },
+ {
+  "id": "A01",
+  "label": "ambiguous",
+  "why": "several containers run (grafana etc.); which one"
+ },
+ {
+  "id": "A35",
+  "label": "specific",
+  "why": "systemctl --failed lists it; 'the' implies exactly one, a look settles it"
+ },
+ {
+  "id": "A15",
+  "label": "specific",
+  "why": "logrotate --force / journalctl --rotate; benign, standard meaning"
+ },
+ {
+  "id": "A26",
+  "label": "ambiguous",
+  "why": "'it' has no referent; time unspecified"
+ },
+ {
+  "id": "S29",
+  "label": "specific",
+  "why": "repo and command named"
+ },
+ {
+  "id": "A37",
+  "label": "ambiguous",
+  "why": "what 'right' means (owner, group, mode) and which folder"
+ },
+ {
+  "id": "A17",
+  "label": "ambiguous",
+  "why": "of what, to where, how often"
+ },
+ {
+  "id": "S09",
+  "label": "specific",
+  "why": "read-only systemctl list-timers"
+ },
+ {
+  "id": "S02",
+  "label": "specific",
+  "why": "read-only du/df on given path"
+ },
+ {
+  "id": "S19",
+  "label": "specific",
+  "why": "read-only"
+ },
+ {
+  "id": "S12",
+  "label": "specific",
+  "why": "read-only apt list --upgradable"
+ },
+ {
+  "id": "S28",
+  "label": "specific",
+  "why": "read-only sshd -T"
+ },
+ {
+  "id": "A34",
+  "label": "ambiguous",
+  "why": "prune now vs log-size limits vs move data-root: goal and scope unclear"
+ },
+ {
+  "id": "S16",
+  "label": "specific",
+  "why": "container named"
+ },
+ {
+  "id": "A04",
+  "label": "ambiguous",
+  "why": "several timers exist (two torra routines etc.); which one"
+ },
+ {
+  "id": "S06",
+  "label": "specific",
+  "why": "fully given"
+ },
+ {
+  "id": "A27",
+  "label": "ambiguous",
+  "why": "no request; which disk, diagnose only or delete what"
+ },
+ {
+  "id": "A13",
+  "label": "ambiguous",
+  "why": "'sort it out' implies changes with unclear target and success criterion"
+ },
+ {
+  "id": "S17",
+  "label": "specific",
+  "why": "read-only, scoped"
+ },
+ {
+  "id": "A31",
+  "label": "specific",
+  "why": "target ufw, action disable, scope ~60 s then re-enable: nothing missing"
+ },
+ {
+  "id": "A09",
+  "label": "specific",
+  "why": "standard meaning apt upgrade + flatpak update on Pop!_OS"
+ },
+ {
+  "id": "A39",
+  "label": "specific",
+  "why": "latest kernel from the Pop!_OS repo via apt is the obvious reading"
+ },
+ {
+  "id": "S25",
+  "label": "specific",
+  "why": "size given"
+ },
+ {
+  "id": "S15",
+  "label": "specific",
+  "why": "read-only resolvectl status"
+ },
+ {
+  "id": "S11",
+  "label": "specific",
+  "why": "uname -r"
+ },
+ {
+  "id": "S30",
+  "label": "specific",
+  "why": "read-only ss -ltnp"
+ },
+ {
+  "id": "S01",
+  "label": "specific",
+  "why": "read-only ss/lsof"
+ },
+ {
+  "id": "S21",
+  "label": "specific",
+  "why": "uptime -s / last reboot"
+ },
+ {
+  "id": "S07",
+  "label": "specific",
+  "why": "docker ps"
+ },
+ {
+  "id": "A20",
+  "label": "specific",
+  "why": "read-only diagnostic: journalctl -b -1, last -x"
+ }
+]

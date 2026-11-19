@@ -1,0 +1,620 @@
+{
+  "by_intent": {
+    "answer": {
+      "fn": {
+        "k": 1,
+        "n": 1,
+        "rate": 1.0,
+        "wilson95": [
+          0.2065,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 9,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.2992
+        ]
+      },
+      "records": 10
+    },
+    "ask": {
+      "fn": {
+        "k": 0,
+        "n": 86,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.0428
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "records": 86
+    },
+    "plan": {
+      "fn": {
+        "k": 6,
+        "n": 6,
+        "rate": 1.0,
+        "wilson95": [
+          0.6097,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 72,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.0507
+        ]
+      },
+      "records": 78
+    }
+  },
+  "by_model": {
+    "devstral:24b": {
+      "fn": {
+        "k": 3,
+        "n": 27,
+        "rate": 0.1111,
+        "wilson95": [
+          0.0385,
+          0.2806
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 54,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.0664
+        ]
+      },
+      "records": 81
+    },
+    "gpt-oss:20b": {
+      "fn": {
+        "k": 4,
+        "n": 66,
+        "rate": 0.0606,
+        "wilson95": [
+          0.0238,
+          0.1457
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 12,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.2425
+        ]
+      },
+      "records": 78
+    },
+    "laguna-xs-2.1:q4_K_M": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "records": 6
+    },
+    "laguna-xs-2.1:q4_K_M-64k": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 9,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.2992
+        ]
+      },
+      "records": 9
+    }
+  },
+  "by_routing_rule": {
+    "no routing rule matched and the request is ambiguous, routing to the model measu": {
+      "fn": {
+        "k": 5,
+        "n": 90,
+        "rate": 0.0556,
+        "wilson95": [
+          0.024,
+          0.1235
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 24,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.138
+        ]
+      },
+      "records": 114
+    },
+    "no routing rule matched, using the measured-reliable default": {
+      "fn": {
+        "k": 2,
+        "n": 3,
+        "rate": 0.6667,
+        "wilson95": [
+          0.2077,
+          0.9385
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 19,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.1682
+        ]
+      },
+      "records": 22
+    },
+    "no routing rule matched, using the measured-reliable default; downgraded from de": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 8,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.3244
+        ]
+      },
+      "records": 8
+    },
+    "rule 'quick' scored 1 on ['check']": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 3,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.5615
+        ]
+      },
+      "records": 3
+    },
+    "rule 'quick' scored 1 on ['list']": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 8,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.3244
+        ]
+      },
+      "records": 8
+    },
+    "rule 'quick' scored 1 on ['list']; downgraded from devstral:24b because only 665": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['show']": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 9,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.2992
+        ]
+      },
+      "records": 9
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 664": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 2,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.6576
+        ]
+      },
+      "records": 2
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 665": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 2,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.6576
+        ]
+      },
+      "records": 2
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 669": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 2,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.6576
+        ]
+      },
+      "records": 2
+    },
+    "rule 'quick' scored 1 on ['status']": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 3,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.5615
+        ]
+      },
+      "records": 3
+    }
+  },
+  "count_mismatches": {
+    "S20": {
+      "records": 0,
+      "results": 3
+    }
+  },
+  "drift": {
+    "ambiguous_occurrences": 93,
+    "ambiguous_total": 53,
+    "baseline_fn_rate": null,
+    "baseline_fp_rate": null,
+    "false_negatives": [
+      [
+        "purge the journal",
+        "p5-6.1 corpus A38: How much to keep, by size or age, is not specified."
+      ],
+      [
+        "make the ollama service start at boot with the larger model loaded",
+        "p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload."
+      ],
+      [
+        "purge the journal",
+        "p5-6.1 corpus A38: How much to keep, by size or age, is not specified."
+      ],
+      [
+        "the disk is full",
+        "p5-6.1 corpus A27: Which disk, and whether to diagnose or delete is unclear."
+      ],
+      [
+        "make the ollama service start at boot with the larger model loaded",
+        "p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload."
+      ],
+      [
+        "purge the journal",
+        "p5-6.1 corpus A38: How much to keep, by size or age, is not specified."
+      ],
+      [
+        "reinstall the nvidia stuff",
+        "p5-6.1 corpus A33: Driver, CUDA toolkit or container toolkit; also which version, and reboot risk."
+      ]
+    ],
+    "false_positives": [],
+    "fn_rate": 0.0753,
+    "fp_rate": 0.0,
+    "labeled_total": 149,
+    "rendered": "labeled traffic: 149 (53 ambiguous, 96 specific)\n  real occurrences checked: 93 ambiguous, 81 specific\n  live false negative rate : 8%\n  live false positive rate : 0%\n  verdict: live performance is consistent with the baseline\n  MISSED (ambiguous, waved through):\n    'purge the journal'  (p5-6.1 corpus A38: How much to keep, by size or age, is not specified.)\n    'make the ollama service start at boot with the larger model loaded'  (p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload.)\n    'purge the journal'  (p5-6.1 corpus A38: How much to keep, by size or age, is not specified.)\n    'the disk is full'  (p5-6.1 corpus A27: Which disk, and whether to diagnose or delete is unclear.)\n    'make the ollama service start at boot with the larger model loaded'  (p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload.)\n    'purge the journal'  (p5-6.1 corpus A38: How much to keep, by size or age, is not specified.)\n    'reinstall the nvidia stuff'  (p5-6.1 corpus A33: Driver, CUDA toolkit or container toolkit; also which version, and reboot risk.)",
+    "specific_occurrences": 81,
+    "specific_total": 96,
+    "verdict": "live performance is consistent with the baseline"
+  },
+  "headline": {
+    "fn": {
+      "k": 7,
+      "n": 93,
+      "rate": 0.0753,
+      "wilson95": [
+        0.0369,
+        0.1473
+      ]
+    },
+    "fp": {
+      "k": 0,
+      "n": 81,
+      "rate": 0.0,
+      "wilson95": [
+        0.0,
+        0.0453
+      ]
+    }
+  },
+  "item_level": {
+    "ambiguous_missed_at_least_once": {
+      "k": 4,
+      "n": 31,
+      "rate": 0.129,
+      "wilson95": [
+        0.0513,
+        0.2885
+      ]
+    },
+    "specific_asked_at_least_once": {
+      "k": 0,
+      "n": 27,
+      "rate": 0.0,
+      "wilson95": [
+        0.0,
+        0.1246
+      ]
+    }
+  },
+  "per_round": {
+    "r1": {
+      "fn": {
+        "k": 1,
+        "n": 31,
+        "rate": 0.0323,
+        "wilson95": [
+          0.0057,
+          0.1619
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 27,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.1246
+        ]
+      },
+      "records": 58
+    },
+    "r2": {
+      "fn": {
+        "k": 3,
+        "n": 31,
+        "rate": 0.0968,
+        "wilson95": [
+          0.0335,
+          0.249
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 27,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.1246
+        ]
+      },
+      "records": 58
+    },
+    "r3": {
+      "fn": {
+        "k": 3,
+        "n": 31,
+        "rate": 0.0968,
+        "wilson95": [
+          0.0335,
+          0.249
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 27,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.1246
+        ]
+      },
+      "records": 58
+    }
+  },
+  "prefix": {
+    "fn": {
+      "k": 32,
+      "n": 38,
+      "rate": 0.8421,
+      "wilson95": [
+        0.6958,
+        0.9256
+      ]
+    },
+    "fp": {
+      "k": 15,
+      "n": 74,
+      "rate": 0.2027,
+      "wilson95": [
+        0.1269,
+        0.3079
+      ]
+    },
+    "labels": 91,
+    "records": 112
+  },
+  "prefix_cutoff": {
+    "america_new_york": "2026-08-27T10:30:00-04:00",
+    "epoch": 1787841000
+  },
+  "result_lines": {
+    "r1": 59,
+    "r2": 59,
+    "r3": 59
+  },
+  "run_window": {
+    "end": 1795120673,
+    "start": 1795118738
+  },
+  "stability": {
+    "ambiguous": {
+      "histogram_asks": {
+        "0": 1,
+        "1": 1,
+        "2": 2,
+        "3": 27
+      },
+      "items": {
+        "A01": "3/3",
+        "A03": "3/3",
+        "A04": "3/3",
+        "A06": "3/3",
+        "A07": "3/3",
+        "A08": "3/3",
+        "A10": "3/3",
+        "A11": "3/3",
+        "A12": "3/3",
+        "A13": "3/3",
+        "A14": "3/3",
+        "A17": "3/3",
+        "A18": "3/3",
+        "A19": "3/3",
+        "A21": "3/3",
+        "A22": "3/3",
+        "A23": "3/3",
+        "A24": "3/3",
+        "A25": "3/3",
+        "A26": "3/3",
+        "A27": "2/3",
+        "A28": "3/3",
+        "A29": "3/3",
+        "A30": "1/3",
+        "A32": "3/3",
+        "A33": "2/3",
+        "A34": "3/3",
+        "A36": "3/3",
+        "A37": "3/3",
+        "A38": "0/3",
+        "A40": "3/3"
+      }
+    },
+    "specific": {
+      "histogram_asks": {
+        "0": 28
+      },
+      "items": {
+        "S01": "0/3",
+        "S02": "0/3",
+        "S05": "0/3",
+        "S06": "0/3",
+        "S07": "0/3",
+        "S08": "0/3",
+        "S09": "0/3",
+        "S10": "0/3",
+        "S11": "0/3",
+        "S12": "0/3",
+        "S13": "0/3",
+        "S14": "0/3",
+        "S15": "0/3",
+        "S16": "0/3",
+        "S17": "0/3",
+        "S18": "0/3",
+        "S19": "0/3",
+        "S20": "0/0",
+        "S21": "0/3",
+        "S22": "0/3",
+        "S23": "0/3",
+        "S24": "0/3",
+        "S25": "0/3",
+        "S26": "0/3",
+        "S27": "0/3",
+        "S28": "0/3",
+        "S29": "0/3",
+        "S30": "0/3"
+      }
+    }
+  },
+  "stray_window_records": [],
+  "unmatched_to_round": 0
+}
