@@ -225,6 +225,7 @@ class UndoGenerator(RemoteCapture):
             self.skipped.append(f"{target}: stat failed {exc!r}")
             return None
         size, mode = st.st_size, st.st_mode
+        # Live wire: docs/LIVE_WIRES.md §5.26
         if not stat.S_ISREG(mode):
             # A device or FIFO has no bounded content to snapshot, and opening a FIFO can block.
             self.skipped.append(
