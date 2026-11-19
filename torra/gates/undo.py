@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -28,6 +29,20 @@ from .undo_remote import RemoteCapture
 from .undo_types import Snapshot, SnapshotKind, UndoAction
 
 __all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
+
+
+def _file_kind(mode: int) -> str:
+    """Name a non-regular st_mode for the skip message."""
+    for test, name in (
+        (stat.S_ISCHR, "character device"),
+        (stat.S_ISBLK, "block device"),
+        (stat.S_ISFIFO, "FIFO"),
+        (stat.S_ISSOCK, "socket"),
+        (stat.S_ISDIR, "directory"),
+    ):
+        if test(mode):
+            return name
+    return "special file"
 
 
 #: apt/apt-get only, not dnf or pacman: `undo_packages` below hardcodes
@@ -205,11 +220,18 @@ class UndoGenerator(RemoteCapture):
             )
 
         try:
-            stat = target.stat()
+            st = target.stat()
         except OSError as exc:
             self.skipped.append(f"{target}: stat failed {exc!r}")
             return None
-        size, mode = stat.st_size, stat.st_mode
+        size, mode = st.st_size, st.st_mode
+        if not stat.S_ISREG(mode):
+            # A device or FIFO has no bounded content to snapshot, and opening a FIFO can block.
+            self.skipped.append(
+                f"{target} is a {_file_kind(mode)}, not a regular file; torra does not read or "
+                "copy it, so no undo generated, declare one manually"
+            )
+            return None
         if size > self.max_shadow_bytes:
             self.skipped.append(
                 f"{target} is {size} bytes, over max_shadow_bytes="

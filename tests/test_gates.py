@@ -9,10 +9,14 @@ someone eventually deletes.
 from __future__ import annotations
 
 import os
+import shutil
+import socket
 import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+
+import pytest
 
 from torra.core import Step, TaskSpec
 from torra.gates import (
@@ -1067,6 +1071,94 @@ class TestUndoGeneration:
         generator = UndoGenerator(shadow_dir=tmp_path / "s", max_shadow_bytes=100)
         assert generator.for_step(Step("b", touches=[str(big)])) == []
         assert any("over max_shadow_bytes" in s for s in generator.skipped)
+
+    @staticmethod
+    def _never_read(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Make any copy of a non-regular file fail the test loudly instead of hanging it."""
+
+        def boom(*_a: object, **_k: object) -> None:
+            raise AssertionError("a non-regular file must never be copied or hashed")
+
+        monkeypatch.setattr(UndoGenerator, "_copy", boom)
+        monkeypatch.setattr(UndoGenerator, "digest", boom)
+        monkeypatch.setattr(shutil, "copy2", boom)
+
+    def _assert_refused(self, generator: UndoGenerator, path: Path, kind: str) -> None:
+        assert generator.capture_file(path) is None
+        assert generator.snapshots == []
+        assert any(
+            str(path) in s and kind in s and "not a regular file" in s for s in generator.skipped
+        ), generator.skipped
+
+    def test_a_character_device_is_skipped_and_never_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """/dev/zero has st_size 0, so the size check passed and the copy read without bound."""
+        self._never_read(monkeypatch)
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        self._assert_refused(generator, Path("/dev/null"), "character device")
+
+    def test_a_fifo_is_skipped_without_opening_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Opening a FIFO with no writer blocks forever; stat() never opens."""
+        self._never_read(monkeypatch)
+        fifo = tmp_path / "p"
+        os.mkfifo(fifo)
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        self._assert_refused(generator, fifo, "FIFO")
+
+    def test_a_unix_socket_is_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._never_read(monkeypatch)
+        sock_path = tmp_path / "s.sock"
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            try:
+                server.bind(str(sock_path))
+            except OSError:
+                pytest.skip("tmp_path too long for an AF_UNIX socket")
+            generator = UndoGenerator(shadow_dir=tmp_path / "s")
+            self._assert_refused(generator, sock_path, "socket")
+        finally:
+            server.close()
+
+    def test_a_symlink_to_a_device_is_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The check follows the link: stat() sees the device, not the link."""
+        self._never_read(monkeypatch)
+        link = tmp_path / "null-link"
+        link.symlink_to("/dev/null")
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        self._assert_refused(generator, link, "character device")
+
+    def test_a_directory_is_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._never_read(monkeypatch)
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        self._assert_refused(generator, tmp_path, "directory")
+
+    def test_a_regular_file_and_a_symlink_to_one_still_get_a_snapshot(self, tmp_path: Path) -> None:
+        real = tmp_path / "real.conf"
+        real.write_text("keep\n", encoding="utf-8")
+        link = tmp_path / "link.conf"
+        link.symlink_to(real)
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", prefer_reflink=False)
+        for path in (real, link):
+            action = generator.capture_file(path)
+            assert action is not None
+            assert action.snapshot is not None
+            assert action.snapshot.kind is SnapshotKind.FILE_CONTENT
+        assert generator.skipped == []
+
+    def test_a_step_touching_a_device_is_uncovered_with_the_reason(self, tmp_path: Path) -> None:
+        generator = UndoGenerator(shadow_dir=tmp_path / "s")
+        step = Step("dev", touches=["/dev/null"])
+        assert generator.for_step(step) == []
+        report = generator.coverage([step])
+        assert report["uncovered"] == ["dev"]
+        assert any("character device" in s for s in report["skipped"])
 
     def test_cleanup_empties_the_shadow_dir_but_keeps_it_usable(self, tmp_path: Path) -> None:
         """Found in a full-file audit: cleanup() had zero callers anywhere,
