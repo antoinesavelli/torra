@@ -139,12 +139,19 @@ def test_a_touches_path_torra_cannot_stat_does_not_crash_plan(make_torra, tmp_pa
         locked.chmod(0o700)
 
 
+def _unchecked_note(torra: Torra, path: str) -> bool:
+    return any(
+        r.decision == "conflict check skipped" and path in r.reasoning
+        for r in torra.decisions.records
+    )
+
+
 @pytest.mark.parametrize("dry_run", [False, True])
-def test_a_touches_path_torra_cannot_stat_blocks_execute_instead_of_raising(
+def test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs(
     make_torra, tmp_path: Path, dry_run: bool
 ) -> None:
-    """Verifier repro on 8b719ed: plan() survived, then the conflict check's exists() raised out of
-    execute(). Unknowable is not unchanged: the run stops before step 1 and says which path."""
+    """Verifier repro on 8b719ed; owner, 2026-11-19: warn at plan, let it run. The plan names the
+    path, both steps run, and the Run records the path as unchecked."""
     marker = tmp_path / "marker"
     locked = tmp_path / "locked"
     locked.mkdir()
@@ -157,21 +164,26 @@ def test_a_touches_path_torra_cannot_stat_blocks_execute_instead_of_raising(
             scripted(
                 plan_reply(
                     "t",
-                    "mark then remove",
+                    "mark then look",
                     [
                         {"id": "mark", "run": f"touch {marker}", "touches": [str(marker)]},
-                        {"id": "rm", "run": f"rm -f {blob}", "touches": [str(blob)]},
+                        {"id": "look", "run": f"ls -ld {locked}", "touches": [str(blob)]},
                     ],
                 )
             )
         )
-        planned = torra.plan("mark then remove")
+        planned = torra.plan("mark then look")
         assert planned.plan is not None
+        assert any(
+            str(blob) in w and "cannot be checked for outside changes" in w and "no undo" in w
+            for w in planned.plan.warnings
+        ), planned.plan.warnings
         approvals = {sp.step.step_id: True for sp in planned.plan.steps}
         done = torra.execute(planned, approvals, dry_run=dry_run)
-        assert done.outcome is Outcome.BLOCKED
-        assert f"{blob}=unreadable" in done.abort_reason
-        assert not marker.exists()
+        assert done.outcome is Outcome.COMPLETED, done.abort_reason
+        assert [r.step_id for r in done.results] == ["mark", "look"]
+        assert marker.exists() is not dry_run
+        assert _unchecked_note(torra, str(blob))
     finally:
         locked.chmod(0o700)
 
@@ -214,26 +226,26 @@ def test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps(
         locked.chmod(0o700)
 
 
-def test_a_glob_touches_path_is_uncovered_and_blocks_execute(make_torra, tmp_path: Path) -> None:
-    """A glob in touches got an undo that deleted nothing and reported "undone"; now it is uncovered
-    at plan time and the conflict check, which cannot watch it, stops the run before it."""
-    log = tmp_path / "a.log"
-    log.write_text("keep\n", encoding="utf-8")
+def test_a_glob_touches_path_is_uncovered_warned_and_runs(make_torra, tmp_path: Path) -> None:
+    """A glob in touches got an undo that deleted nothing and reported "undone"; now it is uncovered,
+    the plan says it cannot be checked, and the run goes ahead (owner, 2026-11-19)."""
+    marker = tmp_path / "marker"
     pattern = str(tmp_path / "*.log")
     torra = make_torra(
         scripted(
             plan_reply(
-                "t", "clear logs", [{"id": "rm", "run": f"rm -f {pattern}", "touches": [pattern]}]
+                "t", "mark logs", [{"id": "m", "run": f"touch {marker}", "touches": [pattern]}]
             )
         )
     )
-    planned = torra.plan("clear logs")
+    planned = torra.plan("mark logs")
     assert planned.plan is not None
-    assert planned.plan.coverage["uncovered"] == ["rm"]
-    done = torra.execute(planned, {"rm": True})
-    assert done.outcome is Outcome.BLOCKED
-    assert f"{pattern}=unreadable" in done.abort_reason
-    assert log.exists()
+    assert planned.plan.coverage["uncovered"] == ["m"]
+    assert any(pattern in w and "glob" in w for w in planned.plan.warnings), planned.plan.warnings
+    done = torra.execute(planned, {"m": True})
+    assert done.outcome is Outcome.COMPLETED, done.abort_reason
+    assert marker.exists()
+    assert _unchecked_note(torra, pattern)
 
 
 def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:

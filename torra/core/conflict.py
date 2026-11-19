@@ -100,6 +100,9 @@ class ConflictDetector:
         self.use_inotify = bool(use_inotify)
 
         self.hashes: dict[str, str | None] = {}
+        #: Declared paths torra could not check at baseline (a glob, or a failed stat) -> why. Never
+        #: compared, never "unchanged": the plan warns about each, and the Run records it.
+        self.unchecked: dict[str, str] = {}
         self.fingerprints: dict[str, tuple[int, int]] = {}
         self.errors: list[str] = []
         self.fast_checks: int = 0
@@ -154,10 +157,19 @@ class ConflictDetector:
         """
         self.close()
         self.hashes = {}
+        self.unchecked = {}
         self._watch_paths = {}
         for path in paths:
             key = str(Path(path))
             self.hashes[key] = self.hash_file(key)
+            # Live wire: docs/LIVE_WIRES.md §5.26 -- touches is never shell-expanded.
+            if any(c in key for c in "*?["):
+                self.unchecked[key] = "a glob, which torra does not expand"
+                continue
+            try:
+                Path(key).exists()
+            except OSError as exc:
+                self.unchecked[key] = f"cannot stat it: {exc.strerror or exc!r}"
         self.roots = [Path(r) for r in roots] if roots is not None else list(self._default_roots)
         self.fingerprints = {}
         for root in self.roots:
@@ -272,18 +284,12 @@ class ConflictDetector:
         out: list[Conflict] = []
         for path, before in self.hashes.items():
             p = Path(path)
-            if any(c in path for c in "*?["):
-                # The literal glob never exists, so before == after == None would read as unchanged.
-                out.append(
-                    Conflict(
-                        path, ConflictKind.UNREADABLE, before, None, "a glob: torra cannot check it"
-                    )
-                )
+            if path in self.unchecked:
                 continue
             try:
                 exists = p.exists()
             except OSError as exc:
-                # Live wire: docs/LIVE_WIRES.md §5.26 -- a path torra cannot stat is unknowable, not unchanged.
+                # Checkable at baseline, not now: a change after the plan, so it blocks (LIVE_WIRES §5.26).
                 out.append(
                     Conflict(
                         path, ConflictKind.UNREADABLE, before, None, f"cannot stat it: {exc!r}"

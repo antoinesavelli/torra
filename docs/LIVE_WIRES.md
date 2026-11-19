@@ -270,15 +270,15 @@ multiline) after `password=`/`token:` etc., and be the one shared redaction used
 keeps labels from drifting a second copy of the patterns.
 **Guarded by:** `tests/test_telemetry.py::TestRedaction` (4 cases)
 
-### 5.26 `capture_file` and the conflict check refuse a `touches` path that is not a statable regular file.
+### 5.26 A `touches` path torra cannot snapshot or check gets no undo, a plan warning, and no silent "unchanged".
 
-**Rule:** `UndoGenerator.capture_file` skips (the step stays uncovered) a `touches` path that is a glob, whose `exists()`
-raises, or whose `stat()` is not `S_ISREG` (device, FIFO, socket, directory, or a symlink to one); never open-then-fstat,
-opening a FIFO blocks. `ConflictDetector` reports a glob or unstattable path `unreadable`, so `execute()` blocks.
-**Why:** both run on a model-declared path that is never shell-expanded. `copy2` reads `/dev/zero` without end; a glob's
-literal path is always absent, so its undo deleted nothing and verified "undone". Unknowable is not unchanged.
-**Code:** `UndoGenerator.capture_file`, `_file_kind`, `ConflictDetector._detect_declared`, `ConflictDetector._classify`
-**Guarded by:** `tests/test_gates.py::TestUndoGeneration` (`test_a_fifo_is_skipped_without_opening_it`,
-`test_a_path_under_an_unsearchable_directory_is_skipped_not_raised`, `test_a_glob_touches_path_is_skipped_never_a_fake_undo`),
-`tests/test_pipeline.py::test_a_touches_path_torra_cannot_stat_blocks_execute_instead_of_raising`,
-`tests/test_pipeline.py::test_a_glob_touches_path_is_uncovered_and_blocks_execute`
+**Rule:** `UndoGenerator.capture_file` skips (step uncovered) a glob, a path whose `exists()` raises, or one whose `stat()`
+is not `S_ISREG` (never open-then-fstat: opening a FIFO blocks). `ConflictDetector.baseline` puts a glob or unstattable
+path in `unchecked`: the plan warns, the Run logs "conflict check skipped" and goes on (D-018). A path checkable at
+baseline that turns unstattable later is `unreadable` and blocks, like any change; never let it raise.
+**Why:** `touches` is model-declared and never shell-expanded. A glob's literal path is always absent, so its undo deleted
+nothing and verified "undone"; an `exists()` that raised crashed `plan()` and then skipped the sweep (live 2026-11-19).
+**Code:** `UndoGenerator.capture_file`, `ConflictDetector.baseline`, `_detect_declared`, `Torra._gate`, `_run_steps`
+**Guarded by:** `tests/test_gates.py::TestUndoGeneration::test_a_glob_touches_path_is_skipped_never_a_fake_undo`,
+`tests/test_pipeline.py` (`test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`,
+`test_a_glob_touches_path_is_uncovered_warned_and_runs`, `test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps`)

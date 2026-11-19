@@ -1886,14 +1886,30 @@ class TestConflictDetection:
         assert [c.kind for c in found] == [ConflictKind.UNREADABLE]
         assert "PermissionError" in found[0].detail
 
-    def test_a_declared_glob_is_unreadable_not_unchanged(self, tmp_path) -> None:
-        """The literal glob never exists, so before and after were both None: silently unchanged."""
+    def test_a_declared_glob_is_unchecked_not_unchanged(self, tmp_path) -> None:
+        """The literal glob never exists, so before == after == None read as unchanged."""
         (tmp_path / "a.log").write_text("x", encoding="utf-8")
+        pattern = str(tmp_path / "*.log")
         detector = ConflictDetector()
-        detector.baseline([str(tmp_path / "*.log")])
-        found = detector._detect_declared()
-        assert [c.kind for c in found] == [ConflictKind.UNREADABLE]
-        assert "glob" in found[0].detail
+        detector.baseline([pattern])
+        assert "glob" in detector.unchecked[pattern]
+        (tmp_path / "a.log").write_text("changed", encoding="utf-8")
+        assert detector._detect_declared() == []
+
+    def test_a_declared_path_unstattable_at_baseline_is_unchecked(self, tmp_path) -> None:
+        """Owner, 2026-11-19: warn at plan, let it run; never a raise, never "unchanged"."""
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        blob = str(locked / "blob")
+        locked.chmod(0o000)
+        try:
+            detector = ConflictDetector()
+            detector.baseline([blob])
+            found = detector._detect_declared()
+        finally:
+            locked.chmod(0o700)
+        assert "Permission denied" in detector.unchecked[blob]
+        assert found == []
 
     def test_a_declared_path_content_change_is_reported(self, tmp_path) -> None:
         target = tmp_path / "app.conf"

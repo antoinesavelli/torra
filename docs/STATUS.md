@@ -147,10 +147,10 @@ Open, each small.
   name; `ModelRouter._params_b` does when `/api/show` has nothing (chat capability never does).
   `docs/INVARIANTS.md §2.9` states what the code does.
 - **Shadow copy of a non-regular file, and a glob or unstattable `touches` path (undo and conflict check):** closed
-  2026-11-19 (`docs/LIVE_WIRES.md` §5.26); a plan with a glob in `touches` now always blocks at Run (fail closed),
-  and nothing says so before the operator ticks it. A `$VAR` or `{a,b}` in `touches` is still taken literally. Found while closing it, still open: a dangling symlink or a loop is
-  snapshotted as absent, so its undo deletes the link and verifies as "undone" (`not target.exists()` is then true); `remote_edit` reads a `remote_push` step's `reads` file with no regular-file
-  or size check (after approval).
+  2026-11-19 (`docs/LIVE_WIRES.md` §5.26, `docs/DECISIONS.md` D-018). Still open: a `$VAR` or `{a,b}` in `touches` is
+  taken literally; a dangling symlink or a loop is snapshotted as absent, so its undo deletes the link and verifies as
+  "undone" (`not target.exists()` is then true); `remote_edit` reads a `remote_push` step's `reads` file with no
+  regular-file or size check (after approval).
 - **`cat /secret.env` is SAFE (found 2026-10-14, security call).** Only a file named exactly `.env` counts as a
   credential read; re-checked 2026-10-27, still SAFE.
 - **`unzip` false positive (found 2026-10-14).** As a `known_programs` writer, `unzip /home/user/archive.zip -d /tmp`

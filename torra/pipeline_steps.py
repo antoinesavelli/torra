@@ -77,6 +77,12 @@ class StepRunner:
     ) -> bool:
         """Run each step in order, True if it failed/blocked. Guards run
         inside this loop, not once before it: state can change mid-run."""
+        if self.conflicts.unchecked:  # the plan warned about each (docs/LIVE_WIRES.md §5.26)
+            self.decisions.log(
+                Stage.EXECUTE.value,
+                "conflict check skipped",
+                "; ".join(f"{p}: {why}" for p, why in self.conflicts.unchecked.items()),
+            )
         for sp in plan.steps:
             if not dry_run and sp.step.step_id in resumed_steps:
                 # Nothing to guard or run: this step's effects already
