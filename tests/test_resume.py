@@ -8,12 +8,15 @@ zero downstream readers today.
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 
 import pytest
 
 from torra.core import ResumePoint, TorraError, resolve_resume
-from torra.core.resume import begin_step, command_digest, end_step
+from torra.core.resume import RESUME_MAX_AGE_SECONDS, begin_step, command_digest, end_step
+from torra.gates.undo_shadow import ShadowStore
 
 
 def test_load_of_an_absent_file_returns_none(tmp_path: Path) -> None:
@@ -109,7 +112,9 @@ def test_the_in_flight_mark_and_digests_round_trip(tmp_path: Path) -> None:
 def test_a_file_in_the_older_format_still_loads_but_vouches_for_nothing(tmp_path: Path) -> None:
     target = tmp_path / "t.json"
     target.write_text(
-        '{"task_id": "t", "completed": ["a"], "total": 1, "file_hashes": {}, "at": 1.0}',
+        json.dumps(
+            {"task_id": "t", "completed": ["a"], "total": 1, "file_hashes": {}, "at": time.time()}
+        ),
         encoding="utf-8",
     )
 
@@ -169,3 +174,107 @@ def test_a_resume_file_with_wrong_field_types_starts_fresh_instead_of_crashing(
 
     assert resolution.resumed_steps == frozenset() and resolution.interrupted == ""
     assert "corrupt" in (resolution.note or "")
+
+
+NOW = 1_800_000_000.0
+_DIGESTS = {"a": command_digest("echo a"), "b": command_digest("echo b")}
+
+
+def _aged_point(tmp_path: Path, at: object, in_progress: str = "") -> Path:
+    """Write a resume point for step `a` of a two-step plan with an exact `at` (save() stamps now)."""
+    target = tmp_path / "t.json"
+    point = ResumePoint(
+        task_id="t",
+        completed=["a"],
+        total=2,
+        digests={"a": _DIGESTS["a"]},
+        in_progress=in_progress,
+    )
+    point.save(target)
+    body = json.loads(target.read_text(encoding="utf-8"))
+    body["at"] = at
+    target.write_text(json.dumps(body), encoding="utf-8")
+    return target
+
+
+def test_the_resume_age_limit_matches_the_shadow_staleness_limit() -> None:
+    assert RESUME_MAX_AGE_SECONDS == ShadowStore.STALE_SHADOW_SECONDS
+
+
+def test_a_resume_point_over_the_age_limit_is_ignored_with_a_note(tmp_path: Path) -> None:
+    target = _aged_point(tmp_path, NOW - RESUME_MAX_AGE_SECONDS - 1)
+
+    resolution = resolve_resume("t", _DIGESTS, 2, target, dry_run=False, now=NOW)
+
+    assert resolution.resumed_steps == frozenset() and resolution.interrupted == ""
+    assert resolution.resume.completed == []
+    assert "old" in (resolution.note or "") and "starting fresh" in (resolution.note or "")
+
+
+@pytest.mark.parametrize(
+    "age", [RESUME_MAX_AGE_SECONDS, 60.0, 0.0, -3600.0, -RESUME_MAX_AGE_SECONDS]
+)
+def test_a_resume_point_within_the_limit_of_now_in_either_direction_still_resumes(
+    tmp_path: Path, age: float
+) -> None:
+    target = _aged_point(tmp_path, NOW - age)
+
+    resolution = resolve_resume("t", _DIGESTS, 2, target, dry_run=False, now=NOW)
+
+    assert resolution.resumed_steps == frozenset({"a"})
+
+
+def test_an_old_resume_point_with_a_step_in_flight_never_expires(tmp_path: Path) -> None:
+    """A step whose effect is unknown stays unknown however old the mark (docs/INVARIANTS.md §2.64)."""
+    target = _aged_point(tmp_path, NOW - 30 * RESUME_MAX_AGE_SECONDS, in_progress="b")
+
+    resolution = resolve_resume("t", _DIGESTS, 2, target, dry_run=False, now=NOW)
+
+    assert resolution.interrupted == "b"
+    assert resolution.resumed_steps == frozenset({"a"})
+
+
+@pytest.mark.parametrize("bad_at", ["yesterday", True, None, [1.0]])
+def test_a_wrong_typed_timestamp_is_a_corrupt_file_and_starts_fresh(
+    tmp_path: Path, bad_at: object
+) -> None:
+    target = _aged_point(tmp_path, bad_at)
+
+    resolution = resolve_resume("t", _DIGESTS, 2, target, dry_run=False, now=NOW)
+
+    assert resolution.resumed_steps == frozenset() and resolution.interrupted == ""
+    assert "corrupt" in (resolution.note or "")
+
+
+@pytest.mark.parametrize("age", [-(RESUME_MAX_AGE_SECONDS + 1), -25 * 3600.0, -1e308])
+def test_a_resume_point_dated_far_in_the_future_is_ignored(tmp_path: Path, age: float) -> None:
+    target = _aged_point(tmp_path, NOW - age)
+
+    resolution = resolve_resume("t", _DIGESTS, 2, target, dry_run=False, now=NOW)
+
+    assert resolution.resumed_steps == frozenset() and resolution.interrupted == ""
+    assert "ahead" in (resolution.note or "")
+
+
+@pytest.mark.parametrize("bad_at", [10**400, float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_or_huge_timestamp_is_a_corrupt_file_and_starts_fresh(
+    tmp_path: Path, bad_at: object
+) -> None:
+    target = _aged_point(tmp_path, bad_at)
+
+    resolution = resolve_resume("t", _DIGESTS, 2, target, dry_run=False, now=NOW)
+
+    assert resolution.resumed_steps == frozenset() and resolution.interrupted == ""
+    assert "corrupt" in (resolution.note or "")
+
+
+def test_an_old_point_whose_in_flight_step_is_not_in_the_plan_still_expires(
+    tmp_path: Path,
+) -> None:
+    """A re-plan renamed the crashed step: nothing blocks, so nothing may vouch for old steps."""
+    target = _aged_point(tmp_path, NOW - 30 * RESUME_MAX_AGE_SECONDS, in_progress="renamed")
+
+    resolution = resolve_resume("t", _DIGESTS, 2, target, dry_run=False, now=NOW)
+
+    assert resolution.resumed_steps == frozenset() and resolution.interrupted == ""
+    assert "old" in (resolution.note or "") and "starting fresh" in (resolution.note or "")
