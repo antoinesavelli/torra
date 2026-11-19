@@ -66,7 +66,8 @@ U1 runs beside U2; U3 waits for U2 (both edit `tests/test_pipeline.py`). Full De
 | U2 | Sonnet | fresh Opus: FAIL (huge-int `at` raised in `execute()`, NaN never expired, a mark naming no plan step was exempt), fixed, re-verified PASS | `3d81c60`; D1 revised |
 | U3 | Sonnet | fresh Opus: PASS | next commit; the verifier found a FIFO resume file now hung `plan()`, so `ResumePoint.load` refuses a non-regular file (orchestrator, with a test) |
 | U4 | orchestrator | `tests/test_knowledge_refs.py` | next commit |
+| U5 `exists()` crash (owner's yes 2026-11-19, after a live crash) | orchestrator | full Definition of Done | `capture_file` records a skip when `exists()` raises; LIVE_WIRES §5.26 |
 
 Left open (`docs/STATUS.md` §6.5, §6.6): `at` re-stamped on every save; the preview is a snapshot, and a dry run
-still shows "will stop"; `capture_file`'s `exists()` lets a `PermissionError` out of `plan()`; a dangling symlink
+still shows "will stop"; a dangling symlink
 is snapshotted as absent; `remote_edit` reads a `reads` file unchecked after approval.

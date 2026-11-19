@@ -1152,6 +1152,27 @@ class TestUndoGeneration:
             assert action.snapshot.kind is SnapshotKind.FILE_CONTENT
         assert generator.skipped == []
 
+    def test_a_path_under_an_unsearchable_directory_is_skipped_not_raised(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """exists() raised PermissionError out of plan() live on 2026-11-19 (touches /root/.ollama/...)."""
+        self._never_read(monkeypatch)
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        target = locked / "models" / "blob"
+        locked.chmod(0)
+        try:
+            if os.access(locked, os.X_OK):
+                pytest.skip("running as root: the directory stays searchable")
+            generator = UndoGenerator(shadow_dir=tmp_path / "s")
+            step = Step("rm", touches=[str(target)])
+            assert generator.for_step(step) == []
+            assert generator.snapshots == []
+            assert any(str(target) in s and "PermissionError" in s for s in generator.skipped)
+            assert generator.coverage([step])["uncovered"] == ["rm"]
+        finally:
+            locked.chmod(0o700)
+
     def test_a_step_touching_a_device_is_uncovered_with_the_reason(self, tmp_path: Path) -> None:
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
         step = Step("dev", touches=["/dev/null"])

@@ -200,7 +200,13 @@ class UndoGenerator(RemoteCapture):
         """Snapshot one file and build its restore action."""
         target = Path(path)
 
-        if not target.exists():
+        try:
+            absent = not target.exists()
+        except OSError as exc:
+            # An unsearchable parent (touches under /root as a user) raises; it is unknown, not absent.
+            self.skipped.append(f"{target}: cannot check it exists {exc!r}; no undo generated")
+            return None
+        if absent:
             snap = Snapshot(SnapshotKind.FILE_ABSENT, str(target), "did not exist before the step")
             self.snapshots.append(snap)
 

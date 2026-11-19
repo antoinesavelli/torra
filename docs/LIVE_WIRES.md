@@ -274,9 +274,11 @@ keeps labels from drifting a second copy of the patterns.
 
 **Rule:** `UndoGenerator.capture_file` (`torra/gates/undo.py`) checks `S_ISREG` on `stat()` before `_copy` or
 `digest`; a device, FIFO, socket or directory, or a symlink to one, is skipped with its kind and the step stays
-uncovered. Never replace the check with an open-then-fstat: opening a FIFO blocks.
+uncovered. Never replace the check with an open-then-fstat: opening a FIFO blocks. An `exists()` that raises (an
+unsearchable parent) is a skip too, never "absent" and never an exception out of `plan()` (crashed live 2026-11-19).
 **Why:** it runs at plan time, before approval, on a path the model declared. `shutil.copy2` refuses a FIFO but
 reads `/dev/zero` without end, and `max_shadow_bytes` never fires because its `st_size` is 0.
 **Code:** `UndoGenerator.capture_file`, `_file_kind`
-**Guarded by:** `tests/test_gates.py::TestUndoGeneration` (`test_a_character_device_is_skipped_and_never_read`,
-`test_a_fifo_is_skipped_without_opening_it`, `test_a_symlink_to_a_device_is_skipped`)
+**Guarded by:** `tests/test_gates.py::TestUndoGeneration` (`test_a_fifo_is_skipped_without_opening_it`,
+`test_a_symlink_to_a_device_is_skipped`, `test_a_path_under_an_unsearchable_directory_is_skipped_not_raised`),
+`tests/test_pipeline.py::test_a_touches_path_torra_cannot_stat_does_not_crash_plan`

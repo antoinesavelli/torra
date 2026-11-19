@@ -9,6 +9,7 @@ that is never called shows up as a failure rather than as six phases of work.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -110,6 +111,32 @@ def test_the_audit_records_the_model_and_the_gates(make_torra, tmp_path: Path) -
     assert payload["plan"]["coverage"]["coverage_ratio"] == 1.0
     stages = {d["stage"] for d in payload["decisions"]}
     assert {"converse", "gate", "execute"} <= stages
+
+
+def test_a_touches_path_torra_cannot_stat_does_not_crash_plan(make_torra, tmp_path: Path) -> None:
+    """Live 2026-11-19: touches under /root/.ollama made capture_file's exists() raise out of plan()."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    target = locked / "blob"
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    f"remove {target}",
+                    [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}],
+                )
+            )
+        )
+        result = torra.plan(f"remove {target}")
+        assert result.plan is not None, result.abort_reason
+        assert result.plan.coverage["uncovered"] == ["rm"]
+        assert any("PermissionError" in s for s in result.plan.coverage["skipped"])
+    finally:
+        locked.chmod(0o700)
 
 
 def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:
