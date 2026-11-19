@@ -31,6 +31,19 @@ from .undo_types import Snapshot, SnapshotKind, UndoAction
 __all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
 
 
+def _unexpanded_glob(target: Path) -> bool:
+    """Glob characters and no file of that literal name (`ConflictDetector` has the twin)."""
+    if not any(c in str(target) for c in "*?["):
+        return False
+    try:
+        os.lstat(target)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def _file_kind(mode: int) -> str:
     """Name a non-regular st_mode for the skip message."""
     for test, name in (
@@ -200,9 +213,9 @@ class UndoGenerator(RemoteCapture):
         """Snapshot one file and build its restore action."""
         target = Path(path)
 
-        # Live wire: docs/LIVE_WIRES.md §5.26 -- touches is never shell-expanded, so a glob's literal
-        # path is always absent, and an undo of it deletes nothing and still verifies as undone.
-        if any(c in str(target) for c in "*?["):
+        # Live wire: docs/LIVE_WIRES.md §5.26 -- touches is never shell-expanded, so an undo of a glob
+        # naming no file deletes nothing and still verifies as undone. A real `app[1].conf` is a file.
+        if _unexpanded_glob(target):
             self.skipped.append(
                 f"{target} is a glob; torra does not expand it, so no undo generated"
             )

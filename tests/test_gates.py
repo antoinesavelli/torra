@@ -1187,6 +1187,18 @@ class TestUndoGeneration:
         assert any("glob" in s for s in generator.skipped), generator.skipped
         assert generator.coverage([step])["uncovered"] == ["rm"]
 
+    @pytest.mark.parametrize("name", ["app[1].conf", "file?.txt", "a*b"])
+    def test_a_real_file_named_with_glob_characters_keeps_its_undo(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        """Only a glob that names no file is skipped; a real file with `[` in its name is a file."""
+        real = tmp_path / name
+        real.write_text("keep\n", encoding="utf-8")
+        generator = UndoGenerator(shadow_dir=tmp_path / "s", prefer_reflink=False)
+        action = generator.capture_file(real)
+        assert action is not None and action.snapshot is not None
+        assert action.snapshot.kind is SnapshotKind.FILE_CONTENT
+
     def test_a_step_touching_a_device_is_uncovered_with_the_reason(self, tmp_path: Path) -> None:
         generator = UndoGenerator(shadow_dir=tmp_path / "s")
         step = Step("dev", touches=["/dev/null"])

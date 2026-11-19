@@ -18,6 +18,28 @@ from typing import Any
 __all__ = ["ConflictKind", "Conflict", "ConflictDetector"]
 
 
+def _unexpanded_glob(path: str) -> bool:
+    """Glob characters and no file of that literal name: `touches` is never shell-expanded."""
+    if not any(c in path for c in "*?["):
+        return False
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False  # unstattable, not a glob: handled as such
+    return False
+
+
+def _stat_error(path: Path) -> str | None:
+    """Why torra cannot stat `path` (an unsearchable parent), or None when it can."""
+    try:
+        path.exists()
+    except OSError as exc:
+        return exc.strerror or repr(exc)
+    return None
+
+
 class ConflictKind(StrEnum):
     """How a tracked path diverged from its baseline."""
 
@@ -162,18 +184,18 @@ class ConflictDetector:
         for path in paths:
             key = str(Path(path))
             self.hashes[key] = self.hash_file(key)
-            # Live wire: docs/LIVE_WIRES.md §5.26 -- touches is never shell-expanded.
-            if any(c in key for c in "*?["):
-                self.unchecked[key] = "a glob, which torra does not expand"
-                continue
-            try:
-                Path(key).exists()
-            except OSError as exc:
-                self.unchecked[key] = f"cannot stat it: {exc.strerror or exc!r}"
+            # Live wire: docs/LIVE_WIRES.md §5.26
+            if _unexpanded_glob(key):
+                self.unchecked[key] = "a glob, which torra does not expand; no undo"
+            elif why := _stat_error(Path(key)):
+                self.unchecked[key] = f"cannot stat it ({why}); no undo"
         self.roots = [Path(r) for r in roots] if roots is not None else list(self._default_roots)
         self.fingerprints = {}
         for root in self.roots:
-            self.fingerprints.update(self._walk(root))
+            if why := _stat_error(root):
+                self.unchecked[str(root)] = f"a watch root torra cannot stat ({why})"
+            else:
+                self.fingerprints.update(self._walk(root))
         self._since_walk = 0
         self._known.clear()
         if self.use_inotify and self.roots:
@@ -187,7 +209,11 @@ class ConflictDetector:
         # being possible at all, since a symlink is never pushed as a
         # directory to descend into.
         out: dict[str, tuple[int, int]] = {}
-        if not root.exists():
+        try:
+            if not root.exists():
+                return out
+        except OSError as exc:  # callers check the root first; this is the race after that
+            self.errors.append(f"{root}: {exc!r}")
             return out
         count = 0
         stack = [root]
@@ -397,6 +423,14 @@ class ConflictDetector:
         conflicts: list[Conflict] = []
         current: dict[str, tuple[int, int]] = {}
         for root in self.roots:
+            if str(root) in self.unchecked:
+                continue
+            if why := _stat_error(root):
+                # Checkable at baseline, not now: a change after the plan (LIVE_WIRES §5.26).
+                conflicts.append(
+                    Conflict(str(root), ConflictKind.UNREADABLE, None, None, f"watch root: {why}")
+                )
+                continue
             current.update(self._walk(root))
 
         for path in current.keys() - self.fingerprints.keys():
@@ -429,8 +463,9 @@ class ConflictDetector:
         self._known = {c.path: c for c in conflicts}
         return conflicts
 
-    def refresh(self, paths: Iterable[os.PathLike[str] | str] = ()) -> None:
-        """Re-baseline ONLY the given paths, after torra itself changed them.
+    def refresh(self, paths: Iterable[os.PathLike[str] | str] = ()) -> list[str]:
+        """Re-baseline ONLY the given paths, after torra itself changed them; returns the ones it
+        moved to `unchecked`.
 
         Must never touch fingerprints/`_known` entries for any OTHER path. This
         used to rebuild `self.fingerprints` from a full walk of every root and
@@ -446,6 +481,7 @@ class ConflictDetector:
         "before the first step" only -- everything after collapsed into a
         fresh baseline every single step, regardless of what changed.
         """
+        newly_unchecked: list[str] = []
         for path in paths:
             key = str(Path(path))
             self.hashes[key] = self.hash_file(key)
@@ -455,6 +491,11 @@ class ConflictDetector:
             except OSError:
                 self.fingerprints.pop(key, None)
             self._known.pop(key, None)
+            # torra's own step made it unstattable: not an outside change (LIVE_WIRES §5.26).
+            if key not in self.unchecked and (why := _stat_error(Path(key))):
+                self.unchecked[key] = f"its own step made it unstattable ({why})"
+                newly_unchecked.append(key)
+        return newly_unchecked
 
     def close(self) -> None:
         """Release inotify file descriptors."""

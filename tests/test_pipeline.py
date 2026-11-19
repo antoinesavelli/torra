@@ -248,6 +248,86 @@ def test_a_glob_touches_path_is_uncovered_warned_and_runs(make_torra, tmp_path: 
     assert _unchecked_note(torra, pattern)
 
 
+def test_a_real_file_named_with_glob_characters_still_blocks_on_an_outside_edit(
+    make_torra, tmp_path: Path
+) -> None:
+    """Re-verify of aef8f6c: `app[1].conf` was called a glob, lost its undo and its check."""
+    conf = tmp_path / "app[1].conf"
+    conf.write_text("original", encoding="utf-8")
+    torra = make_torra(
+        scripted(plan_reply("t", "edit", [{"id": "e", "run": "true", "touches": [str(conf)]}]))
+    )
+    planned = torra.plan("edit")
+    assert planned.plan is not None
+    assert planned.plan.coverage["uncovered"] == []
+    assert not any("glob" in w for w in planned.plan.warnings)
+    conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
+    done = torra.execute(planned, {})
+    assert done.outcome is Outcome.BLOCKED
+    assert f"{conf}=modified" in done.abort_reason
+
+
+def test_a_step_that_makes_its_own_touches_path_unstattable_does_not_block_the_next(
+    make_torra, tmp_path: Path
+) -> None:
+    """torra's own change is not an outside one: refresh() moves the path to unchecked, logged."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    blob = locked / "blob"
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "lock then go on",
+                [
+                    {"id": "lock", "run": f"chmod 0 {locked}", "touches": [str(blob)]},
+                    {"id": "next", "run": "true", "touches": [str(blob)]},
+                ],
+            )
+        )
+    )
+    try:
+        planned = torra.plan("lock then go on")
+        assert planned.plan is not None
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        assert done.outcome is Outcome.COMPLETED, done.abort_reason
+        assert [r.step_id for r in done.results] == ["lock", "next"]
+        assert _unchecked_note(torra, str(blob))
+    finally:
+        locked.chmod(0o700)
+
+
+def test_a_watch_root_torra_cannot_stat_warns_at_plan_and_runs(make_torra, tmp_path: Path) -> None:
+    locked = tmp_path / "locked"
+    (locked / "root").mkdir(parents=True)
+    root = locked / "root"
+    marker = tmp_path / "marker"
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "mark",
+                    [{"id": "m", "run": f"touch {marker}", "touches": [str(marker)]}],
+                    watch_roots=[str(root)],
+                )
+            )
+        )
+        planned = torra.plan("mark")
+        assert planned.plan is not None
+        assert any(str(root) in w for w in planned.plan.warnings), planned.plan.warnings
+        done = torra.execute(planned, {"m": True})
+        assert done.outcome is Outcome.COMPLETED, done.abort_reason
+        assert marker.exists()
+    finally:
+        locked.chmod(0o700)
+
+
 def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:
     """Found in a full-file audit: `torra.telemetry.records.TaskLogger`
     had a working `record()` and no caller anywhere in pipeline.py,

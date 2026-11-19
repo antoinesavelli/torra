@@ -1911,6 +1911,59 @@ class TestConflictDetection:
         assert "Permission denied" in detector.unchecked[blob]
         assert found == []
 
+    def test_a_real_file_named_with_glob_characters_is_still_checked(self, tmp_path) -> None:
+        real = tmp_path / "app[1].conf"
+        real.write_text("before", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.baseline([str(real)])
+        assert detector.unchecked == {}
+        real.write_text("after", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.MODIFIED]
+
+    def test_a_watch_root_unstattable_at_baseline_is_unchecked(self, tmp_path) -> None:
+        locked = tmp_path / "locked"
+        (locked / "root").mkdir(parents=True)
+        locked.chmod(0o000)
+        try:
+            detector = ConflictDetector(use_inotify=False)
+            detector.baseline([], roots=[locked / "root"])
+            found = detector.detect()
+        finally:
+            locked.chmod(0o700)
+        assert "Permission denied" in detector.unchecked[str(locked / "root")]
+        assert found == []
+
+    def test_a_watch_root_that_turns_unstattable_is_unreadable(self, tmp_path) -> None:
+        locked = tmp_path / "locked"
+        (locked / "root").mkdir(parents=True)
+        (locked / "root" / "f").write_text("x", encoding="utf-8")
+        detector = ConflictDetector(use_inotify=False)
+        detector.baseline([], roots=[locked / "root"])
+        locked.chmod(0o000)
+        try:
+            found = detector.detect()
+        finally:
+            locked.chmod(0o700)
+        assert found[0].path == str(locked / "root")
+        assert found[0].kind is ConflictKind.UNREADABLE
+
+    def test_refresh_moves_a_path_its_own_step_made_unstattable_to_unchecked(
+        self, tmp_path
+    ) -> None:
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        blob = str(locked / "blob")
+        detector = ConflictDetector()
+        detector.baseline([blob])
+        locked.chmod(0o000)
+        try:
+            assert detector.refresh([blob]) == [blob]
+            found = detector._detect_declared()
+        finally:
+            locked.chmod(0o700)
+        assert blob in detector.unchecked
+        assert found == []
+
     def test_a_declared_path_content_change_is_reported(self, tmp_path) -> None:
         target = tmp_path / "app.conf"
         target.write_text("original", encoding="utf-8")

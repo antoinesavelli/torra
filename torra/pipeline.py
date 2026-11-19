@@ -283,7 +283,7 @@ class Torra(StepRunner):
         tracked = sorted({t for s in steps for t in s.touches})
         self.conflicts.baseline(tracked, roots=spec.watch_roots or None)
         plan.warnings.extend(
-            f"{path} cannot be checked for outside changes ({why}) and has no undo"
+            f"{path} cannot be checked for outside changes: {why}"
             for path, why in self.conflicts.unchecked.items()
         )
 

@@ -270,15 +270,15 @@ multiline) after `password=`/`token:` etc., and be the one shared redaction used
 keeps labels from drifting a second copy of the patterns.
 **Guarded by:** `tests/test_telemetry.py::TestRedaction` (4 cases)
 
-### 5.26 A `touches` path torra cannot snapshot or check gets no undo, a plan warning, and no silent "unchanged".
+### 5.26 A `touches` path or watch root torra cannot snapshot or check is warned about, never silently "unchanged".
 
-**Rule:** `UndoGenerator.capture_file` skips (step uncovered) a glob, a path whose `exists()` raises, or one whose `stat()`
-is not `S_ISREG` (never open-then-fstat: opening a FIFO blocks). `ConflictDetector.baseline` puts a glob or unstattable
-path in `unchecked`: the plan warns, the Run logs "conflict check skipped" and goes on (D-018). A path checkable at
-baseline that turns unstattable later is `unreadable` and blocks, like any change; never let it raise.
-**Why:** `touches` is model-declared and never shell-expanded. A glob's literal path is always absent, so its undo deleted
-nothing and verified "undone"; an `exists()` that raised crashed `plan()` and then skipped the sweep (live 2026-11-19).
-**Code:** `UndoGenerator.capture_file`, `ConflictDetector.baseline`, `_detect_declared`, `Torra._gate`, `_run_steps`
-**Guarded by:** `tests/test_gates.py::TestUndoGeneration::test_a_glob_touches_path_is_skipped_never_a_fake_undo`,
-`tests/test_pipeline.py` (`test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`,
-`test_a_glob_touches_path_is_uncovered_warned_and_runs`, `test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps`)
+**Rule:** a glob means glob characters AND no file of that literal name (`lstat` raises FileNotFoundError); a real
+`app[1].conf` is a file. `capture_file` skips a glob, a path whose `exists()` raises, or a non-`S_ISREG` one (never
+open-then-fstat: a FIFO blocks). `ConflictDetector.baseline` puts a glob, an unstattable path or watch root in
+`unchecked`: the plan warns, the Run logs it and goes on (D-018). Checkable at baseline and unstattable later is
+`unreadable` and blocks, unless torra's own step did it (`refresh` moves it to `unchecked`); never let it raise.
+**Why:** `touches` is never shell-expanded, so a glob's undo deleted nothing and verified "undone"; an `exists()`
+that raised crashed `plan()` and skipped the sweep (live 2026-11-19).
+**Code:** `UndoGenerator.capture_file`, `ConflictDetector.baseline`/`_reconcile`/`refresh`, `Torra._gate`, `_run_steps`
+**Guarded by:** `tests/test_pipeline.py` (`test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`,
+`test_a_real_file_named_with_glob_characters_still_blocks_on_an_outside_edit`, `test_a_watch_root_torra_cannot_stat_warns_at_plan_and_runs`)
