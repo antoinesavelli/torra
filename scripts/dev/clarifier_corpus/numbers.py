@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Read-only numbers for the P5 6.1 clarifier live run. Writes numbers.json next to it.
 
-Usage: <venv python> -I numbers.py [--start EPOCH] [--end EPOCH]
-Reads ~/.torra/telemetry (read-only); the defaults are the 2026-11-19 run window.
+Usage: <venv python> -I numbers.py [--start EPOCH] [--end EPOCH | --no-window] [--workdir PATH]
+       [--corpus PATH] [--results PATH ...] [--out PATH]
+Reads PATH/telemetry (read-only, default ~/.torra); the defaults are the 2026-11-19 run (v1 corpus,
+results_r1..3.jsonl, numbers.json). --no-window uses every record in the workdir (a separate
+workdir holds only the run's records). The pre-fix comparison always reads ~/.torra/telemetry.
 """
 
 import argparse
 import json
 import math
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -82,8 +86,11 @@ def print_breakdown(title, data):
 
 
 def window_records(all_records, start, end, corpus_label):
-    """The run-window records whose request is in the corpus; warns about the rest."""
-    window = [r for r in all_records if start <= r.at <= end]
+    """The run-window records whose request is in the corpus; warns about the rest.
+
+    start/end None: the window is every record in the workdir.
+    """
+    window = [r for r in all_records if start is None or end is None or start <= r.at <= end]
     stray = [r for r in window if r.request not in corpus_label]
     if stray:
         print(f"WARNING: {len(stray)} run-window record(s) not in the corpus:")
@@ -95,13 +102,18 @@ def window_records(all_records, start, end, corpus_label):
     return recs
 
 
-def load_results(recs, corpus_ids):
-    """Read results_r*.jsonl and compare per-request record counts with result lines."""
+def load_results(recs, corpus_ids, paths):
+    """Read the results files and compare per-request record counts with result lines.
+
+    A file is the round named by a trailing `_rN` in its stem (results_v2_r1.jsonl -> r1).
+    """
     results = {}  # round -> list of dicts
-    for n in (1, 2, 3):
-        p = os.path.join(S, f"results_r{n}.jsonl")
+    for p in paths:
         if os.path.exists(p):
-            results[f"r{n}"] = [json.loads(x) for x in open(p) if x.strip()]
+            m = re.search(r"_(r\d+)$", Path(p).stem)
+            results[m.group(1) if m else Path(p).stem] = [
+                json.loads(x) for x in open(p) if x.strip()
+            ]
     res_count = Counter(x["request"] for lines in results.values() for x in lines)
     rec_count = Counter(r.request for r in recs)
     mism = {
@@ -182,6 +194,48 @@ def per_round_section(results, recs, label_of):
     OUT["unmatched_to_round"] = len(unmatched)
 
 
+def item_level_rates(asks, corpus_label):
+    """An item counts as missed (or asked) if ANY of its runs was; items with a record only."""
+    amb_items = [q for q, lab in corpus_label.items() if lab == "ambiguous" and asks.get(q)]
+    spec_items = [q for q, lab in corpus_label.items() if lab == "specific" and asks.get(q)]
+    return {
+        "ambiguous_missed_at_least_once": rate(
+            sum(1 for q in amb_items if not all(asks[q])), len(amb_items)
+        ),
+        "specific_asked_at_least_once": rate(
+            sum(1 for q in spec_items if any(asks[q])), len(spec_items)
+        ),
+    }
+
+
+def by_set_section(corpus, recs, label_of):
+    """FN/FP at turn and item level per corpus "set" (e.g. actions, diagnostic), when items carry one."""
+    set_of = {c["request"]: c["set"] for c in corpus if c.get("set")}
+    if not set_of:
+        return
+    out = {}
+    print("\n-- by set (turn level, then item level)")
+    for name in sorted(set(set_of.values())):
+        sub = [r for r in recs if set_of.get(r.request) == name]
+        fn, fp = fn_fp(sub, label_of)
+        asks = defaultdict(list)
+        for r in sub:
+            asks[r.request].append(bool(r.clarifier_blocked))
+        labels = {q: label_of(q) for q in asks}
+        items = item_level_rates(asks, labels)
+        out[name] = {"records": len(sub), "fn": fn, "fp": fp, "item_level": items}
+        print(f"  {name}  [{len(sub)} records]")
+        print(f"      FN {fmt(fn)}")
+        print(f"      FP {fmt(fp)}")
+        print(
+            f"      ambiguous items missed at least once : {fmt(items['ambiguous_missed_at_least_once'])}"
+        )
+        print(
+            f"      specific items asked at least once   : {fmt(items['specific_asked_at_least_once'])}"
+        )
+    OUT["by_set"] = out
+
+
 def stability_section(recs, corpus_label, corpus_ids):
     """Per-item asks out of runs, plus the item-level missed / asked-at-least-once figures."""
     asks = defaultdict(list)
@@ -207,25 +261,23 @@ def stability_section(recs, corpus_label, corpus_ids):
         print("    " + " ".join(f"{i}:{v}" for i, v in sorted(items.items())))
     OUT["stability"] = stability
 
-    # item level: an item counts as missed (or asked) if ANY of its runs was
-    amb_items = [q for q, lab in corpus_label.items() if lab == "ambiguous" and asks.get(q)]
-    spec_items = [q for q, lab in corpus_label.items() if lab == "specific" and asks.get(q)]
-    item_missed = rate(sum(1 for q in amb_items if not all(asks[q])), len(amb_items))
-    item_asked = rate(sum(1 for q in spec_items if any(asks[q])), len(spec_items))
+    item_level = item_level_rates(asks, corpus_label)
     print("\n-- item level (items with at least one record)")
-    print(f"  ambiguous items missed at least once : {fmt(item_missed)}")
-    print(f"  specific items asked at least once   : {fmt(item_asked)}")
-    OUT["item_level"] = {
-        "ambiguous_missed_at_least_once": item_missed,
-        "specific_asked_at_least_once": item_asked,
-    }
+    print(
+        f"  ambiguous items missed at least once : {fmt(item_level['ambiguous_missed_at_least_once'])}"
+    )
+    print(
+        f"  specific items asked at least once   : {fmt(item_level['specific_asked_at_least_once'])}"
+    )
+    OUT["item_level"] = item_level
 
 
-def prefix_section(all_records, stored):
+def prefix_section(all_records, stored, source):
     """FN/FP of the pre-fix records against the labels not written by this corpus."""
     print(
         f"\n== Pre-fix comparison (records at < {PREFIX_CUTOFF}, "
-        f"labels in labels.jsonl not by {LABELER})"
+        f"labels in labels.jsonl not by {LABELER}; read from {source}/telemetry, read-only, "
+        "whatever --workdir is)"
     )
     old = {q: lab for q, lab in stored.items() if lab.labeler != LABELER}
     pre = [r for r in all_records if r.at < PREFIX_CUTOFF and r.request in old]
@@ -243,16 +295,29 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--start", type=float, default=RUN_START, help="run window start, epoch s")
     ap.add_argument("--end", type=float, default=RUN_END, help="run window end, epoch s")
+    ap.add_argument("--no-window", action="store_true", help="use every record in the workdir")
+    ap.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR, help="read-only")
+    ap.add_argument("--corpus", default=os.path.join(S, "corpus_agreed.json"))
+    ap.add_argument(
+        "--results",
+        nargs="+",
+        default=[os.path.join(S, f"results_r{n}.jsonl") for n in (1, 2, 3)],
+    )
+    ap.add_argument("--out", default=os.path.join(S, "numbers.json"))
     args = ap.parse_args()
+    start, end = (None, None) if args.no_window else (args.start, args.end)
     tz = ZoneInfo("America/New_York")
     cut = datetime.fromtimestamp(PREFIX_CUTOFF, tz).isoformat()
     cut_utc = datetime.fromtimestamp(PREFIX_CUTOFF, ZoneInfo("UTC")).isoformat()
     print(f"pre-fix cutoff {PREFIX_CUTOFF} = {cut}  (utc {cut_utc})")
     OUT["prefix_cutoff"] = {"epoch": PREFIX_CUTOFF, "america_new_york": cut}
-    print(f"run window {args.start} .. {args.end}")
-    OUT["run_window"] = {"start": args.start, "end": args.end}
+    if args.no_window:
+        print("run window: none (every record in the workdir)")
+    else:
+        print(f"run window {args.start} .. {args.end}")
+    OUT["run_window"] = {"start": start, "end": end}
 
-    corpus = [c for c in json.load(open(os.path.join(S, "corpus_agreed.json"))) if c.get("agreed")]
+    corpus = [c for c in json.load(open(args.corpus)) if c.get("agreed")]
     corpus_label = {c["request"]: c["label"] for c in corpus}
     corpus_ids = {c["request"]: c["id"] for c in corpus}
     print(
@@ -261,13 +326,13 @@ def main():
         f"{sum(1 for c in corpus if c['label'] == 'specific')} specific)"
     )
 
-    workdir = DEFAULT_WORKDIR
+    workdir = args.workdir.expanduser()
     all_records = TaskLogger(workdir / "telemetry" / "tasks.jsonl").read()
     store = LabelStore(workdir / "telemetry" / "labels.jsonl")
     stored = store.all()
 
-    recs = window_records(all_records, args.start, args.end, corpus_label)
-    results, rec_count = load_results(recs, corpus_ids)
+    recs = window_records(all_records, start, end, corpus_label)
+    results, rec_count = load_results(recs, corpus_ids, args.results)
 
     label_of = corpus_label.get
     fn, fp = fn_fp(recs, label_of)
@@ -275,6 +340,7 @@ def main():
     print(f"  FN rate (ambiguous not blocked): {fmt(fn)}")
     print(f"  FP rate (specific blocked)    : {fmt(fp)}")
     OUT["headline"] = {"fn": fn, "fp": fp}
+    by_set_section(corpus, recs, label_of)
 
     drift_section(corpus, recs, rec_count, stored, store)
 
@@ -289,9 +355,18 @@ def main():
 
     per_round_section(results, recs, label_of)
     stability_section(recs, corpus_label, corpus_ids)
-    prefix_section(all_records, stored)
+    # the pre-fix traffic lives only in the machine's own workdir, whatever --workdir is
+    if workdir == DEFAULT_WORKDIR:
+        prefix_section(all_records, stored, DEFAULT_WORKDIR)
+    else:
+        prefix_section(
+            TaskLogger(DEFAULT_WORKDIR / "telemetry" / "tasks.jsonl").read(),
+            LabelStore(DEFAULT_WORKDIR / "telemetry" / "labels.jsonl").all(),
+            DEFAULT_WORKDIR,
+        )
+        OUT["prefix"]["source"] = f"{DEFAULT_WORKDIR}/telemetry (read-only, not --workdir)"
 
-    out_path = os.path.join(S, "numbers.json")
+    out_path = args.out
     with open(out_path, "w") as fh:
         json.dump(OUT, fh, indent=2, sort_keys=True, default=str)
     print(f"\nwrote {out_path}")

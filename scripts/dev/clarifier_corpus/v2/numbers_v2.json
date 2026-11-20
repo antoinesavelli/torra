@@ -1,0 +1,1166 @@
+{
+  "by_intent": {
+    "(none)": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "answer": {
+      "fn": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "wilson95": [
+          0.6756,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 14,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.2153
+        ]
+      },
+      "records": 22
+    },
+    "ask": {
+      "fn": {
+        "k": 0,
+        "n": 124,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.03
+        ]
+      },
+      "fp": {
+        "k": 4,
+        "n": 4,
+        "rate": 1.0,
+        "wilson95": [
+          0.5101,
+          1.0
+        ]
+      },
+      "records": 128
+    },
+    "plan": {
+      "fn": {
+        "k": 24,
+        "n": 24,
+        "rate": 1.0,
+        "wilson95": [
+          0.862,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 106,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.035
+        ]
+      },
+      "records": 130
+    },
+    "refuse": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    }
+  },
+  "by_model": {
+    "(none)": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "devstral:24b": {
+      "fn": {
+        "k": 6,
+        "n": 58,
+        "rate": 0.1034,
+        "wilson95": [
+          0.0483,
+          0.2079
+        ]
+      },
+      "fp": {
+        "k": 3,
+        "n": 62,
+        "rate": 0.0484,
+        "wilson95": [
+          0.0166,
+          0.1329
+        ]
+      },
+      "records": 120
+    },
+    "gpt-oss:20b": {
+      "fn": {
+        "k": 20,
+        "n": 87,
+        "rate": 0.2299,
+        "wilson95": [
+          0.154,
+          0.3286
+        ]
+      },
+      "fp": {
+        "k": 1,
+        "n": 24,
+        "rate": 0.0417,
+        "wilson95": [
+          0.0074,
+          0.2024
+        ]
+      },
+      "records": 111
+    },
+    "laguna-xs-2.1:q4_K_M": {
+      "fn": {
+        "k": 2,
+        "n": 3,
+        "rate": 0.6667,
+        "wilson95": [
+          0.2077,
+          0.9385
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 20,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.1611
+        ]
+      },
+      "records": 23
+    },
+    "laguna-xs-2.1:q4_K_M-64k": {
+      "fn": {
+        "k": 2,
+        "n": 3,
+        "rate": 0.6667,
+        "wilson95": [
+          0.2077,
+          0.9385
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 19,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.1682
+        ]
+      },
+      "records": 22
+    },
+    "qwen3-coder:30b": {
+      "fn": {
+        "k": 2,
+        "n": 5,
+        "rate": 0.4,
+        "wilson95": [
+          0.1176,
+          0.7693
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "records": 5
+    }
+  },
+  "by_routing_rule": {
+    "(none)": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "no routing rule matched and the request is ambiguous, routing to the model measu": {
+      "fn": {
+        "k": 21,
+        "n": 132,
+        "rate": 0.1591,
+        "wilson95": [
+          0.1065,
+          0.231
+        ]
+      },
+      "fp": {
+        "k": 1,
+        "n": 45,
+        "rate": 0.0222,
+        "wilson95": [
+          0.0039,
+          0.1157
+        ]
+      },
+      "records": 177
+    },
+    "no routing rule matched, using the measured-reliable default": {
+      "fn": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "fp": {
+        "k": 3,
+        "n": 21,
+        "rate": 0.1429,
+        "wilson95": [
+          0.0498,
+          0.3464
+        ]
+      },
+      "records": 27
+    },
+    "no routing rule matched, using the measured-reliable default; downgraded from de": {
+      "fn": {
+        "k": 3,
+        "n": 3,
+        "rate": 1.0,
+        "wilson95": [
+          0.4385,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 23,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.1431
+        ]
+      },
+      "records": 26
+    },
+    "rule 'analyze' scored 3.6 on ['summary']": {
+      "fn": {
+        "k": 3,
+        "n": 3,
+        "rate": 1.0,
+        "wilson95": [
+          0.4385,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "records": 3
+    },
+    "rule 'debug' scored 6 on ['why did']; downgraded from gpt-oss:20b because only 1": {
+      "fn": {
+        "k": 0,
+        "n": 3,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.5615
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "records": 3
+    },
+    "rule 'debug' scored 6 on ['why is']": {
+      "fn": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "records": 1
+    },
+    "rule 'debug' scored 6 on ['why is']; downgraded from gpt-oss:20b because only 10": {
+      "fn": {
+        "k": 2,
+        "n": 2,
+        "rate": 1.0,
+        "wilson95": [
+          0.3424,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "records": 2
+    },
+    "rule 'quick' scored 1 on ['check']": {
+      "fn": {
+        "k": 2,
+        "n": 3,
+        "rate": 0.6667,
+        "wilson95": [
+          0.2077,
+          0.9385
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 3,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.5615
+        ]
+      },
+      "records": 6
+    },
+    "rule 'quick' scored 1 on ['list']": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 5,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.4345
+        ]
+      },
+      "records": 5
+    },
+    "rule 'quick' scored 1 on ['list']; downgraded from devstral:24b because only 655": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['list']; downgraded from devstral:24b because only 656": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['list']; downgraded from devstral:24b because only 657": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['list']; downgraded from devstral:24b because only 659": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['list']; downgraded from devstral:24b because only 660": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 2,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.6576
+        ]
+      },
+      "records": 2
+    },
+    "rule 'quick' scored 1 on ['list']; downgraded from devstral:24b because only 667": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['show']": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 12,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.2425
+        ]
+      },
+      "records": 12
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 656": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 658": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 1
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 659": {
+      "fn": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 2
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 660": {
+      "fn": {
+        "k": 1,
+        "n": 1,
+        "rate": 1.0,
+        "wilson95": [
+          0.2065,
+          1.0
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 2,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.6576
+        ]
+      },
+      "records": 3
+    },
+    "rule 'quick' scored 1 on ['show']; downgraded from devstral:24b because only 668": {
+      "fn": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.7935
+        ]
+      },
+      "records": 2
+    },
+    "rule 'quick' scored 1 on ['status']; downgraded from devstral:24b because only 6": {
+      "fn": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "wilson95": null
+      },
+      "fp": {
+        "k": 0,
+        "n": 3,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.5615
+        ]
+      },
+      "records": 3
+    }
+  },
+  "by_set": {
+    "actions": {
+      "fn": {
+        "k": 11,
+        "n": 93,
+        "rate": 0.1183,
+        "wilson95": [
+          0.0673,
+          0.1995
+        ]
+      },
+      "fp": {
+        "k": 4,
+        "n": 84,
+        "rate": 0.0476,
+        "wilson95": [
+          0.0187,
+          0.1161
+        ]
+      },
+      "item_level": {
+        "ambiguous_missed_at_least_once": {
+          "k": 4,
+          "n": 31,
+          "rate": 0.129,
+          "wilson95": [
+            0.0513,
+            0.2885
+          ]
+        },
+        "specific_asked_at_least_once": {
+          "k": 2,
+          "n": 28,
+          "rate": 0.0714,
+          "wilson95": [
+            0.0198,
+            0.2265
+          ]
+        }
+      },
+      "records": 177
+    },
+    "diagnostic": {
+      "fn": {
+        "k": 21,
+        "n": 63,
+        "rate": 0.3333,
+        "wilson95": [
+          0.2295,
+          0.4563
+        ]
+      },
+      "fp": {
+        "k": 0,
+        "n": 42,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.0838
+        ]
+      },
+      "item_level": {
+        "ambiguous_missed_at_least_once": {
+          "k": 9,
+          "n": 21,
+          "rate": 0.4286,
+          "wilson95": [
+            0.2447,
+            0.6345
+          ]
+        },
+        "specific_asked_at_least_once": {
+          "k": 0,
+          "n": 14,
+          "rate": 0.0,
+          "wilson95": [
+            0.0,
+            0.2153
+          ]
+        }
+      },
+      "records": 105
+    }
+  },
+  "count_mismatches": {},
+  "drift": {
+    "ambiguous_occurrences": 156,
+    "ambiguous_total": 52,
+    "baseline_fn_rate": null,
+    "baseline_fp_rate": null,
+    "false_negatives": [
+      [
+        "any issues with my drives",
+        "p5-6.1 corpus D01: No drive named and no symptom or measure, so many different checks fit."
+      ],
+      [
+        "is the gpu ok",
+        "p5-6.1 corpus D11: 'Ok' names no measure (temp, vram, driver, errors)."
+      ],
+      [
+        "remove docker stuff i'm not using",
+        "p5-6.1 corpus A23: Images, volumes, networks or stopped containers; volumes could hold data."
+      ],
+      [
+        "purge the journal",
+        "p5-6.1 corpus A38: How much to keep, by size or age, is not specified."
+      ],
+      [
+        "make the ollama service start at boot with the larger model loaded",
+        "p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload."
+      ],
+      [
+        "same check for the other drive",
+        "p5-6.1 corpus D10: Follow-up fragment; 'same check' and 'other drive' have no referent."
+      ],
+      [
+        "is ssh ok",
+        "p5-6.1 corpus D35: Could mean sshd running, port reachable, keys, or config; no measure named."
+      ],
+      [
+        "give me a summary of the services",
+        "p5-6.1 corpus D31: Which services and what to report are not named."
+      ],
+      [
+        "the disk is full",
+        "p5-6.1 corpus A27: Which disk, and whether to diagnose or delete is unclear."
+      ],
+      [
+        "any errors lately",
+        "p5-6.1 corpus D32: No source or time window named."
+      ],
+      [
+        "is the gpu ok",
+        "p5-6.1 corpus D11: 'Ok' names no measure (temp, vram, driver, errors)."
+      ],
+      [
+        "remove docker stuff i'm not using",
+        "p5-6.1 corpus A23: Images, volumes, networks or stopped containers; volumes could hold data."
+      ],
+      [
+        "show it in mb",
+        "p5-6.1 corpus D15: Follow-up fragment; nothing earlier to reformat."
+      ],
+      [
+        "purge the journal",
+        "p5-6.1 corpus A38: How much to keep, by size or age, is not specified."
+      ],
+      [
+        "make the ollama service start at boot with the larger model loaded",
+        "p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload."
+      ],
+      [
+        "same check for the other drive",
+        "p5-6.1 corpus D10: Follow-up fragment; 'same check' and 'other drive' have no referent."
+      ],
+      [
+        "why is it so slow",
+        "p5-6.1 corpus D26: No target or symptom; cpu, io, ram or gpu all plausible."
+      ],
+      [
+        "storage health on that disk",
+        "p5-6.1 corpus D36: 'That disk' has nothing it can refer to."
+      ],
+      [
+        "is ssh ok",
+        "p5-6.1 corpus D35: Could mean sshd running, port reachable, keys, or config; no measure named."
+      ],
+      [
+        "give me a summary of the services",
+        "p5-6.1 corpus D31: Which services and what to report are not named."
+      ],
+      [
+        "any issues with my drives",
+        "p5-6.1 corpus D01: No drive named and no symptom or measure, so many different checks fit."
+      ],
+      [
+        "any errors lately",
+        "p5-6.1 corpus D32: No source or time window named."
+      ],
+      [
+        "is the gpu ok",
+        "p5-6.1 corpus D11: 'Ok' names no measure (temp, vram, driver, errors)."
+      ],
+      [
+        "remove docker stuff i'm not using",
+        "p5-6.1 corpus A23: Images, volumes, networks or stopped containers; volumes could hold data."
+      ],
+      [
+        "purge the journal",
+        "p5-6.1 corpus A38: How much to keep, by size or age, is not specified."
+      ],
+      [
+        "make the ollama service start at boot with the larger model loaded",
+        "p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload."
+      ],
+      [
+        "why is it so slow",
+        "p5-6.1 corpus D26: No target or symptom; cpu, io, ram or gpu all plausible."
+      ],
+      [
+        "is ssh ok",
+        "p5-6.1 corpus D35: Could mean sshd running, port reachable, keys, or config; no measure named."
+      ],
+      [
+        "give me a summary of the services",
+        "p5-6.1 corpus D31: Which services and what to report are not named."
+      ],
+      [
+        "the disk is full",
+        "p5-6.1 corpus A27: Which disk, and whether to diagnose or delete is unclear."
+      ],
+      [
+        "any issues with my drives",
+        "p5-6.1 corpus D01: No drive named and no symptom or measure, so many different checks fit."
+      ],
+      [
+        "any errors lately",
+        "p5-6.1 corpus D32: No source or time window named."
+      ]
+    ],
+    "false_positives": [
+      [
+        "pull the ollama model llama3.2:3b",
+        "no codes recorded"
+      ],
+      [
+        "pull the ollama model llama3.2:3b",
+        "no codes recorded"
+      ],
+      [
+        "run uv sync in the torra repo",
+        "no_target"
+      ],
+      [
+        "pull the ollama model llama3.2:3b",
+        "no codes recorded"
+      ]
+    ],
+    "fn_rate": 0.2051,
+    "fp_rate": 0.0317,
+    "labeled_total": 94,
+    "rendered": "labeled traffic: 94 (52 ambiguous, 42 specific)\n  real occurrences checked: 156 ambiguous, 126 specific\n  live false negative rate : 21%\n  live false positive rate : 3%\n  verdict: live performance is consistent with the baseline\n  MISSED (ambiguous, waved through):\n    'any issues with my drives'  (p5-6.1 corpus D01: No drive named and no symptom or measure, so many different checks fit.)\n    'is the gpu ok'  (p5-6.1 corpus D11: 'Ok' names no measure (temp, vram, driver, errors).)\n    \"remove docker stuff i'm not using\"  (p5-6.1 corpus A23: Images, volumes, networks or stopped containers; volumes could hold data.)\n    'purge the journal'  (p5-6.1 corpus A38: How much to keep, by size or age, is not specified.)\n    'make the ollama service start at boot with the larger model loaded'  (p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload.)\n    'same check for the other drive'  (p5-6.1 corpus D10: Follow-up fragment; 'same check' and 'other drive' have no referent.)\n    'is ssh ok'  (p5-6.1 corpus D35: Could mean sshd running, port reachable, keys, or config; no measure named.)\n    'give me a summary of the services'  (p5-6.1 corpus D31: Which services and what to report are not named.)\n    'the disk is full'  (p5-6.1 corpus A27: Which disk, and whether to diagnose or delete is unclear.)\n    'any errors lately'  (p5-6.1 corpus D32: No source or time window named.)\n    'is the gpu ok'  (p5-6.1 corpus D11: 'Ok' names no measure (temp, vram, driver, errors).)\n    \"remove docker stuff i'm not using\"  (p5-6.1 corpus A23: Images, volumes, networks or stopped containers; volumes could hold data.)\n    'show it in mb'  (p5-6.1 corpus D15: Follow-up fragment; nothing earlier to reformat.)\n    'purge the journal'  (p5-6.1 corpus A38: How much to keep, by size or age, is not specified.)\n    'make the ollama service start at boot with the larger model loaded'  (p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload.)\n    'same check for the other drive'  (p5-6.1 corpus D10: Follow-up fragment; 'same check' and 'other drive' have no referent.)\n    'why is it so slow'  (p5-6.1 corpus D26: No target or symptom; cpu, io, ram or gpu all plausible.)\n    'storage health on that disk'  (p5-6.1 corpus D36: 'That disk' has nothing it can refer to.)\n    'is ssh ok'  (p5-6.1 corpus D35: Could mean sshd running, port reachable, keys, or config; no measure named.)\n    'give me a summary of the services'  (p5-6.1 corpus D31: Which services and what to report are not named.)\n    'any issues with my drives'  (p5-6.1 corpus D01: No drive named and no symptom or measure, so many different checks fit.)\n    'any errors lately'  (p5-6.1 corpus D32: No source or time window named.)\n    'is the gpu ok'  (p5-6.1 corpus D11: 'Ok' names no measure (temp, vram, driver, errors).)\n    \"remove docker stuff i'm not using\"  (p5-6.1 corpus A23: Images, volumes, networks or stopped containers; volumes could hold data.)\n    'purge the journal'  (p5-6.1 corpus A38: How much to keep, by size or age, is not specified.)\n    'make the ollama service start at boot with the larger model loaded'  (p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload.)\n    'why is it so slow'  (p5-6.1 corpus D26: No target or symptom; cpu, io, ram or gpu all plausible.)\n    'is ssh ok'  (p5-6.1 corpus D35: Could mean sshd running, port reachable, keys, or config; no measure named.)\n    'give me a summary of the services'  (p5-6.1 corpus D31: Which services and what to report are not named.)\n    'the disk is full'  (p5-6.1 corpus A27: Which disk, and whether to diagnose or delete is unclear.)\n    'any issues with my drives'  (p5-6.1 corpus D01: No drive named and no symptom or measure, so many different checks fit.)\n    'any errors lately'  (p5-6.1 corpus D32: No source or time window named.)\n  INTERRUPTED (specific, actually stopped and asked):\n    'pull the ollama model llama3.2:3b'  clarifier said: no codes recorded\n    'pull the ollama model llama3.2:3b'  clarifier said: no codes recorded\n    'run uv sync in the torra repo'  clarifier said: no_target\n    'pull the ollama model llama3.2:3b'  clarifier said: no codes recorded",
+    "specific_occurrences": 126,
+    "specific_total": 42,
+    "verdict": "live performance is consistent with the baseline"
+  },
+  "headline": {
+    "fn": {
+      "k": 32,
+      "n": 156,
+      "rate": 0.2051,
+      "wilson95": [
+        0.1492,
+        0.2752
+      ]
+    },
+    "fp": {
+      "k": 4,
+      "n": 126,
+      "rate": 0.0317,
+      "wilson95": [
+        0.0124,
+        0.0788
+      ]
+    }
+  },
+  "item_level": {
+    "ambiguous_missed_at_least_once": {
+      "k": 13,
+      "n": 52,
+      "rate": 0.25,
+      "wilson95": [
+        0.1523,
+        0.3821
+      ]
+    },
+    "specific_asked_at_least_once": {
+      "k": 2,
+      "n": 42,
+      "rate": 0.0476,
+      "wilson95": [
+        0.0132,
+        0.1579
+      ]
+    }
+  },
+  "per_round": {
+    "r1": {
+      "fn": {
+        "k": 10,
+        "n": 52,
+        "rate": 0.1923,
+        "wilson95": [
+          0.108,
+          0.319
+        ]
+      },
+      "fp": {
+        "k": 1,
+        "n": 42,
+        "rate": 0.0238,
+        "wilson95": [
+          0.0042,
+          0.1232
+        ]
+      },
+      "records": 94
+    },
+    "r2": {
+      "fn": {
+        "k": 12,
+        "n": 52,
+        "rate": 0.2308,
+        "wilson95": [
+          0.1372,
+          0.3613
+        ]
+      },
+      "fp": {
+        "k": 1,
+        "n": 42,
+        "rate": 0.0238,
+        "wilson95": [
+          0.0042,
+          0.1232
+        ]
+      },
+      "records": 94
+    },
+    "r3": {
+      "fn": {
+        "k": 10,
+        "n": 52,
+        "rate": 0.1923,
+        "wilson95": [
+          0.108,
+          0.319
+        ]
+      },
+      "fp": {
+        "k": 2,
+        "n": 42,
+        "rate": 0.0476,
+        "wilson95": [
+          0.0132,
+          0.1579
+        ]
+      },
+      "records": 94
+    }
+  },
+  "prefix": {
+    "fn": {
+      "k": 32,
+      "n": 38,
+      "rate": 0.8421,
+      "wilson95": [
+        0.6958,
+        0.9256
+      ]
+    },
+    "fp": {
+      "k": 15,
+      "n": 74,
+      "rate": 0.2027,
+      "wilson95": [
+        0.1269,
+        0.3079
+      ]
+    },
+    "labels": 91,
+    "records": 112,
+    "source": "/home/antoine/.torra/telemetry (read-only, not --workdir)"
+  },
+  "prefix_cutoff": {
+    "america_new_york": "2026-08-27T10:30:00-04:00",
+    "epoch": 1787841000
+  },
+  "result_lines": {
+    "r1": 94,
+    "r2": 94,
+    "r3": 94
+  },
+  "run_window": {
+    "end": null,
+    "start": null
+  },
+  "stability": {
+    "ambiguous": {
+      "histogram_asks": {
+        "0": 8,
+        "1": 3,
+        "2": 2,
+        "3": 39
+      },
+      "items": {
+        "A01": "3/3",
+        "A03": "3/3",
+        "A04": "3/3",
+        "A06": "3/3",
+        "A07": "3/3",
+        "A08": "3/3",
+        "A10": "3/3",
+        "A11": "3/3",
+        "A12": "3/3",
+        "A13": "3/3",
+        "A14": "3/3",
+        "A15": "3/3",
+        "A17": "3/3",
+        "A18": "3/3",
+        "A19": "3/3",
+        "A21": "3/3",
+        "A22": "3/3",
+        "A23": "0/3",
+        "A24": "3/3",
+        "A25": "3/3",
+        "A26": "3/3",
+        "A27": "1/3",
+        "A28": "3/3",
+        "A29": "3/3",
+        "A30": "0/3",
+        "A32": "3/3",
+        "A33": "3/3",
+        "A34": "3/3",
+        "A37": "3/3",
+        "A38": "0/3",
+        "A40": "3/3",
+        "D01": "0/3",
+        "D03": "3/3",
+        "D04": "3/3",
+        "D06": "3/3",
+        "D08": "3/3",
+        "D10": "1/3",
+        "D11": "0/3",
+        "D13": "3/3",
+        "D15": "2/3",
+        "D17": "3/3",
+        "D19": "3/3",
+        "D22": "3/3",
+        "D24": "3/3",
+        "D26": "1/3",
+        "D27": "3/3",
+        "D29": "3/3",
+        "D31": "0/3",
+        "D32": "0/3",
+        "D34": "3/3",
+        "D35": "0/3",
+        "D36": "2/3"
+      }
+    },
+    "specific": {
+      "histogram_asks": {
+        "0": 40,
+        "1": 1,
+        "3": 1
+      },
+      "items": {
+        "D02": "0/3",
+        "D05": "0/3",
+        "D07": "0/3",
+        "D09": "0/3",
+        "D12": "0/3",
+        "D14": "0/3",
+        "D16": "0/3",
+        "D18": "0/3",
+        "D20": "0/3",
+        "D23": "0/3",
+        "D25": "0/3",
+        "D28": "0/3",
+        "D30": "0/3",
+        "D33": "0/3",
+        "S01": "0/3",
+        "S02": "0/3",
+        "S05": "0/3",
+        "S06": "0/3",
+        "S07": "0/3",
+        "S08": "0/3",
+        "S09": "0/3",
+        "S10": "0/3",
+        "S11": "0/3",
+        "S12": "0/3",
+        "S13": "0/3",
+        "S14": "0/3",
+        "S15": "0/3",
+        "S16": "0/3",
+        "S17": "0/3",
+        "S18": "0/3",
+        "S19": "0/3",
+        "S20": "3/3",
+        "S21": "0/3",
+        "S22": "0/3",
+        "S23": "0/3",
+        "S24": "0/3",
+        "S25": "0/3",
+        "S26": "0/3",
+        "S27": "0/3",
+        "S28": "0/3",
+        "S29": "1/3",
+        "S30": "0/3"
+      }
+    }
+  },
+  "stray_window_records": [],
+  "unmatched_to_round": 0
+}

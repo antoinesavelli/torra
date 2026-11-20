@@ -1,0 +1,532 @@
+[
+ {
+  "id": "Q001",
+  "label": "specific",
+  "why": "target and measure named: free memory and swap"
+ },
+ {
+  "id": "Q002",
+  "label": "specific",
+  "why": "named query: failed systemd units"
+ },
+ {
+  "id": "Q003",
+  "label": "specific",
+  "why": "standard reading: upgrade kernel packages to latest available"
+ },
+ {
+  "id": "Q004",
+  "label": "ambiguous",
+  "why": "goal unclear: prune images, cap logs, or move data-root"
+ },
+ {
+  "id": "Q005",
+  "label": "specific",
+  "why": "named: ollama's current VRAM use"
+ },
+ {
+  "id": "Q006",
+  "label": "specific",
+  "why": "ufw named, scope a minute: disable then re-enable"
+ },
+ {
+  "id": "Q007",
+  "label": "specific",
+  "why": "named path and measure"
+ },
+ {
+  "id": "Q008",
+  "label": "ambiguous",
+  "why": "follow-up fragment with no earlier turn"
+ },
+ {
+  "id": "Q009",
+  "label": "ambiguous",
+  "why": "which logs: journal rotate vs logrotate of all files"
+ },
+ {
+  "id": "Q010",
+  "label": "specific",
+  "why": "named: running kernel version"
+ },
+ {
+  "id": "Q011",
+  "label": "ambiguous",
+  "why": "which model is 'the larger model' is unstated"
+ },
+ {
+  "id": "Q012",
+  "label": "specific",
+  "why": "target and size named"
+ },
+ {
+  "id": "Q013",
+  "label": "specific",
+  "why": "named: root partition usage"
+ },
+ {
+  "id": "Q014",
+  "label": "specific",
+  "why": "named: system DNS servers"
+ },
+ {
+  "id": "Q015",
+  "label": "specific",
+  "why": "package and manager named"
+ },
+ {
+  "id": "Q016",
+  "label": "ambiguous",
+  "why": "'the old one' has no referent"
+ },
+ {
+  "id": "Q017",
+  "label": "specific",
+  "why": "image named with explicit condition"
+ },
+ {
+  "id": "Q018",
+  "label": "ambiguous",
+  "why": "'situation' with no measure named"
+ },
+ {
+  "id": "Q019",
+  "label": "specific",
+  "why": "command and repo named; repo found by one look"
+ },
+ {
+  "id": "Q020",
+  "label": "specific",
+  "why": "named: last boot time"
+ },
+ {
+  "id": "Q021",
+  "label": "ambiguous",
+  "why": "scope missing: delete all journals or vacuum to what size/age"
+ },
+ {
+  "id": "Q022",
+  "label": "ambiguous",
+  "why": "'that disk' has no referent"
+ },
+ {
+  "id": "Q023",
+  "label": "specific",
+  "why": "unit and line count named"
+ },
+ {
+  "id": "Q024",
+  "label": "specific",
+  "why": "named port, report owner"
+ },
+ {
+  "id": "Q025",
+  "label": "ambiguous",
+  "why": "which folder and what 'right' permissions mean"
+ },
+ {
+  "id": "Q026",
+  "label": "ambiguous",
+  "why": "which model to pull and which is 'the old one'"
+ },
+ {
+  "id": "Q027",
+  "label": "ambiguous",
+  "why": "'what's wrong' with no symptom named"
+ },
+ {
+  "id": "Q028",
+  "label": "ambiguous",
+  "why": "'problems' on the drive with no measure"
+ },
+ {
+  "id": "Q029",
+  "label": "specific",
+  "why": "path, count and action named"
+ },
+ {
+  "id": "Q030",
+  "label": "ambiguous",
+  "why": "no symptom or goal: what to fix"
+ },
+ {
+  "id": "Q031",
+  "label": "ambiguous",
+  "why": "which services and what to summarize unstated"
+ },
+ {
+  "id": "Q032",
+  "label": "specific",
+  "why": "standard: sshd -T effective config"
+ },
+ {
+  "id": "Q033",
+  "label": "specific",
+  "why": "named: free RAM"
+ },
+ {
+  "id": "Q034",
+  "label": "ambiguous",
+  "why": "'issues' with no measure: broken deps, held, upgradable, ..."
+ },
+ {
+  "id": "Q035",
+  "label": "specific",
+  "why": "named: ufw status"
+ },
+ {
+  "id": "Q036",
+  "label": "ambiguous",
+  "why": "'it' unknown and no measure"
+ },
+ {
+  "id": "Q037",
+  "label": "specific",
+  "why": "GPU temperature and power named"
+ },
+ {
+  "id": "Q038",
+  "label": "ambiguous",
+  "why": "scope unclear: images, containers, volumes (data loss)"
+ },
+ {
+  "id": "Q039",
+  "label": "ambiguous",
+  "why": "'it' has no referent"
+ },
+ {
+  "id": "Q040",
+  "label": "ambiguous",
+  "why": "which web app and port unstated"
+ },
+ {
+  "id": "Q041",
+  "label": "specific",
+  "why": "command and path named"
+ },
+ {
+  "id": "Q042",
+  "label": "ambiguous",
+  "why": "size of swap file missing"
+ },
+ {
+  "id": "Q043",
+  "label": "specific",
+  "why": "standard reading: journal entries at error priority"
+ },
+ {
+  "id": "Q044",
+  "label": "specific",
+  "why": "unit and action named"
+ },
+ {
+  "id": "Q045",
+  "label": "ambiguous",
+  "why": "goal vague: model choice, GPU offload, context, settings"
+ },
+ {
+  "id": "Q046",
+  "label": "ambiguous",
+  "why": "which driver and to which version"
+ },
+ {
+  "id": "Q047",
+  "label": "specific",
+  "why": "named: count of pending apt updates"
+ },
+ {
+  "id": "Q048",
+  "label": "specific",
+  "why": "standard reading: autoremove old kernel packages"
+ },
+ {
+  "id": "Q049",
+  "label": "specific",
+  "why": "unit and line count named"
+ },
+ {
+  "id": "Q050",
+  "label": "ambiguous",
+  "why": "which drive, how much, what to remove"
+ },
+ {
+  "id": "Q051",
+  "label": "specific",
+  "why": "named, explicitly read-only"
+ },
+ {
+  "id": "Q052",
+  "label": "ambiguous",
+  "why": "no symptom or goal specified"
+ },
+ {
+  "id": "Q053",
+  "label": "specific",
+  "why": "one look at failed units settles the referent"
+ },
+ {
+  "id": "Q054",
+  "label": "ambiguous",
+  "why": "what to back up, where, how often"
+ },
+ {
+  "id": "Q055",
+  "label": "ambiguous",
+  "why": "'situation' with no measure named"
+ },
+ {
+  "id": "Q056",
+  "label": "specific",
+  "why": "rule fully specified"
+ },
+ {
+  "id": "Q057",
+  "label": "specific",
+  "why": "named: running containers"
+ },
+ {
+  "id": "Q058",
+  "label": "specific",
+  "why": "container named"
+ },
+ {
+  "id": "Q059",
+  "label": "specific",
+  "why": "named: failed units"
+ },
+ {
+  "id": "Q060",
+  "label": "ambiguous",
+  "why": "which packages: driver, CUDA, container toolkit"
+ },
+ {
+  "id": "Q061",
+  "label": "specific",
+  "why": "the machine's reboot cause; previous boot journal"
+ },
+ {
+  "id": "Q062",
+  "label": "ambiguous",
+  "why": "'that ip' has no referent"
+ },
+ {
+  "id": "Q063",
+  "label": "specific",
+  "why": "one look settles the top-memory process"
+ },
+ {
+  "id": "Q064",
+  "label": "ambiguous",
+  "why": "follow-up with nothing to do"
+ },
+ {
+  "id": "Q065",
+  "label": "ambiguous",
+  "why": "goal vague: many different hardening changes"
+ },
+ {
+  "id": "Q066",
+  "label": "specific",
+  "why": "host and count named"
+ },
+ {
+  "id": "Q067",
+  "label": "ambiguous",
+  "why": "'problems' with no symptom named"
+ },
+ {
+  "id": "Q068",
+  "label": "specific",
+  "why": "ufw status and rules named"
+ },
+ {
+  "id": "Q069",
+  "label": "specific",
+  "why": "named: LAN IP"
+ },
+ {
+  "id": "Q070",
+  "label": "ambiguous",
+  "why": "which backups and how old"
+ },
+ {
+  "id": "Q071",
+  "label": "specific",
+  "why": "source /home and data drive destination named"
+ },
+ {
+  "id": "Q072",
+  "label": "ambiguous",
+  "why": "fragment referring to an earlier output"
+ },
+ {
+  "id": "Q073",
+  "label": "ambiguous",
+  "why": "'it' has no referent"
+ },
+ {
+  "id": "Q074",
+  "label": "ambiguous",
+  "why": "which disk and what action wanted"
+ },
+ {
+  "id": "Q075",
+  "label": "ambiguous",
+  "why": "'problems' with no symptom named"
+ },
+ {
+  "id": "Q076",
+  "label": "ambiguous",
+  "why": "which timer among several"
+ },
+ {
+  "id": "Q077",
+  "label": "ambiguous",
+  "why": "which partition, new size, grow or shrink"
+ },
+ {
+  "id": "Q078",
+  "label": "ambiguous",
+  "why": "'ok' is health with no measure: daemon, config, connection"
+ },
+ {
+  "id": "Q079",
+  "label": "specific",
+  "why": "user timer named"
+ },
+ {
+  "id": "Q080",
+  "label": "specific",
+  "why": "named: timers and next fire time"
+ },
+ {
+  "id": "Q081",
+  "label": "ambiguous",
+  "why": "which container among several"
+ },
+ {
+  "id": "Q082",
+  "label": "ambiguous",
+  "why": "'him' unknown, which folder and access level"
+ },
+ {
+  "id": "Q083",
+  "label": "specific",
+  "why": "named: driver loaded and version"
+ },
+ {
+  "id": "Q084",
+  "label": "specific",
+  "why": "standard reading: apt and flatpak upgrade all"
+ },
+ {
+  "id": "Q085",
+  "label": "ambiguous",
+  "why": "which cache: apt, pip/uv, page cache, browser"
+ },
+ {
+  "id": "Q086",
+  "label": "ambiguous",
+  "why": "'unused' undefined: which models to delete"
+ },
+ {
+  "id": "Q087",
+  "label": "specific",
+  "why": "host, count and measure named"
+ },
+ {
+  "id": "Q088",
+  "label": "specific",
+  "why": "named: last successful borg run time"
+ },
+ {
+  "id": "Q089",
+  "label": "ambiguous",
+  "why": "'old' undefined: which python processes"
+ },
+ {
+  "id": "Q090",
+  "label": "ambiguous",
+  "why": "destination path and method on the other machine missing"
+ },
+ {
+  "id": "Q091",
+  "label": "specific",
+  "why": "named: running containers"
+ },
+ {
+  "id": "Q092",
+  "label": "ambiguous",
+  "why": "no target logs named and 'lately' undefined"
+ },
+ {
+  "id": "Q093",
+  "label": "ambiguous",
+  "why": "'issues' with no measure named"
+ },
+ {
+  "id": "Q094",
+  "label": "specific",
+  "why": "named: installed ollama models"
+ },
+ {
+  "id": "Q095",
+  "label": "specific",
+  "why": "named: installed flatpaks"
+ },
+ {
+  "id": "Q096",
+  "label": "ambiguous",
+  "why": "new DNS servers not given"
+ },
+ {
+  "id": "Q097",
+  "label": "specific",
+  "why": "model and tag named"
+ },
+ {
+  "id": "Q098",
+  "label": "ambiguous",
+  "why": "follow-up referring to an earlier check"
+ },
+ {
+  "id": "Q099",
+  "label": "ambiguous",
+  "why": "mount point and persistence unstated; disk may need formatting"
+ },
+ {
+  "id": "Q100",
+  "label": "specific",
+  "why": "drive and unit named"
+ },
+ {
+  "id": "Q101",
+  "label": "specific",
+  "why": "named: free VRAM"
+ },
+ {
+  "id": "Q102",
+  "label": "ambiguous",
+  "why": "'it' has no referent"
+ },
+ {
+  "id": "Q103",
+  "label": "ambiguous",
+  "why": "which service is unstated"
+ },
+ {
+  "id": "Q104",
+  "label": "ambiguous",
+  "why": "'ok' is health with no measure named"
+ },
+ {
+  "id": "Q105",
+  "label": "specific",
+  "why": "named: installed ollama models"
+ },
+ {
+  "id": "Q106",
+  "label": "specific",
+  "why": "named: ollama's listening ports"
+ }
+]

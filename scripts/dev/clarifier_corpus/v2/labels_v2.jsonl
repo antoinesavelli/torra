@@ -1,0 +1,94 @@
+{"ambiguous": false, "labeled_at": 1795139849.0710402, "labeler": "claude-p5-6.1", "request": "how much is free on paramo storage in gb", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.071182, "labeler": "claude-p5-6.1", "request": "any issues with my drives", "why": "p5-6.1 corpus D01: No drive named and no symptom or measure, so many different checks fit."}
+{"ambiguous": true, "labeled_at": 1795139849.0715015, "labeler": "claude-p5-6.1", "request": "clear the cache", "why": "p5-6.1 corpus A32: apt, pip, uv, flatpak, browser, or GPU shader cache are all plausible."}
+{"ambiguous": true, "labeled_at": 1795139849.071608, "labeler": "claude-p5-6.1", "request": "the network is flaky, sort it out", "why": "p5-6.1 corpus A13: Wired or wifi, LAN or internet, and what sort out means are unclear."}
+{"ambiguous": true, "labeled_at": 1795139849.071668, "labeler": "claude-p5-6.1", "request": "is the gpu ok", "why": "p5-6.1 corpus D11: 'Ok' names no measure (temp, vram, driver, errors)."}
+{"ambiguous": false, "labeled_at": 1795139849.0717092, "labeler": "claude-p5-6.1", "request": "is ufw active", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.071764, "labeler": "claude-p5-6.1", "request": "what lan ip does this box have", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0718083, "labeler": "claude-p5-6.1", "request": "show failed systemd units", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0718653, "labeler": "claude-p5-6.1", "request": "which docker containers are running", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0719168, "labeler": "claude-p5-6.1", "request": "vacuum the journal down to 500M", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0719693, "labeler": "claude-p5-6.1", "request": "network problems?", "why": "p5-6.1 corpus D19: No interface, host or symptom named."}
+{"ambiguous": true, "labeled_at": 1795139849.07204, "labeler": "claude-p5-6.1", "request": "give him access to the data folder", "why": "p5-6.1 corpus A07: Unknown user, unknown folder, and read or write level unspecified."}
+{"ambiguous": true, "labeled_at": 1795139849.072119, "labeler": "claude-p5-6.1", "request": "remove docker stuff i'm not using", "why": "p5-6.1 corpus A23: Images, volumes, networks or stopped containers; volumes could hold data."}
+{"ambiguous": true, "labeled_at": 1795139849.0722275, "labeler": "claude-p5-6.1", "request": "ollama is slow, make it faster", "why": "p5-6.1 corpus A11: Slow how, for which model; the goal is unclear and the fixes differ widely."}
+{"ambiguous": false, "labeled_at": 1795139849.0722783, "labeler": "claude-p5-6.1", "request": "what's using port 8080", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.072342, "labeler": "claude-p5-6.1", "request": "ok go ahead and do it", "why": "p5-6.1 corpus D03: Follow-up fragment with nothing earlier to refer to."}
+{"ambiguous": true, "labeled_at": 1795139849.0724177, "labeler": "claude-p5-6.1", "request": "set the permissions right on the shared folder", "why": "p5-6.1 corpus A37: Which folder and what right means for owner, group and mode."}
+{"ambiguous": false, "labeled_at": 1795139849.0724661, "labeler": "claude-p5-6.1", "request": "what ports is ollama listening on", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0725179, "labeler": "claude-p5-6.1", "request": "which docker containers are running right now", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0725863, "labeler": "claude-p5-6.1", "request": "disable the service i don't need", "why": "p5-6.1 corpus A18: The service is not named and need is unknowable from the request."}
+{"ambiguous": false, "labeled_at": 1795139849.072655, "labeler": "claude-p5-6.1", "request": "add a ufw rule allowing ssh from 192.168.1.0/24", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0727134, "labeler": "claude-p5-6.1", "request": "resize the partition", "why": "p5-6.1 corpus A21: Which partition, grow or shrink, and to what size are missing."}
+{"ambiguous": true, "labeled_at": 1795139849.0727637, "labeler": "claude-p5-6.1", "request": "fix the gpu", "why": "p5-6.1 corpus A03: Unknown symptom and unclear what fixed means."}
+{"ambiguous": true, "labeled_at": 1795139849.072834, "labeler": "claude-p5-6.1", "request": "open the port for the web app", "why": "p5-6.1 corpus A14: Which port, which app, and whether LAN only or public are unknown."}
+{"ambiguous": false, "labeled_at": 1795139849.0728786, "labeler": "claude-p5-6.1", "request": "install htop with apt", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.072924, "labeler": "claude-p5-6.1", "request": "which ollama models are installed", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0729759, "labeler": "claude-p5-6.1", "request": "is ufw active and what are the rules", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.073025, "labeler": "claude-p5-6.1", "request": "stop the docker container named grafana", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0730731, "labeler": "claude-p5-6.1", "request": "show disk usage for /mnt/ParamoStorage", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.073129, "labeler": "claude-p5-6.1", "request": "set up a backup", "why": "p5-6.1 corpus A17: Source, destination, tool and schedule are all missing."}
+{"ambiguous": true, "labeled_at": 1795139849.0731828, "labeler": "claude-p5-6.1", "request": "stop the timer", "why": "p5-6.1 corpus A04: Multiple timers exist and system versus user scope is unknown."}
+{"ambiguous": true, "labeled_at": 1795139849.0732353, "labeler": "claude-p5-6.1", "request": "show it in mb", "why": "p5-6.1 corpus D15: Follow-up fragment; nothing earlier to reformat."}
+{"ambiguous": false, "labeled_at": 1795139849.073286, "labeler": "claude-p5-6.1", "request": "list the ollama models i have installed", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0733454, "labeler": "claude-p5-6.1", "request": "purge the journal", "why": "p5-6.1 corpus A38: How much to keep, by size or age, is not specified."}
+{"ambiguous": true, "labeled_at": 1795139849.0734112, "labeler": "claude-p5-6.1", "request": "delete the old backups", "why": "p5-6.1 corpus A10: Location and the cutoff for old are missing."}
+{"ambiguous": false, "labeled_at": 1795139849.0734606, "labeler": "claude-p5-6.1", "request": "run uv sync in the torra repo", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.073528, "labeler": "claude-p5-6.1", "request": "ping 1.1.1.1 three times and show the avg latency", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0735803, "labeler": "claude-p5-6.1", "request": "how much vram is ollama using right now", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0736356, "labeler": "claude-p5-6.1", "request": "change the dns", "why": "p5-6.1 corpus A25: New server not given and unclear whether system-wide or per-connection."}
+{"ambiguous": true, "labeled_at": 1795139849.07369, "labeler": "claude-p5-6.1", "request": "block that ip", "why": "p5-6.1 corpus A08: No IP given, and unclear whether inbound only or all traffic."}
+{"ambiguous": true, "labeled_at": 1795139849.0737743, "labeler": "claude-p5-6.1", "request": "make the ollama service start at boot with the larger model loaded", "why": "p5-6.1 corpus A30: Which larger model, relative to what, is unclear; also whether to preload."}
+{"ambiguous": true, "labeled_at": 1795139849.0738404, "labeler": "claude-p5-6.1", "request": "ollama keeps acting up, whats wrong", "why": "p5-6.1 corpus D17: Asks what is wrong with no symptom named, so different checks apply."}
+{"ambiguous": false, "labeled_at": 1795139849.0738878, "labeler": "claude-p5-6.1", "request": "list any failed systemd units", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0739725, "labeler": "claude-p5-6.1", "request": "pull the latest model and get rid of the old one", "why": "p5-6.1 corpus A40: Which model family and which old copy are not identified."}
+{"ambiguous": false, "labeled_at": 1795139849.074029, "labeler": "claude-p5-6.1", "request": "how full is the root partition on the ssd", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0740914, "labeler": "claude-p5-6.1", "request": "tail the last 100 lines of the ollama service journal", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0741453, "labeler": "claude-p5-6.1", "request": "did it finish", "why": "p5-6.1 corpus D34: Follow-up fragment; 'it' has no referent."}
+{"ambiguous": false, "labeled_at": 1795139849.074197, "labeler": "claude-p5-6.1", "request": "how much free memory and swap is there", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.074243, "labeler": "claude-p5-6.1", "request": "how many apt updates are pending", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.074303, "labeler": "claude-p5-6.1", "request": "make ssh more secure", "why": "p5-6.1 corpus A19: Open-ended goal with many different hardening actions, some risking lockout."}
+{"ambiguous": false, "labeled_at": 1795139849.0743499, "labeler": "claude-p5-6.1", "request": "when did the machine last boot", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0744123, "labeler": "claude-p5-6.1", "request": "reinstall the nvidia stuff", "why": "p5-6.1 corpus A33: Driver, CUDA toolkit or container toolkit; also which version, and reboot risk."}
+{"ambiguous": true, "labeled_at": 1795139849.0744777, "labeler": "claude-p5-6.1", "request": "same check for the other drive", "why": "p5-6.1 corpus D10: Follow-up fragment; 'same check' and 'other drive' have no referent."}
+{"ambiguous": true, "labeled_at": 1795139849.0745356, "labeler": "claude-p5-6.1", "request": "why is it so slow", "why": "p5-6.1 corpus D26: No target or symptom; cpu, io, ram or gpu all plausible."}
+{"ambiguous": false, "labeled_at": 1795139849.074593, "labeler": "claude-p5-6.1", "request": "check the temperature and power draw of the gpu", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0746453, "labeler": "claude-p5-6.1", "request": "last 40 lines of the ollama service log", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0747035, "labeler": "claude-p5-6.1", "request": "storage health on that disk", "why": "p5-6.1 corpus D36: 'That disk' has nothing it can refer to."}
+{"ambiguous": false, "labeled_at": 1795139849.074771, "labeler": "claude-p5-6.1", "request": "show me which apt packages are upgradable, don't install anything", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0748227, "labeler": "claude-p5-6.1", "request": "disable the user timer backup-notes.timer", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0748773, "labeler": "claude-p5-6.1", "request": "pull the ollama model llama3.2:3b", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0749333, "labeler": "claude-p5-6.1", "request": "is ssh ok", "why": "p5-6.1 corpus D35: Could mean sshd running, port reachable, keys, or config; no measure named."}
+{"ambiguous": false, "labeled_at": 1795139849.0749774, "labeler": "claude-p5-6.1", "request": "what kernel am i running", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.075038, "labeler": "claude-p5-6.1", "request": "run it every night", "why": "p5-6.1 corpus A26: No referent for it and no time of day."}
+{"ambiguous": false, "labeled_at": 1795139849.0750923, "labeler": "claude-p5-6.1", "request": "is the nvidia driver loaded and which version", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0751388, "labeler": "claude-p5-6.1", "request": "show sshd config effective settings", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0751793, "labeler": "claude-p5-6.1", "request": "how much ram is free", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0752347, "labeler": "claude-p5-6.1", "request": "docker problems", "why": "p5-6.1 corpus D08: No container named and no symptom, so daemon, container, disk or image checks all fit."}
+{"ambiguous": true, "labeled_at": 1795139849.0752988, "labeler": "claude-p5-6.1", "request": "give me a summary of the services", "why": "p5-6.1 corpus D31: Which services and what to report are not named."}
+{"ambiguous": true, "labeled_at": 1795139849.0753663, "labeler": "claude-p5-6.1", "request": "package issues on this machine", "why": "p5-6.1 corpus D24: 'Issues' with no measure: held, broken, upgradable, or apt vs flatpak."}
+{"ambiguous": true, "labeled_at": 1795139849.0754392, "labeler": "claude-p5-6.1", "request": "copy the repos to the other machine", "why": "p5-6.1 corpus A22: Which repos, which destination path, and whether to delete extras are unknown."}
+{"ambiguous": true, "labeled_at": 1795139849.075492, "labeler": "claude-p5-6.1", "request": "downgrade the driver", "why": "p5-6.1 corpus A24: Which driver and to which version are not given."}
+{"ambiguous": false, "labeled_at": 1795139849.0755723, "labeler": "claude-p5-6.1", "request": "remove the docker image nginx:1.25 if no container uses it", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0756266, "labeler": "claude-p5-6.1", "request": "and the container?", "why": "p5-6.1 corpus D29: Follow-up fragment; no container and no earlier turn."}
+{"ambiguous": false, "labeled_at": 1795139849.0756774, "labeler": "claude-p5-6.1", "request": "what dns servers is the system using", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.075734, "labeler": "claude-p5-6.1", "request": "add a swap file", "why": "p5-6.1 corpus A28: Size and location are not given and the machine has multiple disks."}
+{"ambiguous": true, "labeled_at": 1795139849.0757847, "labeler": "claude-p5-6.1", "request": "rotate the logs", "why": "p5-6.1 corpus A15: Which logs and what retention policy are not given."}
+{"ambiguous": true, "labeled_at": 1795139849.075837, "labeler": "claude-p5-6.1", "request": "why did it fail", "why": "p5-6.1 corpus D06: Follow-up fragment; 'it' has no referent."}
+{"ambiguous": true, "labeled_at": 1795139849.0758924, "labeler": "claude-p5-6.1", "request": "restart the container", "why": "p5-6.1 corpus A01: Several containers run; which one is not named."}
+{"ambiguous": true, "labeled_at": 1795139849.0759568, "labeler": "claude-p5-6.1", "request": "is the old one still ok", "why": "p5-6.1 corpus D22: 'The old one' has nothing it can refer to."}
+{"ambiguous": true, "labeled_at": 1795139849.0760117, "labeler": "claude-p5-6.1", "request": "the disk is full", "why": "p5-6.1 corpus A27: Which disk, and whether to diagnose or delete is unclear."}
+{"ambiguous": false, "labeled_at": 1795139849.076063, "labeler": "claude-p5-6.1", "request": "ping 192.168.1.1 five times", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.0761054, "labeler": "claude-p5-6.1", "request": "list flatpak apps installed", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0761757, "labeler": "claude-p5-6.1", "request": "remove the unused models", "why": "p5-6.1 corpus A12: Which models count as unused is undefined and deletion is costly to redo."}
+{"ambiguous": true, "labeled_at": 1795139849.0762532, "labeler": "claude-p5-6.1", "request": "what are the main problems on the data drive", "why": "p5-6.1 corpus D27: Asks for 'problems' with no measure or symptom, so different checks fit."}
+{"ambiguous": false, "labeled_at": 1795139849.0763237, "labeler": "claude-p5-6.1", "request": "top 10 biggest directories under /mnt/ParamoStorage, just list them", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.0763912, "labeler": "claude-p5-6.1", "request": "whats the situation with backups", "why": "p5-6.1 corpus D04: 'Situation' names no measure (last run, size, errors, schedule) and no repo."}
+{"ambiguous": true, "labeled_at": 1795139849.0764484, "labeler": "claude-p5-6.1", "request": "mount the new disk", "why": "p5-6.1 corpus A06: Which device, which mount point, and whether to format are all missing."}
+{"ambiguous": true, "labeled_at": 1795139849.0764966, "labeler": "claude-p5-6.1", "request": "any errors lately", "why": "p5-6.1 corpus D32: No source or time window named."}
+{"ambiguous": false, "labeled_at": 1795139849.076564, "labeler": "claude-p5-6.1", "request": "show all systemd timers and when they next fire", "why": ""}
+{"ambiguous": false, "labeled_at": 1795139849.076613, "labeler": "claude-p5-6.1", "request": "git status on /mnt/ParamoStorage/repos/corsu-repos/torra", "why": ""}
+{"ambiguous": true, "labeled_at": 1795139849.076691, "labeler": "claude-p5-6.1", "request": "stop docker from eating all my disk", "why": "p5-6.1 corpus A34: Goal unclear: prune, move the data root, or limit logs; materially different actions."}
+{"ambiguous": true, "labeled_at": 1795139849.0767434, "labeler": "claude-p5-6.1", "request": "memory situation", "why": "p5-6.1 corpus D13: No measure named (free, swap, top consumers, oom events)."}
+{"ambiguous": true, "labeled_at": 1795139849.0768158, "labeler": "claude-p5-6.1", "request": "kill the old python processes", "why": "p5-6.1 corpus A29: Old is undefined and many python processes may be legitimate, such as the dev tools."}
+{"ambiguous": false, "labeled_at": 1795139849.0768704, "labeler": "claude-p5-6.1", "request": "what time did borg last run successfully", "why": ""}

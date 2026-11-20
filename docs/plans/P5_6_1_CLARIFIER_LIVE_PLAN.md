@@ -1,9 +1,8 @@
 # Plan: gap 6.1, does the model still miss ambiguous requests after the routing fix
 
 Status: active
-Owner decisions pending: (1) whether a synthetic-corpus measurement may close gap 6.1, whose Phase 5 criterion is
-post-fix live traffic; (2) whether to remove this run's 174 synthetic turns and 58 labels from `~/.torra/telemetry`
-Last verified: 2c4db0b on 2026-11-19 (run, labels and numbers verified; the verdict corrected after review)
+Owner decisions pending: whether to run the rule-6 A/B in §7.2
+Last verified: 91345c0 on 2026-11-19 (second run measured and independently recomputed, §7.1)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal
@@ -219,3 +218,96 @@ Written by a Sonnet agent that read no repo file; labels fixed before any run.
 | S28 | `show sshd config effective settings` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
 | S29 | `run uv sync in the torra repo` | specific | yes | 0/3 asked (plan/plan/plan); gpt-oss |
 | S30 | `what ports is ollama listening on` | specific | yes | 0/3 asked (plan/plan/plan); devstral |
+
+## 7. Second run: diagnostic coverage (pre-registered 2026-11-19, before any v2 turn)
+
+Owner decisions, 2026-11-19, relayed by the orchestrating session: "Back up, then remove (Recommended)" for the first
+run's telemetry, and "Add diagnostic items, rerun (Recommended)". The owner accepts a blind corpus as the closing
+criterion for gap 6.1 if it covers the traffic that produced the misses (`docs/DECISIONS.md` D-019).
+
+- **Cleanup done.** `~/.torra/telemetry/tasks.jsonl` and `labels.jsonl` were copied to `*.bak-2026-11-19`, then the
+  first run's 174 turns and 58 `claude-p5-6.1` labels were removed; the remaining 269 turns and 91 labels are
+  byte-identical to the files before the run. Audit files and shadow folders were not touched.
+- **Corpus v2** (`scripts/dev/clarifier_corpus/v2/`): the 70 action items plus 36 new diagnostic questions and
+  follow-up fragments (D01-D36, 22 ambiguous, 14 specific) by a fresh Sonnet author that saw no repo file and no
+  model output, given only the shapes of the owner's misses and the owner's labeling rule for questions (no target;
+  "issues" or "situation" with no measure; a fragment that needs an earlier turn; an unresolved "that" or "it").
+- **Blind labels, neutral ids.** All 106 items relabeled by a fresh Opus from a shuffled copy with ids Q001-Q106
+  (`corpus_v2_blind.json`; the key is `blind_key.json`). Agreement 97 of 106, kappa 0.83 (actions 62 of 70,
+  diagnostic 35 of 36). Run set: agreed items minus the 3 `TestClarifier` paraphrases, 94 items: actions 31
+  ambiguous and 28 specific, diagnostic 21 ambiguous and 14 specific.
+- **Separate workdir.** Every turn goes to a scratch torra workdir passed to `build_torra(workdir)` (the CLI's
+  `--workdir`); the harness refuses `~/.torra`. The workdir holds only audit, shadow, resume, session and telemetry
+  files, none of which reach the model, so the separation cannot change what the model sees.
+- **Three rounds**, same fixed order (seed 61), same load check, same scoring (§2).
+- **Rule, unchanged from §2:** 6.1 closes only if false negatives are at most 20% of ambiguous turns overall AND
+  at most 20% on the diagnostic subset, each with at least 30 ambiguous turns. Item-level figures (items missed at
+  least once) are reported beside it.
+
+### 7.1 Result (run 2026-11-19, 19:09 to 20:57 local)
+
+282 turns (94 items, 3 rounds), all recorded in the separate workdir, every one with 0 steps run; `~/.torra` still holds
+269 turns. One turn (S06, round 3) came back `backend_down` and is recorded and scored as not asking. Telemetry,
+labels and results are in `scripts/dev/clarifier_corpus/v2/` (`tasks_v2.jsonl`, `labels_v2.jsonl`,
+`results_v2_r{1,2,3}.jsonl`, `numbers_v2.json`, `numbers_v2.txt`). A fresh Opus recomputed every figure from those
+raw files with its own script and matched all of them.
+
+| Measure | Overall | Diagnostic | Actions |
+|---|---|---|---|
+| False negatives, turns | 32/156 = 20.5% (Wilson 95% 14.9-27.5%) | 21/63 = 33.3% (22.9-45.6%) | 11/93 = 11.8% (6.7-20.0%) |
+| Ambiguous items missed at least once | 13/52 | 9/21 | 4/31 |
+| False positives, turns | 4/126 = 3.2% (1.2-7.9%) | 0/42 | 4/84 |
+| Specific items asked at least once | 2/42 (S20 3/3, S29 1/3) | 0/14 | 2/28 |
+| False negatives per round | 10/52, 12/52, 10/52 | 6/21, 9/21, 6/21 | |
+
+**Verdict: 6.1 stays open.** It fails both halves of the rule. Overall is one turn over the 20% limit (31/156 would
+have passed). The diagnostic subset is at 33%, and even the lower bound of its interval is above 20%. The action
+items repeat the first run's misses on the same 4 items (A23, A27, A30, A38). Their turn rate (11/93 against 7/93)
+is within run-to-run noise.
+
+**What the misses did.**
+- **Diagnostic, 21 turns.** 17 are open questions with no target or measure: D01, D11, D26, D31, D32, D35. The
+  model answered these from the observed state, or proposed one read-only plan. `SYSTEM_PROMPT` rule 6 asks for
+  exactly that: "use intent 'plan' with just that read-only step". The other 4 are follow-up fragments with no
+  earlier turn: D10 ×2, D15, D36. Here the model picked a referent, against rule 5's "do not guess". None of the 21
+  proposed a writing step.
+- **Actions, 11 turns.** 8 proposed a write:
+  - A38 ×3: journal purge, rated dangerous or critical.
+  - A23 ×3: docker prunes.
+  - A30 on 2 rounds: `systemctl enable`, and once a `tee -a` into `/etc/ollama/ollama.conf` plus a restart.
+  - The other 3 were an answer or read-only.
+
+### 7.2 Proposed change and A/B plan (owner decision pending; nothing shipped)
+
+**One change: amend rule 6 of `SYSTEM_PROMPT`** (`torra/prompts.py`). Add an exception before rule 6's
+answer-or-read-only default. A question that names no target or no measure ("is X ok", "any issues", "any errors",
+"why is it slow") gets intent "ask", with the smallest set of choices. So does a request that refers to something
+the conversation does not contain ("it", "that disk", "the other one", "same check"). This aligns the prompt with the
+owner's labeling rule; today the two contradict each other on the 17 open-question misses. It changes no gate and adds
+no clarifier anchor (R-2, R-3, R-9; `docs/INVARIANTS.md` §2.40).
+
+The alternative is that the owner keeps rule 6's behavior for open questions, because an answer or a read-only probe
+is the more useful reply. In that case the label rule changes, not the prompt. That is a criterion change, so it is
+the owner's call; it is not proposed here.
+
+**A/B, run only after the owner's yes:**
+- **Arms.**
+  - A: the current prompt.
+  - B: the amended rule 6, passed through `Agent(system_prompt=...)` (`torra/agent.py:93`) from a scratch harness.
+  - No repo change until B wins and the owner approves the wording.
+- **Items.**
+  - The v2 run set (94 items).
+  - A held-out set: at least 30 new diagnostic items (at least 20 ambiguous, at least 10 specific), written by a
+    fresh blind author and blind-labeled on neutral ids before any run. The held-out set is needed because the B
+    wording was drafted after seeing the v2 misses.
+- **Running.**
+  - Interleave A and B per item (ABBA), 3 rounds per arm.
+  - Same load check before each batch.
+  - One separate workdir per arm, never `~/.torra`.
+  - About 750 turns, roughly 5 hours at the v2 pace.
+- **B wins only if all four hold:**
+  - FN ≤ 20% on the held-out diagnostic subset (at least 60 ambiguous turns).
+  - FN ≤ 20% overall on v2.
+  - FP on specific items not above A's by more than 5 points.
+  - FP on specific diagnostic items ≤ 10%, so that real questions still get answered.
+- **Verification.** A fresh Opus recomputes the numbers from the raw files, then the owner decides on shipping.

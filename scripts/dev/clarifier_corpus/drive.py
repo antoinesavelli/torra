@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Send each corpus request once through `harness.py` (plan, then reject) against a live local model, gently.
 
-Usage: python3 -I drive.py CORPUS.json RESULTS.jsonl --python VENV_PYTHON [--only ID,ID] [--dry]
+Usage: python3 -I drive.py CORPUS.json RESULTS.jsonl --python VENV_PYTHON --workdir PATH [--only ID,ID] [--dry]
+PATH is the torra workdir the turns are written to (passed to harness.py; never ~/.torra).
 """
 
 import argparse
@@ -104,12 +105,12 @@ def wait_for_quiet(state, dry):
         state["waited"] += POLL_S
 
 
-def run_item(item, python):
+def run_item(item, python, workdir):
     start = time.time()
     rc = None
     out = b""
     proc = subprocess.Popen(
-        [python, "-I", HARNESS, item["request"]],
+        [python, "-I", HARNESS, "--workdir", workdir, item["request"]],
         cwd=CWD,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -136,9 +137,16 @@ def main():
     ap.add_argument("corpus")
     ap.add_argument("results")
     ap.add_argument("--python", required=True, help="venv interpreter that runs harness.py")
+    ap.add_argument("--workdir", required=True, help="torra workdir for the turns (never ~/.torra)")
     ap.add_argument("--only", default=None)
     ap.add_argument("--dry", action="store_true")
     args = ap.parse_args()
+    workdir = Path(args.workdir).expanduser().resolve()
+    default = (Path.home() / ".torra").resolve()  # torra.pipeline.DEFAULT_WORKDIR
+    if workdir == default or default in workdir.parents:
+        print(f"refusing: workdir {workdir} is or is inside {default}", file=sys.stderr)
+        sys.exit(2)
+    args.workdir = str(workdir)
 
     with open(args.corpus, encoding="utf-8") as fh:
         items = json.load(fh)
@@ -174,7 +182,7 @@ def main():
                     start = end = time.time()
                     rc, text = -999, ""
                 else:
-                    start, end, rc, text = run_item(item, args.python)
+                    start, end, rc, text = run_item(item, args.python, args.workdir)
                 m = HARNESS_RE.findall(text)
                 outcome, intent, model = (
                     (m[-1][0], m[-1][1], m[-1][2].strip()) if m else (None, None, None)

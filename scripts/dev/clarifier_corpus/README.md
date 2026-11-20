@@ -30,6 +30,22 @@ uv run python -I scripts/dev/clarifier_corpus/numbers.py --start EPOCH --end EPO
 Expected headline: false negatives 7/93, false positives 0/81, `S20` the only count mismatch (no
 record), drift report present (it needs every corpus request that has a record to be labeled).
 
-**Warning.** `drive.py` writes real turns into `~/.torra/telemetry/tasks.jsonl` and calls a live
-local model; `label.py` writes labels into `~/.torra/telemetry/labels.jsonl` (`--dry` only prints
-the plan). Neither belongs in a test or CI; `numbers.py` writes only `numbers.json`.
+**Warning.** `drive.py` writes real turns into `<workdir>/telemetry/tasks.jsonl` and calls a live
+local model; `label.py` writes labels into `<workdir>/telemetry/labels.jsonl` (`--dry` only prints
+the plan). Neither belongs in a test or CI; `numbers.py` writes only its `--out` file. `harness.py`,
+`drive.py` and `label.py` require `--workdir PATH` and refuse (exit 2) `~/.torra` or anything inside it.
+
+**Second run (v2).** `v2/` holds `corpus_v2_*.json`, `results_v2_r*.jsonl`, `numbers_v2.json` and
+copies of the run's telemetry (`tasks_v2.jsonl`, `labels_v2.jsonl`; `numbers_v2.txt` is the printed report). Items there carry `"set"` (`actions` or `diagnostic`). It writes into a
+separate workdir, never `~/.torra`:
+
+```
+uv run python -I scripts/dev/clarifier_corpus/drive.py v2/corpus_v2_agreed.json v2/results_v2_r1.jsonl --python .venv/bin/python --workdir /tmp/torra-v2
+uv run python -I scripts/dev/clarifier_corpus/label.py --workdir /tmp/torra-v2 --corpus v2/corpus_v2_agreed.json
+uv run python -I scripts/dev/clarifier_corpus/numbers.py --workdir /tmp/torra-v2 --no-window --corpus v2/corpus_v2_agreed.json --results v2/results_v2_r*.jsonl --out v2/numbers_v2.json
+```
+
+`numbers.py` then also reports FN/FP per set (turn and item level, `by_set` in the JSON). Its pre-fix
+comparison always reads `~/.torra/telemetry`, read-only, whatever `--workdir` is. To reproduce the v1
+`numbers.json` the `~/.torra/telemetry` must still hold the 2026-11-19 run (`tasks.jsonl.bak-2026-11-19`
+and `labels.jsonl.bak-2026-11-19` do).

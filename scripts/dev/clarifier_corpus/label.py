@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Label the agreed corpus requests through the real `torra label` CLI.
 
-Usage: <venv python> -I label.py [--dry]
-Writes ~/.torra/telemetry/labels.jsonl (unless --dry).
+Usage: <venv python> -I label.py --workdir PATH [--corpus CORPUS.json] [--dry]
+Writes PATH/telemetry/labels.jsonl (unless --dry); PATH may not be ~/.torra or inside it.
+The default corpus is corpus_agreed.json next to this file.
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -64,13 +66,22 @@ def check_labels(before, after, expected):
 
 
 def main():
-    dry = "--dry" in sys.argv[1:]
-    corpus = [c for c in json.load(open(os.path.join(S, "corpus_agreed.json"))) if c.get("agreed")]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--workdir", required=True, help="torra workdir to label in (never ~/.torra)")
+    ap.add_argument("--corpus", default=os.path.join(S, "corpus_agreed.json"))
+    ap.add_argument("--dry", action="store_true")
+    args = ap.parse_args()
+    dry = args.dry
+    workdir = Path(args.workdir).expanduser().resolve()
+    default = DEFAULT_WORKDIR.expanduser().resolve()
+    if workdir == default or default in workdir.parents:
+        print(f"refusing: workdir {workdir} is or is inside {default}", file=sys.stderr)
+        return 2
+    corpus = [c for c in json.load(open(args.corpus)) if c.get("agreed")]
     by_request = {c["request"]: c for c in corpus}
     if len(by_request) != len(corpus):
         print("WARNING: duplicate request texts in the agreed corpus")
 
-    workdir = DEFAULT_WORKDIR
     logger = TaskLogger(workdir / "telemetry" / "tasks.jsonl")
     store = LabelStore(workdir / "telemetry" / "labels.jsonl")
     before = store.all()
@@ -105,7 +116,17 @@ def main():
     code = f"import sys; sys.path.insert(0, {W!r}); from torra.cli import main; sys.exit(main())"
     env = dict(os.environ, USER=LABELER)
     proc = subprocess.run(
-        [sys.executable, "-I", "-c", code, "label", "--limit", str(len(pending))],
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            code,
+            "--workdir",
+            str(workdir),
+            "label",
+            "--limit",
+            str(len(pending)),
+        ],
         input=stdin,
         text=True,
         capture_output=True,

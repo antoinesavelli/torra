@@ -1,0 +1,426 @@
+[
+ {
+  "id": "Q001",
+  "request": "how much free memory and swap is there"
+ },
+ {
+  "id": "Q002",
+  "request": "list any failed systemd units"
+ },
+ {
+  "id": "Q003",
+  "request": "upgrade the kernel"
+ },
+ {
+  "id": "Q004",
+  "request": "stop docker from eating all my disk"
+ },
+ {
+  "id": "Q005",
+  "request": "how much vram is ollama using right now"
+ },
+ {
+  "id": "Q006",
+  "request": "turn off the firewall for a minute"
+ },
+ {
+  "id": "Q007",
+  "request": "show disk usage for /mnt/ParamoStorage"
+ },
+ {
+  "id": "Q008",
+  "request": "and the container?"
+ },
+ {
+  "id": "Q009",
+  "request": "rotate the logs"
+ },
+ {
+  "id": "Q010",
+  "request": "what kernel am i running"
+ },
+ {
+  "id": "Q011",
+  "request": "make the ollama service start at boot with the larger model loaded"
+ },
+ {
+  "id": "Q012",
+  "request": "vacuum the journal down to 500M"
+ },
+ {
+  "id": "Q013",
+  "request": "how full is the root partition on the ssd"
+ },
+ {
+  "id": "Q014",
+  "request": "what dns servers is the system using"
+ },
+ {
+  "id": "Q015",
+  "request": "install htop with apt"
+ },
+ {
+  "id": "Q016",
+  "request": "is the old one still ok"
+ },
+ {
+  "id": "Q017",
+  "request": "remove the docker image nginx:1.25 if no container uses it"
+ },
+ {
+  "id": "Q018",
+  "request": "memory situation"
+ },
+ {
+  "id": "Q019",
+  "request": "run uv sync in the torra repo"
+ },
+ {
+  "id": "Q020",
+  "request": "when did the machine last boot"
+ },
+ {
+  "id": "Q021",
+  "request": "purge the journal"
+ },
+ {
+  "id": "Q022",
+  "request": "storage health on that disk"
+ },
+ {
+  "id": "Q023",
+  "request": "last 40 lines of the ollama service log"
+ },
+ {
+  "id": "Q024",
+  "request": "what's using port 8080"
+ },
+ {
+  "id": "Q025",
+  "request": "set the permissions right on the shared folder"
+ },
+ {
+  "id": "Q026",
+  "request": "pull the latest model and get rid of the old one"
+ },
+ {
+  "id": "Q027",
+  "request": "ollama keeps acting up, whats wrong"
+ },
+ {
+  "id": "Q028",
+  "request": "what are the main problems on the data drive"
+ },
+ {
+  "id": "Q029",
+  "request": "top 10 biggest directories under /mnt/ParamoStorage, just list them"
+ },
+ {
+  "id": "Q030",
+  "request": "fix the gpu"
+ },
+ {
+  "id": "Q031",
+  "request": "give me a summary of the services"
+ },
+ {
+  "id": "Q032",
+  "request": "show sshd config effective settings"
+ },
+ {
+  "id": "Q033",
+  "request": "how much ram is free"
+ },
+ {
+  "id": "Q034",
+  "request": "package issues on this machine"
+ },
+ {
+  "id": "Q035",
+  "request": "is ufw active"
+ },
+ {
+  "id": "Q036",
+  "request": "why is it so slow"
+ },
+ {
+  "id": "Q037",
+  "request": "check the temperature and power draw of the gpu"
+ },
+ {
+  "id": "Q038",
+  "request": "remove docker stuff i'm not using"
+ },
+ {
+  "id": "Q039",
+  "request": "run it every night"
+ },
+ {
+  "id": "Q040",
+  "request": "open the port for the web app"
+ },
+ {
+  "id": "Q041",
+  "request": "git status on /mnt/ParamoStorage/repos/corsu-repos/torra"
+ },
+ {
+  "id": "Q042",
+  "request": "add a swap file"
+ },
+ {
+  "id": "Q043",
+  "request": "check the logs for errors"
+ },
+ {
+  "id": "Q044",
+  "request": "restart ollama.service"
+ },
+ {
+  "id": "Q045",
+  "request": "ollama is slow, make it faster"
+ },
+ {
+  "id": "Q046",
+  "request": "downgrade the driver"
+ },
+ {
+  "id": "Q047",
+  "request": "how many apt updates are pending"
+ },
+ {
+  "id": "Q048",
+  "request": "clean up old kernels"
+ },
+ {
+  "id": "Q049",
+  "request": "tail the last 100 lines of the ollama service journal"
+ },
+ {
+  "id": "Q050",
+  "request": "free up some space"
+ },
+ {
+  "id": "Q051",
+  "request": "show me which apt packages are upgradable, don't install anything"
+ },
+ {
+  "id": "Q052",
+  "request": "the network is flaky, sort it out"
+ },
+ {
+  "id": "Q053",
+  "request": "restart the failed unit"
+ },
+ {
+  "id": "Q054",
+  "request": "set up a backup"
+ },
+ {
+  "id": "Q055",
+  "request": "whats the situation with backups"
+ },
+ {
+  "id": "Q056",
+  "request": "add a ufw rule allowing ssh from 192.168.1.0/24"
+ },
+ {
+  "id": "Q057",
+  "request": "which docker containers are running"
+ },
+ {
+  "id": "Q058",
+  "request": "stop the docker container named grafana"
+ },
+ {
+  "id": "Q059",
+  "request": "show failed systemd units"
+ },
+ {
+  "id": "Q060",
+  "request": "reinstall the nvidia stuff"
+ },
+ {
+  "id": "Q061",
+  "request": "why did it reboot last night"
+ },
+ {
+  "id": "Q062",
+  "request": "block that ip"
+ },
+ {
+  "id": "Q063",
+  "request": "kill the process eating memory"
+ },
+ {
+  "id": "Q064",
+  "request": "ok go ahead and do it"
+ },
+ {
+  "id": "Q065",
+  "request": "make ssh more secure"
+ },
+ {
+  "id": "Q066",
+  "request": "ping 192.168.1.1 five times"
+ },
+ {
+  "id": "Q067",
+  "request": "docker problems"
+ },
+ {
+  "id": "Q068",
+  "request": "is ufw active and what are the rules"
+ },
+ {
+  "id": "Q069",
+  "request": "what lan ip does this box have"
+ },
+ {
+  "id": "Q070",
+  "request": "delete the old backups"
+ },
+ {
+  "id": "Q071",
+  "request": "move my home to the big drive"
+ },
+ {
+  "id": "Q072",
+  "request": "show it in mb"
+ },
+ {
+  "id": "Q073",
+  "request": "why did it fail"
+ },
+ {
+  "id": "Q074",
+  "request": "the disk is full"
+ },
+ {
+  "id": "Q075",
+  "request": "network problems?"
+ },
+ {
+  "id": "Q076",
+  "request": "stop the timer"
+ },
+ {
+  "id": "Q077",
+  "request": "resize the partition"
+ },
+ {
+  "id": "Q078",
+  "request": "is ssh ok"
+ },
+ {
+  "id": "Q079",
+  "request": "disable the user timer backup-notes.timer"
+ },
+ {
+  "id": "Q080",
+  "request": "show all systemd timers and when they next fire"
+ },
+ {
+  "id": "Q081",
+  "request": "restart the container"
+ },
+ {
+  "id": "Q082",
+  "request": "give him access to the data folder"
+ },
+ {
+  "id": "Q083",
+  "request": "is the nvidia driver loaded and which version"
+ },
+ {
+  "id": "Q084",
+  "request": "update everything"
+ },
+ {
+  "id": "Q085",
+  "request": "clear the cache"
+ },
+ {
+  "id": "Q086",
+  "request": "remove the unused models"
+ },
+ {
+  "id": "Q087",
+  "request": "ping 1.1.1.1 three times and show the avg latency"
+ },
+ {
+  "id": "Q088",
+  "request": "what time did borg last run successfully"
+ },
+ {
+  "id": "Q089",
+  "request": "kill the old python processes"
+ },
+ {
+  "id": "Q090",
+  "request": "copy the repos to the other machine"
+ },
+ {
+  "id": "Q091",
+  "request": "which docker containers are running right now"
+ },
+ {
+  "id": "Q092",
+  "request": "any errors lately"
+ },
+ {
+  "id": "Q093",
+  "request": "any issues with my drives"
+ },
+ {
+  "id": "Q094",
+  "request": "which ollama models are installed"
+ },
+ {
+  "id": "Q095",
+  "request": "list flatpak apps installed"
+ },
+ {
+  "id": "Q096",
+  "request": "change the dns"
+ },
+ {
+  "id": "Q097",
+  "request": "pull the ollama model llama3.2:3b"
+ },
+ {
+  "id": "Q098",
+  "request": "same check for the other drive"
+ },
+ {
+  "id": "Q099",
+  "request": "mount the new disk"
+ },
+ {
+  "id": "Q100",
+  "request": "how much is free on paramo storage in gb"
+ },
+ {
+  "id": "Q101",
+  "request": "how much vram is free right now"
+ },
+ {
+  "id": "Q102",
+  "request": "did it finish"
+ },
+ {
+  "id": "Q103",
+  "request": "disable the service i don't need"
+ },
+ {
+  "id": "Q104",
+  "request": "is the gpu ok"
+ },
+ {
+  "id": "Q105",
+  "request": "list the ollama models i have installed"
+ },
+ {
+  "id": "Q106",
+  "request": "what ports is ollama listening on"
+ }
+]

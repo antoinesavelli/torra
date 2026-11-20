@@ -499,7 +499,7 @@ directory (`curl -w '%output{...}'` against `file:///dev/null`, `awk -W exec` on
 
 | Domain | Weight | 10-13 | Now | Letter | Moved since 2026-10-13 | Deductions |
 |---|---|---|---|---|---|---|
-| Purpose Fidelity | 15% | 86 | 89 | B+ | P5.1 to P5.3 closed (§2.83, §2.84, §2.90) | -4 P5.5 (read-only promise still leaks); -4 clarifier asks on 18% of human-called-ambiguous requests, no post-fix traffic (`docs/STATUS.md` 6.1; a synthetic corpus measured on 2026-11-19 is not post-fix traffic); -2 D8; -1 a stale resume point silently skips a ticked plan's step (`docs/STATUS.md:188-207`) |
+| Purpose Fidelity | 15% | 86 | 89 | B+ | P5.1 to P5.3 closed (§2.83, §2.84, §2.90) | -4 P5.5 (read-only promise still leaks); -4 clarifier asks on 18% of human-called-ambiguous requests, no post-fix traffic and the blind corpus that may stand in for it (D-019) misses 33% of ambiguous diagnostic questions (`docs/STATUS.md` 6.1); -2 D8; -1 a stale resume point silently skips a ticked plan's step (`docs/STATUS.md` 6.6) |
 | Security and Privacy | 25% | 82 | 89 | B+ | P5.1, P5.2 closed; blind red-team 30 of 30 | -8 P5.5; -2 credential reads go by file name only (`torra/gates/program_basics.py:71`): `grep -r . ~/.ssh` and `cat proj/secrets.env` are SAFE; -1 the red-team corpus named sensitive paths openly (easier than a source read) |
 | Domain Correctness (shell/OS semantics) | 15% | 88 | 92 | A- | P5.1 to P5.3 closed; tmux `#(...)` (§2.92) | -7 P5.5: per-program judges approximate getopt with letter sets and exact long names; -1 relative paths after `cd` and tmux `#{E:}` untracked (`docs/STATUS.md` 6.5) |
 | AI and Agentic | 15% | 87 | 89 | B+ | `Agent.converse` CCN 20 to 13 (P5.4) | -6 live ambiguity false negatives, fix unconfirmed; -3 P3.3 model-bench injection scenario not built; -2 the §2.78-2.81 plan checks met real models only in plan-only runs (`docs/STATUS.md:23-24`) |
@@ -528,7 +528,7 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
 scores above wait for the next independent re-grade.
 
 **What closes Phase 5 now.** P5.5 fixed (above); post-fix live traffic for the clarifier
-(gap 6.1; the 2026-11-19 synthetic-corpus measurement does not meet it, and whether it should is the owner's call) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
+(gap 6.1, or since D-019 a blind corpus covering the miss-producing traffic; the 2026-11-19 run misses 20.5% overall and 33.3% on diagnostic questions, so it is not met, and a rule-6 prompt A/B awaits the owner) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
 plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
 
 ## 4. Projected grades (estimates)
