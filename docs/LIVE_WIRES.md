@@ -278,7 +278,7 @@ root, or inotify event alike), unless torra's own step did it: `refresh` keeps t
 first time torra can stat it again. A glob matters only to undo (`capture_file` skips it, and an unstattable or
 non-`S_ISREG` path; never open-then-fstat: a FIFO blocks); its literal name is compared. Never let these raise.
 **Why:** a glob's undo verified "undone" for nothing; a raising `exists()` crashed `plan()` (live 2026-11-19).
-**Not covered** (`docs/STATUS.md` §6.5, xfail tests): a directory chmod'ed under a watch root; a root that stats but
-cannot be listed; an outside edit made while torra's own step held the lock. Code: `ConflictDetector`, `capture_file`.
+**Not covered** (`docs/STATUS.md` §6.5, xfails): a directory chmod'ed under a watch root; a root that stats but not lists;
+own-lock hashes are pre-step, failing closed: an outside edit during the lock is missed, an own pre-lock write is `modified`.
 **Guarded by:** `tests/test_core.py::test_declared_path_and_watch_root_matrix`, `tests/test_pipeline.py`
 (`test_a_step_locking_its_own_glob_dir_keeps_the_declared_rollback`, `test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`)

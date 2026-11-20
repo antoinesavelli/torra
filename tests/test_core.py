@@ -2578,6 +2578,56 @@ def test_a_watch_root_torra_cannot_list_is_unchecked(tmp_path: Path) -> None:
 
 @pytest.mark.xfail(
     strict=True,
+    reason="docs/STATUS.md: a chmod'ed directory under a watch root reads its other files as deleted",
+)
+def test_an_own_lock_under_a_watch_root_is_not_a_conflict_on_the_walk_path(tmp_path: Path) -> None:
+    """The walk half of the inotify xfail above: `_walk` swallows the scandir error on W/L, so an
+    undeclared file there drops out of the walk and reads as deleted."""
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays listable")
+    root = tmp_path / "W"
+    (root / "L").mkdir(parents=True)
+    blob = root / "L" / "blob"
+    (root / "L" / "other").write_text("not declared", encoding="utf-8")
+    detector = ConflictDetector(use_inotify=False)
+    detector.baseline([str(blob)], roots=[root])
+    blob.write_text("torra's own", encoding="utf-8")
+    (root / "L").chmod(0)
+    try:
+        detector.refresh([str(blob)])
+        found = detector.detect()
+    finally:
+        (root / "L").chmod(0o700)
+    assert found == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="docs/STATUS.md: what torra's own step wrote before locking is never hashed (fails closed)",
+)
+def test_an_own_write_then_own_lock_then_own_unlock_is_not_a_conflict(tmp_path: Path) -> None:
+    """The mirror of the xfail below: refresh() keeps the hash from before the step, since torra
+    cannot read what its own step wrote before the lock, so the unlocked file reads `modified`."""
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    d = tmp_path / "L"
+    d.mkdir()
+    blob = d / "blob"
+    blob.write_text("v1", encoding="utf-8")
+    detector = ConflictDetector()
+    detector.baseline([str(blob)])
+    blob.write_text("own", encoding="utf-8")
+    d.chmod(0)
+    try:
+        detector.refresh([str(blob)])  # s1: echo own > L/blob && chmod 0 L, touches [L/blob]
+    finally:
+        d.chmod(0o700)
+    detector.refresh([])  # s2: chmod 700 L, touches []
+    assert detector.detect() == []
+
+
+@pytest.mark.xfail(
+    strict=True,
     reason="docs/STATUS.md: an edit made while torra held the lock becomes the baseline",
 )
 def test_an_outside_edit_while_torra_holds_the_lock_is_seen(tmp_path: Path) -> None:

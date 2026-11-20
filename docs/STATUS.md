@@ -147,18 +147,24 @@ Open, each small.
   name; `ModelRouter._params_b` does when `/api/show` has nothing (chat capability never does).
   `docs/INVARIANTS.md §2.9` states what the code does.
 - **Shadow copy of a non-regular file, and a glob or unstattable `touches` path (undo and conflict check):** closed
-  2026-11-19, watch roots too (`docs/LIVE_WIRES.md` §5.26, `docs/DECISIONS.md` D-018). Still open: a `$VAR` or `{a,b}`
-  in `touches` is taken literally. Watch roots under permission changes (a later task; each is an xfail in
-  `tests/test_core.py`): a directory chmod'ed under a watch root -- `_walk` swallows the
-  scandir error, so its files read as deleted, and inotify classifies the directory's ATTRIB as `created` (directories
-  are never fingerprinted) -- so a step chmodding one blocks the run, drops the declared rollback and leaves it locked
-  (on main before this branch); a root that stats but cannot be listed (`/root`, `/etc/ssl/private` as a user) is CHECKED with an empty
-  baseline, no watch and no warning, so edits under it go unseen (on main before this branch); an outside edit made while torra's own step held
-  a path locked becomes the baseline when the step restoring access declares that path (inherent to the
-  model). Also open:
-  a dangling symlink or a loop is snapshotted as absent, so its undo deletes the link and verifies as
-  "undone" (`not target.exists()` is then true); `remote_edit` reads a `remote_push` step's `reads` file with no
-  regular-file or size check (after approval).
+  2026-11-19, watch roots too (`docs/LIVE_WIRES.md` §5.26, `docs/DECISIONS.md` D-018). Not covered (a later task on
+  watch roots under permission changes; each a strict xfail in `tests/test_core.py` unless noted):
+  - A directory chmod'ed under a watch root (on main before this branch). `_walk` swallows the scandir error, so its
+    undeclared files read as deleted; inotify classifies the directory's ATTRIB as `created` (directories are never
+    fingerprinted); and once access is back, a file `refresh` dropped the fingerprint of reads `created` in
+    `_reconcile`. So a step chmodding one blocks the run, drops the declared rollback and leaves it locked.
+  - A root that stats but cannot be listed (`/root`, `/etc/ssl/private` as a user) is CHECKED with an empty baseline,
+    no watch and no warning, so edits under it go unseen (on main before this branch).
+  - An edit landing between the walk and the inotify watch, in `baseline()` or `refresh()`, is missed until the next
+    scheduled walk (on main before this branch; no test).
+  - Two sides of one choice, failing closed (`refresh` keeps the hash from before torra's own step locked a path):
+    an outside edit made while torra held the lock becomes the baseline when the step restoring access declares the
+    path; and a file torra's own step wrote before locking reads `modified` once a later step restores access
+    without declaring it, which blocks and drops its undo (on main it raised PermissionError instead).
+
+  Also open: a `$VAR` or `{a,b}` in `touches` is taken literally; a dangling symlink or a loop is snapshotted as
+  absent, so its undo deletes the link and verifies as "undone" (`not target.exists()` is then true); `remote_edit`
+  reads a `remote_push` step's `reads` file with no regular-file or size check (after approval).
 - **`cat /secret.env` is SAFE (found 2026-10-14, security call).** Only a file named exactly `.env` counts as a
   credential read; re-checked 2026-10-27, still SAFE.
 - **`unzip` false positive (found 2026-10-14).** As a `known_programs` writer, `unzip /home/user/archive.zip -d /tmp`
