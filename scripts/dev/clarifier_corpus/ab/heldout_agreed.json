@@ -1,0 +1,442 @@
+[
+ {
+  "id": "H01",
+  "request": "is the disk ok",
+  "label": "ambiguous",
+  "reason": "'ok' with no named drive and no reading.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H02",
+  "request": "how much free space is on /mnt/Media in gb",
+  "label": "specific",
+  "reason": "Names the mount and the measure (free space in gb).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H03",
+  "request": "and the second one",
+  "label": "ambiguous",
+  "reason": "Fragment follow-up needing an earlier turn; no referent.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H04",
+  "request": "gpu temperature right now",
+  "label": "specific",
+  "reason": "Target gpu and the reading (temperature) both named.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H05",
+  "request": "network health",
+  "label": "ambiguous",
+  "reason": "'health' with no measure and no named interface or target.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H06",
+  "request": "is sshd active",
+  "label": "specific",
+  "reason": "Named service and the state to report.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H07",
+  "request": "what went wrong",
+  "label": "ambiguous",
+  "reason": "No target; needs an earlier turn.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H08",
+  "request": "last 25 lines of the borg backup service journal",
+  "label": "specific",
+  "reason": "Named unit and a line count.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H09",
+  "request": "cpu situation",
+  "label": "ambiguous",
+  "reason": "'situation' with no measure named.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H10",
+  "request": "how many cpu cores does this machine have",
+  "label": "specific",
+  "reason": "Target cpu and what to report (core count).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H11",
+  "request": "summary of the docker setup",
+  "label": "ambiguous",
+  "reason": "'summary' with no measure; docker is broad with no reading named.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H12",
+  "request": "which ollama models are loaded in memory right now",
+  "label": "specific",
+  "reason": "Ollama and the reading (loaded models) named.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H13",
+  "request": "anything wrong with the boot",
+  "label": "ambiguous",
+  "reason": "'wrong' with no measure named for boot.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H14",
+  "request": "which kernel version is running",
+  "label": "specific",
+  "reason": "Target kernel and the reading (version).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H15",
+  "request": "why",
+  "label": "ambiguous",
+  "reason": "One-word fragment needing an earlier turn.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H16",
+  "request": "is swap being used and how much",
+  "label": "specific",
+  "reason": "Swap target and usage amount named.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H17",
+  "request": "problems with the nvme",
+  "label": "ambiguous",
+  "reason": "'problems' with no measure or reading named.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H18",
+  "request": "smart temperature of the nvme drive",
+  "label": "specific",
+  "reason": "Named drive and reading (smart temperature).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H19",
+  "request": "is it still running",
+  "label": "ambiguous",
+  "reason": "'it' has no referent.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H20",
+  "request": "how many failed ssh logins in the last day",
+  "label": "specific",
+  "reason": "Target ssh logins and measure (failed count, last day) named.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H21",
+  "request": "security status",
+  "label": "ambiguous",
+  "reason": "'status' with no target or measure.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H22",
+  "request": "which process is using the most memory",
+  "label": "specific",
+  "reason": "Target memory and what to report (top process).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H23",
+  "request": "same for the gpu",
+  "label": "ambiguous",
+  "reason": "Follow-up fragment needing an earlier turn ('same' has no referent).",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H24",
+  "request": "when was the last apt upgrade run",
+  "label": "specific",
+  "reason": "Named tool apt and the reading (last upgrade time).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H25",
+  "request": "check the services",
+  "label": "ambiguous",
+  "reason": "No named service and no measure.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H26",
+  "request": "is the ollama service enabled at boot",
+  "label": "specific",
+  "reason": "Named service and the state asked (enabled).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H27",
+  "request": "disk space issues",
+  "label": "ambiguous",
+  "reason": "'issues' with no named drive or measure.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H28",
+  "request": "uptime and load average",
+  "label": "specific",
+  "reason": "Target system and exact readings named.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H29",
+  "request": "what about the other one",
+  "label": "ambiguous",
+  "reason": "'the other one' has no referent.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H30",
+  "request": "which ports are listening on this box",
+  "label": "specific",
+  "reason": "Target listening ports and what to report are named.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H31",
+  "request": "is everything ok with docker",
+  "label": "ambiguous",
+  "reason": "'ok' with no measure named for docker.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H32",
+  "request": "how big is the docker images folder in gb",
+  "label": "specific",
+  "reason": "Target docker images and the measure (size in gb).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H33",
+  "request": "flatpak stuff",
+  "label": "ambiguous",
+  "reason": "Fragment with no question or measure.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H34",
+  "request": "list the flatpak apps installed",
+  "label": "specific",
+  "reason": "Target flatpak and what to report (installed list).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H35",
+  "request": "gpu problems",
+  "label": "ambiguous",
+  "reason": "'problems' with no measure named.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H36",
+  "request": "what does that mean",
+  "label": "ambiguous",
+  "reason": "'that' has no referent; needs earlier turn.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H37",
+  "request": "when did the borg timer last fire and when is the next one",
+  "label": "specific",
+  "reason": "Named timer and the readings (last and next trigger).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H38",
+  "request": "any news on the backup",
+  "label": "ambiguous",
+  "reason": "No measure named; 'news' is vague and the backup is unqualified.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H39",
+  "request": "is ufw blocking port 22",
+  "label": "specific",
+  "reason": "Named firewall, port, and what to report.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H40",
+  "request": "log summary",
+  "label": "ambiguous",
+  "reason": "No log or unit named and no measure.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H41",
+  "request": "how much of /mnt/ParamoStorage is used in percent",
+  "label": "specific",
+  "reason": "Named mount and the measure (percent used).",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H42",
+  "request": "is it slow because of memory",
+  "label": "ambiguous",
+  "reason": "'it' has no referent in the request.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H43",
+  "request": "which users are logged in right now",
+  "label": "specific",
+  "reason": "Target logged-in users and what to report are named.",
+  "set": "heldout",
+  "blind_label": "specific",
+  "agreed": true,
+  "dropped": false
+ },
+ {
+  "id": "H44",
+  "request": "things look off, what is happening on the box",
+  "label": "ambiguous",
+  "reason": "'off'/'happening' with no target or measure.",
+  "set": "heldout",
+  "blind_label": "ambiguous",
+  "agreed": true,
+  "dropped": false
+ }
+]

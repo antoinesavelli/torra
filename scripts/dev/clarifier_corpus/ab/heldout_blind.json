@@ -1,0 +1,178 @@
+[
+ {
+  "id": "R01",
+  "request": "which process is using the most memory"
+ },
+ {
+  "id": "R02",
+  "request": "how big is the docker images folder in gb"
+ },
+ {
+  "id": "R03",
+  "request": "why"
+ },
+ {
+  "id": "R04",
+  "request": "is swap being used and how much"
+ },
+ {
+  "id": "R05",
+  "request": "summary of the docker setup"
+ },
+ {
+  "id": "R06",
+  "request": "which users are logged in right now"
+ },
+ {
+  "id": "R07",
+  "request": "which ollama models are loaded in memory right now"
+ },
+ {
+  "id": "R08",
+  "request": "problems with the nvme"
+ },
+ {
+  "id": "R09",
+  "request": "check the services"
+ },
+ {
+  "id": "R10",
+  "request": "is it slow because of memory"
+ },
+ {
+  "id": "R11",
+  "request": "any news on the backup"
+ },
+ {
+  "id": "R12",
+  "request": "log summary"
+ },
+ {
+  "id": "R13",
+  "request": "disk space issues"
+ },
+ {
+  "id": "R14",
+  "request": "cpu situation"
+ },
+ {
+  "id": "R15",
+  "request": "is the disk ok"
+ },
+ {
+  "id": "R16",
+  "request": "things look off, what is happening on the box"
+ },
+ {
+  "id": "R17",
+  "request": "how many failed ssh logins in the last day"
+ },
+ {
+  "id": "R18",
+  "request": "anything wrong with the boot"
+ },
+ {
+  "id": "R19",
+  "request": "when did the borg timer last fire and when is the next one"
+ },
+ {
+  "id": "R20",
+  "request": "same for the gpu"
+ },
+ {
+  "id": "R21",
+  "request": "uptime and load average"
+ },
+ {
+  "id": "R22",
+  "request": "what does that mean"
+ },
+ {
+  "id": "R23",
+  "request": "is it still running"
+ },
+ {
+  "id": "R24",
+  "request": "how much free space is on /mnt/Media in gb"
+ },
+ {
+  "id": "R25",
+  "request": "which ports are listening on this box"
+ },
+ {
+  "id": "R26",
+  "request": "smart temperature of the nvme drive"
+ },
+ {
+  "id": "R27",
+  "request": "what about the other one"
+ },
+ {
+  "id": "R28",
+  "request": "last 25 lines of the borg backup service journal"
+ },
+ {
+  "id": "R29",
+  "request": "is ufw blocking port 22"
+ },
+ {
+  "id": "R30",
+  "request": "is everything ok with docker"
+ },
+ {
+  "id": "R31",
+  "request": "list the flatpak apps installed"
+ },
+ {
+  "id": "R32",
+  "request": "is sshd active"
+ },
+ {
+  "id": "R33",
+  "request": "and the second one"
+ },
+ {
+  "id": "R34",
+  "request": "which kernel version is running"
+ },
+ {
+  "id": "R35",
+  "request": "flatpak stuff"
+ },
+ {
+  "id": "R36",
+  "request": "how much of /mnt/ParamoStorage is used in percent"
+ },
+ {
+  "id": "R37",
+  "request": "when was the last apt upgrade run"
+ },
+ {
+  "id": "R38",
+  "request": "what went wrong"
+ },
+ {
+  "id": "R39",
+  "request": "gpu problems"
+ },
+ {
+  "id": "R40",
+  "request": "network health"
+ },
+ {
+  "id": "R41",
+  "request": "gpu temperature right now"
+ },
+ {
+  "id": "R42",
+  "request": "is the ollama service enabled at boot"
+ },
+ {
+  "id": "R43",
+  "request": "how many cpu cores does this machine have"
+ },
+ {
+  "id": "R44",
+  "request": "security status"
+ }
+]

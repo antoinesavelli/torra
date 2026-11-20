@@ -311,3 +311,25 @@ the owner's call; it is not proposed here.
   - FP on specific items not above A's by more than 5 points.
   - FP on specific diagnostic items ≤ 10%, so that real questions still get answered.
 - **Verification.** A fresh Opus recomputes the numbers from the raw files, then the owner decides on shipping.
+
+### 7.3 A/B run (owner said "Yes, run the A/B" on 2026-11-19; pre-registered before any counted turn)
+
+- **B wording, frozen:** `scripts/dev/clarifier_corpus/ab/rule6_b.txt` replaces the exact rule 6 text in
+  `ab/rule6_a.txt`. `harness.py --rule6` swaps it into `Agent.system_prompt` in-process only, and refuses if
+  `SYSTEM_PROMPT` no longer contains `rule6_a.txt` exactly once. Its examples are generic ("ok", "fine",
+  "problems", "how things are"; "it", "that one", "the other one", "same again"), not corpus requests.
+- **Held-out set** (`ab/heldout_*.json`): 44 diagnostic questions and fragments, H01-H44, by a fresh Sonnet author
+  that saw no repo file and no model output, and was told not to reuse or paraphrase the v2 requests. The author
+  reported 28 ambiguous, but the file holds 23 ambiguous and 21 specific; the file is what counts. A fresh Opus
+  relabeled a shuffled copy with neutral ids (R01-R44) and agreed on 44 of 44 (kappa 1.0).
+- **Items:** the v2 run set (94) plus the held-out set (44), in the seed-61 order. `ab.py` runs A then B on even
+  positions and B then A on odd ones, for 3 rounds. Each arm has its own scratch workdir; `~/.torra` is never used.
+  That is 828 turns, with the same load check before each batch of 10 items.
+- **Not counted:** one smoke turn of arm B ("is the gpu ok", which it planned as `nvidia-smi`), run into a third
+  scratch workdir to check the swap.
+- **B wins only if all of these hold** (§7.2, unchanged):
+  - FN ≤ 20% on the held-out ambiguous items (69 turns).
+  - FN ≤ 20% overall on v2.
+  - Specific-item FP no more than 5 points above A's, on v2 and on held-out.
+  - Specific diagnostic FP ≤ 10% (v2 diagnostic plus held-out specific).
+  - A's numbers are reported beside B's; they also re-measure v2 under A.

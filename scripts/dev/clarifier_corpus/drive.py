@@ -105,12 +105,12 @@ def wait_for_quiet(state, dry):
         state["waited"] += POLL_S
 
 
-def run_item(item, python, workdir):
+def run_item(item, python, workdir, extra=()):
     start = time.time()
     rc = None
     out = b""
     proc = subprocess.Popen(
-        [python, "-I", HARNESS, "--workdir", workdir, item["request"]],
+        [python, "-I", HARNESS, "--workdir", workdir, *extra, item["request"]],
         cwd=CWD,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
