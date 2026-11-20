@@ -5,7 +5,9 @@ Usage: python3 -I ab.py CORPUS.json [CORPUS.json ...] --out DIR --python VENV_PY
        --workdir-b PATH [--rounds 3] [--dry]
 Arm A is the current SYSTEM_PROMPT; arm B swaps rule 6 for ab/rule6_b.txt (harness.py --rule6). Items run in
 the seed-61 order of drive.py; even positions run A then B, odd positions B then A. Results go to
-DIR/results_{A,B}_r{N}.jsonl, one line per item, resumable by (arm, round, id).
+DIR/results_{A,B}_r{N}.jsonl, one line per item, resumable by (arm, round, id). A turn that did not finish
+against a live model (rc != 0, no HARNESS line, or backend_down) is never scored: it goes to
+DIR/discarded_{A,B}.jsonl and is retried, here up to 3 times and again on the next run.
 """
 
 import argparse
@@ -19,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script 
 
 import drive  # noqa: E402
 
+MAX_TRIES = 3
+RETRY_S = 120
 RULE6_B = str(Path(__file__).resolve().parent / "ab" / "rule6_b.txt")
 
 
@@ -33,11 +37,63 @@ def load_items(paths):
     return items
 
 
-def done_ids(path):
+def scorable(rec):
+    """A turn counts only if the harness finished it against a live model."""
+    return rec.get("rc") == 0 and rec.get("outcome") not in (None, "backend_down")
+
+
+def done_ids(path, discard):
+    """Ids already done; rows that are not scorable move to `discard` and are run again."""
     if not path.exists():
         return set()
     with open(path, encoding="utf-8") as fh:
-        return {json.loads(line)["id"] for line in fh if line.strip()}
+        rows = [line for line in fh if line.strip()]
+    good = [r for r in rows if scorable(json.loads(r))]
+    if len(good) != len(rows):
+        with open(discard, "a", encoding="utf-8") as fh:
+            fh.writelines(r for r in rows if not scorable(json.loads(r)))
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("".join(good), encoding="utf-8")
+        tmp.replace(path)
+    return {json.loads(r)["id"] for r in good}
+
+
+def run_turn(item, arm, rnd, args, workdir, extra, discard):
+    """Run one turn, retrying (after a quiet, healthy gateway) while it is not scorable."""
+    for attempt in range(1, MAX_TRIES + 1):
+        if args.dry:
+            start = end = time.time()
+            rc, text = 0, "HARNESS outcome=dry intent=dry model=dry"
+        else:
+            start, end, rc, text = drive.run_item(item, args.python, workdir, extra)
+        m = drive.HARNESS_RE.findall(text)
+        outcome, intent, model = (m[-1][0], m[-1][1], m[-1][2].strip()) if m else (None, None, None)
+        rec = {
+            "id": item["id"],
+            "arm": arm,
+            "round": rnd,
+            "label": item.get("label"),
+            "set": item.get("set"),
+            "request": item["request"],
+            "start": start,
+            "end": end,
+            "rc": rc,
+            "outcome": outcome,
+            "intent": intent,
+            "model": model,
+            "tail": "\n".join(text.splitlines()[-25:]),
+        }
+        drive.log(f"r{rnd} {arm} {item['id']} -> {outcome}/{intent} ({model}) {end - start:.1f}s")
+        if scorable(rec):
+            return rec
+        with open(discard, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        drive.log(
+            f"not scorable (try {attempt}/{MAX_TRIES}); waiting {RETRY_S}s, then a quiet gateway"
+        )
+        time.sleep(0 if args.dry else RETRY_S)
+        drive.wait_for_quiet({"waited": 0}, args.dry)
+    return None
 
 
 def main():
@@ -66,9 +122,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     items = load_items(args.corpus)
     state = {"waited": 0}
+    failed = 0
     for rnd in range(1, args.rounds + 1):
         paths = {arm: out / f"results_{arm}_r{rnd}.jsonl" for arm in "AB"}
-        done = {arm: done_ids(paths[arm]) for arm in "AB"}
+        done = {arm: done_ids(paths[arm], out / f"discarded_{arm}.jsonl") for arm in "AB"}
         pending = [
             (k, i)
             for k, i in enumerate(items)
@@ -81,38 +138,16 @@ def main():
                 for arm in "AB" if k % 2 == 0 else "BA":
                     if item["id"] in done[arm]:
                         continue
-                    if args.dry:
-                        start = end = time.time()
-                        rc, text = -999, ""
-                    else:
-                        start, end, rc, text = drive.run_item(
-                            item, args.python, workdirs[arm], extra[arm]
-                        )
-                    m = drive.HARNESS_RE.findall(text)
-                    outcome, intent, model = (
-                        (m[-1][0], m[-1][1], m[-1][2].strip()) if m else (None, None, None)
-                    )
-                    rec = {
-                        "id": item["id"],
-                        "arm": arm,
-                        "round": rnd,
-                        "label": item.get("label"),
-                        "set": item.get("set"),
-                        "request": item["request"],
-                        "start": start,
-                        "end": end,
-                        "rc": rc,
-                        "outcome": outcome,
-                        "intent": intent,
-                        "model": model,
-                        "tail": "\n".join(text.splitlines()[-25:]),
-                    }
+                    discard = out / f"discarded_{arm}.jsonl"
+                    rec = run_turn(item, arm, rnd, args, workdirs[arm], extra[arm], discard)
+                    if rec is None:
+                        failed += 1
+                        continue
                     with open(paths[arm], "a", encoding="utf-8") as fh:
                         fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                    drive.log(
-                        f"r{rnd} {arm} {item['id']} -> {outcome}/{intent} ({model}) {end - start:.1f}s"
-                    )
+    drive.log(f"finished; {failed} turn(s) still not scorable (rerun to retry them)")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

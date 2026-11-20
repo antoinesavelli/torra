@@ -333,3 +333,10 @@ the owner's call; it is not proposed here.
   - Specific-item FP no more than 5 points above A's, on v2 and on held-out.
   - Specific diagnostic FP ≤ 10% (v2 diagnostic plus held-out specific).
   - A's numbers are reported beside B's; they also re-measure v2 under A.
+- **Restart, 2026-11-20 (rule unchanged).** The first launch died when the machine rebooted at 2026-11-19 23:11,
+  after 2 turns per arm, the last `backend_down`. The reboot wiped `/tmp`, so those turns' telemetry is gone too.
+  Their 4 rows are kept unscored in `ab/discarded_prereboot.jsonl`, and every turn reruns. The arm workdirs now
+  live in `~/.cache/torra-ab/{A,B}`, so they survive a reboot. `ab.py` never scores a turn that did not finish
+  against a live model (`rc != 0`, no HARNESS line, or `backend_down`): it moves the turn to
+  `ab/discarded_{A,B}.jsonl`, then retries it up to 3 times after a quiet gateway, and again on the next run.
+  `ab_numbers.py` counts the telemetry records of discarded turns but never scores them.
