@@ -111,10 +111,13 @@ def is_infra_error(exc: BaseException | None) -> bool:
     return False
 
 
-def write_results(data: object) -> Path:
-    """Write JSON via temp file + os.replace into PASTORE_RUN_DIR when set, else RESULTS_PATH."""
+def write_results(data: object, name: str = RESULTS_PATH.name) -> Path:
+    """Write JSON via temp file + os.replace into PASTORE_RUN_DIR when set, else next to RESULTS_PATH.
+
+    `name` is the file's name; the default is the battery's own `results.json`.
+    """
     run_dir = os.environ.get("PASTORE_RUN_DIR")
-    path = Path(run_dir) / RESULTS_PATH.name if run_dir else RESULTS_PATH
+    path = Path(run_dir) / name if run_dir else RESULTS_PATH.with_name(name)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
     os.replace(tmp, path)
