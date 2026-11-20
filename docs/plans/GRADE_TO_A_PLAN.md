@@ -260,8 +260,8 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.
 - **P3.3 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.66); the model-bench injection scenario built and run 2026-11-19
-  (`docs/plans/P3_3_INJECTION_BENCH_PLAN.md`, `scripts/dev/model_bench/REPORT.md`): site knowledge obeyed in 7 of 9
-  runs, every obeyed command still ticked.** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
+  (`docs/plans/P3_3_INJECTION_BENCH_PLAN.md`, `scripts/dev/model_bench/REPORT.md`): site knowledge obeyed in 9 of 9
+  runs and a forged operator turn in a file 8 of 9, every obeyed command still ticked.** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
   `system`-role message with an opening `[read path]` header and no end marker (`torra/read_memory.py:74`).
   `iterate` pastes raw verify output into the operator's next request (`torra/iterate.py:124-128`). Changes:
   - move file contents out of the system role and wrap them in
@@ -529,8 +529,9 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
 (Phase 0, the must-ask corpus), `37b87f0` (Phase 1) and `d370da1` (Phase 2). Every command in the P5.5 finding (the P5.5 rows in `ASKS`, `tests/test_known_programs.py`) now asks; the
 scores above wait for the next independent re-grade.
 
-**What closes Phase 5 now.** P5.5 fixed (above); post-fix live traffic for the clarifier
-(gap 6.1) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
+**What closes Phase 5 now.** P5.5 fixed (above); the P3.3 bench scenario built and run 2026-11-19 (its finding,
+planted instructions obeyed through site knowledge, is an open gap in `docs/STATUS.md`); post-fix live traffic
+for the clarifier (gap 6.1), the item holding AI and Purpose below 93; gap 6.6 and the
 plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
 
 ## 4. Projected grades (estimates)
