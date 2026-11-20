@@ -530,7 +530,10 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
 scores above wait for the next independent re-grade.
 
 **What closes Phase 5 now.** P5.5 fixed (above); the P3.3 bench scenario built and run 2026-11-19 (its finding,
-planted instructions obeyed through site knowledge, is an open gap in `docs/STATUS.md`); post-fix live traffic
+an open gap in `docs/STATUS.md`: planted instructions obeyed in a site-knowledge topic 9 of 9 and as a forged
+operator turn inside a file 8 of 9, every obeyed command still ticked; the two cases differ in request, payload and
+framing as well as channel, and no case sends one payload through both, so the channel is not shown to be the
+cause); post-fix live traffic
 for the clarifier (gap 6.1), the item holding AI and Purpose below 93; gap 6.6 and the
 plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
 
