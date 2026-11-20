@@ -269,3 +269,16 @@ multiline) after `password=`/`token:` etc., and be the one shared redaction used
 `LabelStore.label()`'s free-text `why` went to disk unredacted; extracting a module-level `redact_secrets()`
 keeps labels from drifting a second copy of the patterns.
 **Guarded by:** `tests/test_telemetry.py::TestRedaction` (4 cases)
+
+### 5.26 A declared path or watch root is CHECKED or UNCHECKED; torra's own unstattable is skipped, not a conflict.
+
+**Rule:** `ConflictDetector`: a stat that raises at baseline makes it UNCHECKED (plan warning, Run log, never compared,
+D-018); else CHECKED with a prior hash (None if absent). A CHECKED one whose stat raises is `unreadable` (declared,
+root, or inotify event alike), unless torra's own step did it: `refresh` keeps the prior hash, and the mark ends the
+first time torra can stat it again. A glob matters only to undo (`capture_file` skips it, and an unstattable or
+non-`S_ISREG` path; never open-then-fstat: a FIFO blocks); its literal name is compared. Never let these raise.
+**Why:** a glob's undo verified "undone" for nothing; a raising `exists()` crashed `plan()` (live 2026-11-19).
+**Not covered** (`docs/STATUS.md` §6.5, xfails): a directory chmod'ed under a watch root; a root that stats but not lists;
+own-lock hashes are pre-step, failing closed: an outside edit during the lock is missed, an own pre-lock write is `modified`.
+**Guarded by:** `tests/test_core.py::test_declared_path_and_watch_root_matrix`, `tests/test_pipeline.py`
+(`test_a_step_locking_its_own_glob_dir_keeps_the_declared_rollback`, `test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs`)

@@ -991,12 +991,18 @@ unit not verified, undoing a mask, uuid and ownerless shadow directories, owner 
   with no digests starts fresh (persisted-format change: `digests` and `in_progress` are new fields with
   defaults, so old files still load).
 - `_sweep_rollback` deletes the resume file only when a rollback was attempted.
+- A point dated more than `RESUME_MAX_AGE_SECONDS` (24h, D-017) from now, either way, is ignored with a note
+  and the run starts fresh, unless its `in_progress` names a step of this plan (that mark never expires); a
+  non-finite or wrong-typed `at`, or a resume path that is not a regular file, is corrupt. `_gate` runs the same
+  resolution read-only and puts "resumes N of M steps" or "this run will stop" on `plan.warnings`; `execute()`'s
+  own resolution stays the authority.
 
 **Why:** The file recorded a step only after it finished and matched by id alone, so a step running at the
 crash (a deploy, a migration, an install) looked never attempted and ran twice, and a reused task id with a
 different command resumed past it.
 **Guarded by:** `tests/test_pipeline.py::TestResume` (in-flight step never re-run, mark visible while a step
-runs, failed step clears it and keeps finished ones, changed command, no digests), `tests/test_resume.py`
+runs, failed step clears it and keeps finished ones, changed command, no digests, an old point),
+`tests/test_pipeline.py::TestResumePreview`, `tests/test_resume.py`
 **See:** §2.59
 
 ### 2.65 A remote file is read and restored as exact bytes (push too, §2.73); undo coverage counts real snapshots

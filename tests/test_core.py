@@ -1869,6 +1869,150 @@ class TestConflictDetection:
         assert len(found) == 1
         assert found[0].kind is ConflictKind.UNREADABLE
 
+    def test_a_declared_path_that_cannot_be_statted_is_unreadable_not_raised(
+        self, tmp_path
+    ) -> None:
+        """exists() raises under a chmod-0 parent; that must report, not escape execute()."""
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        detector = ConflictDetector()
+        detector.baseline([str(locked / "blob")])
+        locked.chmod(0o000)
+        try:
+            found = detector._detect_declared()
+        finally:
+            locked.chmod(0o700)
+
+        assert [c.kind for c in found] == [ConflictKind.UNREADABLE]
+        assert "PermissionError" in found[0].detail
+
+    def test_a_declared_glob_is_an_ordinary_path_compared_by_its_literal_name(
+        self, tmp_path
+    ) -> None:
+        """Glob or not is an undo concern; here only the literal name exists or not."""
+        (tmp_path / "a.log").write_text("x", encoding="utf-8")
+        pattern = tmp_path / "*.log"
+        detector = ConflictDetector()
+        detector.baseline([str(pattern)])
+        assert detector.unchecked == {}
+        (tmp_path / "a.log").write_text("changed", encoding="utf-8")
+        assert detector._detect_declared() == []
+        pattern.write_text("a file literally named *.log", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.CREATED]
+
+    def test_a_declared_path_unstattable_at_baseline_is_unchecked(self, tmp_path) -> None:
+        """Owner, 2026-11-19: warn at plan, let it run; never a raise, never "unchanged"."""
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        blob = str(locked / "blob")
+        locked.chmod(0o000)
+        try:
+            detector = ConflictDetector()
+            detector.baseline([blob])
+            found = detector._detect_declared()
+        finally:
+            locked.chmod(0o700)
+        assert "Permission denied" in detector.unchecked[blob]
+        assert found == []
+
+    def test_a_real_file_named_with_glob_characters_is_still_checked(self, tmp_path) -> None:
+        real = tmp_path / "app[1].conf"
+        real.write_text("before", encoding="utf-8")
+        detector = ConflictDetector()
+        detector.baseline([str(real)])
+        assert detector.unchecked == {}
+        real.write_text("after", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.MODIFIED]
+
+    def test_a_watch_root_unstattable_at_baseline_is_unchecked(self, tmp_path) -> None:
+        locked = tmp_path / "locked"
+        (locked / "root").mkdir(parents=True)
+        locked.chmod(0o000)
+        try:
+            detector = ConflictDetector(use_inotify=False)
+            detector.baseline([], roots=[locked / "root"])
+            found = detector.detect()
+        finally:
+            locked.chmod(0o700)
+        assert "Permission denied" in detector.unchecked[str(locked / "root")]
+        assert found == []
+
+    def test_a_watch_root_that_turns_unstattable_is_unreadable(self, tmp_path) -> None:
+        locked = tmp_path / "locked"
+        (locked / "root").mkdir(parents=True)
+        (locked / "root" / "f").write_text("x", encoding="utf-8")
+        detector = ConflictDetector(use_inotify=False)
+        detector.baseline([], roots=[locked / "root"])
+        locked.chmod(0o000)
+        try:
+            found = detector.detect()
+        finally:
+            locked.chmod(0o700)
+        assert found[0].path == str(locked / "root")
+        assert found[0].kind is ConflictKind.UNREADABLE
+
+    def test_refresh_skips_a_path_its_own_step_made_unstattable_until_it_is_back(
+        self, tmp_path
+    ) -> None:
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        blob = str(locked / "blob")
+        detector = ConflictDetector()
+        detector.baseline([blob])
+        locked.chmod(0o000)
+        try:
+            assert detector.refresh([blob]) == [blob]
+            found = detector._detect_declared()
+        finally:
+            locked.chmod(0o700)
+        assert found == []
+        # Re-verify of 1c7ab1a: once it can be stat'ed again it is compared again.
+        Path(blob).write_text("written from outside", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.CREATED]
+
+    def test_refresh_of_a_statable_path_restores_its_check(self, tmp_path) -> None:
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        blob = locked / "blob"
+        detector = ConflictDetector()
+        detector.baseline([str(blob)])
+        locked.chmod(0o000)
+        try:
+            detector.refresh([str(blob)])
+        finally:
+            locked.chmod(0o700)
+        blob.write_text("torra's own", encoding="utf-8")
+        assert detector.refresh([str(blob)]) == []
+        assert detector._detect_declared() == []
+        blob.write_text("outside", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.MODIFIED]
+
+    def test_a_declared_glob_named_file_created_after_baseline_is_reported(self, tmp_path) -> None:
+        literal = tmp_path / "app[1].conf"
+        detector = ConflictDetector()
+        detector.baseline([str(literal)])
+        literal.write_text("from outside", encoding="utf-8")
+        assert [c.kind for c in detector._detect_declared()] == [ConflictKind.CREATED]
+
+    def test_a_watch_root_lost_is_caught_on_the_inotify_fast_path(self, tmp_path) -> None:
+        pytest.importorskip("inotify_simple")
+        locked = tmp_path / "locked"
+        (locked / "root").mkdir(parents=True)
+        detector = ConflictDetector(use_inotify=True)
+        detector.baseline([], roots=[locked / "root"])
+        if detector._inotify is None:
+            pytest.skip("inotify unavailable here")
+        locked.chmod(0o000)
+        try:
+            found = detector.detect()
+        finally:
+            locked.chmod(0o700)
+            detector.close()
+        assert detector.full_walks == 0
+        assert [(c.path, c.kind) for c in found] == [
+            (str(locked / "root"), ConflictKind.UNREADABLE)
+        ]
+
     def test_a_declared_path_content_change_is_reported(self, tmp_path) -> None:
         target = tmp_path / "app.conf"
         target.write_text("original", encoding="utf-8")
@@ -2235,6 +2379,272 @@ class TestConflictDetection:
         assert stats["fast_checks"] == 3
         assert stats["full_walks"] == 1
         assert stats["errors"] == ["oops"]
+
+
+_M, _C, _D, _U = (
+    ConflictKind.MODIFIED,
+    ConflictKind.CREATED,
+    ConflictKind.DELETED,
+    ConflictKind.UNREADABLE,
+)
+_KINDS = ("plain", "real_bracket", "absent_bracket", "glob", "root")
+#: event -> {path kind: the one conflict kind expected, or None for none}; a kind left out does
+#: not apply (an absent file cannot be modified). "own" means torra's step did it and refresh() ran.
+_MATRIX: dict[str, dict[str, ConflictKind | None]] = {
+    "unchanged": dict.fromkeys(_KINDS),
+    "outside_modify": {"plain": _M, "real_bracket": _M, "glob": None, "root": _M},
+    "outside_create": {"absent_bracket": _C, "glob": None, "root": _C},
+    "outside_delete": {"plain": _D, "real_bracket": _D, "glob": None, "root": _D},
+    "outside_unstattable": dict.fromkeys(_KINDS, _U),
+    "own_unstattable": dict.fromkeys(_KINDS),
+    "own_unstattable_then_restored": dict.fromkeys(_KINDS),
+    "own_unstattable_restored_outside_delete": {
+        "plain": _D,
+        "real_bracket": _D,
+        "glob": None,
+        "root": _D,
+    },
+    # Fifth verify of 13a19b8: a later own step restores access (touches []), then an outside
+    # actor edits and relocks it. The mark must not outlive the lock it was for.
+    "own_unstattable_restored_then_outside_relock": dict.fromkeys(_KINDS, _U),
+    # Unstattable at baseline (UNCHECKED); an own step restores it and re-baselines; then outside.
+    "unchecked_then_own_restore_outside_write": {
+        "plain": _M,
+        "real_bracket": _M,
+        "absent_bracket": _C,
+        "glob": None,
+        "root": _M,
+    },
+}
+
+
+def _matrix_cases() -> list[tuple[str, str, bool]]:
+    cases = [(e, k, False) for e, row in _MATRIX.items() for k in row]
+    return cases + [(e, "root", True) for e, row in _MATRIX.items() if "root" in row]
+
+
+def _matrix_setup(
+    d: Path, kind: str, inotify: bool, locked: bool
+) -> tuple[ConflictDetector, str, Path, Path]:
+    """(detector, declared path or root, the real file, the file an outside create makes)."""
+    if kind == "root":
+        root = d / "root"
+        root.mkdir()
+        real = root / "f"
+        real.write_text("v1", encoding="utf-8")
+        declared, new, paths, roots = str(root), root / "new", [], [root]
+    else:
+        name = {"plain": "app.conf", "glob": "*.conf"}.get(kind, "app[1].conf")
+        declared = str(d / name)
+        real = d / "a.conf" if kind == "glob" else d / name
+        if kind != "absent_bracket":
+            real.write_text("v1", encoding="utf-8")
+        new = d / "b.conf" if kind == "glob" else real
+        paths, roots = [declared], None
+    detector = ConflictDetector(use_inotify=inotify)
+    if locked:
+        d.chmod(0)
+    detector.baseline(paths, roots=roots)
+    return detector, declared, real, new
+
+
+def _matrix_event(
+    event: str, d: Path, detector: ConflictDetector, declared: str, real: Path, new: Path
+) -> None:
+    """Apply one event: "outside" is any other actor; "own" is torra's step, then refresh()."""
+    if event == "outside_modify":
+        real.write_text("v2, longer", encoding="utf-8")
+    elif event == "outside_create":
+        new.write_text("x", encoding="utf-8")
+    elif event == "outside_delete":
+        real.unlink()
+    elif event == "outside_unstattable":
+        d.chmod(0)
+    elif event.startswith("unchecked"):
+        assert declared in detector.unchecked
+        d.chmod(0o700)
+        detector.refresh([declared])
+        real.write_text("v2, written from outside", encoding="utf-8")
+    elif event.startswith("own_unstattable"):
+        d.chmod(0)
+        assert detector.refresh([declared]) == [declared]
+        if event == "own_unstattable":
+            return
+        d.chmod(0o700)
+        if event.endswith("outside_delete"):
+            real.unlink()
+        elif event.endswith("outside_relock"):
+            detector.refresh([])  # the own step that restored access declared nothing
+            real.write_text("v2, edited while open", encoding="utf-8")
+            d.chmod(0)
+
+
+@pytest.mark.parametrize(("event", "kind", "inotify"), _matrix_cases(), ids=str)
+def test_declared_path_and_watch_root_matrix(
+    tmp_path: Path, event: str, kind: str, inotify: bool
+) -> None:
+    """One model (LIVE_WIRES §5.26): a path or root is CHECKED (a prior hash, None if absent) or
+    UNCHECKED; torra's own step making it unstattable keeps the prior hash and skips it only until
+    torra can stat it again. A glob is an ordinary path here: its matches are invisible, its
+    literal name not. Root rows run on the inotify event path too."""
+    if ("unstattable" in event or event.startswith("unchecked")) and os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    if inotify:
+        pytest.importorskip("inotify_simple")
+    d = tmp_path / "d"
+    d.mkdir()
+    try:
+        detector, declared, real, new = _matrix_setup(
+            d, kind, inotify, event.startswith("unchecked")
+        )
+        if inotify and detector._inotify is None:
+            pytest.skip("inotify unavailable here")
+        _matrix_event(event, d, detector, declared, real, new)
+        found = detector.detect()
+        if inotify:
+            assert detector.full_walks == 0  # the event path, not the scheduled walk
+    finally:
+        d.chmod(0o700)
+    expected = _MATRIX[event][kind]
+    assert [c.kind for c in found] == ([] if expected is None else [expected]), found
+
+
+def _locked_subdir_under_a_root(
+    tmp_path: Path, inotify: bool
+) -> tuple[ConflictDetector, Path, str]:
+    """Watch root W; torra's own step writes W/L/blob and then runs `chmod 0 W/L`."""
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    root = tmp_path / "W"
+    (root / "L").mkdir(parents=True)
+    blob = str(root / "L" / "blob")
+    detector = ConflictDetector(use_inotify=inotify)
+    detector.baseline([blob], roots=[root])
+    if inotify and detector._inotify is None:
+        pytest.skip("inotify unavailable here")
+    Path(blob).write_text("torra's own", encoding="utf-8")
+    (root / "L").chmod(0)
+    assert detector.refresh([blob]) == [blob]
+    return detector, root, blob
+
+
+@pytest.mark.parametrize("inotify", [False, True])
+def test_an_own_lock_under_a_watch_root_never_reports_the_declared_path(
+    tmp_path: Path, inotify: bool
+) -> None:
+    """Fifth verify of 13a19b8: the queued event for W/L/blob classified `unreadable`."""
+    if inotify:
+        pytest.importorskip("inotify_simple")
+    detector, root, blob = _locked_subdir_under_a_root(tmp_path, inotify)
+    try:
+        found = detector.detect()
+    finally:
+        (root / "L").chmod(0o700)
+        detector.close()
+    assert not [c for c in found if c.path == blob], found
+
+
+@pytest.mark.xfail(
+    strict=True, reason="docs/STATUS.md: a chmod'ed directory under a watch root reads as created"
+)
+def test_an_own_lock_under_a_watch_root_is_not_a_conflict_on_the_event_path(tmp_path: Path) -> None:
+    pytest.importorskip("inotify_simple")
+    detector, root, _ = _locked_subdir_under_a_root(tmp_path, True)
+    try:
+        found = detector.detect()
+    finally:
+        (root / "L").chmod(0o700)
+        detector.close()
+    assert found == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="docs/STATUS.md: a root that can be stat'ed but not listed is CHECKED, empty",
+)
+def test_a_watch_root_torra_cannot_list_is_unchecked(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays listable")
+    root = tmp_path / "R"
+    root.mkdir()
+    root.chmod(0)
+    try:
+        detector = ConflictDetector(use_inotify=False)
+        detector.baseline([], roots=[root])
+    finally:
+        root.chmod(0o700)
+    assert str(root) in detector.unchecked
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="docs/STATUS.md: a chmod'ed directory under a watch root reads its other files as deleted",
+)
+def test_an_own_lock_under_a_watch_root_is_not_a_conflict_on_the_walk_path(tmp_path: Path) -> None:
+    """The walk half of the inotify xfail above: `_walk` swallows the scandir error on W/L, so an
+    undeclared file there drops out of the walk and reads as deleted."""
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays listable")
+    root = tmp_path / "W"
+    (root / "L").mkdir(parents=True)
+    blob = root / "L" / "blob"
+    (root / "L" / "other").write_text("not declared", encoding="utf-8")
+    detector = ConflictDetector(use_inotify=False)
+    detector.baseline([str(blob)], roots=[root])
+    blob.write_text("torra's own", encoding="utf-8")
+    (root / "L").chmod(0)
+    try:
+        detector.refresh([str(blob)])
+        found = detector.detect()
+    finally:
+        (root / "L").chmod(0o700)
+    assert found == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="docs/STATUS.md: what torra's own step wrote before locking is never hashed (fails closed)",
+)
+def test_an_own_write_then_own_lock_then_own_unlock_is_not_a_conflict(tmp_path: Path) -> None:
+    """The mirror of the xfail below: refresh() keeps the hash from before the step, since torra
+    cannot read what its own step wrote before the lock, so the unlocked file reads `modified`."""
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    d = tmp_path / "L"
+    d.mkdir()
+    blob = d / "blob"
+    blob.write_text("v1", encoding="utf-8")
+    detector = ConflictDetector()
+    detector.baseline([str(blob)])
+    blob.write_text("own", encoding="utf-8")
+    d.chmod(0)
+    try:
+        detector.refresh([str(blob)])  # s1: echo own > L/blob && chmod 0 L, touches [L/blob]
+    finally:
+        d.chmod(0o700)
+    detector.refresh([])  # s2: chmod 700 L, touches []
+    assert detector.detect() == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="docs/STATUS.md: an edit made while torra held the lock becomes the baseline",
+)
+def test_an_outside_edit_while_torra_holds_the_lock_is_seen(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    d = tmp_path / "d"
+    d.mkdir()
+    blob = d / "blob"
+    blob.write_text("v1", encoding="utf-8")
+    detector = ConflictDetector()
+    detector.baseline([str(blob)])
+    d.chmod(0)
+    detector.refresh([str(blob)])  # torra's own step locked it
+    d.chmod(0o700)
+    blob.write_text("edited from outside meanwhile", encoding="utf-8")
+    detector.refresh([str(blob)])  # torra's own step unlocks it and declares it
+    assert [c.kind for c in detector.detect()] == [ConflictKind.MODIFIED]
 
 
 class TestConflictDetectorRealInotify:

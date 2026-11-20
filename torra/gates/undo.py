@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -27,7 +28,34 @@ from .service_state import (
 from .undo_remote import RemoteCapture
 from .undo_types import Snapshot, SnapshotKind, UndoAction
 
-__all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator"]
+__all__ = ["SnapshotKind", "Snapshot", "UndoAction", "UndoGenerator", "unexpanded_glob"]
+
+
+def unexpanded_glob(target: os.PathLike[str] | str) -> bool:
+    """Glob characters and no file of that literal name: `touches` is never shell-expanded."""
+    if not any(c in str(target) for c in "*?["):
+        return False
+    try:
+        os.lstat(target)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _file_kind(mode: int) -> str:
+    """Name a non-regular st_mode for the skip message."""
+    for test, name in (
+        (stat.S_ISCHR, "character device"),
+        (stat.S_ISBLK, "block device"),
+        (stat.S_ISFIFO, "FIFO"),
+        (stat.S_ISSOCK, "socket"),
+        (stat.S_ISDIR, "directory"),
+    ):
+        if test(mode):
+            return name
+    return "special file"
 
 
 #: apt/apt-get only, not dnf or pacman: `undo_packages` below hardcodes
@@ -185,7 +213,20 @@ class UndoGenerator(RemoteCapture):
         """Snapshot one file and build its restore action."""
         target = Path(path)
 
-        if not target.exists():
+        # Live wire: docs/LIVE_WIRES.md §5.26 -- touches is never shell-expanded, so an undo of a glob
+        # naming no file deletes nothing and still verifies as undone. A real `app[1].conf` is a file.
+        if unexpanded_glob(target):
+            self.skipped.append(
+                f"{target} is a glob; torra does not expand it, so no undo generated"
+            )
+            return None
+        try:
+            absent = not target.exists()
+        except OSError as exc:
+            # An unsearchable parent (touches under /root as a user) raises; it is unknown, not absent.
+            self.skipped.append(f"{target}: cannot check it exists {exc!r}; no undo generated")
+            return None
+        if absent:
             snap = Snapshot(SnapshotKind.FILE_ABSENT, str(target), "did not exist before the step")
             self.snapshots.append(snap)
 
@@ -205,11 +246,19 @@ class UndoGenerator(RemoteCapture):
             )
 
         try:
-            stat = target.stat()
+            st = target.stat()
         except OSError as exc:
             self.skipped.append(f"{target}: stat failed {exc!r}")
             return None
-        size, mode = stat.st_size, stat.st_mode
+        size, mode = st.st_size, st.st_mode
+        # Live wire: docs/LIVE_WIRES.md §5.26
+        if not stat.S_ISREG(mode):
+            # A device or FIFO has no bounded content to snapshot, and opening a FIFO can block.
+            self.skipped.append(
+                f"{target} is a {_file_kind(mode)}, not a regular file; torra does not read or "
+                "copy it, so no undo generated, declare one manually"
+            )
+            return None
         if size > self.max_shadow_bytes:
             self.skipped.append(
                 f"{target} is {size} bytes, over max_shadow_bytes="
