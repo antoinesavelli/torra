@@ -134,9 +134,9 @@ class StepRunner:
             sp.result = self._run_one_step(sp, result, dry_run, on_output)
             end_step(resume, resume_path, sp.step.step_id, sp.step.command, sp.result.ok, dry_run)
             # its own writes, even a failed step's
-            if newly_unchecked := self.conflicts.refresh(sp.step.touches):
+            if newly_skipped := self.conflicts.refresh(sp.step.touches):
                 self.decisions.log(
-                    Stage.EXECUTE.value, "conflict check skipped", "; ".join(newly_unchecked)
+                    Stage.EXECUTE.value, "conflict check skipped", "; ".join(newly_skipped)
                 )
 
             if not sp.result.ok:

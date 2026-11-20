@@ -148,8 +148,14 @@ Open, each small.
   `docs/INVARIANTS.md §2.9` states what the code does.
 - **Shadow copy of a non-regular file, and a glob or unstattable `touches` path (undo and conflict check):** closed
   2026-11-19, watch roots too (`docs/LIVE_WIRES.md` §5.26, `docs/DECISIONS.md` D-018). Still open: a `$VAR` or `{a,b}`
-  in `touches` is taken literally; a file inside a subdirectory of a watch root that is chmod-0'd and restored reads
-  as `created` (inotify `_classify`, and `_reconcile` once `refresh` dropped its fingerprint), outside the §5.26 matrix;
+  in `touches` is taken literally. Watch roots under permission changes (a later task; each is an xfail in
+  `tests/test_core.py`): a directory chmod'ed under a watch root -- `_walk` swallows the
+  scandir error, so its files read as deleted, and inotify classifies the directory's ATTRIB as `created` (directories
+  are never fingerprinted) -- so a step chmodding one blocks the run, drops the declared rollback and leaves it locked
+  (on main before this branch); a root that stats but cannot be listed (`/root`, `/etc/ssl/private` as a user) is CHECKED with an empty
+  baseline, no watch and no warning, so edits under it go unseen (on main before this branch); an outside edit made while torra's own step held
+  a path locked becomes the baseline when the step restoring access declares that path (inherent to the
+  model). Also open:
   a dangling symlink or a loop is snapshotted as absent, so its undo deletes the link and verifies as
   "undone" (`not target.exists()` is then true); `remote_edit` reads a `remote_push` step's `reads` file with no
   regular-file or size check (after approval).

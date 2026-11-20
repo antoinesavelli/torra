@@ -121,6 +121,7 @@ class ConflictDetector:
         self.full_walks: int = 0
         self._since_walk: int = 0
         self._inotify: Any = None
+        self._mask: int = 0
         self._watch_paths: dict[int, str] = {}
         self._known: dict[str, Conflict] = {}
 
@@ -252,14 +253,19 @@ class ConflictDetector:
                 | flags.MOVED_TO
                 | flags.ATTRIB
             )
+            self._mask = mask
             for root in self.roots:
-                for dirpath, dirnames, _ in os.walk(root):
-                    dirnames[:] = [d for d in dirnames if d not in self.ignores]
-                    self._watch_paths[self._inotify.add_watch(dirpath, mask)] = dirpath
+                self._watch_tree(root)
         except Exception as exc:
             self.errors.append(f"inotify setup failed, walking instead: {exc!r}")
             self._inotify = None
             self.use_inotify = False
+
+    def _watch_tree(self, root: Path) -> None:
+        """Add a watch on every directory under root (os.walk skips what it cannot list)."""
+        for dirpath, dirnames, _ in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in self.ignores]
+            self._watch_paths[self._inotify.add_watch(dirpath, self._mask)] = dirpath
 
     def _events(self) -> set[str] | None:
         """Drain the event queue into touched paths, or None when unused."""
@@ -308,6 +314,7 @@ class ConflictDetector:
                         )
                     )
                 continue
+            self._own_unstattable.discard(path)  # skipped only while it stays unstattable
             if path in self.unchecked:
                 continue  # no baseline to compare with (D-018)
             after = self.hash_file(path) if exists else None
@@ -338,13 +345,15 @@ class ConflictDetector:
     def _detect_tree(self) -> list[Conflict]:
         """Event fast path, with a full walk on schedule."""
         # A lost watch root blocks on the event path too, not only on every Nth walk (LIVE_WIRES §5.26).
-        lost = [
-            Conflict(str(root), ConflictKind.UNREADABLE, None, None, f"watch root: {why}")
-            for root in self.roots
-            if str(root) not in self.unchecked
-            and str(root) not in self._own_unstattable
-            and (why := _stat_error(root))
-        ]
+        lost: list[Conflict] = []
+        for root in self.roots:
+            key = str(root)
+            if (why := _stat_error(root)) is None:
+                self._own_unstattable.discard(key)  # skipped only while it stays unstattable
+            elif key not in self.unchecked and key not in self._own_unstattable:
+                lost.append(
+                    Conflict(key, ConflictKind.UNREADABLE, None, None, f"watch root: {why}")
+                )
         if lost:
             return lost
         # Live wire: docs/LIVE_WIRES.md §5.3
@@ -381,7 +390,10 @@ class ConflictDetector:
         try:
             exists = target.exists()
         except OSError as exc:
+            if path in self.unchecked or path in self._own_unstattable:
+                return None  # the same skip rule as _detect_declared (LIVE_WIRES §5.26)
             return Conflict(path, ConflictKind.UNREADABLE, None, None, f"cannot stat it: {exc!r}")
+        self._own_unstattable.discard(path)
         if not known and exists:
             return Conflict(
                 path,
@@ -463,8 +475,8 @@ class ConflictDetector:
         return conflicts
 
     def refresh(self, paths: Iterable[os.PathLike[str] | str] = ()) -> list[str]:
-        """Re-baseline ONLY the given paths, after torra itself changed them; returns the ones it
-        moved to `unchecked`.
+        """Re-baseline ONLY the given paths, after torra itself changed them; returns the ones its
+        step made unstattable, which are skipped (prior hash kept) only while they stay so.
 
         Must never touch fingerprints/`_known` entries for any OTHER path. This
         used to rebuild `self.fingerprints` from a full walk of every root and
@@ -480,8 +492,11 @@ class ConflictDetector:
         "before the first step" only -- everything after collapsed into a
         fresh baseline every single step, regardless of what changed.
         """
-        newly_unchecked: list[str] = []
+        newly_skipped: list[str] = []
         roots = {str(r) for r in self.roots}
+        # A mark lasts only as long as its lock: an own step that restored access without
+        # declaring the path still ends it, so a later outside relock blocks.
+        self._own_unstattable = {k for k in self._own_unstattable if _stat_error(Path(k))}
         for path in paths:
             key = str(Path(path))
             self._known.pop(key, None)
@@ -489,13 +504,14 @@ class ConflictDetector:
                 # torra's own step did it: keep the prior hash, skip it while it stays so (§5.26).
                 if key not in self.unchecked and key not in self._own_unstattable:
                     self._own_unstattable.add(key)
-                    newly_unchecked.append(key)
+                    newly_skipped.append(key)
                 self.fingerprints.pop(key, None)
                 continue
             self._own_unstattable.discard(key)
             if key in roots:
                 if self.unchecked.pop(key, None) is not None:
                     self.fingerprints.update(self._walk(Path(key)))  # its first baseline
+                    self._watch_new_root(Path(key))
                 continue
             self.unchecked.pop(key, None)  # the hash below is a real baseline now
             self.hashes[key] = self.hash_file(key)
@@ -504,7 +520,18 @@ class ConflictDetector:
                 self.fingerprints[key] = (st.st_size, st.st_mtime_ns)
             except OSError:
                 self.fingerprints.pop(key, None)
-        return newly_unchecked
+        return newly_skipped
+
+    def _watch_new_root(self, root: Path) -> None:
+        """Watch a root that became checkable mid-run; on failure, walk on every check instead."""
+        if not self._inotify:
+            return
+        try:
+            self._watch_tree(root)
+        except Exception as exc:
+            self.errors.append(f"inotify watch of {root} failed, walking instead: {exc!r}")
+            self.close()
+            self.use_inotify = False
 
     def close(self) -> None:
         """Release inotify file descriptors."""

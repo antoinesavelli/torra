@@ -1951,7 +1951,7 @@ class TestConflictDetection:
         assert found[0].path == str(locked / "root")
         assert found[0].kind is ConflictKind.UNREADABLE
 
-    def test_refresh_moves_a_path_its_own_step_made_unstattable_to_unchecked(
+    def test_refresh_skips_a_path_its_own_step_made_unstattable_until_it_is_back(
         self, tmp_path
     ) -> None:
         locked = tmp_path / "locked"
@@ -2404,28 +2404,35 @@ _MATRIX: dict[str, dict[str, ConflictKind | None]] = {
         "glob": None,
         "root": _D,
     },
+    # Fifth verify of 13a19b8: a later own step restores access (touches []), then an outside
+    # actor edits and relocks it. The mark must not outlive the lock it was for.
+    "own_unstattable_restored_then_outside_relock": dict.fromkeys(_KINDS, _U),
+    # Unstattable at baseline (UNCHECKED); an own step restores it and re-baselines; then outside.
+    "unchecked_then_own_restore_outside_write": {
+        "plain": _M,
+        "real_bracket": _M,
+        "absent_bracket": _C,
+        "glob": None,
+        "root": _M,
+    },
 }
 
 
-@pytest.mark.parametrize(
-    ("event", "kind"), [(e, k) for e, row in _MATRIX.items() for k in row], ids=str
-)
-def test_declared_path_and_watch_root_matrix(tmp_path: Path, event: str, kind: str) -> None:
-    """One model (LIVE_WIRES §5.26): a path or root is CHECKED (a prior hash, None if absent) or
-    UNCHECKED; torra's own step making it unstattable keeps the prior hash and skips it only while
-    it stays so. A glob is an ordinary path here: its matches are invisible, its literal name not."""
-    if "unstattable" in event and os.geteuid() == 0:
-        pytest.skip("running as root: a chmod-0 directory stays searchable")
-    d = tmp_path / "d"
-    d.mkdir()
+def _matrix_cases() -> list[tuple[str, str, bool]]:
+    cases = [(e, k, False) for e, row in _MATRIX.items() for k in row]
+    return cases + [(e, "root", True) for e, row in _MATRIX.items() if "root" in row]
+
+
+def _matrix_setup(
+    d: Path, kind: str, inotify: bool, locked: bool
+) -> tuple[ConflictDetector, str, Path, Path]:
+    """(detector, declared path or root, the real file, the file an outside create makes)."""
     if kind == "root":
         root = d / "root"
         root.mkdir()
         real = root / "f"
         real.write_text("v1", encoding="utf-8")
-        declared, new = str(root), root / "new"
-        detector = ConflictDetector(use_inotify=False)
-        detector.baseline([], roots=[root])
+        declared, new, paths, roots = str(root), root / "new", [], [root]
     else:
         name = {"plain": "app.conf", "glob": "*.conf"}.get(kind, "app[1].conf")
         declared = str(d / name)
@@ -2433,29 +2440,161 @@ def test_declared_path_and_watch_root_matrix(tmp_path: Path, event: str, kind: s
         if kind != "absent_bracket":
             real.write_text("v1", encoding="utf-8")
         new = d / "b.conf" if kind == "glob" else real
-        detector = ConflictDetector()
-        detector.baseline([declared])
-    try:
-        if event == "outside_modify":
-            real.write_text("v2, longer", encoding="utf-8")
-        elif event == "outside_create":
-            new.write_text("x", encoding="utf-8")
-        elif event == "outside_delete":
+        paths, roots = [declared], None
+    detector = ConflictDetector(use_inotify=inotify)
+    if locked:
+        d.chmod(0)
+    detector.baseline(paths, roots=roots)
+    return detector, declared, real, new
+
+
+def _matrix_event(
+    event: str, d: Path, detector: ConflictDetector, declared: str, real: Path, new: Path
+) -> None:
+    """Apply one event: "outside" is any other actor; "own" is torra's step, then refresh()."""
+    if event == "outside_modify":
+        real.write_text("v2, longer", encoding="utf-8")
+    elif event == "outside_create":
+        new.write_text("x", encoding="utf-8")
+    elif event == "outside_delete":
+        real.unlink()
+    elif event == "outside_unstattable":
+        d.chmod(0)
+    elif event.startswith("unchecked"):
+        assert declared in detector.unchecked
+        d.chmod(0o700)
+        detector.refresh([declared])
+        real.write_text("v2, written from outside", encoding="utf-8")
+    elif event.startswith("own_unstattable"):
+        d.chmod(0)
+        assert detector.refresh([declared]) == [declared]
+        if event == "own_unstattable":
+            return
+        d.chmod(0o700)
+        if event.endswith("outside_delete"):
             real.unlink()
-        elif event == "outside_unstattable":
+        elif event.endswith("outside_relock"):
+            detector.refresh([])  # the own step that restored access declared nothing
+            real.write_text("v2, edited while open", encoding="utf-8")
             d.chmod(0)
-        elif event.startswith("own_unstattable"):
-            d.chmod(0)
-            assert detector.refresh([declared]) == [declared]
-            if event != "own_unstattable":
-                d.chmod(0o700)
-            if event.endswith("outside_delete"):
-                real.unlink()
+
+
+@pytest.mark.parametrize(("event", "kind", "inotify"), _matrix_cases(), ids=str)
+def test_declared_path_and_watch_root_matrix(
+    tmp_path: Path, event: str, kind: str, inotify: bool
+) -> None:
+    """One model (LIVE_WIRES §5.26): a path or root is CHECKED (a prior hash, None if absent) or
+    UNCHECKED; torra's own step making it unstattable keeps the prior hash and skips it only until
+    torra can stat it again. A glob is an ordinary path here: its matches are invisible, its
+    literal name not. Root rows run on the inotify event path too."""
+    if ("unstattable" in event or event.startswith("unchecked")) and os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    if inotify:
+        pytest.importorskip("inotify_simple")
+    d = tmp_path / "d"
+    d.mkdir()
+    try:
+        detector, declared, real, new = _matrix_setup(
+            d, kind, inotify, event.startswith("unchecked")
+        )
+        if inotify and detector._inotify is None:
+            pytest.skip("inotify unavailable here")
+        _matrix_event(event, d, detector, declared, real, new)
         found = detector.detect()
+        if inotify:
+            assert detector.full_walks == 0  # the event path, not the scheduled walk
     finally:
         d.chmod(0o700)
     expected = _MATRIX[event][kind]
     assert [c.kind for c in found] == ([] if expected is None else [expected]), found
+
+
+def _locked_subdir_under_a_root(
+    tmp_path: Path, inotify: bool
+) -> tuple[ConflictDetector, Path, str]:
+    """Watch root W; torra's own step writes W/L/blob and then runs `chmod 0 W/L`."""
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    root = tmp_path / "W"
+    (root / "L").mkdir(parents=True)
+    blob = str(root / "L" / "blob")
+    detector = ConflictDetector(use_inotify=inotify)
+    detector.baseline([blob], roots=[root])
+    if inotify and detector._inotify is None:
+        pytest.skip("inotify unavailable here")
+    Path(blob).write_text("torra's own", encoding="utf-8")
+    (root / "L").chmod(0)
+    assert detector.refresh([blob]) == [blob]
+    return detector, root, blob
+
+
+@pytest.mark.parametrize("inotify", [False, True])
+def test_an_own_lock_under_a_watch_root_never_reports_the_declared_path(
+    tmp_path: Path, inotify: bool
+) -> None:
+    """Fifth verify of 13a19b8: the queued event for W/L/blob classified `unreadable`."""
+    if inotify:
+        pytest.importorskip("inotify_simple")
+    detector, root, blob = _locked_subdir_under_a_root(tmp_path, inotify)
+    try:
+        found = detector.detect()
+    finally:
+        (root / "L").chmod(0o700)
+        detector.close()
+    assert not [c for c in found if c.path == blob], found
+
+
+@pytest.mark.xfail(
+    strict=True, reason="docs/STATUS.md: a chmod'ed directory under a watch root reads as created"
+)
+def test_an_own_lock_under_a_watch_root_is_not_a_conflict_on_the_event_path(tmp_path: Path) -> None:
+    pytest.importorskip("inotify_simple")
+    detector, root, _ = _locked_subdir_under_a_root(tmp_path, True)
+    try:
+        found = detector.detect()
+    finally:
+        (root / "L").chmod(0o700)
+        detector.close()
+    assert found == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="docs/STATUS.md: a root that can be stat'ed but not listed is CHECKED, empty",
+)
+def test_a_watch_root_torra_cannot_list_is_unchecked(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays listable")
+    root = tmp_path / "R"
+    root.mkdir()
+    root.chmod(0)
+    try:
+        detector = ConflictDetector(use_inotify=False)
+        detector.baseline([], roots=[root])
+    finally:
+        root.chmod(0o700)
+    assert str(root) in detector.unchecked
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="docs/STATUS.md: an edit made while torra held the lock becomes the baseline",
+)
+def test_an_outside_edit_while_torra_holds_the_lock_is_seen(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("running as root: a chmod-0 directory stays searchable")
+    d = tmp_path / "d"
+    d.mkdir()
+    blob = d / "blob"
+    blob.write_text("v1", encoding="utf-8")
+    detector = ConflictDetector()
+    detector.baseline([str(blob)])
+    d.chmod(0)
+    detector.refresh([str(blob)])  # torra's own step locked it
+    d.chmod(0o700)
+    blob.write_text("edited from outside meanwhile", encoding="utf-8")
+    detector.refresh([str(blob)])  # torra's own step unlocks it and declares it
+    assert [c.kind for c in detector.detect()] == [ConflictKind.MODIFIED]
 
 
 class TestConflictDetectorRealInotify:
