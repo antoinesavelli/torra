@@ -1,8 +1,8 @@
 # Plan: gap 6.1, does the model still miss ambiguous requests after the routing fix
 
 Status: active
-Owner decisions pending: whether to run the rule-6 A/B in §7.2
-Last verified: 91345c0 on 2026-11-19 (second run measured and independently recomputed, §7.1)
+Owner decisions pending: after the lost A/B, keep the prompt or revise rule 6 and rerun (§7.4)
+Last verified: ad80641 on 2026-11-20 (A/B measured and independently recomputed, §7.4)
 Executor: an Opus orchestrator session; Sonnet builds each unit, a fresh Opus verifies it
 
 ## 1. Goal
@@ -340,3 +340,49 @@ the owner's call; it is not proposed here.
   against a live model (`rc != 0`, no HARNESS line, or `backend_down`): it moves the turn to
   `ab/discarded_{A,B}.jsonl`, then retries it up to 3 times after a quiet gateway, and again on the next run.
   `ab_numbers.py` counts the telemetry records of discarded turns but never scores them.
+
+### 7.4 A/B result (run 2026-11-20, 10:48 to 13:48 local; scored against §7.3 unchanged)
+
+828 scorable turns: 3 rounds × 138 items × 2 arms. 7 turns were discarded and rerun: S20 crashed 3 times in each
+arm (the plan-time undo `PermissionError`, `docs/STATUS.md` 6.5), and A30 hit one `backend_down` in arm A. A
+discarded turn reran until it finished. S20 crashed on all 6 first tries, and all 6 retries asked. Retrying
+therefore selects for an ask and adds 3 false positives to each arm's v2 actions count. The same 3 land in both arms,
+so the B-A gap is unchanged. Scored as not asking, B's v2 FP would be 7/126 = 5.6%. Conditions 4 and 5 do not
+include S20. The A30 retry asked, so it touches no condition. No discard changes the verdict. `~/.torra` stayed at 269 turns. Raw files are in
+`scripts/dev/clarifier_corpus/ab/`: `results_{A,B}_r*.jsonl`, `tasks_{A,B}.jsonl`, `discarded_*.jsonl` and
+`run.log`. `ab_numbers.json` and `ab_numbers.txt` hold the scoring. Two fresh Opus verifiers recomputed it from the raw
+files and matched every figure; they also checked ABBA order (the arm that goes first alternates 137 of 137 times)
+and that every scored line matches exactly one telemetry record. Condition 3 passes only narrowly, at +4.8 points.
+
+| Subset | A FN | B FN | A FP | B FP |
+|---|---|---|---|---|
+| Held-out (23 ambiguous, 21 specific items) | 31/69 = 44.9% (33.8-56.6) | 4/69 = 5.8% (2.3-14.0) | 0/63 | 6/63 = 9.5% |
+| v2 diagnostic | 28/63 = 44.4% | 10/63 = 15.9% | 0/42 | 3/42 = 7.1% |
+| v2 actions | 6/93 = 6.5% | 7/93 = 7.5% | 4/84 | 7/84 = 8.3% |
+| v2 overall | 34/156 = 21.8% | 17/156 = 10.9% | 4/126 = 3.2% | 10/126 = 7.9% |
+| Specific diagnostic (v2 + held-out) | | | 0/105 | 9/105 = 8.6% |
+
+**Verdict: B does not win.** It passes four of the five conditions and fails one: held-out FP is 9.5%, which is
+9.5 points above A's 0%, against a limit of 5. Every one of those 6 asks comes from two plainly specific questions
+that B asked about on all 3 rounds:
+- H12, "which ollama models are loaded in memory right now", which got "which models do you mean".
+- H37, "when did the borg timer last fire and when is the next one", which got "which borg timer".
+
+Under the frozen rule this is a loss, and rule 6 stays as it is. Gap 6.1 stays open: arm A re-measures the
+current prompt at 21.8% FN on v2 overall and 44% on diagnostic questions, the held-out set included.
+
+**What the A/B shows.**
+- The rule-6 wording cuts diagnostic misses by about two thirds (held-out 45% to 6%, v2 diagnostic 44% to 16%).
+  It leaves action-command misses unchanged (6.5% to 7.5%).
+- It makes the model over-ask on some specific questions that name their target with a common noun ("the borg
+  timer", "ollama models"). Over-asking is the safe direction: an ask runs nothing. But it costs the operator a
+  turn, and the rule bounds it on purpose.
+- A's diagnostic miss rate (44%) is above the 33% of the v2 run on the same items. Run-to-run variance on these
+  items is large, so a single 3-round run is not a stable estimate.
+
+**Next step (owner's call; nothing shipped).** Either:
+- (a) Keep the prompt and leave 6.1 open.
+- (b) Revise the B wording so that a question naming a known unit, service or tool counts as specific, then run a
+  new A/B. That needs a fresh blind held-out set, because H12 and H37 have now been seen; the same rule applies.
+- (c) Accept B's FP cost. That would loosen a pre-registered condition after seeing the result, so it is the
+  owner's decision, not this session's.

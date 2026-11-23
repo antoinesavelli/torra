@@ -123,7 +123,7 @@ def main():
     for arm in "AB":
         print(f"== arm {arm}")
         for key, v in out["arms"][arm].items():
-            if isinstance(v, dict):
+            if isinstance(v, dict) and "fn" in v:
                 print(
                     f"  {key:16} FN {v['fn']['k']}/{v['fn']['n']} = {v['fn']['pct']}% {v['fn']['wilson95']}"
                     f"   FP {v['fp']['k']}/{v['fp']['n']} = {v['fp']['pct']}%"

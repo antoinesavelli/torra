@@ -528,7 +528,7 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
 scores above wait for the next independent re-grade.
 
 **What closes Phase 5 now.** P5.5 fixed (above); post-fix live traffic for the clarifier
-(gap 6.1, or since D-019 a blind corpus covering the miss-producing traffic; the 2026-11-19 run misses 20.5% overall and 33.3% on diagnostic questions, so it is not met, and a rule-6 prompt A/B awaits the owner) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
+(gap 6.1, or since D-019 a blind corpus covering the miss-producing traffic; the 2026-11-19 run misses 20.5% overall and 33.3% on diagnostic questions, so it is not met; a rule-6 prompt A/B on 2026-11-20 cut diagnostic misses to 6% but failed its false-positive limit, so the prompt is unchanged) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
 plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
 
 ## 4. Projected grades (estimates)

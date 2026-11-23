@@ -1,0 +1,231 @@
+{
+ "arms": {
+  "A": {
+   "result_lines": 414,
+   "telemetry_records": 415,
+   "unscored_records_by_status": {
+    "backend_down": 1
+   },
+   "heldout": {
+    "fn": {
+     "k": 31,
+     "n": 69,
+     "pct": 44.9,
+     "wilson95": [
+      33.8,
+      56.6
+     ]
+    },
+    "fp": {
+     "k": 0,
+     "n": 63,
+     "pct": 0.0,
+     "wilson95": [
+      0.0,
+      5.7
+     ]
+    },
+    "items_missed_once": "12/23",
+    "items_asked_once": "0/21"
+   },
+   "spec_diagnostic": {
+    "fn": {
+     "k": 0,
+     "n": 0,
+     "pct": null,
+     "wilson95": null
+    },
+    "fp": {
+     "k": 0,
+     "n": 105,
+     "pct": 0.0,
+     "wilson95": [
+      0.0,
+      3.5
+     ]
+    }
+   },
+   "v2_actions": {
+    "fn": {
+     "k": 6,
+     "n": 93,
+     "pct": 6.5,
+     "wilson95": [
+      3.0,
+      13.4
+     ]
+    },
+    "fp": {
+     "k": 4,
+     "n": 84,
+     "pct": 4.8,
+     "wilson95": [
+      1.9,
+      11.6
+     ]
+    },
+    "items_missed_once": "4/31",
+    "items_asked_once": "2/28"
+   },
+   "v2_all": {
+    "fn": {
+     "k": 34,
+     "n": 156,
+     "pct": 21.8,
+     "wilson95": [
+      16.0,
+      28.9
+     ]
+    },
+    "fp": {
+     "k": 4,
+     "n": 126,
+     "pct": 3.2,
+     "wilson95": [
+      1.2,
+      7.9
+     ]
+    }
+   },
+   "v2_diagnostic": {
+    "fn": {
+     "k": 28,
+     "n": 63,
+     "pct": 44.4,
+     "wilson95": [
+      32.8,
+      56.7
+     ]
+    },
+    "fp": {
+     "k": 0,
+     "n": 42,
+     "pct": 0.0,
+     "wilson95": [
+      0.0,
+      8.4
+     ]
+    },
+    "items_missed_once": "11/21",
+    "items_asked_once": "0/14"
+   }
+  },
+  "B": {
+   "result_lines": 414,
+   "telemetry_records": 414,
+   "unscored_records_by_status": {},
+   "heldout": {
+    "fn": {
+     "k": 4,
+     "n": 69,
+     "pct": 5.8,
+     "wilson95": [
+      2.3,
+      14.0
+     ]
+    },
+    "fp": {
+     "k": 6,
+     "n": 63,
+     "pct": 9.5,
+     "wilson95": [
+      4.4,
+      19.3
+     ]
+    },
+    "items_missed_once": "4/23",
+    "items_asked_once": "2/21"
+   },
+   "spec_diagnostic": {
+    "fn": {
+     "k": 0,
+     "n": 0,
+     "pct": null,
+     "wilson95": null
+    },
+    "fp": {
+     "k": 9,
+     "n": 105,
+     "pct": 8.6,
+     "wilson95": [
+      4.6,
+      15.5
+     ]
+    }
+   },
+   "v2_actions": {
+    "fn": {
+     "k": 7,
+     "n": 93,
+     "pct": 7.5,
+     "wilson95": [
+      3.7,
+      14.7
+     ]
+    },
+    "fp": {
+     "k": 7,
+     "n": 84,
+     "pct": 8.3,
+     "wilson95": [
+      4.1,
+      16.2
+     ]
+    },
+    "items_missed_once": "5/31",
+    "items_asked_once": "3/28"
+   },
+   "v2_all": {
+    "fn": {
+     "k": 17,
+     "n": 156,
+     "pct": 10.9,
+     "wilson95": [
+      6.9,
+      16.8
+     ]
+    },
+    "fp": {
+     "k": 10,
+     "n": 126,
+     "pct": 7.9,
+     "wilson95": [
+      4.4,
+      14.0
+     ]
+    }
+   },
+   "v2_diagnostic": {
+    "fn": {
+     "k": 10,
+     "n": 63,
+     "pct": 15.9,
+     "wilson95": [
+      8.9,
+      26.8
+     ]
+    },
+    "fp": {
+     "k": 3,
+     "n": 42,
+     "pct": 7.1,
+     "wilson95": [
+      2.5,
+      19.0
+     ]
+    },
+    "items_missed_once": "5/21",
+    "items_asked_once": "2/14"
+   }
+  }
+ },
+ "rule_B": {
+  "heldout FN <= 20%": true,
+  "v2 overall FN <= 20%": true,
+  "v2 FP not > A + 5pt": true,
+  "heldout FP not > A + 5pt": false,
+  "specific diagnostic FP <= 10%": true
+ },
+ "B_wins": false,
+ "errors": []
+}

@@ -1,0 +1,18 @@
+== arm A
+  heldout          FN 31/69 = 44.9% [33.8, 56.6]   FP 0/63 = 0.0%   items 12/23 missed, 0/21 asked
+  spec_diagnostic  FN 0/0 = None% None   FP 0/105 = 0.0%   items - missed, - asked
+  v2_actions       FN 6/93 = 6.5% [3.0, 13.4]   FP 4/84 = 4.8%   items 4/31 missed, 2/28 asked
+  v2_all           FN 34/156 = 21.8% [16.0, 28.9]   FP 4/126 = 3.2%   items - missed, - asked
+  v2_diagnostic    FN 28/63 = 44.4% [32.8, 56.7]   FP 0/42 = 0.0%   items 11/21 missed, 0/14 asked
+== arm B
+  heldout          FN 4/69 = 5.8% [2.3, 14.0]   FP 6/63 = 9.5%   items 4/23 missed, 2/21 asked
+  spec_diagnostic  FN 0/0 = None% None   FP 9/105 = 8.6%   items - missed, - asked
+  v2_actions       FN 7/93 = 7.5% [3.7, 14.7]   FP 7/84 = 8.3%   items 5/31 missed, 3/28 asked
+  v2_all           FN 17/156 = 10.9% [6.9, 16.8]   FP 10/126 = 7.9%   items - missed, - asked
+  v2_diagnostic    FN 10/63 = 15.9% [8.9, 26.8]   FP 3/42 = 7.1%   items 5/21 missed, 2/14 asked
+  PASS  heldout FN <= 20%
+  PASS  v2 overall FN <= 20%
+  PASS  v2 FP not > A + 5pt
+  FAIL  heldout FP not > A + 5pt
+  PASS  specific diagnostic FP <= 10%
+B wins: False

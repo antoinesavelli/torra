@@ -70,7 +70,7 @@ blind-corpus claim as historical.
 
 ## Open gaps
 
-1. **Model judgement on real traffic:** gap 6.1 (open; the blind corpus misses 33% of ambiguous diagnostic questions, a prompt change awaits the owner).
+1. **Model judgement on real traffic:** gap 6.1 (open; the current prompt misses 33-45% of ambiguous diagnostic questions; a rule-6 edit cut that to 6% but lost its A/B on false positives).
 2. **Real traffic and the label-and-measure loop:** gap 6.2.
 3. **Undo coverage ceiling:** gap 6.3.
 4. **Tree watching misses a same-size same-mtime edit.** The declared-path
@@ -113,11 +113,16 @@ writing step. Of the 11 action misses, 8 did: "purge the journal" on all 3 round
 (`systemctl enable`, and on one round `sudo tee -a /etc/ollama/ollama.conf` then a restart); the other 3 were an
 answer or read-only. Nothing ran (plan only). An independent recount from the raw files matched every figure above.
 
-The proposed change, not shipped, is one prompt edit: rule 6 asks instead of answering when a question names no
-target or measure, or refers to something the conversation does not contain. It goes through an A/B on a held-out
-blind set first (plan §7). If the owner prefers rule 6's behavior for open questions, the label rule changes instead,
-and that is the owner's call. Either way the fix is prompt and model-judgment work, not more gates and not new
-clarifier anchors (R-2, R-3, R-9 in `docs/DECISIONS.md`; `docs/INVARIANTS.md §2.40`).
+A pre-registered A/B of one prompt edit ran on 2026-11-20 and lost (plan §7.3-7.4). The edit makes rule 6 ask
+when a question names no target or measure, or refers to something the conversation does not contain. It ran on the
+v2 items plus 44 new blind held-out items, 3 rounds per arm, 828 turns. B cut false negatives on held-out
+diagnostic questions from 31/69 = 44.9% to 4/69 = 5.8%, and on v2 overall from 21.8% to 10.9%. But it asked on 6
+of 63 held-out specific turns where A asked on none, all of them H12 "which ollama models are loaded in memory
+right now" and H37 "when did the borg timer last fire…". That breaks the pre-registered limit of 5 points over A,
+so rule 6 is unchanged. Arm A re-measured the current prompt at 44% false negatives on diagnostic questions. The
+next step is the owner's: keep the prompt, or revise the wording and rerun on a fresh held-out set. Either way the
+fix is prompt and model-judgment work, not more gates and not new clarifier anchors (R-2, R-3, R-9 in
+`docs/DECISIONS.md`; `docs/INVARIANTS.md §2.40`).
 
 The first corpus run (2026-11-19, mostly action commands: 7/93 false negatives) wrote 174 turns and 58 labels into
 `~/.torra/telemetry`. They were removed after a dated backup (`*.bak-2026-11-19`; the remaining 269 turns and 91
