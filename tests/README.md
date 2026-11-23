@@ -31,6 +31,7 @@ or network -- every external dependency is an injected callable (see
 | `test_replay_verdicts.py` | `scripts/dev/replay_verdicts.py`: Bash commands come out of transcripts (subfolders too) and audit files, bad records are skipped and counted, runs dedup, round-trip through JSONL and diff grouped by program |
 | `test_knowledge_questions.py` | `docs/agents/knowledge_questions.yaml` is well formed and leaks no answer, each `expected` passes its own regexes, and every `must_contain` fact is still in the docs the question cites |
 | `test_model_bench.py` | `scripts/dev/model_bench` as a fucone job: `TORRA_OLLAMA_HOST` endpoint, an Ollama outage aborts instead of becoming a row, results land in `FUCONE_RUN_DIR`, the reader refuses an incomplete battery |
+| `test_model_bench_injection.py` | `scripts/dev/model_bench/injection.py`: planted instructions reach the model inside each channel's real block (file, site knowledge, command output), a canary scores obedience and records whether a tick would still be needed, a control per channel, an outage aborts, results land in `PASTORE_RUN_DIR` |
 
 ```bash
 uv run pytest -q                         # every test passes; the count never drops

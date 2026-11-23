@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import stat
 import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -29,6 +31,7 @@ from typing import Any
 from .tasks import TorraError
 
 __all__ = [
+    "RESUME_MAX_AGE_SECONDS",
     "ResumePoint",
     "ResumeResolution",
     "resolve_resume",
@@ -37,6 +40,11 @@ __all__ = [
     "end_step",
     "interrupted_reason",
 ]
+
+#: How old a resume point may be and still vouch for its completed steps. Matches
+#: `ShadowStore.STALE_SHADOW_SECONDS` (torra/gates/undo_shadow.py); core must not import gates,
+#: so a test pins the two equal.
+RESUME_MAX_AGE_SECONDS: float = 24 * 3600
 
 
 @dataclass
@@ -50,8 +58,7 @@ class ResumePoint:
     so a full re-run costs little -- one atomically written file after each
     completed step was judged enough of a crash-forensics trail, on the
     assumption that automatic resume wasn't worth building for a task this
-    short. Nothing has actually exercised that assumption: `load()` has no
-    caller, so today this is a write-only record, not resumability.
+    short. `resolve_resume` now reads it back (docs/INVARIANTS.md §2.33, §2.64).
     """
 
     task_id: str
@@ -73,6 +80,9 @@ class ResumePoint:
         """Whether every field has the type a resume decision relies on."""
         return (
             isinstance(self.task_id, str)
+            and isinstance(self.at, (int, float))
+            and not isinstance(self.at, bool)
+            and math.isfinite(self.at)  # NaN and Infinity never age; a huge int raises -> corrupt
             and isinstance(self.total, int)
             and isinstance(self.in_progress, str)
             and isinstance(self.file_hashes, dict)
@@ -93,6 +103,8 @@ class ResumePoint:
         except OSError:
             return None  # a name too long for the filesystem: there is nothing to resume from
         try:
+            if not stat.S_ISREG(target.stat().st_mode):
+                raise ValueError("not a regular file")  # a FIFO would block the read
             point = cls(**json.loads(target.read_text(encoding="utf-8")))
             if not point._well_typed():
                 raise TypeError("a field has the wrong type")
@@ -190,6 +202,8 @@ def resolve_resume(
     total: int,
     resume_path: os.PathLike[str] | str,
     dry_run: bool,
+    *,
+    now: float | None = None,
 ) -> ResumeResolution:
     """Load a crash-left resume point for this exact task_id, validating it
     against the current plan before trusting a single entry in it.
@@ -203,6 +217,12 @@ def resolve_resume(
     the file didn't exist. A dry run never even looks: it never writes one
     either (`Torra._run_steps`), so treating one as meaningful here would
     let a crash *during* a preview masquerade as steps that genuinely ran.
+
+    A point dated more than `RESUME_MAX_AGE_SECONDS` away from `now` (default
+    the wall clock), in the past or the future, is ignored too: a failed run
+    keeps its file, and day-old (or clock-skewed) evidence of "completed"
+    steps is not trusted. A point whose in-flight step is one of this plan's
+    never expires (docs/INVARIANTS.md §2.64): that step's effect stays unknown.
     """
     fresh = ResumePoint(task_id=task_id, total=total)
     if dry_run:
@@ -215,6 +235,17 @@ def resolve_resume(
         )
     if existing is None:
         return ResumeResolution(fresh, frozenset())
+
+    age = (time.time() if now is None else now) - existing.at
+    if existing.in_progress not in plan_digests and abs(age) > RESUME_MAX_AGE_SECONDS:
+        return ResumeResolution(
+            fresh,
+            frozenset(),
+            "the on-disk resume point is "
+            + (f"{age / 3600:.0f}h old" if age > 0 else f"dated {-age / 3600:.0f}h ahead")
+            + f", over the {RESUME_MAX_AGE_SECONDS / 3600:.0f}h limit -- starting fresh "
+            "rather than trusting old evidence",
+        )
 
     plan_step_ids = list(plan_digests)
     matches = (

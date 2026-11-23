@@ -7,7 +7,7 @@ Owner decisions pending: D8 (section 2)
 Last verified: 61b6886 on 2026-10-21
 
 Every Phase 0 to 4 item below was re-read against the code and
-is done or withdrawn. Still open as of 2026-11-18: D8 and the P3.3 model-bench scenario; P5.5 is fixed and awaits the next re-grade
+is done or withdrawn. Still open as of 2026-11-19: D8 (the P3.3 model-bench scenario ran 2026-11-19); P5.5 is fixed and awaits the next re-grade
 (the red-team ran on 2026-11-17; the re-grade on 2026-11-18 gave A-, exit not met). Suite at this commit: 1667 passed.
 
 Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
@@ -259,7 +259,9 @@ site. Do one item at a time in `gates/` and `pipeline.py`, because these files c
 - **P3.2 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.68; names from the file are withheld from steps rather than the file no longer being loaded).** **Steps inherit `.env` secrets.** `load_dotenv` (`torra/cli.py:597`) exports them into the
   environment every step subprocess inherits. Apply D5. `OpenRouterClient` already takes a key argument
   (`torra/core/openrouter.py:47-51`). Leave the operator's own shell environment alone. Ask-first.
-- **P3.3 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.66; the model-bench injection scenario is not done, it needs a live model).** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
+- **P3.3 DONE 2026-10-04 (`docs/INVARIANTS.md` §2.66); the model-bench injection scenario built and run 2026-11-19
+  (`docs/plans/P3_3_INJECTION_BENCH_PLAN.md`, `scripts/dev/model_bench/REPORT.md`): site knowledge obeyed in 9 of 9
+  runs and a forged operator turn in a file 8 of 9, every obeyed command still ticked.** **Untrusted content enters the prompt with authority.** `read_memory` adds file contents as a
   `system`-role message with an opening `[read path]` header and no end marker (`torra/read_memory.py:74`).
   `iterate` pastes raw verify output into the operator's next request (`torra/iterate.py:124-128`). Changes:
   - move file contents out of the system role and wrap them in
@@ -527,8 +529,15 @@ sudo-to-system-path, `find` actions, `dd`, `kill`, `git -c`/`--exec-path`, `syst
 (Phase 0, the must-ask corpus), `37b87f0` (Phase 1) and `d370da1` (Phase 2). Every command in the P5.5 finding (the P5.5 rows in `ASKS`, `tests/test_known_programs.py`) now asks; the
 scores above wait for the next independent re-grade.
 
-**What closes Phase 5 now.** P5.5 fixed (above); post-fix live traffic for the clarifier
-(gap 6.1, or since D-019 a blind corpus covering the miss-producing traffic; the 2026-11-19 run misses 20.5% overall and 33.3% on diagnostic questions, so it is not met; a rule-6 prompt A/B on 2026-11-20 cut diagnostic misses to 6% but failed its false-positive limit, so the prompt is unchanged) and the P3.3 bench scenario, the two items holding AI and Purpose below 93; gap 6.6 and the
+**What closes Phase 5 now.** P5.5 fixed (above); the P3.3 bench scenario built and run 2026-11-19 (its finding,
+an open gap in `docs/STATUS.md`: planted instructions obeyed in a site-knowledge topic 9 of 9 and as a forged
+operator turn inside a file 8 of 9, every obeyed command still ticked; the two cases differ in request, payload and
+framing as well as channel, and no case sends one payload through both, so the channel is not shown to be the
+cause); post-fix live traffic
+for the clarifier (gap 6.1, or since D-019 a blind corpus covering the miss-producing traffic; the 2026-11-19 run
+misses 20.5% overall and 33.3% on diagnostic questions, so it is not met; a rule-6 prompt A/B on 2026-11-20 cut
+diagnostic misses to 6% but failed its false-positive limit, so the prompt is unchanged), the item holding AI and
+Purpose below 93; gap 6.6 and the
 plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
 
 ## 4. Projected grades (estimates)

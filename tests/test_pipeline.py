@@ -9,6 +9,8 @@ that is never called shows up as a failure rather than as six phases of work.
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -109,6 +111,274 @@ def test_the_audit_records_the_model_and_the_gates(make_torra, tmp_path: Path) -
     assert payload["plan"]["coverage"]["coverage_ratio"] == 1.0
     stages = {d["stage"] for d in payload["decisions"]}
     assert {"converse", "gate", "execute"} <= stages
+
+
+def test_a_touches_path_torra_cannot_stat_does_not_crash_plan(make_torra, tmp_path: Path) -> None:
+    """Live 2026-11-19: touches under /root/.ollama made capture_file's exists() raise out of plan()."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    target = locked / "blob"
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    f"remove {target}",
+                    [{"id": "rm", "run": f"rm -f {target}", "touches": [str(target)]}],
+                )
+            )
+        )
+        result = torra.plan(f"remove {target}")
+        assert result.plan is not None, result.abort_reason
+        assert result.plan.coverage["uncovered"] == ["rm"]
+        assert any("PermissionError" in s for s in result.plan.coverage["skipped"])
+    finally:
+        locked.chmod(0o700)
+
+
+def _unchecked_note(torra: Torra, path: str) -> bool:
+    return any(
+        r.decision == "conflict check skipped" and path in r.reasoning
+        for r in torra.decisions.records
+    )
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_touches_path_torra_cannot_stat_warns_at_plan_and_runs(
+    make_torra, tmp_path: Path, dry_run: bool
+) -> None:
+    """Verifier repro on 8b719ed; owner, 2026-11-19: warn at plan, let it run. The plan names the
+    path, both steps run, and the Run records the path as unchecked."""
+    marker = tmp_path / "marker"
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    blob = locked / "blob"
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "mark then look",
+                    [
+                        {"id": "mark", "run": f"touch {marker}", "touches": [str(marker)]},
+                        {"id": "look", "run": f"ls -ld {locked}", "touches": [str(blob)]},
+                    ],
+                )
+            )
+        )
+        planned = torra.plan("mark then look")
+        assert planned.plan is not None
+        assert any(
+            str(blob) in w and "cannot be checked for outside changes" in w and "no undo" in w
+            for w in planned.plan.warnings
+        ), planned.plan.warnings
+        approvals = {sp.step.step_id: True for sp in planned.plan.steps}
+        done = torra.execute(planned, approvals, dry_run=dry_run)
+        assert done.outcome is Outcome.COMPLETED, done.abort_reason
+        assert [r.step_id for r in done.results] == ["mark", "look"]
+        assert marker.exists() is not dry_run
+        assert _unchecked_note(torra, str(blob))
+    finally:
+        locked.chmod(0o700)
+
+
+def test_a_touches_path_that_becomes_unstattable_mid_run_stops_and_sweeps(
+    make_torra, tmp_path: Path
+) -> None:
+    """The same raise between steps skipped _sweep_rollback; now the run blocks and sweeps step 1."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    blob = locked / "blob"
+    conf = tmp_path / "app.conf"
+    conf.write_text("before\n", encoding="utf-8")
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "edit then lock",
+                [
+                    {
+                        "id": "edit",
+                        "run": f"sh -c 'echo after > {conf} && chmod 0 {locked}'",
+                        "touches": [str(conf)],
+                    },
+                    {"id": "rm", "run": f"rm -f {blob}", "touches": [str(blob)]},
+                ],
+            )
+        )
+    )
+    try:
+        planned = torra.plan("edit then lock")
+        assert planned.plan is not None
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        assert done.outcome is Outcome.BLOCKED
+        assert f"{blob}=unreadable" in done.abort_reason
+        assert conf.read_text(encoding="utf-8") == "before\n"
+    finally:
+        locked.chmod(0o700)
+
+
+def test_a_glob_touches_path_is_uncovered_warned_and_runs(make_torra, tmp_path: Path) -> None:
+    """A glob in touches got an undo that deleted nothing and reported "undone"; now it is uncovered,
+    the plan says it cannot be checked, and the run goes ahead (owner, 2026-11-19)."""
+    marker = tmp_path / "marker"
+    pattern = str(tmp_path / "*.log")
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t", "mark logs", [{"id": "m", "run": f"touch {marker}", "touches": [pattern]}]
+            )
+        )
+    )
+    planned = torra.plan("mark logs")
+    assert planned.plan is not None
+    assert planned.plan.coverage["uncovered"] == ["m"]
+    assert any(pattern in w and "glob" in w for w in planned.plan.warnings), planned.plan.warnings
+    assert not any("cannot be checked" in w for w in planned.plan.warnings)
+    done = torra.execute(planned, {"m": True})
+    assert done.outcome is Outcome.COMPLETED, done.abort_reason
+    assert marker.exists()
+    assert not _unchecked_note(torra, pattern)  # its literal name is checked
+
+
+def test_a_real_file_named_with_glob_characters_still_blocks_on_an_outside_edit(
+    make_torra, tmp_path: Path
+) -> None:
+    """Re-verify of aef8f6c: `app[1].conf` was called a glob, lost its undo and its check."""
+    conf = tmp_path / "app[1].conf"
+    conf.write_text("original", encoding="utf-8")
+    torra = make_torra(
+        scripted(plan_reply("t", "edit", [{"id": "e", "run": "true", "touches": [str(conf)]}]))
+    )
+    planned = torra.plan("edit")
+    assert planned.plan is not None
+    assert planned.plan.coverage["uncovered"] == []
+    assert not any("glob" in w for w in planned.plan.warnings)
+    conf.write_text("EDITED BY A HUMAN", encoding="utf-8")
+    done = torra.execute(planned, {})
+    assert done.outcome is Outcome.BLOCKED
+    assert f"{conf}=modified" in done.abort_reason
+
+
+def test_an_absent_glob_named_path_created_from_outside_blocks(make_torra, tmp_path: Path) -> None:
+    """Re-verify of 1c7ab1a: an absent `app[1].conf` was unchecked, so its creation went unseen."""
+    conf = tmp_path / "app[1].conf"
+    torra = make_torra(
+        scripted(plan_reply("t", "edit", [{"id": "e", "run": "true", "touches": [str(conf)]}]))
+    )
+    planned = torra.plan("edit")
+    conf.write_text("from outside", encoding="utf-8")
+    done = torra.execute(planned, {})
+    assert done.outcome is Outcome.BLOCKED
+    assert f"{conf}=created" in done.abort_reason
+
+
+def test_a_step_that_makes_its_own_touches_path_unstattable_does_not_block_the_next(
+    make_torra, tmp_path: Path
+) -> None:
+    """torra's own change is not an outside one: refresh() skips the path while it stays
+    unstattable, and the Run logs it."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    blob = locked / "blob"
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "lock then go on",
+                [
+                    {"id": "lock", "run": f"chmod 0 {locked}", "touches": [str(blob)]},
+                    {"id": "next", "run": "true", "touches": [str(blob)]},
+                ],
+            )
+        )
+    )
+    try:
+        planned = torra.plan("lock then go on")
+        assert planned.plan is not None
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        assert done.outcome is Outcome.COMPLETED, done.abort_reason
+        assert [r.step_id for r in done.results] == ["lock", "next"]
+        assert _unchecked_note(torra, str(blob))
+    finally:
+        locked.chmod(0o700)
+
+
+def test_a_watch_root_torra_cannot_stat_warns_at_plan_and_runs(make_torra, tmp_path: Path) -> None:
+    locked = tmp_path / "locked"
+    (locked / "root").mkdir(parents=True)
+    root = locked / "root"
+    marker = tmp_path / "marker"
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.X_OK):
+            pytest.skip("running as root: the directory stays searchable")
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "mark",
+                    [{"id": "m", "run": f"touch {marker}", "touches": [str(marker)]}],
+                    watch_roots=[str(root)],
+                )
+            )
+        )
+        planned = torra.plan("mark")
+        assert planned.plan is not None
+        assert any(str(root) in w for w in planned.plan.warnings), planned.plan.warnings
+        done = torra.execute(planned, {"m": True})
+        assert done.outcome is Outcome.COMPLETED, done.abort_reason
+        assert marker.exists()
+    finally:
+        locked.chmod(0o700)
+
+
+@pytest.mark.parametrize("second", ["true", "exit 1"])
+def test_a_step_locking_its_own_glob_dir_keeps_the_declared_rollback(
+    make_torra, tmp_path: Path, second: str
+) -> None:
+    """Fourth verify of fe1bcde: torra's own `chmod 0 D` read as an outside change, which blocked
+    the run and dropped the declared rollback. It completes; a later failure still runs it."""
+    d = tmp_path / "D"
+    d.mkdir()
+    pattern = str(d / "*.conf")
+    torra = make_torra(
+        scripted(
+            plan_reply(
+                "t",
+                "lock D",
+                [
+                    {"id": "lock", "run": f"chmod 0 {d}", "touches": [pattern]},
+                    {"id": "next", "run": second, "touches": [pattern]},
+                ],
+                rollback=[{"run": f"chmod 700 {d}", "description": "unlock D", "safe": True}],
+            )
+        )
+    )
+    try:
+        planned = torra.plan("lock D")
+        assert planned.plan is not None
+        done = torra.execute(planned, {sp.step.step_id: True for sp in planned.plan.steps})
+        if os.geteuid() == 0:
+            pytest.skip("running as root: a chmod-0 directory stays searchable")
+        assert [r.step_id for r in done.results] == ["lock", "next"], done.abort_reason
+        if second == "true":
+            assert done.outcome is Outcome.COMPLETED
+        else:
+            assert done.outcome is Outcome.FAILED
+            assert os.access(d, os.X_OK), "the declared rollback did not run"
+    finally:
+        d.chmod(0o700)
 
 
 def test_every_finished_turn_is_recorded_to_telemetry(make_torra, tmp_path: Path) -> None:
@@ -938,6 +1208,71 @@ class TestResume:
         assert not done.exists()
         assert ResumePoint.load(resume_path) is not None, "the record of what finished is kept"
 
+    @staticmethod
+    def _age(resume_path: Path, seconds: float) -> None:
+        """Rewrite a saved resume point's `at` into the past (save() always stamps now)."""
+        body = json.loads(resume_path.read_text(encoding="utf-8"))
+        body["at"] = time.time() - seconds
+        resume_path.write_text(json.dumps(body), encoding="utf-8")
+
+    def test_an_old_resume_point_is_ignored_and_its_steps_run_again(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        """A failed run's point outlives its evidence: past 24h the "completed" step is not trusted."""
+        counter = tmp_path / "counter"
+        torra = make_torra(
+            scripted(
+                plan_reply("t", "one step", [{"id": "first", "run": f"printf x >> {counter}"}])
+            )
+        )
+        planned = torra.plan("one step")
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=1,
+            digests={"first": command_digest(f"printf x >> {counter}")},
+        ).save(resume_path)
+        counter.write_text("x", encoding="utf-8")  # the earlier attempt's real effect
+        self._age(resume_path, 25 * 3600)
+
+        result = torra.execute(planned, {})
+
+        assert result.outcome is Outcome.COMPLETED
+        assert counter.read_text(encoding="utf-8") == "xx", "the step must really run again"
+        assert not result.results[0].output.startswith("[resumed]")
+        assert any(d["decision"] == "resume point ignored" for d in result.decisions)
+
+    def test_an_old_resume_point_with_a_step_in_flight_still_blocks(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        done = tmp_path / "done"
+        torra = make_torra(
+            scripted(
+                plan_reply(
+                    "t",
+                    "two steps",
+                    [{"id": "first", "run": "true"}, {"id": "second", "run": f"touch {done}"}],
+                )
+            )
+        )
+        planned = torra.plan("two steps")
+        resume_path = self._resume_path(tmp_path, "t")
+        ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=2,
+            in_progress="second",
+            digests={"first": command_digest("true")},
+        ).save(resume_path)
+        self._age(resume_path, 30 * 24 * 3600)
+
+        result = torra.execute(planned, {})
+
+        assert result.outcome is Outcome.BLOCKED
+        assert "was running when torra stopped" in result.abort_reason
+        assert not done.exists()
+
     def test_the_resume_file_marks_a_step_in_flight_while_it_runs(
         self, make_torra, tmp_path: Path
     ) -> None:
@@ -1086,6 +1421,89 @@ class TestResume:
         torra.execute(planned, {})
 
         assert not self._resume_path(tmp_path, "t").exists()
+
+
+class TestResumePreview:
+    """docs/plans/P5_RELIABILITY_RESUME_AND_SHADOW_PLAN.md D3: the plan itself says, before the
+    operator ticks anything, that a step will be skipped as already done or that the run will
+    stop on a step an earlier attempt left in flight. `execute()` stays the authority."""
+
+    TWO = [{"id": "first", "run": "true"}, {"id": "second", "run": "true"}]
+
+    def _planned(self, make_torra, tmp_path: Path, point: ResumePoint | None):
+        torra = make_torra(scripted(plan_reply("t", "two steps", self.TWO)))
+        path = TestResume._resume_path(tmp_path, "t")
+        if point is not None:
+            point.save(path)  # saved before torra.plan(): the preview reads it at gate time
+        return torra, path, torra.plan("two steps")
+
+    @staticmethod
+    def _point(**extra) -> ResumePoint:
+        return ResumePoint(
+            task_id="t",
+            completed=["first"],
+            total=2,
+            digests={"first": command_digest("true")},
+            **extra,
+        )
+
+    def test_a_matching_point_adds_one_resumes_warning(self, make_torra, tmp_path: Path) -> None:
+        _, path, planned = self._planned(make_torra, tmp_path, self._point())
+        assert planned.plan is not None
+        warnings = [w for w in planned.plan.warnings if w.startswith("resumes ")]
+        assert len(warnings) == 1
+        assert warnings[0].startswith("resumes 1 of 2 steps: first ")
+        assert f"delete {path} to run them again" in warnings[0]
+        assert not any("this run will stop" in w for w in planned.plan.warnings)
+
+    def test_a_step_left_in_flight_adds_a_will_stop_warning(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        _, path, planned = self._planned(make_torra, tmp_path, self._point(in_progress="second"))
+        assert planned.plan is not None
+        stops = [w for w in planned.plan.warnings if w.startswith("this run will stop: ")]
+        assert len(stops) == 1
+        assert "'second'" in stops[0] and str(path) in stops[0]
+        assert not any(w.startswith("resumes ") for w in planned.plan.warnings)
+
+    def test_an_expired_point_and_an_absent_one_add_no_resume_warning(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        torra = make_torra(scripted(plan_reply("t", "two steps", self.TWO)))
+        path = TestResume._resume_path(tmp_path, "t")
+        self._point().save(path)
+        TestResume._age(path, 25 * 3600)
+        expired = torra.plan("two steps")
+        path.unlink()
+        absent = torra.plan("two steps")
+        for planned in (expired, absent):
+            assert planned.plan is not None
+            assert not any(
+                w.startswith(("resumes ", "this run will stop")) for w in planned.plan.warnings
+            )
+
+    def test_planning_never_touches_the_resume_file(self, make_torra, tmp_path: Path) -> None:
+        torra, path, _ = self._planned(make_torra, tmp_path, self._point(in_progress="second"))
+        before = (path.read_bytes(), path.stat().st_mtime_ns)
+        torra.plan("two steps")
+        assert (path.read_bytes(), path.stat().st_mtime_ns) == before
+
+    def test_execute_after_the_preview_still_skips_and_blocks_as_before(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        torra, _, planned = self._planned(make_torra, tmp_path, self._point())
+        result = torra.execute(planned, {})
+        assert result.outcome is Outcome.COMPLETED
+        assert result.results[0].output.startswith("[resumed]")
+        assert not result.results[1].output.startswith("[resumed]")
+
+    def test_execute_after_the_preview_still_blocks_on_a_step_in_flight(
+        self, make_torra, tmp_path: Path
+    ) -> None:
+        torra, _, planned = self._planned(make_torra, tmp_path, self._point(in_progress="second"))
+        blocked = torra.execute(planned, {})
+        assert blocked.outcome is Outcome.BLOCKED
+        assert "was running when torra stopped" in blocked.abort_reason
 
 
 def test_execute_twice_on_the_same_result_does_not_replay_it(make_torra, tmp_path: Path) -> None:

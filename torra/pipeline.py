@@ -11,7 +11,8 @@ Plan, RunResult -- the data model this module produces), torra.pipeline_rollback
 (which undos run, when, and which are skipped), torra.pipeline_report (stage 7: summary,
 audit file, telemetry record), torra.dependency_warnings
 (the advisory-only check `Torra.dependency_warnings` delegates to), torra.read_memory
-(remember_step_reads, feeding a completed read step's real output into the model's context).
+(remember_step_reads, feeding a completed read step's real output into the model's context),
+torra.core.resume (command_digest, interrupted_reason -- the plan-time resume preview).
 
 converse/observe/propose/gate/present/execute/report. `observe`/`propose`
 live inside `Agent.converse` -- the old `clarify` stage (a wall in front of
@@ -38,7 +39,7 @@ from .core import (
     resolve_resume,
 )
 from .core.remote_edit import escalate_remote_push, settle_remote_pull
-from .core.resume import command_digest
+from .core.resume import command_digest, interrupted_reason
 from .dependency_warnings import dependency_warnings as _dependency_warnings
 from .gates import (
     Clarifier,
@@ -50,6 +51,7 @@ from .gates import (
     UndoGenerator,
     VerifiedRollback,
 )
+from .gates.undo import unexpanded_glob
 from .pipeline_report import finish, safe_filename
 from .pipeline_rollback import declared_undos
 from .pipeline_steps import StepRunner
@@ -262,6 +264,7 @@ class Torra(StepRunner):
                 {"command": step.command, "undos": len(undos)},
             )
 
+        plan.warnings.extend(self._resume_warnings(plan))
         plan.coverage = self.undo.coverage(steps)
         plan.preconditions = self.verifier.run()
         self.decisions.log(
@@ -280,6 +283,16 @@ class Torra(StepRunner):
         # proposal; removed in a full-file audit.
         tracked = sorted({t for s in steps for t in s.touches})
         self.conflicts.baseline(tracked, roots=spec.watch_roots or None)
+        # Live wire: docs/LIVE_WIRES.md §5.26
+        plan.warnings.extend(
+            f"{path} is a glob, which torra does not expand, so it has no undo"
+            for path in tracked
+            if unexpanded_glob(path)
+        )
+        plan.warnings.extend(
+            f"{path} cannot be checked for outside changes: {why}"
+            for path, why in self.conflicts.unchecked.items()
+        )
 
         self.decisions.log(
             Stage.GATE.value,
@@ -290,6 +303,32 @@ class Torra(StepRunner):
             {"tracked_paths": tracked},
         )
         return plan
+
+    def _resume_path(self, task_id: str) -> Path:
+        """Where `execute()` keeps this task's resume point."""
+        return self.workdir / "resume" / f"{safe_filename(task_id)}.json"
+
+    def _resume_warnings(self, plan: Plan) -> list[str]:
+        """What `execute()` will do about an earlier attempt, said at plan time (read-only).
+
+        Only a preview: `execute()` resolves the point again and stays the authority."""
+        path = self._resume_path(plan.spec.task_id)
+        resolution = resolve_resume(
+            plan.spec.task_id,
+            {sp.step.step_id: command_digest(sp.step.command) for sp in plan.steps},
+            len(plan.steps),
+            path,
+            dry_run=False,
+        )
+        if resolution.interrupted:
+            return ["this run will stop: " + interrupted_reason(resolution.interrupted, path)]
+        done = [sp.step.step_id for sp in plan.steps if sp.step.step_id in resolution.resumed_steps]
+        if done:
+            return [
+                f"resumes {len(done)} of {len(plan.steps)} steps: {', '.join(done)} "
+                f"(an earlier attempt finished them; delete {path} to run them again)"
+            ]
+        return []
 
     #: Public: `Torra.dependency_warnings(plan, approvals)`. Delegates to
     #: torra.dependency_warnings -- see that module's docstring for why
@@ -352,7 +391,7 @@ class Torra(StepRunner):
         # place) left behind, or a second dry run would append duplicate
         # stub entries alongside the first.
         result.results = []
-        resume_path = self.workdir / "resume" / f"{safe_filename(plan.spec.task_id)}.json"
+        resume_path = self._resume_path(plan.spec.task_id)
         resolution = resolve_resume(
             plan.spec.task_id,
             {sp.step.step_id: command_digest(sp.step.command) for sp in plan.steps},

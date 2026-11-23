@@ -454,6 +454,33 @@ async def test_a_dependency_warning_shows_before_the_declined_steps_sibling_runs
 
 
 @pytest.mark.asyncio
+async def test_the_plan_pane_shows_the_resume_preview_line(tmp_path: Path) -> None:
+    """D3: the operator sees "resumes 1 of 2 steps" before ticking anything."""
+    from torra.core.resume import ResumePoint, command_digest
+
+    ResumePoint(
+        task_id="t", completed=["first"], total=2, digests={"first": command_digest("true")}
+    ).save(tmp_path / "wd" / "resume" / "t.json")
+    app = build(
+        tmp_path,
+        scripted(
+            plan_reply(
+                "t",
+                "two steps",
+                [{"id": "first", "run": "true"}, {"id": "second", "run": "true"}],
+            )
+        ),
+    )
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.query_one("#prompt", Input).value = "two steps"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        assert "resumes 1 of 2 steps: first" in screen_text(app)
+
+
+@pytest.mark.asyncio
 async def test_reject_records_the_decision(tmp_path: Path) -> None:
     """Found in a full-file audit: clicking Reject used to bypass the
     pipeline entirely -- no audit record, no telemetry entry, just
