@@ -9,6 +9,8 @@ Last verified: 61b6886 on 2026-10-21
 Every Phase 0 to 4 item below was re-read against the code and
 is done or withdrawn. Still open as of 2026-11-19: D8 (the P3.3 model-bench scenario ran 2026-11-19); P5.5 is fixed and awaits the next re-grade
 (the red-team ran on 2026-11-17; the re-grade on 2026-11-18 gave A-, exit not met). Suite at this commit: 1667 passed.
+The re-grade on 2026-11-23 at `13ead34` gave A- (90) again, exit not met, with four new majors, P5.6 to P5.9
+(Phase 5 below); its suite was 2547 passed.
 
 Written 2026-10-03 from a `/grade` pass over this repo at commit `6e6bcdc`. Most items sit on `AGENTS.md`'s ask-first list (the gates, `SafetyClassifier`, `Step.run`
 construction, `Torra.execute`, persisted-state formats), so each one needs the owner's go-ahead before its
@@ -539,6 +541,121 @@ misses 20.5% overall and 33.3% on diagnostic questions, so it is not met; a rule
 diagnostic misses to 6% but failed its false-positive limit, so the prompt is unchanged), the item holding AI and
 Purpose below 93; gap 6.6 and the
 plan-time shadow copy for Reliability; the head pushed and CI green; then another independent re-grade.
+
+#### Result, 2026-11-23: A- (90), exit not met
+
+Graded commit `13ead344b42434aac7c4974aad36e4d3b40c4900` (pushed `origin/main`), checked out in a detached
+worktree. Done by a session that wrote none of the fixes. The `letter-grade` skill (`~/.claude/skills/letter-grade`)
+now exists and was read; it is a general grader, so the section 1 table stays the rubric, same domains, weights and
+bands, applied by hand in delta mode against the 2026-11-18 result. Every `file:line` is at `13ead34`. Probes were
+classified in-process. The only things run were harmless confirmations in a scratch directory: each fail-open below
+ran `touch` on a marker file there, and `ip -b -` ran `link show lo`.
+
+| Domain | Weight | 11-18 | Now | Letter | Moved since 2026-11-18 | Deductions |
+|---|---|---|---|---|---|---|
+| Purpose Fidelity | 15% | 89 | 90 | A- | gap 6.6 closed; P5.5's commands ask | -4 the read-only promise still leaks: `git`, `awk`, `ip` and `mount` run a command or change state unticked (P5.6 to P5.9); -4 clarifier: the blind corpus misses 20.5% overall and 33.3% of diagnostic questions, and arm A of the A/B re-measured the current prompt at 44.4% (`scripts/dev/clarifier_corpus/ab/ab_numbers.txt`); -2 D8 |
+| Security and Privacy | 25% | 89 | 89 | B+ | P5.5 fixed. About 150 probes found no way past `options.parse` (abbreviations, attached values, clusters, `--`, options after operands) or the curl, tar and sed specs | -7 P5.6 to P5.8 run an arbitrary command with no tick, and the same under `sudo` (CAUTION from the backstop's `sudo` row, `torra/gates/safety_tables.py:309`); -2 credential reads go by file name, and local data leaves through a URL or `curl telnet://` with no tick (recorded, `docs/STATUS.md:232-240`); -1 the blind red-team predates about 1,500 changed lines in `torra/gates/` and was not rerun; -1 P3.3: injected steps are obeyed whenever the model plans, and with P5.6 to P5.8 such a step need not tick |
+| Domain Correctness (shell/OS semantics) | 15% | 92 | 92 | A- | getopt modelled for the spec-judged programs: whole long names only, value letters, optional values, permutation (`torra/gates/options.py:53-110`) | -6 semantics not modelled: awk's lexical grammar (regex literals, comments, `\`-newline: P5.6), git transport options (P5.7), and `HOME`/`XDG_CONFIG_HOME`/`GIT_DIR` choosing which config a listed program runs (P5.8); -1 `ip` and `mount` judged by word count (P5.9); -1 relative paths after `cd`, tmux `#{E:}` |
+| AI and Agentic | 15% | 89 | 91 | A- | P3.3 built and run live. Recounted from `injection_results.json`: 22 obeying runs, the per-case counts as reported, controls 26 of 27; all 24 obeyed commands still need a tick at `13ead34`. Its framing (the channel is not shown to be the cause) holds | -5 gap 6.1 measured and failing: the blind v2 corpus was recounted from `results_v2_r*.jsonl` (32/156 FN, 21/63 diagnostic, 4/126 FP, all matching); the rule-6 A/B lost on its pre-registered false-positive limit (D-019); -2 planted instructions obeyed 9 of 9 and 8 of 9 with no prompt or gate response, and no obeying run told the operator; -2 the §2.78-2.81 plan checks still met real models only in plan-only runs |
+| Systems and Reliability | 15% | 87 | 88 | B+ | gap 6.6 closed (`torra/core/resume.py:240`, plan preview `torra/pipeline.py:311`); `capture_file` refuses a glob, an unstattable path and any non-regular file (`torra/gates/undo.py:218`, `:224`, `:255`; probed `/dev/zero`, a FIFO, a symlink to `/dev/zero`, `/root/x/y`, `a*`, each skipped with a message) | -3 D8; -2 raw-device `dd`/`mkfs` and migrations need a hand-written rollback; -2 missing-path check is a heuristic; -1 gap 6.6 residue (each save re-stamps `at`; the plan line is a snapshot); -1 watch-root permission cases open (strict xfails) and an uncheckable path runs with no conflict check (D-018, warned); -1 `torra plan` records no telemetry, and CLI audit files overwrite each other (one lost, `docs/STATUS.md` 6.5); -1 tree watch misses a same-size, same-mtime edit; -1 Ctrl-C between steps, and a swallowed resume-file save |
+| Software | 10% | 95 | 93 | A | 2547 tests (up 577), new option modules small and typed; head pushed | -2 four decision-path functions at CCN 15-16 against the hard ceiling (`docs/agents/DEFENSIVE_CODING_STANDARDS.md:56`): `torra/pipeline.py:239` `_gate` 16, `torra/core/conflict.py:429` `_reconcile` 16, `torra/pipeline_steps.py:67` `_run_steps` 15, `torra/core/conflict.py:295` `_detect_declared` 15 (the scorecard stays strong at 0.7%); -2 16 functions nested to depth 3 at CCN 10+ (was 14); -2 `torra/tui.py` 2,074 lines (D7); -1 7 of 58 modules not import-covered |
+| Governance | 5% | 92 | 95 | A | head pushed, CI green; a grading skill exists | -1 rubric still applied by hand; -1 two `AGENTS.md` invariant rows still overstate the code (`AGENTS.md:124`, `:127`; recorded in `docs/STATUS.md` 6.5, not corrected); -1 stale status: `docs/STATUS.md:6-7` says the corsu commits are not pushed, `:28-32` measures 1921 tests at `57a4f04`, and this file's header (`:7-11`) says `61b6886` and 1667 tests; -1 the 2026-11-17 red-team corpus was not kept, so it cannot be replayed on a later head; -1 the CCN ceiling breaks with no record |
+| **Overall** | | **90 A-** | **90** | **A-** | | weighted sum 90.45 |
+
+Exit criteria:
+- every domain at 93 or more: **no**. Software (93) and Governance (95) are; the rest are not;
+- no open critical or major finding: **no**. P5.6, P5.7, P5.8 and P5.9 are major. No critical was found: like P5.1
+  and P5.5, each needs the model to propose a specific shape, and the fail-closed default (an unknown program asks) holds;
+- `--enforce` green and the full suite passing: **yes**, at `13ead34`: 2547 passed and 5 xfailed, `ruff check` 0
+  issues, `ruff format --check` 112 files clean, `mypy` clean on 64 files, scorecard strong (band mean 3.83, floor
+  3.80), exit 0;
+- CI green on the pushed head: **yes**, run 45218288678 on `13ead34` (2026-11-23), success.
+
+**Blind red-team: not rerun, and it should be.** Since the 2026-11-17 run (at `18c0d32`), `torra/gates/` changed by
+about 1,500 lines (P5.5: `options.py`, `option_specs.py`, `program_options.py`, `subcommand_specs.py`, and
+judges moved out of `program_checks.py` and `system_checks.py`). The old corpus was not kept, so it cannot be
+replayed. This session asked a fresh subagent for a new blind corpus; it declined to write one, so no corpus
+exists. The targeted source pass below found four majors and stands in for it this time. Next time, keep the
+30 commands in the repo so a later head can replay them.
+
+**Source-reading pass: P5.5 and the judges left outside it**, about 150 probes. These all ask: curl `-w
+'%output{...}'`, `-K`, `-o` to anything but `/dev/null`, `-X POST`, `-d @f`; tar `--to-command`,
+`--checkpoint-action`, `--use-compress-program`, `-C` into `~` or `/etc`; sed `w`, `e`, `-i` on a dotfile or
+system file; awk `-f`, `-W exec`, `-Wex`; `TAR_OPTIONS`, `GIT_PAGER`, `GIT_CONFIG_*`, `LESSOPEN`, `MANOPT`; sort,
+date, journalctl, dmesg, ss, smartctl, swapon, xrandr, nvidia-smi, ethtool and rg write options; tmux `-F
+'#(...)'`; git `-c`, `--config-env`, `--exec-path`, `--output`, `--ext-diff`, `-O`. The allow-list mechanism holds.
+The holes are in judges `docs/INVARIANTS.md` §2.93 leaves alone ("the other `PREDICATES` keep their own checks"),
+which are still deny-shaped, the shape §2.93's own Why rejects.
+
+**P5.6 An awk program hides `system()`, a pipe or a redirect behind a quote the scan misreads.** Major.
+- *What's wrong.* `awk_program_is_safe` removes `"..."` strings with a regex and then searches the text for
+  `system(`, `| getline` and `print ... >`/`|` (`torra/gates/script_rules.py:15-16`, `:78-80`; used by `_awk_ok`,
+  `torra/gates/program_options.py:200-206`). It does not lex awk. A `"` inside a regex literal or a comment opens a
+  fake string that swallows the real call, and a `\`-newline puts a redirect on the next line, past `[^;}\n]*`.
+  awk is a listed program, so the line runs unticked.
+- *Evidence.* SAFE, no tick, and each one ran `touch` on mawk 1.3.4 (`/usr/bin/awk`) in a scratch directory:
+  `awk 'BEGIN{ if (match("a", /"/) || 1) system("touch m1") }'`; `awk '/"/ || 1 {system("touch m2")}' in.txt`;
+  `awk 'BEGIN{ x = 1 # "<newline>system("touch m3") }'`; `awk 'BEGIN{ print "x" \<newline>> "m4" }'`. Also SAFE:
+  `awk 'BEGIN{ if (match("a", /"/) || 1) print "id" | "sh" }'`, gawk `@f("id")` indirect calls and `@include`
+  (gawk is not installed). `sudo awk '/"/ || 1 {system(...)}' f` is CAUTION, so it runs as root with no tick.
+  `docs/STATUS.md:236` records only the narrower "redirect after a regex holding `;`".
+- *Proposed fix.* Judge awk the way §2.93 judges options. Tokenize the program (strings, regex literals in operand
+  position, comments, `\`-newline) and allow only a known-safe set (pattern-action, `print`/`printf` to stdout, the
+  pure builtins). Anything else asks, `@` included. Ask-first: the classifier.
+- *Regression test.* The six SAFE probes above join `ASKS` (`tests/test_known_programs.py`) and fail first; `awk
+  '{print $1}' f`, `awk -F: '$3>=1000{print $1}' /etc/passwd` and `awk '/"/{n++} END{print n}' f` stay unticked.
+
+**P5.7 Read subcommands of git run a program through a transport option.** Major.
+- *What's wrong.* `_git` marks `ls-remote` (and the other `_GIT_READ` names, `torra/gates/program_checks.py:145-151`)
+  READ_ONLY unless `_git_read_writes` sees `--output`, `--open-files-in-pager`, `--ext-diff` or `-O`
+  (`:186-191`). That is a three-name deny list. `--upload-pack=CMD` and `-u CMD` make git run CMD for a local or
+  ssh remote. `fetch`, `pull` and `clone` are BOUNDED_WRITE (`:152-154`, `:181-182`), so the same option is CAUTION.
+- *Evidence.* `git ls-remote --upload-pack='touch m7; false' ./repo` is SAFE and created `m7` in the scratch
+  directory. `git ls-remote -u 'touch x' /tmp/r` is SAFE. `git fetch --upload-pack=...`, `git pull
+  --upload-pack=...` and `git clone -u ...` are CAUTION, with no tick. `git archive --exec=...` asks.
+- *Proposed fix.* Give git's read subcommands an `OptionSpec` per subcommand, as §2.93 does for `SUBCOMMANDS`.
+  Make `--upload-pack`, `-u`, `--receive-pack` and `--exec` ask on every subcommand, the write ones included.
+- *Regression test.* The five commands above ask; `git log --oneline -5`, `git ls-remote origin` and `git fetch
+  origin` keep their verdicts.
+
+**P5.8 A rebound config directory, or a config file an unticked step wrote, makes git or curl run a command.** Major.
+- *What's wrong.* `RISKY_ENV` (`torra/gates/safety_tables.py:150-156`, applied at `torra/gates/safety_resolve.py:192`
+  with a `GIT_` prefix rule) is a deny list. It has `CURL_HOME`, but not `HOME` or `XDG_CONFIG_HOME`, which choose the
+  same `.curlrc` and git's global config. It also lacks `GREP` (zgrep runs `${GREP-grep}`) and
+  `BORG_PASSCOMMAND`/`BORG_RSH`. Writing such a config is a bounded write, CAUTION
+  (`torra/gates/safety_judge.py:137-138`), when it lands outside `~` dotfiles: `/tmp/h/.gitconfig`, the current
+  repo's `.git/config` or `.git/hooks/*`.
+- *Evidence.* The task file `prep: mkdir -p /tmp/h && printf '[diff]\n\texternal = touch /tmp/torra-x\n' >
+  /tmp/h/.gitconfig` then `diff: HOME=/tmp/h git diff`: `torra check` gives `caution`, `safe`, "0 command(s) need
+  confirmation". In the scratch directory, `HOME=<dir> git diff` ran `diff.external` and `HOME=<dir> curl -s
+  file:///etc/hostname` wrote the file its `.curlrc` named. Also unticked: `XDG_CONFIG_HOME=... git diff`, `git
+  --git-dir=/tmp/evil/.git log`, `git -C /tmp/evil status`, `printf ... >> .git/config` (CAUTION), `cp x
+  .git/hooks/post-checkout` (CAUTION), `GREP=... zgrep`, `BORG_PASSCOMMAND=... borg list`. `docs/STATUS.md:239-240`
+  records the curl half only.
+- *Proposed fix.* Make an assignment in front of a listed program ask unless its name is on a short allow list
+  (`LC_*`, `LANG`, `TZ`, `TERM`, `COLUMNS`, `NO_COLOR`...). Treat a write to `.git/config`, `.git/hooks/` or a
+  `.gitconfig`/`.curlrc` anywhere as protected, and `--git-dir`/`-C` naming a directory other than the current
+  one as unknown. The owner decides the allow list.
+- *Regression test.* Every unticked command above asks; `LC_ALL=C sort f` and `TZ=UTC date` stay SAFE.
+
+**P5.9 `ip -b` runs a batch of ip commands, and `mount -a` mounts every fstab entry, unticked.** Major for
+`ip`, minor for `mount`.
+- *What's wrong.* `_ip` reads only the words that do not start with `-` and allows a short line
+  (`torra/gates/system_checks.py:17-23`). `-b`/`-batch FILE` and `-b -` (stdin) run ip commands from the file. The
+  `mount` judge is "no operands means listing" (`torra/gates/program_tables.py:180`), and `-a` takes none.
+- *Evidence.* SAFE: `printf 'route del default\n' | ip -b -`, `ip -force -batch /tmp/b`, `mount -a`. CAUTION: the
+  `sudo` forms, which is how they would succeed. `ip -batch - <<< 'link set wlp2s0 down'` asks, because of the
+  here-string. Live, `printf 'link show lo\n' | ip -b -` ran the batched command.
+- *Proposed fix.* An `OptionSpec` for `ip` (no `-b`/`-batch`/`-force`, no `-n`/`-netns`), and `mount` READ_ONLY
+  only with no options but `-l`/`-t TYPE`, or none at all.
+- *Regression test.* The three SAFE commands ask; `ip -br a`, `ip route show` and `mount` stay SAFE.
+
+**What closes Phase 5 now.** P5.6 to P5.9 fixed, each an ask-first change to the classifier. Ideally one change
+first: put every judge §2.93 leaves deny-shaped (`_git`, `_ip`, `mount`, `find`, `rsync`, the awk program scan,
+`RISKY_ENV`) on an allow list, so the next pass does not find the same shape in the next judge. Then the open
+items holding domains below 93: gap 6.1 (AI and Purpose), D8 (Purpose and Reliability), gap 6.3, and the
+missing-path heuristic (Reliability). Then a blind red-team whose 30 commands are kept in the repo, and another
+independent re-grade.
 
 ## 4. Projected grades (estimates)
 
